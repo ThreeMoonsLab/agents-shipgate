@@ -25,7 +25,7 @@ Issues = "https://github.com/ThreeMoonsLab/agents-shipgate/issues"
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8,<9",
+  "pytest>=8,<10",
 ]
 
 [project.scripts]
