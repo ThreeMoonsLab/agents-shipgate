@@ -43,16 +43,18 @@ Top findings:
 
 ## Quickstart
 
-PyPI and GitHub Marketplace publication are planned for the first public release. Until then, use a local source checkout:
+Use Agents Shipgate as a [GitHub Action](#github-action) on every PR, or run the CLI locally.
+
+Install from source (PyPI publication is on the [roadmap](ROADMAP.md)):
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install "git+https://github.com/ThreeMoonsLab/agents-shipgate@v0.1.0"
 agents-shipgate init --workspace . --write
 agents-shipgate doctor --config shipgate.yaml
 agents-shipgate scan --config shipgate.yaml
 ```
 
-Try the bundled fixture:
+Try the bundled fixture from a source checkout:
 
 ```bash
 agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
@@ -92,6 +94,18 @@ ci:
 | Security or GRC reviewer | "Agents bypass existing controls." | Creates a static tool-surface audit trail for review. | Review the [check catalog](docs/checks.md). |
 | AI PM with a shipping deadline | "Security review blocks us late." | Gives teams self-serve pre-review before formal approval. | Scan the [support-refund fixture](samples/support_refund_agent/shipgate.yaml). |
 
+## Limitations
+
+Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
+
+- It does not run agents, call tools, or invoke LLMs.
+- It does not verify runtime behavior, latency, prompt quality, or routing decisions.
+- It does not replace dynamic security testing or human security review of the underlying systems.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, and optional SDK AST metadata; tools that are not declared are not scanned.
+- v0.1 is pre-1.0; the JSON report schema may change before v1.0.
+
+See [ROADMAP.md](ROADMAP.md) for what is planned next.
+
 ## Trust Model
 
 **Agents Shipgate does not import user code, run agents, call tools, call LLMs, connect to MCP servers, make network calls, or collect telemetry by default.**
@@ -100,7 +114,7 @@ See [Trust model](docs/trust-model.md) and [Security policy](SECURITY.md) for th
 
 ## GitHub Action
 
-The action installs from the tagged source by default, so it can be used before PyPI publication once the GitHub repository and tag exist:
+The action installs Agents Shipgate from its tagged source, so no PyPI publication is required to use it. Pin to a tag, set `permissions: contents: read`, and run on `pull_request`:
 
 ```yaml
 name: Agents Shipgate
@@ -124,9 +138,13 @@ jobs:
           output_dir: agents-shipgate-reports
 ```
 
-For PR comments, add `pull-requests: write` and set `pr_comment: "true"`. The action exposes `status`, `critical_count`, `high_count`, `medium_count`, `report_json`, `report_markdown`, and `exit_code` outputs for downstream workflow steps.
+For PR comments, add `pull-requests: write` to the job's `permissions` and set `pr_comment: "true"`.
 
-Set `shipgate_version` only after the package is published to PyPI.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
+
+Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `report_json`, `report_markdown`, `exit_code`.
+
+Once Agents Shipgate is published to PyPI, set `shipgate_version` to install a pinned PyPI release instead of the action source.
 
 ## Pricing And Open Source Stance
 
