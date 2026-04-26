@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import click
+from typer.main import get_command
 from typer.testing import CliRunner
 
 from agents_shipgate.checks import registry
@@ -99,10 +101,24 @@ def test_cli_version_outputs_version():
 
 def test_cli_scan_help_hides_deferred_flags():
     result = runner.invoke(app, ["scan", "--help"])
+    scan_command = get_command(app).commands["scan"]
+    public_options = {
+        option
+        for parameter in scan_command.params
+        if isinstance(parameter, click.Option) and not parameter.hidden
+        for option in parameter.opts
+    }
+    hidden_options = {
+        option
+        for parameter in scan_command.params
+        if isinstance(parameter, click.Option) and parameter.hidden
+        for option in parameter.opts
+    }
 
     assert result.exit_code == 0
     assert "--deep-import" not in result.output
-    assert "--baseline-mode" in result.output
+    assert "--deep-import" in hidden_options
+    assert "--baseline-mode" in public_options
 
 
 def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):
