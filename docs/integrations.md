@@ -19,7 +19,7 @@ jobs:
   agents-shipgate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
         uses: ThreeMoonsLab/agents-shipgate@v0.3.0
         with:
@@ -62,8 +62,8 @@ GitHub code scanning from your workflow if you want SARIF annotations.
 For source-only testing in this repository:
 
 ```yaml
-- uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-- uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+- uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
   with:
     python-version: "3.12"
 - run: python -m pip install -e ".[dev]"
