@@ -60,7 +60,9 @@ def _field_suggestion(error: dict[str, Any]) -> str | None:
         return None
     field = str(loc[-1])
     matches = get_close_matches(field, KNOWN_MANIFEST_FIELDS, n=1, cutoff=0.72)
-    return matches[0] if matches else None
+    if not matches or matches[0] == field:
+        return None
+    return matches[0]
 
 
 def _collect_field_names(

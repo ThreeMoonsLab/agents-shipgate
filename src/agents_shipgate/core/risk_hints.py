@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from agents_shipgate.config.schema import AgentsShipgateManifest
@@ -16,6 +17,74 @@ HIGH_RISK_TAGS = {
 }
 
 WRITE_TAGS = {"write", "destructive", "external_write"}
+
+# Keyword classifier sets. Word-tokenized, so each keyword must match a full
+# alphabetic token in the tool name or description (or in the joined auth
+# scopes). This avoids substring false positives like "deploy" matching the
+# token "deployments" — listing deployments is a read, not an infra change.
+# Plurals are listed explicitly where production scopes commonly use them
+# (e.g. "stripe:refunds:write"). Compound forms like "deployment" or
+# "deployments" are intentionally NOT included for write-implying tags so
+# read-only listings don't trip mutation flags.
+READ_ONLY_KEYWORDS = {
+    "get",
+    "list",
+    "lookup",
+    "preview",
+    "search",
+    "status",
+    "view",
+}
+WRITE_KEYWORDS = {
+    "cancel",
+    "charge",
+    "create",
+    "delete",
+    "issue",
+    "refund",
+    "remove",
+    "send",
+    "update",
+    "write",
+}
+DESTRUCTIVE_KEYWORDS = {"cancel", "delete", "destroy", "remove"}
+FINANCIAL_KEYWORDS = {
+    "billing",
+    "charge",
+    "charges",
+    "invoice",
+    "invoices",
+    "payment",
+    "payments",
+    "refund",
+    "refunds",
+}
+COMMS_KEYWORDS = {"email", "emails", "message", "messages", "sms"}
+EXTERNAL_ACTION_KEYWORDS = {"customer", "external", "send"}
+SENSITIVE_KEYWORDS = {
+    "credential",
+    "credentials",
+    "personal",
+    "pii",
+    "secret",
+    "secrets",
+    "ssn",
+}
+CODE_EXEC_KEYWORDS = {"bash", "command", "execute", "python", "shell"}
+INFRASTRUCTURE_KEYWORDS = {
+    "aws",
+    "azure",
+    "cluster",
+    "clusters",
+    "deploy",
+    "droplet",
+    "droplets",
+    "gcp",
+    "kubernetes",
+    "terraform",
+}
+
+_KEYWORD_GATED_SOURCE_TYPES = {"openai_api", "sdk_function"}
 
 
 def enrich_tools_with_risk_hints(
@@ -70,68 +139,103 @@ def is_write_tool(tool: Tool) -> bool:
     return has_risk_tag(tool, WRITE_TAGS, min_confidence="medium")
 
 
+def _tokenize(text: str) -> set[str]:
+    return set(re.findall(r"[a-z]+", text.lower()))
+
+
 def _add_automatic_hints(tool: Tool) -> None:
-    text = f"{tool.name} {tool.description or ''}".lower()
+    text = f"{tool.name} {tool.description or ''}"
+    tokens = _tokenize(text)
+    scope_tokens = _tokenize(" ".join(tool.auth.scopes))
     method = str(tool.annotations.get("httpMethod") or "").upper()
 
-    if tool.source_type == "openai_api" and any(
-        word in text for word in ["get", "list", "lookup", "search", "status", "preview"]
-    ):
-        _add_hint(tool, "read_only", "openai_api_keyword", "medium", {})
-    if tool.source_type == "openai_api" and any(
-        word in text
-        for word in [
-            "create",
-            "update",
-            "write",
-            "send",
-            "refund",
-            "cancel",
-            "delete",
-            "remove",
-            "charge",
-            "issue",
-        ]
-    ):
-        _add_hint(tool, "write", "openai_api_keyword", "medium", {})
-
-    if tool.source_type == "sdk_function" and "preview" in text and not method:
+    # SDK preview-only safety net runs first so subsequent classifiers can
+    # rely on is_effectively_read_only short-circuiting. A function named
+    # *_preview that does not declare an HTTP method is treated as read-only
+    # at high confidence and exempt from name-keyword write inference.
+    is_sdk_preview = (
+        tool.source_type == "sdk_function" and "preview" in tokens and not method
+    )
+    if is_sdk_preview:
         _add_hint(tool, "read_only", "keyword", "high", {"preview_only": True})
+
+    keyword_eligible = (
+        tool.source_type in _KEYWORD_GATED_SOURCE_TYPES and not is_sdk_preview
+    )
+    keyword_source = (
+        "openai_api_keyword"
+        if tool.source_type == "openai_api"
+        else "sdk_keyword"
+        if tool.source_type == "sdk_function"
+        else "keyword"
+    )
+
+    if keyword_eligible and READ_ONLY_KEYWORDS & tokens:
+        _add_hint(tool, "read_only", keyword_source, "medium", {})
+    if keyword_eligible and WRITE_KEYWORDS & tokens:
+        _add_hint(tool, "write", keyword_source, "medium", {})
     if tool.annotations.get("readOnlyHint") is True:
         _add_hint(tool, "read_only", "mcp_annotation", "high", {"readOnlyHint": True})
     if tool.annotations.get("destructiveHint") is True:
         _add_hint(tool, "destructive", "mcp_annotation", "high", {"destructiveHint": True})
         _add_hint(tool, "write", "mcp_annotation", "high", {"destructiveHint": True})
-    if method == "DELETE" or any(word in text for word in ["cancel", "delete", "remove"]):
-        _add_hint(tool, "destructive", "openapi_method" if method else "keyword", "high" if method == "DELETE" else "medium", {"method": method or None})
+
+    if method == "DELETE" or DESTRUCTIVE_KEYWORDS & tokens:
+        _add_hint(
+            tool,
+            "destructive",
+            "openapi_method" if method else "keyword",
+            "high" if method == "DELETE" else "medium",
+            {"method": method or None},
+        )
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
         _add_hint(tool, "write", "openapi_method", "high", {"method": method})
 
-    scopes = " ".join(tool.auth.scopes).lower()
-    financial_in_text = any(word in text for word in ["refund", "payment", "charge", "invoice"])
-    financial_in_scope = any(word in scopes for word in ["refund", "payment", "charge", "invoice"])
+    financial_in_text = bool(FINANCIAL_KEYWORDS & tokens)
+    financial_in_scope = bool(FINANCIAL_KEYWORDS & scope_tokens)
     if financial_in_text or financial_in_scope:
         if is_effectively_read_only(tool):
             confidence = "low"
-        elif is_write_tool(tool) or "write" in scopes:
+        elif is_write_tool(tool) or "write" in scope_tokens:
             confidence = "high"
         else:
             confidence = "low"
-        _add_hint(tool, "financial_action", "auth_scope" if financial_in_scope else "keyword", confidence, {"scopes": tool.auth.scopes, "method": method or None})
-    if any(word in text or word in scopes for word in ["send_email", "email", "sms", "message", "customer_email"]):
-        confidence = "high" if is_write_tool(tool) else "low" if is_effectively_read_only(tool) else "medium"
+        _add_hint(
+            tool,
+            "financial_action",
+            "auth_scope" if financial_in_scope else "keyword",
+            confidence,
+            {"scopes": tool.auth.scopes, "method": method or None},
+        )
+    if COMMS_KEYWORDS & (tokens | scope_tokens):
+        confidence = (
+            "high"
+            if is_write_tool(tool)
+            else "low"
+            if is_effectively_read_only(tool)
+            else "medium"
+        )
         _add_hint(tool, "customer_communication", "keyword", confidence, {"method": method or None})
-        if not is_effectively_read_only(tool) and any(word in text for word in ["send", "external", "customer"]):
-            _add_hint(tool, "external_write", "keyword", confidence, {"method": method or None})
-    if any(word in text or word in scopes for word in ["ssn", "pii", "personal data", "secret", "credential"]):
+        if (
+            not is_effectively_read_only(tool)
+            and EXTERNAL_ACTION_KEYWORDS & tokens
+        ):
+            _add_hint(
+                tool, "external_write", "keyword", confidence, {"method": method or None}
+            )
+    if SENSITIVE_KEYWORDS & (tokens | scope_tokens):
         _add_hint(tool, "sensitive_data_access", "keyword", "medium", {})
-    if any(word in text for word in ["shell", "execute", "command", "python", "bash"]):
+    if CODE_EXEC_KEYWORDS & tokens:
         _add_hint(tool, "code_execution", "keyword", "medium", {})
-    if any(word in text for word in ["deploy", "kubernetes", "terraform", "aws", "gcp", "azure"]):
+    if INFRASTRUCTURE_KEYWORDS & tokens:
         _add_hint(tool, "infrastructure_change", "keyword", "medium", {})
 
+    # GET endpoints without any mutation evidence are read-only with high
+    # confidence. Bumping from medium to high lets is_effectively_read_only
+    # short-circuit policy/scope checks for clear reads, even when they pick
+    # up a topical keyword like "kubernetes" elsewhere in the path.
     if method == "GET" and not has_risk_tag(tool, WRITE_TAGS):
-        _add_hint(tool, "read_only", "openapi_method", "medium", {"method": method})
+        _add_hint(tool, "read_only", "openapi_method", "high", {"method": method})
 
 
 def _apply_manual_override(manifest: AgentsShipgateManifest, tool: Tool) -> None:

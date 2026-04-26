@@ -106,10 +106,11 @@ def _function_to_tool(
         "properties": properties,
         "required": [param.name for param in parameters if param.required],
     }
+    description = _description(node, decorator_names) or ast.get_docstring(node)
     return Tool(
         id=stable_tool_id(tool_name),
         name=tool_name,
-        description=ast.get_docstring(node),
+        description=description,
         source_type="sdk_function",
         source_id=source.id,
         source_ref=source_ref,
@@ -153,15 +154,31 @@ def _parameter(arg: ast.arg, *, required: bool) -> ToolParameter:
 def _tool_name(
     node: ast.FunctionDef | ast.AsyncFunctionDef, decorator_names: set[str]
 ) -> str:
+    return _decorator_kwarg_string(node, decorator_names, "name_override") or node.name
+
+
+def _description(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, decorator_names: set[str]
+) -> str | None:
+    return _decorator_kwarg_string(node, decorator_names, "description_override")
+
+
+def _decorator_kwarg_string(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    decorator_names: set[str],
+    kwarg_name: str,
+) -> str | None:
     for decorator in node.decorator_list:
         call = decorator if isinstance(decorator, ast.Call) else None
         if not call or _decorator_name(call.func) not in decorator_names:
             continue
         for keyword in call.keywords:
-            if keyword.arg == "name_override" and isinstance(keyword.value, ast.Constant):
-                if isinstance(keyword.value.value, str) and keyword.value.value:
-                    return keyword.value.value
-    return node.name
+            if keyword.arg != kwarg_name or not isinstance(keyword.value, ast.Constant):
+                continue
+            value = keyword.value.value
+            if isinstance(value, str) and value:
+                return value
+    return None
 
 
 def _annotation_to_string(annotation: ast.AST | None) -> str | None:

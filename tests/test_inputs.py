@@ -449,6 +449,58 @@ def summarize(case_id: str) -> str:
     assert [tool.name for tool in loaded.tools] == ["support.lookup", "summarize"]
 
 
+def test_openai_sdk_static_reads_description_override(tmp_path):
+    agent_path = tmp_path / "agent.py"
+    agent_path.write_text(
+        """
+from agents import function_tool
+
+@function_tool(
+    name_override="faq_lookup_tool",
+    description_override="Lookup frequently asked questions.",
+)
+async def faq_lookup_tool(question: str) -> str:
+    return ""
+""",
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(BASE / "shipgate.yaml")
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path=str(agent_path)),
+        manifest,
+        tmp_path,
+    )
+
+    assert len(loaded.tools) == 1
+    assert loaded.tools[0].name == "faq_lookup_tool"
+    assert loaded.tools[0].description == "Lookup frequently asked questions."
+
+
+def test_openai_sdk_static_description_override_takes_precedence_over_docstring(tmp_path):
+    agent_path = tmp_path / "agent.py"
+    agent_path.write_text(
+        """
+from agents import function_tool
+
+@function_tool(description_override="Override wins.")
+def lookup(customer_id: str) -> str:
+    \"\"\"Original docstring should not be used.\"\"\"
+    return ""
+""",
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(BASE / "shipgate.yaml")
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path=str(agent_path)),
+        manifest,
+        tmp_path,
+    )
+
+    assert loaded.tools[0].description == "Override wins."
+
+
 def test_openai_sdk_static_rejects_fake_function_tool_decorator(tmp_path):
     agent_path = tmp_path / "agent.py"
     agent_path.write_text(

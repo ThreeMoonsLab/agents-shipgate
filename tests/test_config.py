@@ -70,6 +70,34 @@ tool_sources:
         load_manifest(manifest_path)
 
 
+def test_misplaced_known_field_does_not_suggest_itself(tmp_path):
+    manifest_path = tmp_path / "shipgate.yaml"
+    manifest_path.write_text(
+        """
+version: "0.1"
+project:
+  name: misplaced
+agent:
+  name: misplaced-agent
+declared_purpose:
+  - misplaced at the wrong nesting level
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError) as info:
+        load_manifest(manifest_path)
+    message = str(info.value)
+    assert "declared_purpose" in message
+    assert "Did you mean declared_purpose" not in message
+
+
 def test_known_manifest_fields_are_derived_from_schema():
     assert "function_schemas" in KNOWN_MANIFEST_FIELDS
     assert "policy_rules" in KNOWN_MANIFEST_FIELDS
