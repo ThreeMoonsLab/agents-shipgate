@@ -50,7 +50,7 @@ class ToolSourceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     id: str
-    type: Literal["mcp", "openapi", "openai_agents_sdk"]
+    type: Literal["mcp", "openapi", "openai_agents_sdk", "google_adk"]
     path: str | None = None
     trust: str | None = None
     mode: str | None = None
@@ -58,7 +58,7 @@ class ToolSourceConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_path_when_needed(self) -> ToolSourceConfig:
-        if self.type in {"mcp", "openapi"} and not self.path:
+        if self.type in {"mcp", "openapi", "google_adk"} and not self.path:
             raise ValueError(f"tool source {self.id!r} requires path")
         return self
 
@@ -160,6 +160,39 @@ class OpenAIApiConfig(BaseModel):
         if isinstance(value, dict):
             return ArtifactPathConfig.model_validate(value)
         raise TypeError("model_config must be a string path or object with path")
+
+
+class GoogleAdkConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    python_entrypoints: list[ArtifactPathConfig] = Field(default_factory=list)
+    agent_configs: list[ArtifactPathConfig] = Field(default_factory=list)
+    eval_sets: list[ArtifactPathConfig] = Field(default_factory=list)
+    tool_inventories: list[ArtifactPathConfig] = Field(default_factory=list)
+    trace_samples: list[ArtifactPathConfig] = Field(default_factory=list)
+
+    @field_validator(
+        "python_entrypoints",
+        "agent_configs",
+        "eval_sets",
+        "tool_inventories",
+        "trace_samples",
+        mode="before",
+    )
+    @classmethod
+    def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
+        return _parse_artifact_entries(value)
+
+    def has_inputs(self) -> bool:
+        return any(
+            [
+                self.python_entrypoints,
+                self.agent_configs,
+                self.eval_sets,
+                self.tool_inventories,
+                self.trace_samples,
+            ]
+        )
 
 
 class PolicyToolEntry(BaseModel):
@@ -274,7 +307,7 @@ class OutputConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     directory: str = "agents-shipgate-reports"
-    formats: list[Literal["markdown", "json"]] = Field(
+    formats: list[Literal["markdown", "json", "sarif"]] = Field(
         default_factory=lambda: ["markdown", "json"]
     )
 
@@ -288,6 +321,7 @@ class AgentsShipgateManifest(BaseModel):
     environment: EnvironmentConfig
     tool_sources: list[ToolSourceConfig] = Field(default_factory=list)
     openai_api: OpenAIApiConfig | None = None
+    google_adk: GoogleAdkConfig | None = None
     policies: PoliciesConfig = Field(default_factory=PoliciesConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     risk_overrides: RiskOverridesConfig = Field(default_factory=RiskOverridesConfig)
@@ -298,12 +332,18 @@ class AgentsShipgateManifest(BaseModel):
 
     @model_validator(mode="after")
     def require_sources_and_scope_text(self) -> AgentsShipgateManifest:
-        if not self.tool_sources and self.openai_api is None:
-            raise ValueError("At least one of tool_sources or openai_api is required")
+        has_google_adk = (
+            any(source.type == "google_adk" for source in self.tool_sources)
+            or self.google_adk is not None
+            and self.google_adk.has_inputs()
+        )
+        if not self.tool_sources and self.openai_api is None and not has_google_adk:
+            raise ValueError("At least one of tool_sources or openai_api, or google_adk is required")
         if (
             not self.agent.declared_purpose
             and not self.agent.instructions_preview
             and not (self.openai_api and self.openai_api.prompt_files)
+            and not has_google_adk
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "

@@ -22,6 +22,7 @@ from agents_shipgate.core.findings import (
 )
 from agents_shipgate.core.models import (
     Agent,
+    GoogleAdkArtifacts,
     LoadedToolSource,
     OpenAIApiArtifacts,
     ReadinessReport,
@@ -29,12 +30,14 @@ from agents_shipgate.core.models import (
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
+from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
+from agents_shipgate.report.sarif import write_sarif_report
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +68,12 @@ def run_scan(
     if formats:
         manifest.output.formats = formats
     if baseline_mode != "new-findings":
-        raise ConfigError("--baseline-mode currently supports only new-findings")
+        raise ConfigError("--baseline-mode supports only new-findings")
 
     base_dir = config_path.resolve().parent
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
+    adk_sources, adk_artifacts = load_google_adk_artifacts(manifest, base_dir)
+    loaded_sources.extend(adk_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
@@ -85,6 +90,8 @@ def run_scan(
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
+    if adk_artifacts:
+        warnings.extend(adk_artifacts.warnings)
     tools = enrich_tools_with_risk_hints(manifest, tools)
     logger.debug(
         "risk hints generated",
@@ -105,13 +112,14 @@ def run_scan(
             ]
         },
     )
-    agent = _build_agent(manifest, tools, api_artifacts)
+    agent = _build_agent(manifest, tools, api_artifacts, adk_artifacts)
     context = ScanContext(
         manifest=manifest,
         agent=agent,
         tools=tools,
         config_path=config_path.resolve(),
         api_artifacts=api_artifacts,
+        adk_artifacts=adk_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
@@ -148,6 +156,7 @@ def run_scan(
             tools,
             findings,
             api_surface=api_artifacts.surface_summary() if api_artifacts else None,
+            frameworks=_frameworks_surface(adk_artifacts),
         ),
         manifest=manifest,
         agent=agent.model_dump(exclude_none=True),
@@ -161,6 +170,7 @@ def run_scan(
         loaded_plugins=loaded_plugins,
         source_warnings=warnings,
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
+        frameworks=_frameworks_surface(adk_artifacts),
         baseline=baseline_summary,
     )
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -177,12 +187,16 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     manifest = load_manifest(config_path)
     base_dir = config_path.resolve().parent
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
+    adk_sources, adk_artifacts = load_google_adk_artifacts(manifest, base_dir)
+    loaded_sources.extend(adk_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
+    if adk_artifacts:
+        warnings.extend(adk_artifacts.warnings)
     return {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
@@ -199,6 +213,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             for source in loaded_sources
         ],
         "api_surface": api_artifacts.surface_summary() if api_artifacts else None,
+        "frameworks": _frameworks_surface(adk_artifacts),
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
     }
@@ -214,6 +229,9 @@ def _load_sources(manifest, base_dir: Path, *, verbose: bool) -> list[LoadedTool
                 loaded.append(load_openapi_tools(source, base_dir))
             elif source.type == "openai_agents_sdk":
                 loaded.append(load_openai_sdk_static_tools(source, manifest, base_dir))
+            elif source.type == "google_adk":
+                # Google ADK sources are loaded with framework artifacts below.
+                continue
         except InputParseError:
             if source.optional:
                 warning = f"Optional source {source.id} failed to load"
@@ -261,8 +279,11 @@ def _source_priority(tool: Tool) -> int:
     return {
         "openai_api": 40,
         "openapi": 30,
+        "google_adk_inventory": 25,
         "mcp": 20,
+        "google_adk_function": 10,
         "sdk_function": 10,
+        "google_adk_config": 5,
     }.get(tool.source_type, 0)
 
 
@@ -303,7 +324,10 @@ def _merge_string_values(primary: list[str], secondary: list[str]) -> list[str]:
 
 
 def _build_agent(
-    manifest, tools: list[Tool], api_artifacts: OpenAIApiArtifacts | None = None
+    manifest,
+    tools: list[Tool],
+    api_artifacts: OpenAIApiArtifacts | None = None,
+    adk_artifacts: GoogleAdkArtifacts | None = None,
 ) -> Agent:
     sdk = manifest.agent.sdk
     instructions_preview = manifest.agent.instructions_preview
@@ -313,6 +337,12 @@ def _build_agent(
         instructions_preview = api_artifacts.prompt_text[:500]
         instruction_source = "openai_api_prompt_files"
         instruction_confidence = "high"
+    if not instructions_preview and adk_artifacts:
+        adk_instruction = _first_adk_instruction_preview(adk_artifacts)
+        if adk_instruction:
+            instructions_preview = adk_instruction[:500]
+            instruction_source = "google_adk_static"
+            instruction_confidence = "medium"
     return Agent(
         id=f"agent:{manifest.project.name}/{manifest.agent.name}",
         name=manifest.agent.name,
@@ -340,12 +370,22 @@ def _build_agent(
     )
 
 
+def _first_adk_instruction_preview(adk_artifacts: GoogleAdkArtifacts) -> str | None:
+    for agent in adk_artifacts.agents:
+        value = agent.get("instruction_preview")
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _planned_generated_paths(out_dir: Path, formats: list[str]) -> dict[str, Path]:
     paths: dict[str, Path] = {}
     if "markdown" in formats:
         paths["markdown"] = out_dir / "report.md"
     if "json" in formats:
         paths["json"] = out_dir / "report.json"
+    if "sarif" in formats:
+        paths["sarif"] = out_dir / "report.sarif"
     return paths
 
 
@@ -356,6 +396,8 @@ def _write_reports(
         write_markdown_report(report, paths["markdown"])
     if "json" in formats and "json" in paths:
         write_json_report(report, paths["json"])
+    if "sarif" in formats and "sarif" in paths:
+        write_sarif_report(report, paths["sarif"])
 
 
 def _relative_display_path(path: Path, base_dir: Path) -> str:
@@ -372,6 +414,7 @@ def _run_id(
     tools: list[Tool],
     findings,
     api_surface: dict[str, object] | None = None,
+    frameworks: dict[str, object] | None = None,
 ) -> str:
     payload = {
         "project": manifest.project.model_dump(mode="json", exclude_none=False),
@@ -387,11 +430,20 @@ def _run_id(
             for finding in findings
         ],
         "api_surface": api_surface,
+        "frameworks": frameworks or {},
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
     return f"agents_shipgate_{digest}"
+
+
+def _frameworks_surface(
+    adk_artifacts: GoogleAdkArtifacts | None,
+) -> dict[str, object]:
+    if not adk_artifacts:
+        return {}
+    return {"google_adk": adk_artifacts.surface_summary()}
 
 
 def _default_baseline_status(base_dir: Path) -> dict[str, object]:

@@ -1,6 +1,6 @@
 # Baseline Workflow
 
-Agents Shipgate v0.2 supports a local baseline for teams adopting the scanner
+Agents Shipgate supports a local baseline for teams adopting the scanner
 after findings already exist.
 
 ## Save Current Findings
@@ -35,14 +35,23 @@ fail CI.
 
 ## JSON Fields
 
-Reports keep the v0.1 payload contract and add v0.2 fields:
+Reports keep the v0.1 payload contract and add baseline fields:
 
-- `report_schema_version: "0.2"`
+- `report_schema_version: "0.3"` in v0.3 reports
 - `baseline.path`
 - `baseline.matched_count`
 - `baseline.new_count`
 - `baseline.resolved_count`
 - `findings[].baseline_status`
+
+The public baseline comparison mode is `new-findings`:
+
+```bash
+agents-shipgate scan \
+  --config shipgate.yaml \
+  --baseline .agents-shipgate/baseline.json \
+  --baseline-mode new-findings
+```
 
 Baseline matching uses `findings[].fingerprint`. The fingerprint algorithm is
 documented as v1: `sha256(check_id | tool_name | canonical evidence)[:16]`,

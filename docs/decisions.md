@@ -11,7 +11,7 @@
 - Execution model: local-only, no network, no user-code import by default.
 - Check engine: deterministic registry.
 - Severity model: no score; strict CI fails only on unsuppressed critical findings.
-- Reports: Markdown and JSON.
+- Reports: Markdown, JSON, and SARIF.
 - Telemetry: none.
 - Manifest version: `version: "0.1"`.
 
@@ -19,6 +19,6 @@
 
 - Deep import execution.
 - Remote MCP `tools/list`.
-- Trace ingestion.
+- Runtime trace collection.
 - LLM-assisted classification.
-- HTML, SARIF, baseline diff, hosted dashboard, policy packs, runtime gateway.
+- HTML, hosted dashboard, policy packs, runtime gateway.

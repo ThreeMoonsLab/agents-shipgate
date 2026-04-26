@@ -68,6 +68,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_loaded_plugins(lines, report)
     _append_tool_surface(lines, report)
     _append_api_surface(lines, report)
+    _append_frameworks(lines, report)
     _append_findings_by_category(lines, report.findings)
     _append_inventory(lines, report)
     lines.extend(["", "## Disclaimer", "", DISCLAIMER, ""])
@@ -177,6 +178,29 @@ def _append_api_surface(lines: list[str], report: ReadinessReport) -> None:
             f"- Test cases: {surface.get('test_case_count', 0)}",
             f"- Trace samples: {surface.get('trace_sample_count', 0)}",
             f"- Policy rule files: {surface.get('policy_rule_count', 0)}",
+            "",
+        ]
+    )
+
+
+def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
+    adk_surface = report.frameworks.get("google_adk") if report.frameworks else None
+    if not isinstance(adk_surface, dict):
+        return
+    lines.extend(
+        [
+            "## Google ADK Surface Summary",
+            "",
+            f"- Python entrypoints: {adk_surface.get('python_entrypoint_count', 0)}",
+            f"- Agent config files: {adk_surface.get('agent_config_count', 0)}",
+            f"- Agents: {adk_surface.get('agent_count', 0)}",
+            f"- Function tools: {adk_surface.get('function_tool_count', 0)}",
+            f"- Long-running tools: {adk_surface.get('long_running_tool_count', 0)}",
+            f"- Toolsets: {adk_surface.get('toolset_count', 0)}",
+            f"- Dynamic or unresolved toolsets: {adk_surface.get('dynamic_toolset_count', 0)}",
+            f"- Callbacks: {adk_surface.get('callback_count', 0)}",
+            f"- Plugins: {adk_surface.get('plugin_count', 0)}",
+            f"- Eval files: {adk_surface.get('eval_file_count', 0)}",
             "",
         ]
     )

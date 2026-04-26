@@ -22,6 +22,7 @@ Common causes:
 - The MCP export does not contain a `tools` array.
 - The OpenAPI document has no `paths` object.
 - The source is marked `optional: true` and failed to parse.
+- A Google ADK source uses dynamic toolsets without explicit MCP/OpenAPI/tool inventory inputs.
 
 Run with verbose logs:
 
@@ -42,6 +43,35 @@ def lookup_customer(customer_id: str) -> str:
 ```
 
 It intentionally does not execute imports, factories, dynamic wrappers, `Tool.from_fn()` calls, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or manifest metadata.
+
+## Google ADK Toolsets Are Reported As Dynamic
+
+Agents Shipgate never runs ADK or connects to MCP servers. For ADK `McpToolset`
+or dynamic `OpenAPIToolset` usage, provide explicit local review inputs:
+
+```yaml
+tool_sources:
+  - id: adk
+    type: google_adk
+    path: agent.py
+  - id: support_openapi
+    type: openapi
+    path: specs/support.openapi.yaml
+
+google_adk:
+  tool_inventories:
+    - inventories/adk-mcp-tools.json
+```
+
+Static `tool_filter` values reduce ADK MCP risk, but they do not enumerate the
+tool schemas by themselves. Add an inventory when reviewers need full schema
+evidence.
+
+Static OpenAPI spec resolution covers simple literal-path idioms such as
+`Path("spec.yaml").read_text()` and `open("spec.yaml").read()`. Module-relative
+patterns such as `Path(__file__).parent / "spec.yaml"` are treated as dynamic in
+v0.3. Declare those specs under `tool_sources` or provide a local inventory
+artifact when you want them resolved by the scanner.
 
 ## A Finding Is Intentional
 

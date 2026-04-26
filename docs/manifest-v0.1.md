@@ -4,8 +4,9 @@
 
 A manifest is valid when it declares at least one of:
 
-- `tool_sources` for MCP, OpenAPI, or optional OpenAI Agents SDK metadata.
+- `tool_sources` for MCP, OpenAPI, optional OpenAI Agents SDK metadata, or Google ADK static metadata.
 - `openai_api` for simple OpenAI API apps that use prompt files, OpenAI tool schemas, and structured output schemas directly.
+- `google_adk` for explicit Google ADK Agent Config, eval, trace, or inventory artifacts.
 
 Agent scope text can come from `agent.declared_purpose`, `agent.instructions_preview`, or `openai_api.prompt_files`.
 
@@ -66,8 +67,58 @@ openai_api:
 - `openapi`: local OpenAPI 3.0/3.1 YAML or JSON.
 - `mcp`: local exported MCP tools JSON.
 - `openai_agents_sdk`: optional static Python AST extraction.
+- `google_adk`: static Google ADK Python entrypoint or Agent Config YAML.
 
-When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then MCP JSON, then SDK static extraction.
+When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then Google ADK inventories, then MCP JSON, then SDK/ADK static extraction.
+
+## Google ADK Artifacts
+
+`google_adk` is local-only and static-only. Agents Shipgate parses Python AST and Agent Config YAML. It does not import ADK code, run `adk`, connect to MCP servers, call models, or call tools.
+
+Prefer declaring ADK Python entrypoints and Agent Config files as `tool_sources`
+with `type: google_adk`. Use the top-level `google_adk` block for supplemental
+release evidence such as eval files, trace samples, and explicit MCP inventory
+exports. The top-level `google_adk.python_entrypoints` and
+`google_adk.agent_configs` fields are accepted for compatibility and batch
+imports, but `tool_sources` keeps the primary scanned surface visible beside
+MCP and OpenAPI inputs.
+
+```yaml
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+
+google_adk:
+  python_entrypoints:
+    - agents/support_agent.py
+  agent_configs:
+    - agents/root_agent.yaml
+  eval_sets:
+    - evals/support.eval.json
+  tool_inventories:
+    - inventories/adk-mcp-tools.json
+  trace_samples:
+    - traces/adk-tool-calls.jsonl
+```
+
+Supported static ADK signals:
+
+- Python `Agent` / `LlmAgent` definitions with literal `tools=[...]`.
+- Plain function tools referenced in an agent tools list.
+- `FunctionTool(func=...)` and `LongRunningFunctionTool(func=...)` wrappers.
+- `OpenAPIToolset` when a local spec path can be resolved from a literal path or `Path("...").read_text()`.
+- `McpToolset` metadata, including static `tool_filter` and explicit `inventory_path` / `tool_inventory_path` hints.
+- Agent Config YAML `tools`, `sub_agents`, callbacks, plugins, and local config references.
+
+Dynamic ADK toolsets remain visible in reports as warnings/findings. Provide explicit MCP/OpenAPI/tool inventory inputs when static extraction cannot enumerate runtime tools.
+
+Static spec resolution intentionally covers simple literal-path idioms such as
+`Path("specs/support.openapi.yaml").read_text()` and `open("spec.yaml").read()`.
+Module-relative expressions such as `Path(__file__).parent / "spec.yaml"` or
+assignment-then-read patterns may be reported as dynamic. In those cases,
+declare the same spec or MCP inventory explicitly in `tool_sources` or
+`google_adk.tool_inventories`.
 
 ## OpenAI API Artifacts
 

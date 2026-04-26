@@ -1,0 +1,10 @@
+{
+  "eval_set_id": "adk_support_release",
+  "cases": [
+    {
+      "name": "case_lookup",
+      "input": "Look up case CASE-123",
+      "expected_tool": "lookup_case"
+    }
+  ]
+}

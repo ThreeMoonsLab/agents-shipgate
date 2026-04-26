@@ -5,7 +5,7 @@
 
 **The pre-flight check your agent release is missing.**
 
-Agents Shipgate is an **Agent Release Gate**: a static, manifest-first scanner that catches risky agent tool configurations at PR time. It reads `shipgate.yaml`, local MCP tool exports, local OpenAPI specs, simple OpenAI API prompt/tool/schema artifacts, and optional OpenAI Agents SDK AST metadata, then writes Markdown and JSON reports for release review.
+Agents Shipgate is an **Agent Release Gate**: a static, manifest-first scanner that catches risky agent tool configurations at PR time. It reads `shipgate.yaml`, local MCP tool exports, local OpenAPI specs, simple OpenAI API prompt/tool/schema artifacts, optional OpenAI Agents SDK AST metadata, and Google ADK static metadata, then writes Markdown, JSON, and SARIF reports for release review.
 
 An agent release gate is the static, manifest-based pre-flight check that runs on agent PRs before promotion to staging or production. Today, most agent teams ship without one.
 
@@ -72,6 +72,7 @@ Try the bundled fixture:
 ```bash
 agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
 agents-shipgate scan --config samples/simple_openai_api_agent/shipgate.yaml
+agents-shipgate scan --config samples/google_adk_agent/shipgate.yaml
 agents-shipgate scan --config samples/clean_read_only_agent/shipgate.yaml
 ```
 
@@ -110,6 +111,33 @@ ci:
     - high
 ```
 
+## Google ADK
+
+v0.3 adds static Google ADK support for Python entrypoints and Agent Config YAML. The adapter detects `LlmAgent`/`Agent` definitions, function tools, `OpenAPIToolset`, `McpToolset`, callbacks, plugins, sub-agents, eval references, and explicit local tool inventories without importing ADK code.
+
+```yaml
+version: "0.1"
+project:
+  name: adk-support-agent
+agent:
+  name: support-agent
+  declared_purpose:
+    - handle support cases
+environment:
+  target: production_like
+tool_sources:
+  - id: adk
+    type: google_adk
+    path: agent.py
+google_adk:
+  eval_sets:
+    - evals/support.eval.json
+  tool_inventories:
+    - inventories/adk-mcp-tools.json
+```
+
+Dynamic ADK toolsets produce warnings or findings unless you provide explicit MCP, OpenAPI, or local tool inventory inputs.
+
 ## Who It Is For
 
 | Buyer | Pain | Pitch | Next step |
@@ -125,8 +153,8 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability.
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, and optional SDK AST metadata; tools that are not declared are not scanned.
-- The manifest remains `version: "0.1"` in v0.2 so existing configs keep working. Reports add `report_schema_version: "0.2"` while preserving the v0.1 payload keys.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK inputs; tools that are not declared or statically discoverable are not scanned.
+- The manifest remains `version: "0.1"` in v0.3 so existing configs keep working. Reports add `report_schema_version: "0.3"` while preserving the v0.1 payload keys.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -155,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.2.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.3.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -166,7 +194,7 @@ For PR comments, add `pull-requests: write` to the job's `permissions` and set `
 
 Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
 
-Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `report_json`, `report_markdown`, `exit_code`.
+Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 
@@ -182,9 +210,10 @@ If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-base
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.2](docs/report-schema.v0.2.json)
+- [JSON report schema v0.3](docs/report-schema.v0.3.json)
 - [Trust model](docs/trust-model.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Integration recipes](docs/integrations.md)
 - [Distribution plan](docs/distribution.md)
+- [JSON report schema v0.2](docs/report-schema.v0.2.json)
 - [JSON report schema v0.1](docs/report-schema.v0.1.json)

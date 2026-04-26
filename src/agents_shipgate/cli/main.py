@@ -59,7 +59,7 @@ def scan(
     formats: str = typer.Option(
         "markdown,json",
         "--format",
-        help="Comma-separated report formats: markdown,json.",
+        help="Comma-separated report formats: markdown,json,sarif.",
     ),
     ci_mode: str | None = typer.Option(
         None,
@@ -79,8 +79,7 @@ def scan(
     baseline_mode: str = typer.Option(
         "new-findings",
         "--baseline-mode",
-        help="Baseline comparison mode. v0.2 supports new-findings only.",
-        hidden=True,
+        help="Baseline comparison mode. v0.3 supports new-findings.",
     ),
     deep_import: bool = typer.Option(
         False,
@@ -265,6 +264,17 @@ def doctor(
                 f"traces={api_surface.get('trace_sample_count', 0)}, "
                 f"policy_files={api_surface.get('policy_rule_count', 0)}"
             )
+        frameworks = payload.get("frameworks")
+        if isinstance(frameworks, dict) and frameworks.get("google_adk"):
+            adk_surface = frameworks["google_adk"]
+            typer.echo(
+                "Google ADK artifacts: "
+                f"agents={adk_surface.get('agent_count', 0)}, "
+                f"functions={adk_surface.get('function_tool_count', 0)}, "
+                f"toolsets={adk_surface.get('toolset_count', 0)}, "
+                f"dynamic_toolsets={adk_surface.get('dynamic_toolset_count', 0)}, "
+                f"eval_files={adk_surface.get('eval_file_count', 0)}"
+            )
         if payload.get("baseline"):
             baseline = payload["baseline"]
             typer.echo(
@@ -319,7 +329,7 @@ def baseline_save(
 
 def _parse_formats(value: str) -> list[str]:
     formats = [item.strip() for item in value.split(",") if item.strip()]
-    invalid = [item for item in formats if item not in {"markdown", "json"}]
+    invalid = [item for item in formats if item not in {"markdown", "json", "sarif"}]
     if invalid:
         raise ConfigError(f"Unsupported report format(s): {', '.join(invalid)}")
     if not formats:

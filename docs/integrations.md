@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.2.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.3.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -46,9 +46,18 @@ Action outputs:
 | `critical_count` | Unsuppressed critical finding count. |
 | `high_count` | Unsuppressed high finding count. |
 | `medium_count` | Unsuppressed medium finding count. |
+| `baseline_new_count` | New finding count when `baseline` is set. |
+| `baseline_matched_count` | Baseline-matched finding count when `baseline` is set. |
+| `baseline_resolved_count` | Resolved baseline finding count when `baseline` is set. |
+| `adk_agent_count` | Statically detected Google ADK agent count. |
+| `adk_dynamic_toolset_count` | Google ADK dynamic or unresolved toolset count. |
 | `report_json` | Path to `report.json`. |
 | `report_markdown` | Path to `report.md`. |
+| `report_sarif` | Path to `report.sarif`. |
 | `exit_code` | Agents Shipgate CLI exit code. |
+
+The action writes Markdown, JSON, and SARIF reports. Upload `report.sarif` to
+GitHub code scanning from your workflow if you want SARIF annotations.
 
 For source-only testing in this repository:
 
@@ -58,7 +67,7 @@ For source-only testing in this repository:
   with:
     python-version: "3.12"
 - run: python -m pip install -e ".[dev]"
-- run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory
+- run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
 ```
 
 ## Local Diagnostics

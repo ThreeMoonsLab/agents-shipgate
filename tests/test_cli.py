@@ -24,7 +24,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.2.0" in result.output
+    assert "Agents Shipgate 0.3.0" in result.output
     assert "release_blockers_detected" in result.output
 
 
@@ -94,7 +94,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.2.0"
+    assert result.output.strip() == "Agents Shipgate 0.3.0"
 
 
 def test_cli_scan_help_hides_deferred_flags():
@@ -102,7 +102,7 @@ def test_cli_scan_help_hides_deferred_flags():
 
     assert result.exit_code == 0
     assert "--deep-import" not in result.output
-    assert "--baseline-mode" not in result.output
+    assert "--baseline-mode" in result.output
 
 
 def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):

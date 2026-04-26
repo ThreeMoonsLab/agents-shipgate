@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.2.0"
+version = "0.3.0"
 description = "Manifest-first release readiness scanner for agent tool surfaces."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -49,6 +49,7 @@ manifest_scope = "agents_shipgate.checks.manifest_scope:run"
 policy = "agents_shipgate.checks.policy:run"
 side_effects = "agents_shipgate.checks.side_effects:run"
 api = "agents_shipgate.checks.api:run"
+adk = "agents_shipgate.checks.adk:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_shipgate"]

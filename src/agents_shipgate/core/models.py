@@ -226,11 +226,65 @@ class OpenAIApiArtifacts(BaseModel):
         }
 
 
+class GoogleAdkToolset(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    kind: str
+    source_id: str
+    source_ref: str | None = None
+    agent_name: str | None = None
+    name: str | None = None
+    filtered: bool | None = None
+    filter_values: list[str] = Field(default_factory=list)
+    inventory_path: str | None = None
+    resolved: bool = False
+    dynamic: bool = False
+
+
+class GoogleAdkArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    python_entrypoints: list[str] = Field(default_factory=list)
+    agent_config_files: list[str] = Field(default_factory=list)
+    eval_files: list[str] = Field(default_factory=list)
+    tool_inventory_files: list[str] = Field(default_factory=list)
+    trace_sample_files: list[str] = Field(default_factory=list)
+    trace_samples: list[dict[str, Any]] = Field(default_factory=list)
+    agents: list[dict[str, Any]] = Field(default_factory=list)
+    function_tools: list[dict[str, Any]] = Field(default_factory=list)
+    long_running_tools: list[dict[str, Any]] = Field(default_factory=list)
+    toolsets: list[GoogleAdkToolset] = Field(default_factory=list)
+    callbacks: list[dict[str, Any]] = Field(default_factory=list)
+    plugins: list[dict[str, Any]] = Field(default_factory=list)
+    sub_agents: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        dynamic_toolsets = [
+            item for item in self.toolsets if item.dynamic or not item.resolved
+        ]
+        return {
+            "python_entrypoint_count": len(self.python_entrypoints),
+            "agent_config_count": len(self.agent_config_files),
+            "agent_count": len(self.agents),
+            "function_tool_count": len(self.function_tools),
+            "long_running_tool_count": len(self.long_running_tools),
+            "toolset_count": len(self.toolsets),
+            "dynamic_toolset_count": len(dynamic_toolsets),
+            "callback_count": len(self.callbacks),
+            "plugin_count": len(self.plugins),
+            "sub_agent_count": len(self.sub_agents),
+            "eval_file_count": len(self.eval_files),
+            "trace_sample_count": len(self.trace_samples),
+            "tool_inventory_file_count": len(self.tool_inventory_files),
+        }
+
+
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.2"
+    report_schema_version: str = "0.3"
     run_id: str
     project: dict[str, Any]
     agent: dict[str, Any]
@@ -238,6 +292,7 @@ class ReadinessReport(BaseModel):
     summary: ReportSummary
     tool_surface: ToolSurfaceSummary
     api_surface: dict[str, Any] | None = None
+    frameworks: dict[str, Any] = Field(default_factory=dict)
     baseline: BaselineSummary | None = None
     findings: list[Finding] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)

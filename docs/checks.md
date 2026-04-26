@@ -53,6 +53,12 @@ baseline summary and do not fail CI.
 | `SHIP-API-STRUCTURED-OUTPUT-READINESS` | high/medium | An OpenAI API response format is missing or too broad for downstream decisions. |
 | `SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH` | high/medium | Prompt language contradicts the enabled OpenAI API tool surface or lacks approval/confirmation instructions. |
 | `SHIP-API-OPERATIONAL-READINESS` | high/medium | OpenAI API retry, timeout, trace, or tool-output success/failure metadata is missing or contradictory. |
+| `SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE` | high | A Google ADK toolset cannot be statically enumerated and no explicit inventory is declared. |
+| `SHIP-ADK-MCP-TOOLSET-UNFILTERED` | high/medium | A Google ADK `McpToolset` has no static `tool_filter`. |
+| `SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING` | medium | A Google ADK function/config tool lacks static description or parameter metadata. |
+| `SHIP-ADK-LONGRUNNING-CONTRACT-MISSING` | high | A Google ADK long-running tool lacks operation-id and status/progress contract evidence. |
+| `SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING` | high | High-risk Google ADK tools lack callback/plugin or policy guardrail evidence. |
+| `SHIP-ADK-EVAL-COVERAGE-MISSING` | medium | Production-like Google ADK inputs are present without declared eval files. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -155,6 +161,43 @@ Prompt files contradict the enabled API tool surface. The check flags prompts th
 
 OpenAI API operational metadata is incomplete. The check uses `model_config`, `policy_rules`, simple test cases, and trace samples to flag missing retry policy, missing timeouts, non-idempotent high-risk tools with retry evidence, missing success/failure tool-output modeling, and trace samples that show required approval or confirmation missing.
 
+### SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
+
+A Google ADK `OpenAPIToolset`, `McpToolset`, or dynamic tools expression could
+not be enumerated statically. Provide explicit local OpenAPI, MCP, or ADK tool
+inventory inputs before relying on the release report.
+
+### SHIP-ADK-MCP-TOOLSET-UNFILTERED
+
+An ADK `McpToolset` has no static `tool_filter`. Add a narrow filter and an
+explicit inventory file so reviewers can see the intended runtime surface.
+
+### SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING
+
+An ADK function or Agent Config tool reference lacks description or parameter
+metadata. Add docstrings, type annotations, or explicit local inventory
+metadata.
+
+### SHIP-ADK-LONGRUNNING-CONTRACT-MISSING
+
+An ADK `LongRunningFunctionTool` lacks static evidence for operation id and
+status/progress fields. Google-style `name` plus `done`, `state`, `phase`,
+`metadata`, or `result` fields count as contract evidence; tools may also carry
+`annotations.long_running_contract: true` in explicit inventory metadata.
+Document the handoff and completion contract before promotion.
+
+### SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING
+
+High-risk ADK tools are present without static callback/plugin or manifest
+policy evidence. ADK callbacks and plugins count only as static evidence of
+intent; they are not proof that runtime enforcement works.
+
+### SHIP-ADK-EVAL-COVERAGE-MISSING
+
+Google ADK inputs target `production_like` or `production` without declared eval
+files. Add eval artifacts that cover expected responses and tool-use
+trajectories.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -225,3 +268,16 @@ def search_customer(customer_id: str) -> str:
 ```
 
 The static extractor does not execute user code and intentionally does not detect dynamic wrappers, factory-created tools, `Tool.from_fn()` style objects, runtime imports, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or manifest metadata.
+
+## Google ADK Static Extraction
+
+Google ADK extraction is optional static enrichment. Agents Shipgate detects
+Python `Agent` / `LlmAgent` definitions, literal function tools,
+`FunctionTool`, `LongRunningFunctionTool`, `OpenAPIToolset`, `McpToolset`,
+callbacks, plugins, sub-agents, and Agent Config YAML references where those
+values are statically knowable.
+
+The ADK extractor does not import user modules, run `adk`, connect to MCP
+servers, fetch OpenAPI specs over the network, call tools, or call models.
+Dynamic ADK toolsets produce source warnings and one ADK finding per unresolved
+toolset unless explicit local MCP/OpenAPI/tool inventory inputs are provided.

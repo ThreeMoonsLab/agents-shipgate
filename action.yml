@@ -26,7 +26,7 @@ inputs:
   baseline_mode:
     required: false
     default: new-findings
-    description: Baseline comparison mode. v0.2 supports new-findings.
+    description: Baseline comparison mode. v0.3 supports new-findings.
   no_plugins:
     required: false
     default: "false"
@@ -68,12 +68,27 @@ outputs:
   baseline_new_count:
     description: Number of new findings when a baseline is used.
     value: ${{ steps.report_outputs.outputs.baseline_new_count }}
+  baseline_matched_count:
+    description: Number of baseline-matched findings when a baseline is used.
+    value: ${{ steps.report_outputs.outputs.baseline_matched_count }}
+  baseline_resolved_count:
+    description: Number of baseline findings resolved by the current scan.
+    value: ${{ steps.report_outputs.outputs.baseline_resolved_count }}
+  adk_agent_count:
+    description: Number of Google ADK agents statically detected.
+    value: ${{ steps.report_outputs.outputs.adk_agent_count }}
+  adk_dynamic_toolset_count:
+    description: Number of Google ADK toolsets that were dynamic or unresolved.
+    value: ${{ steps.report_outputs.outputs.adk_dynamic_toolset_count }}
   report_json:
     description: Path to the generated JSON report.
     value: ${{ steps.report_outputs.outputs.report_json }}
   report_markdown:
     description: Path to the generated Markdown report.
     value: ${{ steps.report_outputs.outputs.report_markdown }}
+  report_sarif:
+    description: Path to the generated SARIF report.
+    value: ${{ steps.report_outputs.outputs.report_sarif }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -114,7 +129,7 @@ runs:
           --config "${CONFIG}"
           --ci-mode "${CI_MODE}"
           --out "${OUTPUT_DIR}"
-          --format markdown,json
+          --format markdown,json,sarif
         )
         if [ -n "${FAIL_ON}" ]; then
           args+=(--fail-on "${FAIL_ON}")
@@ -146,13 +161,16 @@ runs:
         output_dir = Path(os.environ.get("OUTPUT_DIR") or "agents-shipgate-reports")
         report_json = output_dir / "report.json"
         report_markdown = output_dir / "report.md"
+        report_sarif = output_dir / "report.sarif"
         summary = {}
         baseline = {}
+        adk_surface = {}
         if report_json.exists():
             with report_json.open(encoding="utf-8") as handle:
                 payload = json.load(handle)
                 summary = payload.get("summary") or {}
                 baseline = payload.get("baseline") or {}
+                adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
 
         def clean(value: object) -> str:
             return str(value or "").replace("\r", "").replace("\n", "")
@@ -163,8 +181,13 @@ runs:
             "high_count": summary.get("high_count", 0),
             "medium_count": summary.get("medium_count", 0),
             "baseline_new_count": baseline.get("new_count", 0),
+            "baseline_matched_count": baseline.get("matched_count", 0),
+            "baseline_resolved_count": baseline.get("resolved_count", 0),
+            "adk_agent_count": adk_surface.get("agent_count", 0),
+            "adk_dynamic_toolset_count": adk_surface.get("dynamic_toolset_count", 0),
             "report_json": report_json,
             "report_markdown": report_markdown,
+            "report_sarif": report_sarif,
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():
@@ -196,6 +219,7 @@ runs:
           }
           const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
           const summary = report.summary || {};
+          const adk = ((report.frameworks || {}).google_adk) || null;
           const escapeMarkdown = (value) =>
             String(value || "")
               .replace(/\\/g, "\\\\")
@@ -215,6 +239,7 @@ runs:
             `Status: ${summary.status || "unknown"}`,
             `Critical: ${summary.critical_count || 0} · High: ${summary.high_count || 0} · Medium: ${summary.medium_count || 0}`,
             `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
+            adk ? `Google ADK: ${adk.agent_count || 0} agents · ${adk.dynamic_toolset_count || 0} dynamic toolsets` : "",
             "",
             top ? `Top findings:\n${top}` : "No critical or high findings.",
             "",
