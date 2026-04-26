@@ -3,6 +3,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from agents_shipgate.checks import registry
 from agents_shipgate.cli.main import _safe_output_name, app
 
 runner = CliRunner()
@@ -95,7 +96,33 @@ def test_cli_scan_help_hides_deferred_flags():
     assert result.exit_code == 0
     assert "--deep-import" not in result.output
     assert "--baseline-mode" not in result.output
-    assert "--no-plugins" in result.output
+
+
+def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):
+    class FakeEntryPoint:
+        value = "acme_shipgate_checks:run"
+
+        def load(self):
+            raise AssertionError("plugin should not be loaded")
+
+    monkeypatch.setattr(registry, "entry_points", lambda group: [FakeEntryPoint()])
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            "samples/clean_read_only_agent/shipgate.yaml",
+            "--out",
+            str(tmp_path),
+            "--format",
+            "json",
+            "--no-plugins",
+        ],
+        env={"AGENTS_SHIPGATE_ENABLE_PLUGINS": "1"},
+    )
+
+    assert result.exit_code == 0
 
 
 def test_cli_explain_outputs_check_details():
