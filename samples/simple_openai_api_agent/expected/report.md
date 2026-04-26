@@ -24,25 +24,25 @@ Human review: recommended
    Evidence: issues=\['broad\_free\_text:message'\]; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
    Recommendation: Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 
-3. create\_refund may be retried without idempotency evidence
+3. Prompt says read-only or advise-only while write/high-risk tools are enabled
+   Evidence: tools=\['create\_refund', 'send\_customer\_email'\]
+   Recommendation: Align prompt scope with enabled tools or remove write/high-risk tools.
+
+4. create\_refund may be retried without idempotency evidence
    Evidence: retry\_policy=\{'max\_attempts': 2\}; risk\_tags=\['financial\_action', 'write'\]
    Recommendation: Add idempotency evidence for create\_refund or avoid retrying this side effect.
 
-4. send\_customer\_email may be retried without idempotency evidence
+5. send\_customer\_email may be retried without idempotency evidence
    Evidence: retry\_policy=\{'max\_attempts': 2\}; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
    Recommendation: Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
-
-5. Prompt says read-only or advise-only while write/high-risk tools are enabled
-   Evidence: tools=\['create\_refund', 'send\_customer\_email'\]
-   Recommendation: Align prompt scope with enabled tools or remove write/high-risk tools.
 
 ## Recommended Next Actions
 
 - Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 - Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+- Align prompt scope with enabled tools or remove write/high-risk tools.
 - Add idempotency evidence for create\_refund or avoid retrying this side effect.
 - Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
-- Align prompt scope with enabled tools or remove write/high-risk tools.
 - Declare auth scopes for create\_refund in OpenAPI, MCP metadata, or the manifest before release review.
 - Declare auth scopes for send\_customer\_email in OpenAPI, MCP metadata, or the manifest before release review.
 - Declare an owner for each high-risk production tool in risk\_overrides.tools.
@@ -71,14 +71,14 @@ Human review: recommended
 
 - HIGH: SHIP-API-FUNCTION-SCHEMA-STRICTNESS [create\_refund] - create\_refund function schema is not strict enough
 - HIGH: SHIP-API-FUNCTION-SCHEMA-STRICTNESS [send\_customer\_email] - send\_customer\_email function schema is not strict enough
-- HIGH: SHIP-API-OPERATIONAL-READINESS [create\_refund] - create\_refund may be retried without idempotency evidence
-- HIGH: SHIP-API-OPERATIONAL-READINESS [send\_customer\_email] - send\_customer\_email may be retried without idempotency evidence
 - HIGH: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH - Prompt says read-only or advise-only while write/high-risk tools are enabled
-- MEDIUM: SHIP-API-OPERATIONAL-READINESS - OpenAI API flow lacks timeout metadata
-- MEDIUM: SHIP-API-OPERATIONAL-READINESS - Trace sample shows create\_refund without approval
-- MEDIUM: SHIP-API-OPERATIONAL-READINESS [create\_refund] - create\_refund lacks success/failure output modeling
+- HIGH: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY [create\_refund] - create\_refund may be retried without idempotency evidence
+- HIGH: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY [send\_customer\_email] - send\_customer\_email may be retried without idempotency evidence
 - MEDIUM: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH - Prompt lacks approval/confirmation language for high-risk tools
 - MEDIUM: SHIP-API-STRUCTURED-OUTPUT-READINESS - Response format schemas/refund\_decision.schema.json is under-specified
+- MEDIUM: SHIP-API-TIMEOUT-MISSING - OpenAI API flow lacks timeout metadata
+- MEDIUM: SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING [create\_refund] - create\_refund lacks success/failure output modeling
+- MEDIUM: SHIP-API-TRACE-APPROVAL-MISSING - Trace sample shows create\_refund without approval
 
 ### Auth
 

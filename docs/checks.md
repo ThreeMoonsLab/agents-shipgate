@@ -52,7 +52,13 @@ baseline summary and do not fail CI.
 | `SHIP-API-FUNCTION-SCHEMA-STRICTNESS` | high/medium | An OpenAI API function schema is missing strictness, required fields, or bounded risky fields. |
 | `SHIP-API-STRUCTURED-OUTPUT-READINESS` | high/medium | An OpenAI API response format is missing or too broad for downstream decisions. |
 | `SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH` | high/medium | Prompt language contradicts the enabled OpenAI API tool surface or lacks approval/confirmation instructions. |
-| `SHIP-API-OPERATIONAL-READINESS` | high/medium | OpenAI API retry, timeout, trace, or tool-output success/failure metadata is missing or contradictory. |
+| `SHIP-API-RETRY-POLICY-MISSING` | medium | High-risk OpenAI API tools are enabled without retry policy metadata. |
+| `SHIP-API-TIMEOUT-MISSING` | medium | High-risk OpenAI API tools are enabled without timeout metadata. |
+| `SHIP-API-TEST-CASES-MISSING` | medium | High-risk OpenAI API tools are enabled without declared test cases. |
+| `SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING` | medium | A high-risk OpenAI API tool lacks success/failure output modeling. |
+| `SHIP-API-RETRY-WITHOUT-IDEMPOTENCY` | high | A risky OpenAI API write tool may be retried without idempotency evidence. |
+| `SHIP-API-TRACE-APPROVAL-MISSING` | medium | A trace sample shows a policy-controlled tool call without approval. |
+| `SHIP-API-TRACE-CONFIRMATION-MISSING` | medium | A trace sample shows a policy-controlled tool call without confirmation. |
 | `SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE` | high | A Google ADK toolset cannot be statically enumerated and no explicit inventory is declared. |
 | `SHIP-ADK-MCP-TOOLSET-UNFILTERED` | high/medium | A Google ADK `McpToolset` has no static `tool_filter`. |
 | `SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING` | medium | A Google ADK function/config tool lacks static description or parameter metadata. |
@@ -157,9 +163,19 @@ An OpenAI API response format is missing or under-specified. The check flags mis
 
 Prompt files contradict the enabled API tool surface. The check flags prompts that say "advise only" or "read-only" while write/high-risk tools are enabled, and high-risk tools whose prompts do not mention approval and confirmation expectations.
 
-### SHIP-API-OPERATIONAL-READINESS
+### OpenAI API Operational Readiness Checks
 
-OpenAI API operational metadata is incomplete. The check uses `model_config`, `policy_rules`, simple test cases, and trace samples to flag missing retry policy, missing timeouts, non-idempotent high-risk tools with retry evidence, missing success/failure tool-output modeling, and trace samples that show required approval or confirmation missing.
+v0.4 splits the former `SHIP-API-OPERATIONAL-READINESS` bundle into atomic
+check IDs so suppressions, severity overrides, SARIF rules, and baselines can
+target one missing contract at a time. The split checks use `model_config`,
+`policy_rules`, simple test cases, and trace samples to flag missing retry
+policy, missing timeouts, missing test cases, non-idempotent high-risk tools
+with retry evidence, missing success/failure tool-output modeling, and trace
+samples that show required approval or confirmation missing.
+
+The old bundled check ID is intentionally not kept as an alias. Update v0.3
+suppressions and baselines that referenced `SHIP-API-OPERATIONAL-READINESS` to
+the specific v0.4 ID that now represents the condition.
 
 ### SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
 
@@ -256,6 +272,16 @@ agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING
 ```
 
 Third-party packages can register checks through the `agents_shipgate.checks` Python entry-point group. Plugins are disabled by default because loading them imports third-party Python modules. Set `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` to opt in, or pass `--no-plugins` to force them off for a scan or catalog command. Reports include `loaded_plugins` provenance for every third-party check entry point that ran. A plugin check should expose a callable with the same `ScanContext -> list[Finding]` shape as built-ins and may attach `AGENTS_SHIPGATE_METADATA` as either a `CheckMetadata` instance or a compatible dictionary.
+
+## Declarative Policy Packs
+
+v0.4 adds local YAML policy packs for organization-specific release rules.
+Policy packs are static data and are safe to enable by default when declared in
+`checks.policy_packs` or passed with `scan --policy-pack`. External rule IDs
+must use a non-`SHIP-*` namespace such as `ORG-*`; `SHIP-*` is reserved for
+built-in checks. Pack findings behave like built-ins for suppressions, severity
+overrides, baselines, Markdown, JSON, and SARIF. Python plugins remain a
+separate opt-in extension mechanism.
 
 ## OpenAI Agents SDK Static Extraction
 

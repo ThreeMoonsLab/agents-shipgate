@@ -100,21 +100,6 @@
     },
     {
       "category": "api",
-      "default_severity": "medium",
-      "description": "OpenAI API flow lacks minimal operational readiness metadata.",
-      "docs_url": "docs/checks.md#ship-api-operational-readiness",
-      "evidence_fields": [
-        "retry_policy",
-        "high_risk_tools",
-        "tool_output_schemas"
-      ],
-      "fires_when": "Retry policy, timeout metadata, tool output success/failure modeling, or simple trace approval evidence is missing or contradictory.",
-      "id": "SHIP-API-OPERATIONAL-READINESS",
-      "rationale": "Retries, timeouts, and success/failure schemas are needed to reason about side effects and failures.",
-      "recommendation": "Declare retry, timeout, output success/failure, and approval evidence for high-risk API flows."
-    },
-    {
-      "category": "api",
       "default_severity": "high",
       "description": "Prompt scope contradicts enabled OpenAI API tools.",
       "docs_url": "docs/checks.md#ship-api-prompt-tool-scope-mismatch",
@@ -125,6 +110,33 @@
       "id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "rationale": "Prompt instructions should match the actual write/high-risk tool surface.",
       "recommendation": "Align prompt scope with enabled tools and add approval/confirmation instructions."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API high-risk flow lacks retry policy metadata.",
+      "docs_url": "docs/checks.md#ship-api-retry-policy-missing",
+      "evidence_fields": [
+        "high_risk_tools"
+      ],
+      "fires_when": "High-risk OpenAI API tools exist and no retry_policy is declared.",
+      "id": "SHIP-API-RETRY-POLICY-MISSING",
+      "rationale": "Retries need explicit policy metadata so reviewers can reason about duplicate side effects.",
+      "recommendation": "Declare retry_policy in openai_api.policy_rules or model_config."
+    },
+    {
+      "category": "api",
+      "default_severity": "high",
+      "description": "OpenAI API write tool may be retried without idempotency evidence.",
+      "docs_url": "docs/checks.md#ship-api-retry-without-idempotency",
+      "evidence_fields": [
+        "retry_policy",
+        "risk_tags"
+      ],
+      "fires_when": "Retry policy is declared and a risky write tool lacks idempotency evidence.",
+      "id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+      "rationale": "Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.",
+      "recommendation": "Add idempotency evidence for retried risky OpenAI API tools or avoid retrying those side effects."
     },
     {
       "category": "api",
@@ -140,6 +152,73 @@
       "id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
       "rationale": "Downstream release decisions need explicit, structured success/refusal/review modeling.",
       "recommendation": "Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API high-risk flow lacks test case metadata.",
+      "docs_url": "docs/checks.md#ship-api-test-cases-missing",
+      "evidence_fields": [
+        "high_risk_tools"
+      ],
+      "fires_when": "High-risk OpenAI API tools exist and no test cases are declared.",
+      "id": "SHIP-API-TEST-CASES-MISSING",
+      "rationale": "High-risk tool-call flows should have release evidence before promotion.",
+      "recommendation": "Add simple OpenAI API test cases for high-risk tool-call flows."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API high-risk flow lacks timeout metadata.",
+      "docs_url": "docs/checks.md#ship-api-timeout-missing",
+      "evidence_fields": [
+        "high_risk_tools"
+      ],
+      "fires_when": "High-risk OpenAI API tools exist and no timeout metadata is declared.",
+      "id": "SHIP-API-TIMEOUT-MISSING",
+      "rationale": "Timeouts define failure behavior and reduce ambiguous tool-call continuation.",
+      "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API high-risk tool lacks success/failure output modeling.",
+      "docs_url": "docs/checks.md#ship-api-tool-output-schema-missing",
+      "evidence_fields": [
+        "tool_output_schemas"
+      ],
+      "fires_when": "A high-risk OpenAI API tool lacks declared success/failure output schema metadata.",
+      "id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
+      "rationale": "Tool output schemas help release reviewers reason about downstream failure handling.",
+      "recommendation": "Declare success_fields and failure_fields for high-risk OpenAI API tools."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API trace sample shows a policy-controlled tool without approval.",
+      "docs_url": "docs/checks.md#ship-api-trace-approval-missing",
+      "evidence_fields": [
+        "tool_name",
+        "approved"
+      ],
+      "fires_when": "A trace sample marks approved=false for a tool with approval policy evidence.",
+      "id": "SHIP-API-TRACE-APPROVAL-MISSING",
+      "rationale": "Trace samples should demonstrate approval behavior for tools that require approval.",
+      "recommendation": "Require approval before calling policy-controlled OpenAI API tools."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API trace sample shows a policy-controlled tool without confirmation.",
+      "docs_url": "docs/checks.md#ship-api-trace-confirmation-missing",
+      "evidence_fields": [
+        "tool_name",
+        "confirmed"
+      ],
+      "fires_when": "A trace sample marks confirmed=false for a tool with confirmation policy evidence.",
+      "id": "SHIP-API-TRACE-CONFIRMATION-MISSING",
+      "rationale": "Trace samples should demonstrate explicit confirmation for tools that require confirmation.",
+      "recommendation": "Require explicit confirmation before calling policy-controlled OpenAI API tools."
     },
     {
       "category": "auth",

@@ -286,11 +286,39 @@ class SuppressionConfig(BaseModel):
         return value
 
 
+class PolicyPackConfig(ArtifactPathConfig):
+    id: str | None = None
+
+
+def _parse_policy_pack_entries(value: Any) -> list[PolicyPackConfig]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError("policy_packs must be a list")
+    entries: list[PolicyPackConfig] = []
+    for item in value:
+        if isinstance(item, PolicyPackConfig):
+            entries.append(item)
+        elif isinstance(item, str):
+            entries.append(PolicyPackConfig(path=item))
+        elif isinstance(item, dict):
+            entries.append(PolicyPackConfig.model_validate(item))
+        else:
+            raise TypeError("policy_packs entries must be strings or objects")
+    return entries
+
+
 class ChecksConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     ignore: list[SuppressionConfig] = Field(default_factory=list)
+    policy_packs: list[PolicyPackConfig] = Field(default_factory=list)
     severity_overrides: dict[str, Severity] = Field(default_factory=dict)
+
+    @field_validator("policy_packs", mode="before")
+    @classmethod
+    def parse_policy_packs(cls, value: Any) -> list[PolicyPackConfig]:
+        return _parse_policy_pack_entries(value)
 
 
 class CiConfig(BaseModel):
@@ -326,7 +354,6 @@ class AgentsShipgateManifest(BaseModel):
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     risk_overrides: RiskOverridesConfig = Field(default_factory=RiskOverridesConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
-    check_severity_overrides: dict[str, Severity] = Field(default_factory=dict)
     ci: CiConfig = Field(default_factory=CiConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
@@ -352,7 +379,4 @@ class AgentsShipgateManifest(BaseModel):
         return self
 
     def severity_overrides(self) -> dict[str, Severity]:
-        return {
-            **self.checks.severity_overrides,
-            **self.check_severity_overrides,
-        }
+        return self.checks.severity_overrides

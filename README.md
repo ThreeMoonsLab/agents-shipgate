@@ -164,7 +164,7 @@ ci:
 
 ## Google ADK
 
-v0.3 adds static Google ADK support for Python entrypoints and Agent Config YAML. The adapter detects `LlmAgent`/`Agent` definitions, function tools, `OpenAPIToolset`, `McpToolset`, callbacks, plugins, sub-agents, eval references, and explicit local tool inventories without importing ADK code.
+Agents Shipgate supports static Google ADK extraction for Python entrypoints and Agent Config YAML. The adapter detects `LlmAgent`/`Agent` definitions, function tools, `OpenAPIToolset`, `McpToolset`, callbacks, plugins, sub-agents, eval references, and explicit local tool inventories without importing ADK code.
 
 ```yaml
 version: "0.1"
@@ -189,6 +189,21 @@ google_adk:
 
 Dynamic ADK toolsets produce warnings or findings unless you provide explicit MCP, OpenAPI, or local tool inventory inputs.
 
+## Policy Packs
+
+v0.4 adds local declarative YAML policy packs for organization-specific release
+rules. Policy packs are static data and run without importing code.
+
+```yaml
+checks:
+  policy_packs:
+    - path: policies/org-release.yaml
+```
+
+```bash
+agents-shipgate scan --config shipgate.yaml --policy-pack policies/org-release.yaml
+```
+
 ## Who It Is For
 
 | Buyer | Pain | Pitch | Next step |
@@ -205,7 +220,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` in v0.3 so existing configs keep working. Reports add `report_schema_version: "0.3"` while preserving the v0.1 payload keys.
+- The manifest remains `version: "0.1"` in v0.4 so existing configs keep working. Reports add `report_schema_version: "0.4"` while preserving the v0.1 payload keys.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -234,7 +249,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.4.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -243,7 +258,7 @@ jobs:
 
 For PR comments, add `pull-requests: write` to the job's `permissions` and set `pr_comment: "true"`.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
 
 Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`.
 
@@ -260,9 +275,11 @@ If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-base
 - [Agent Release Gate category](docs/category.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
+- [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.3](docs/report-schema.v0.3.json)
+- [JSON report schema v0.4](docs/report-schema.v0.4.json)
 - [Trust model](docs/trust-model.md)
+- [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Integration recipes](docs/integrations.md)
 - [Distribution plan](docs/distribution.md)

@@ -146,7 +146,9 @@ def test_openai_api_scan_runs_new_and_existing_checks(tmp_path):
     assert "SHIP-API-FUNCTION-SCHEMA-STRICTNESS" in check_ids
     assert "SHIP-API-STRUCTURED-OUTPUT-READINESS" in check_ids
     assert "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH" in check_ids
-    assert "SHIP-API-OPERATIONAL-READINESS" in check_ids
+    assert "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY" in check_ids
+    assert "SHIP-API-TIMEOUT-MISSING" in check_ids
+    assert "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING" in check_ids
     assert "SHIP-SCHEMA-MISSING-BOUNDS" in check_ids
     assert "SHIP-SIDEFX-IDEMPOTENCY-MISSING" in check_ids
 

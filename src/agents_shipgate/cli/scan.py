@@ -30,11 +30,12 @@ from agents_shipgate.core.models import (
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
-from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
+from agents_shipgate.inputs.frameworks import load_framework_artifacts
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
@@ -52,6 +53,7 @@ def run_scan(
     baseline_path: Path | None = None,
     baseline_mode: str = "new-findings",
     deep_import: bool = False,
+    policy_pack_paths: list[Path] | None = None,
     plugins_enabled: bool | None = None,
     verbose: bool = False,
 ) -> tuple[ReadinessReport, int]:
@@ -72,8 +74,9 @@ def run_scan(
 
     base_dir = config_path.resolve().parent
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
-    adk_sources, adk_artifacts = load_google_adk_artifacts(manifest, base_dir)
-    loaded_sources.extend(adk_sources)
+    framework_result = load_framework_artifacts(manifest, base_dir)
+    adk_artifacts = framework_result.adk_artifacts
+    loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
@@ -92,6 +95,12 @@ def run_scan(
     warnings.extend(duplicate_warnings)
     if adk_artifacts:
         warnings.extend(adk_artifacts.warnings)
+    policy_packs = load_policy_packs(
+        manifest,
+        base_dir,
+        cli_policy_packs=policy_pack_paths,
+    )
+    warnings.extend(policy_packs.warnings)
     tools = enrich_tools_with_risk_hints(manifest, tools)
     logger.debug(
         "risk hints generated",
@@ -126,7 +135,9 @@ def run_scan(
         context,
         plugins_enabled=plugins_enabled,
         loaded_plugins=loaded_plugins,
+        extra_known_check_ids={resolved.rule.id for resolved in policy_packs.rules},
     )
+    findings.extend(run_policy_pack_rules(context, policy_packs))
     assign_finding_ids(findings)
     apply_severity_overrides(findings, manifest.severity_overrides())
     apply_suppressions(findings, manifest.checks.ignore)
@@ -167,6 +178,7 @@ def run_scan(
             key: _relative_display_path(path, base_dir)
             for key, path in generated_paths.items()
         },
+        loaded_policy_packs=policy_packs.loaded,
         loaded_plugins=loaded_plugins,
         source_warnings=warnings,
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
@@ -187,8 +199,9 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     manifest = load_manifest(config_path)
     base_dir = config_path.resolve().parent
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
-    adk_sources, adk_artifacts = load_google_adk_artifacts(manifest, base_dir)
-    loaded_sources.extend(adk_sources)
+    framework_result = load_framework_artifacts(manifest, base_dir)
+    adk_artifacts = framework_result.adk_artifacts
+    loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
@@ -197,6 +210,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     warnings.extend(duplicate_warnings)
     if adk_artifacts:
         warnings.extend(adk_artifacts.warnings)
+    policy_packs = load_policy_packs(manifest, base_dir)
+    warnings.extend(policy_packs.warnings)
     return {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
@@ -214,6 +229,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
         ],
         "api_surface": api_artifacts.surface_summary() if api_artifacts else None,
         "frameworks": _frameworks_surface(adk_artifacts),
+        "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
     }

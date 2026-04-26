@@ -26,7 +26,11 @@ inputs:
   baseline_mode:
     required: false
     default: new-findings
-    description: Baseline comparison mode. v0.3 supports new-findings.
+    description: Baseline comparison mode. v0.4 supports new-findings.
+  policy_packs:
+    required: false
+    default: ""
+    description: Optional comma- or newline-separated declarative YAML policy pack paths.
   no_plugins:
     required: false
     default: "false"
@@ -121,6 +125,7 @@ runs:
         FAIL_ON: ${{ inputs.fail_on }}
         BASELINE: ${{ inputs.baseline }}
         BASELINE_MODE: ${{ inputs.baseline_mode }}
+        POLICY_PACKS: ${{ inputs.policy_packs }}
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
@@ -136,6 +141,12 @@ runs:
         fi
         if [ -n "${BASELINE}" ]; then
           args+=(--baseline "${BASELINE}" --baseline-mode "${BASELINE_MODE}")
+        fi
+        if [ -n "${POLICY_PACKS}" ]; then
+          while IFS= read -r policy_pack; do
+            [ -z "${policy_pack}" ] && continue
+            args+=(--policy-pack "${policy_pack}")
+          done < <(printf '%s\n' "${POLICY_PACKS}" | tr ',' '\n')
         fi
         if [ "${NO_PLUGINS}" = "true" ]; then
           args+=(--no-plugins)

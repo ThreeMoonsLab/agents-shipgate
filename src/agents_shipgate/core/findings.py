@@ -8,6 +8,7 @@ from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionCon
 from agents_shipgate.core.models import (
     BaselineSummary,
     Finding,
+    LoadedPolicyPack,
     ReadinessReport,
     ReportSummary,
     Severity,
@@ -137,6 +138,7 @@ def build_report(
     tools: list[Tool],
     findings: list[Finding],
     generated_reports: dict[str, str],
+    loaded_policy_packs: list[LoadedPolicyPack] | None = None,
     loaded_plugins: list[dict[str, object]] | None = None,
     source_warnings: list[str] | None = None,
     api_surface: dict[str, object] | None = None,
@@ -156,6 +158,7 @@ def build_report(
         findings=findings,
         recommended_actions=recommended_actions(findings),
         generated_reports=generated_reports,
+        loaded_policy_packs=loaded_policy_packs or [],
         loaded_plugins=loaded_plugins or [],
         tool_inventory=tool_inventory(tools),
         source_warnings=source_warnings or [],

@@ -34,6 +34,11 @@ def load_manifest(path: str | Path) -> AgentsShipgateManifest:
         raise ConfigError(
             f"Unsupported manifest version {version!r}; this Agents Shipgate build supports version '0.1'."
         )
+    if "check_severity_overrides" in data:
+        raise ConfigError(
+            "check_severity_overrides was removed in Agents Shipgate v0.4; "
+            "move these entries under checks.severity_overrides."
+        )
     try:
         return AgentsShipgateManifest.model_validate(data)
     except ValidationError as exc:

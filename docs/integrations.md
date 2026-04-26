@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.4.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -36,6 +36,14 @@ permissions:
 
 with:
   pr_comment: "true"
+```
+
+To apply organization policy packs from CI, pass a comma- or newline-separated
+list:
+
+```yaml
+with:
+  policy_packs: policies/org-release.yaml,policies/security.yaml
 ```
 
 Action outputs:

@@ -27,6 +27,8 @@ By default Agents Shipgate does not:
 - `openai_api` artifacts are local prompt, JSON, YAML, or JSONL files. Agents Shipgate parses them locally and does not call OpenAI APIs, validate model availability, estimate pricing, or execute traces.
 - Google ADK support is static-only. Agents Shipgate parses Python AST and Agent Config YAML, but does not import ADK code, run `adk run`, run `adk web`, run `adk eval`, connect to MCP servers, call tools, call models, or fetch remote specs by default.
 - ADK callbacks and plugins are recorded as static guardrail evidence only. They are not proof that runtime enforcement is correct.
+- Declarative policy packs are local YAML data. They do not import Python,
+  execute code, connect to services, or weaken the default no-execution model.
 - Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.
 
 ## Plugin Trust Boundary

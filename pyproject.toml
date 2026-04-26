@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.3.0"
+version = "0.4.0"
 description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Google ADK). CLI + GitHub Action."
 readme = "README.md"
 requires-python = ">=3.12"

@@ -65,6 +65,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
     _append_source_warnings(lines, report)
+    _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_tool_surface(lines, report)
     _append_api_surface(lines, report)
@@ -147,6 +148,19 @@ def _append_loaded_plugins(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
 
 
+def _append_loaded_policy_packs(lines: list[str], report: ReadinessReport) -> None:
+    if not report.loaded_policy_packs:
+        return
+    lines.extend(["## Loaded Policy Packs", ""])
+    for pack in report.loaded_policy_packs:
+        version = f" {pack.version}" if pack.version else ""
+        lines.append(
+            f"- {_safe_markdown_text(pack.name)}{_safe_markdown_text(version)} "
+            f"({_safe_markdown_text(pack.id)}): {pack.rule_count} rules"
+        )
+    lines.append("")
+
+
 def _append_tool_surface(lines: list[str], report: ReadinessReport) -> None:
     surface = report.tool_surface
     lines.extend(
@@ -204,6 +218,12 @@ def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
             "",
         ]
     )
+    warnings = adk_surface.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["Google ADK warnings:", ""])
+        for warning in warnings:
+            lines.append(f"- {_safe_markdown_text(warning)}")
+        lines.append("")
 
 
 def _append_findings_by_category(lines: list[str], findings: list[Finding]) -> None:

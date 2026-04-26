@@ -145,6 +145,13 @@
           "title": "Ignore",
           "type": "array"
         },
+        "policy_packs": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackConfig"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        },
         "severity_overrides": {
           "additionalProperties": {
             "enum": [
@@ -497,6 +504,37 @@
       "title": "PoliciesConfig",
       "type": "object"
     },
+    "PolicyPackConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "PolicyPackConfig",
+      "type": "object"
+    },
     "PolicyToolEntry": {
       "additionalProperties": false,
       "properties": {
@@ -725,20 +763,6 @@
   "properties": {
     "agent": {
       "$ref": "#/$defs/AgentConfig"
-    },
-    "check_severity_overrides": {
-      "additionalProperties": {
-        "enum": [
-          "info",
-          "low",
-          "medium",
-          "high",
-          "critical"
-        ],
-        "type": "string"
-      },
-      "title": "Check Severity Overrides",
-      "type": "object"
     },
     "checks": {
       "$ref": "#/$defs/ChecksConfig"

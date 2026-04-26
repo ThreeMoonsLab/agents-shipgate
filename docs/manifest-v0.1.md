@@ -242,9 +242,54 @@ checks:
 
 Suppressed findings remain in the JSON report with `suppressed: true`.
 
+## Policy Packs
+
+v0.4 supports local declarative YAML policy packs for organization-specific
+rules. Policy packs are static data: Agents Shipgate reads YAML and never
+imports Python or executes pack code.
+
+```yaml
+checks:
+  policy_packs:
+    - id: org-release
+      path: policies/org-release.yaml
+      optional: false
+```
+
+Policy pack paths use the same manifest-relative containment policy as other
+local inputs. External rule IDs must not start with `SHIP-`; use an
+organization namespace such as `ORG-*`. Findings emitted by policy packs support
+the same suppressions, severity overrides, baselines, Markdown, JSON, and SARIF
+output as built-in findings.
+
+Minimal pack:
+
+```yaml
+name: Org Release Policy
+version: "1.0"
+rules:
+  - id: ORG-HIGH-RISK-OWNER-MISSING
+    title: High-risk production tool has no org owner
+    category: org_policy
+    severity: high
+    confidence: high
+    recommendation: Assign an owning team before production release.
+    match:
+      risk_tags: [financial_action]
+      source_types: [openapi]
+      environment_targets: [production_like, production]
+      missing_owner: true
+```
+
+Supported match fields are `risk_tags`, `source_types`,
+`environment_targets`, `missing_owner`, `missing_auth_scopes`,
+`missing_approval_policy`, `missing_confirmation_policy`,
+`missing_idempotency_policy`, and `parameters`. Parameter predicates support
+`name`, `names`, `types`, `missing_maximum`, and `required`.
+
 ## Severity Overrides
 
-Teams can re-rank built-in checks without forking the scanner:
+Teams can re-rank built-in and policy-pack checks without forking the scanner:
 
 ```yaml
 checks:
@@ -253,7 +298,8 @@ checks:
     SHIP-AUTH-MISSING-SCOPE: critical
 ```
 
-For compatibility with early design-partner manifests, top-level `check_severity_overrides` is also accepted and is applied after `checks.severity_overrides`. Prefer `checks.severity_overrides`; the top-level alias is legacy compatibility.
+The legacy top-level `check_severity_overrides` alias was removed in v0.4. Move
+those entries under `checks.severity_overrides`.
 
 ## Risk Overrides
 

@@ -190,7 +190,7 @@ def _operational_readiness(context: ScanContext):
     if high_risk_tools and not retry_policy:
         findings.append(
             agent_finding(
-                check_id="SHIP-API-OPERATIONAL-READINESS",
+                check_id="SHIP-API-RETRY-POLICY-MISSING",
                 title="OpenAI API flow lacks retry policy metadata",
                 severity="medium",
                 category="api",
@@ -203,7 +203,7 @@ def _operational_readiness(context: ScanContext):
     if high_risk_tools and not timeouts:
         findings.append(
             agent_finding(
-                check_id="SHIP-API-OPERATIONAL-READINESS",
+                check_id="SHIP-API-TIMEOUT-MISSING",
                 title="OpenAI API flow lacks timeout metadata",
                 severity="medium",
                 category="api",
@@ -216,7 +216,7 @@ def _operational_readiness(context: ScanContext):
     if high_risk_tools and not artifacts.test_cases:
         findings.append(
             agent_finding(
-                check_id="SHIP-API-OPERATIONAL-READINESS",
+                check_id="SHIP-API-TEST-CASES-MISSING",
                 title="OpenAI API flow lacks test case metadata for high-risk tools",
                 severity="medium",
                 category="api",
@@ -231,7 +231,7 @@ def _operational_readiness(context: ScanContext):
             findings.append(
                 tool_finding(
                     tool=tool,
-                    check_id="SHIP-API-OPERATIONAL-READINESS",
+                    check_id="SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
                     title=f"{tool.name} lacks success/failure output modeling",
                     severity="medium",
                     category="api",
@@ -248,7 +248,7 @@ def _operational_readiness(context: ScanContext):
             findings.append(
                 tool_finding(
                     tool=tool,
-                    check_id="SHIP-API-OPERATIONAL-READINESS",
+                    check_id="SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
                     title=f"{tool.name} may be retried without idempotency evidence",
                     severity="high",
                     category="api",
@@ -283,7 +283,7 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
         if tool_name in approval_tools and event.get("approved") is False:
             findings.append(
                 agent_finding(
-                    check_id="SHIP-API-OPERATIONAL-READINESS",
+                    check_id="SHIP-API-TRACE-APPROVAL-MISSING",
                     title=f"Trace sample shows {tool_name} without approval",
                     severity="medium",
                     category="api",
@@ -296,7 +296,7 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
         if tool_name in confirmation_tools and event.get("confirmed") is False:
             findings.append(
                 agent_finding(
-                    check_id="SHIP-API-OPERATIONAL-READINESS",
+                    check_id="SHIP-API-TRACE-CONFIRMATION-MISSING",
                     title=f"Trace sample shows {tool_name} without confirmation",
                     severity="medium",
                     category="api",

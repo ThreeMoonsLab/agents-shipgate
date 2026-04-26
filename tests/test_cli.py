@@ -26,7 +26,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.3.0" in result.output
+    assert "Agents Shipgate 0.4.0" in result.output
     assert "release_blockers_detected" in result.output
 
 
@@ -90,13 +90,15 @@ def test_cli_list_checks_outputs_catalog():
 
     assert result.exit_code == 0
     assert "SHIP-POLICY-APPROVAL-MISSING" in result.output
+    assert "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY" in result.output
+    assert "SHIP-API-OPERATIONAL-READINESS" not in result.output
 
 
 def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.3.0"
+    assert result.output.strip() == "Agents Shipgate 0.4.0"
 
 
 def test_cli_scan_help_hides_deferred_flags():
@@ -119,6 +121,7 @@ def test_cli_scan_help_hides_deferred_flags():
     assert "--deep-import" not in result.output
     assert "--deep-import" in hidden_options
     assert "--baseline-mode" in public_options
+    assert "--policy-pack" in public_options
 
 
 def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):
@@ -154,6 +157,14 @@ def test_cli_explain_outputs_check_details():
     assert result.exit_code == 0
     assert "Default severity: critical" in result.output
     assert "Rationale:" in result.output
+
+
+def test_cli_explain_outputs_atomic_api_check_details():
+    result = runner.invoke(app, ["explain", "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY"])
+
+    assert result.exit_code == 0
+    assert "Default severity: high" in result.output
+    assert "OpenAI API write tool may be retried without idempotency evidence." in result.output
 
 
 def test_cli_explain_unknown_check_suggests_close_match():

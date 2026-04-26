@@ -44,6 +44,8 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "steps.scan.outputs.exit_code" in text
     assert "FAIL_ON: ${{ inputs.fail_on }}" in text
     assert "BASELINE: ${{ inputs.baseline }}" in text
+    assert "POLICY_PACKS: ${{ inputs.policy_packs }}" in text
+    assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text
     assert "args+=(--no-plugins)" in text
 

@@ -277,14 +277,23 @@ class GoogleAdkArtifacts(BaseModel):
             "eval_file_count": len(self.eval_files),
             "trace_sample_count": len(self.trace_samples),
             "tool_inventory_file_count": len(self.tool_inventory_files),
+            "warnings": self.warnings,
         }
+
+
+class LoadedPolicyPack(BaseModel):
+    id: str
+    name: str
+    version: str | None = None
+    path: str
+    rule_count: int
 
 
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.3"
+    report_schema_version: str = "0.4"
     run_id: str
     project: dict[str, Any]
     agent: dict[str, Any]
@@ -297,6 +306,7 @@ class ReadinessReport(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     generated_reports: dict[str, str] = Field(default_factory=dict)
+    loaded_policy_packs: list[LoadedPolicyPack] = Field(default_factory=list)
     loaded_plugins: list[dict[str, Any]] = Field(default_factory=list)
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)

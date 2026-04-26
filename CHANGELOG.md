@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 - Unreleased
+
+- Added declarative YAML policy packs with manifest, CLI, report, SARIF, and GitHub Action support.
+- Split `SHIP-API-OPERATIONAL-READINESS` into atomic OpenAI API operational readiness check IDs.
+- Removed the legacy top-level `check_severity_overrides` alias; use `checks.severity_overrides`.
+- Added report schema v0.4 with `loaded_policy_packs` and stabilized Google ADK warnings in the framework surface.
+- Added an internal framework adapter seam and documented runtime inventory as design-only.
+
 ## 0.3.0 - 2026-04-26
 
 - Added static Google ADK support through `tool_sources[].type: google_adk` and supplemental `google_adk` manifest artifacts.

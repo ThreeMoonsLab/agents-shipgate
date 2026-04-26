@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.3",
-  "run_id": "agents_shipgate_c344bb0fd473341d",
+  "report_schema_version": "0.4",
+  "run_id": "agents_shipgate_abbe19ac5c15d475",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -448,9 +448,9 @@
       "baseline_status": null
     },
     {
-      "id": "fp_d8c28e6c9b1785d5",
-      "fingerprint": "fp_d8c28e6c9b1785d5",
-      "check_id": "SHIP-API-OPERATIONAL-READINESS",
+      "id": "fp_28483a22a9ed40cb",
+      "fingerprint": "fp_28483a22a9ed40cb",
+      "check_id": "SHIP-API-TIMEOUT-MISSING",
       "title": "OpenAI API flow lacks timeout metadata",
       "severity": "medium",
       "category": "api",
@@ -475,9 +475,9 @@
       "baseline_status": null
     },
     {
-      "id": "fp_47846217e396b5bc",
-      "fingerprint": "fp_47846217e396b5bc",
-      "check_id": "SHIP-API-OPERATIONAL-READINESS",
+      "id": "fp_b8df99c94ef3aa60",
+      "fingerprint": "fp_b8df99c94ef3aa60",
+      "check_id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
       "title": "create_refund lacks success/failure output modeling",
       "severity": "medium",
       "category": "api",
@@ -501,9 +501,9 @@
       "baseline_status": null
     },
     {
-      "id": "fp_929f3a870d670d11",
-      "fingerprint": "fp_929f3a870d670d11",
-      "check_id": "SHIP-API-OPERATIONAL-READINESS",
+      "id": "fp_2bf957380e89863f",
+      "fingerprint": "fp_2bf957380e89863f",
+      "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
       "title": "create_refund may be retried without idempotency evidence",
       "severity": "high",
       "category": "api",
@@ -531,9 +531,9 @@
       "baseline_status": null
     },
     {
-      "id": "fp_c62079c0d92b6bd2",
-      "fingerprint": "fp_c62079c0d92b6bd2",
-      "check_id": "SHIP-API-OPERATIONAL-READINESS",
+      "id": "fp_efb42c5b5aea7be6",
+      "fingerprint": "fp_efb42c5b5aea7be6",
+      "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
       "title": "send_customer_email may be retried without idempotency evidence",
       "severity": "high",
       "category": "api",
@@ -562,9 +562,9 @@
       "baseline_status": null
     },
     {
-      "id": "fp_ab52aef3baaa1526",
-      "fingerprint": "fp_ab52aef3baaa1526",
-      "check_id": "SHIP-API-OPERATIONAL-READINESS",
+      "id": "fp_245bcdb96d8220e2",
+      "fingerprint": "fp_245bcdb96d8220e2",
+      "check_id": "SHIP-API-TRACE-APPROVAL-MISSING",
       "title": "Trace sample shows create_refund without approval",
       "severity": "medium",
       "category": "api",
@@ -647,9 +647,9 @@
   "recommended_actions": [
     "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
     "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
+    "Align prompt scope with enabled tools or remove write/high-risk tools.",
     "Add idempotency evidence for create_refund or avoid retrying this side effect.",
     "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
-    "Align prompt scope with enabled tools or remove write/high-risk tools.",
     "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
     "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
@@ -658,6 +658,7 @@
     "markdown": "expected/report.md",
     "json": "expected/report.json"
   },
+  "loaded_policy_packs": [],
   "loaded_plugins": [],
   "tool_inventory": [
     {

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.3",
+  "report_schema_version": "0.4",
   "run_id": "agents_shipgate_42a625b68c0df0a8",
   "project": {
     "name": "support-refund-agent",
@@ -618,6 +618,7 @@
     "markdown": "expected/report.md",
     "json": "expected/report.json"
   },
+  "loaded_policy_packs": [],
   "loaded_plugins": [],
   "tool_inventory": [
     {

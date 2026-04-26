@@ -24,12 +24,17 @@
 
 ## v0.4
 
-- Add external policy/check packs.
+- Add external policy/check packs:
+  - Declarative YAML policy packs under `checks.policy_packs`.
+  - CLI and GitHub Action policy-pack overrides for CI.
+  - Policy-pack findings flow through suppressions, severity overrides, baselines, Markdown, JSON, and SARIF.
 - Harden multi-framework adapter support:
   - Introduce a shared framework adapter interface where it reduces duplication.
   - Stabilize ADK report schema fields.
-  - Consider an explicit runtime inventory command that is trust-gated and never enabled by default.
+  - Document explicit runtime inventory as a future trust-gated command; do not ship it in v0.4.
   - Investigate TypeScript, Go, and Java ADK support after the Python MVP.
+- Split bundled OpenAI API operational readiness findings into atomic check IDs.
+- Remove the legacy top-level `check_severity_overrides` alias.
 - Revisit container image distribution if demand appears and the image has CI coverage.
 
 ## Google ADK Support Plan

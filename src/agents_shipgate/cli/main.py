@@ -98,7 +98,12 @@ def scan(
     baseline_mode: str = typer.Option(
         "new-findings",
         "--baseline-mode",
-        help="Baseline comparison mode. v0.3 supports new-findings.",
+        help="Baseline comparison mode. v0.4 supports new-findings.",
+    ),
+    policy_packs: list[Path] | None = typer.Option(
+        None,
+        "--policy-pack",
+        help="Additional declarative YAML policy pack path. May be supplied multiple times.",
     ),
     deep_import: bool = typer.Option(
         False,
@@ -131,6 +136,7 @@ def scan(
                 baseline_path=baseline,
                 baseline_mode=baseline_mode,
                 deep_import=deep_import,
+                policy_pack_paths=policy_packs,
                 plugins_enabled=False if no_plugins else None,
                 verbose=verbose,
             )
@@ -145,6 +151,7 @@ def scan(
             baseline=baseline,
             baseline_mode=baseline_mode,
             deep_import=deep_import,
+            policy_packs=policy_packs or [],
             plugins_enabled=False if no_plugins else None,
             verbose=verbose,
         )
@@ -499,6 +506,7 @@ def _run_multi_scan(
     baseline: Path | None,
     baseline_mode: str,
     deep_import: bool,
+    policy_packs: list[Path],
     plugins_enabled: bool | None,
     verbose: bool,
 ) -> int:
@@ -520,6 +528,7 @@ def _run_multi_scan(
                 baseline_path=baseline,
                 baseline_mode=baseline_mode,
                 deep_import=deep_import,
+                policy_pack_paths=policy_packs,
                 plugins_enabled=plugins_enabled,
                 verbose=verbose,
             )
