@@ -27,6 +27,10 @@ inputs:
     required: false
     default: new-findings
     description: Baseline comparison mode. v0.2 supports new-findings.
+  no_plugins:
+    required: false
+    default: "false"
+    description: Force third-party check plugins off even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.
   output_dir:
     required: false
     default: agents-shipgate-reports
@@ -102,6 +106,7 @@ runs:
         FAIL_ON: ${{ inputs.fail_on }}
         BASELINE: ${{ inputs.baseline }}
         BASELINE_MODE: ${{ inputs.baseline_mode }}
+        NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         args=(
@@ -116,6 +121,9 @@ runs:
         fi
         if [ -n "${BASELINE}" ]; then
           args+=(--baseline "${BASELINE}" --baseline-mode "${BASELINE_MODE}")
+        fi
+        if [ "${NO_PLUGINS}" = "true" ]; then
+          args+=(--no-plugins)
         fi
         set +e
         agents-shipgate "${args[@]}"

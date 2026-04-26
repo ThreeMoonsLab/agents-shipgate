@@ -5,7 +5,6 @@ from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import Tool, ToolParameter
 from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, is_write_tool
 
-
 BROAD_FREE_TEXT_NAMES = {
     "action",
     "body",

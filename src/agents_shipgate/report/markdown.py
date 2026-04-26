@@ -6,7 +6,6 @@ from pathlib import Path
 from agents_shipgate.core.findings import SEVERITY_ORDER
 from agents_shipgate.core.models import Finding, ReadinessReport
 
-
 DISCLAIMER = (
     "Agents Shipgate is an advisory release-readiness scanner. It does not certify "
     "agent safety or compliance. Findings are based on static configuration, declared "
@@ -47,6 +46,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
     _append_source_warnings(lines, report)
+    _append_loaded_plugins(lines, report)
     _append_tool_surface(lines, report)
     _append_api_surface(lines, report)
     _append_findings_by_category(lines, report.findings)
@@ -108,6 +108,22 @@ def _append_source_warnings(lines: list[str], report: ReadinessReport) -> None:
     lines.extend(["## Source Warnings", ""])
     for warning in report.source_warnings:
         lines.append(f"- {_safe_markdown_text(warning)}")
+    lines.append("")
+
+
+def _append_loaded_plugins(lines: list[str], report: ReadinessReport) -> None:
+    if not report.loaded_plugins:
+        return
+    lines.extend(["## Loaded Plugins", ""])
+    for plugin in report.loaded_plugins:
+        distribution = plugin.get("distribution") or "unknown distribution"
+        version = plugin.get("version")
+        check_id = plugin.get("check_id") or "unknown check"
+        suffix = f" {version}" if version else ""
+        lines.append(
+            f"- {_safe_markdown_text(distribution)}{_safe_markdown_text(suffix)}: "
+            f"{_safe_markdown_text(check_id)}"
+        )
     lines.append("")
 
 

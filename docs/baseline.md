@@ -15,6 +15,10 @@ The baseline contains active, unsuppressed findings only. Suppressed findings
 are intentionally excluded because they already carry an explicit review reason
 in `shipgate.yaml`.
 
+Severity values in the baseline are the report-visible severities after
+`checks.severity_overrides` are applied. Matching still uses fingerprints, not
+severity, so changing an override does not create a new baseline identity.
+
 ## Apply The Baseline
 
 ```bash
@@ -43,4 +47,5 @@ Reports keep the v0.1 payload contract and add v0.2 fields:
 Baseline matching uses `findings[].fingerprint`. The fingerprint algorithm is
 documented as v1: `sha256(check_id | tool_name | canonical evidence)[:16]`,
 rendered as `fp_<digest>`. It intentionally excludes severity overrides, report
-paths, warnings, timestamps, and baseline status.
+paths, warnings, timestamps, `default_severity` audit evidence, and baseline
+status.

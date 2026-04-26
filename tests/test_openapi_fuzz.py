@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.inputs.openapi import load_openapi_tools

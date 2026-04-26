@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from agents_shipgate.cli.scan import run_scan
 

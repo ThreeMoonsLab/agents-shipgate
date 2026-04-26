@@ -3,7 +3,6 @@ from pathlib import Path
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import write_baseline
 
-
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
 
@@ -219,6 +218,12 @@ ci:
     assert finding.severity == "critical"
     assert finding.evidence["default_severity"] == "medium"
     assert exit_code == 20
+
+    baseline = write_baseline(report, tmp_path / "severity-baseline.json")
+    saved = next(
+        item for item in baseline.findings if item.check_id == "SHIP-DOC-MISSING-DESCRIPTION"
+    )
+    assert saved.severity == "critical"
 
 
 def test_read_only_refund_lookup_is_not_critical(tmp_path):

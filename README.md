@@ -157,7 +157,7 @@ jobs:
 
 For PR comments, add `pull-requests: write` to the job's `permissions` and set `pr_comment: "true"`.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
 
 Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `report_json`, `report_markdown`, `exit_code`.
 

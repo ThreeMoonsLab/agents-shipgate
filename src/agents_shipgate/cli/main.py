@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from difflib import get_close_matches
 import glob
 import json
 import logging
+import re
+from difflib import get_close_matches
 from pathlib import Path
 
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.discovery import discover_manifest_paths, render_manifest_template
 from agents_shipgate.cli.scan import inspect_sources, run_scan
-from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.core.baseline import write_baseline
-from agents_shipgate.core.errors import ConfigError, InputParseError, AgentsShipgateError
+from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings import SEVERITY_ORDER
 from agents_shipgate.core.logging import configure_logging
-
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -79,11 +79,18 @@ def scan(
         "new-findings",
         "--baseline-mode",
         help="Baseline comparison mode. v0.2 supports new-findings only.",
+        hidden=True,
     ),
     deep_import: bool = typer.Option(
         False,
         "--deep-import",
         help="Deferred. Explicit import execution is not supported yet.",
+        hidden=True,
+    ),
+    no_plugins: bool = typer.Option(
+        False,
+        "--no-plugins",
+        help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
 ) -> None:
@@ -105,6 +112,7 @@ def scan(
                 baseline_path=baseline,
                 baseline_mode=baseline_mode,
                 deep_import=deep_import,
+                plugins_enabled=False if no_plugins else None,
                 verbose=verbose,
             )
             _print_cli_summary(report, ci_mode or "advisory", exit_code, verbose=verbose)
@@ -118,6 +126,7 @@ def scan(
             baseline=baseline,
             baseline_mode=baseline_mode,
             deep_import=deep_import,
+            plugins_enabled=False if no_plugins else None,
             verbose=verbose,
         )
     except ConfigError as exc:
@@ -142,10 +151,15 @@ def scan(
 
 @app.command("list-checks")
 def list_checks(
-    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text.")
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
+    no_plugins: bool = typer.Option(
+        False,
+        "--no-plugins",
+        help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
+    ),
 ) -> None:
     """List the built-in check catalog."""
-    checks = check_catalog()
+    checks = check_catalog(plugins_enabled=False if no_plugins else None)
     if json_output:
         typer.echo(json.dumps([check.model_dump() for check in checks], indent=2))
         return
@@ -156,9 +170,16 @@ def list_checks(
 
 
 @app.command()
-def explain(check_id: str) -> None:
+def explain(
+    check_id: str,
+    no_plugins: bool = typer.Option(
+        False,
+        "--no-plugins",
+        help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
+    ),
+) -> None:
     """Explain why a check exists and when it fires."""
-    checks = check_catalog()
+    checks = check_catalog(plugins_enabled=False if no_plugins else None)
     check = next((item for item in checks if item.id == check_id), None)
     if not check:
         matches = get_close_matches(check_id, [item.id for item in checks], n=1)
@@ -341,6 +362,7 @@ def _run_multi_scan(
     baseline: Path | None,
     baseline_mode: str,
     deep_import: bool,
+    plugins_enabled: bool | None,
     verbose: bool,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
@@ -351,30 +373,55 @@ def _run_multi_scan(
         output_dir = None
         if out is not None:
             output_dir = out / _safe_output_name(config_path)
-        report, scan_exit_code = run_scan(
-            config_path=config_path,
-            output_dir=output_dir,
-            formats=formats,
-            ci_mode=ci_mode,
-            fail_on=fail_on,
-            baseline_path=baseline,
-            baseline_mode=baseline_mode,
-            deep_import=deep_import,
-            verbose=verbose,
-        )
+        try:
+            report, scan_exit_code = run_scan(
+                config_path=config_path,
+                output_dir=output_dir,
+                formats=formats,
+                ci_mode=ci_mode,
+                fail_on=fail_on,
+                baseline_path=baseline,
+                baseline_mode=baseline_mode,
+                deep_import=deep_import,
+                plugins_enabled=plugins_enabled,
+                verbose=verbose,
+            )
+        except ConfigError as exc:
+            scan_exit_code = 2
+            typer.echo(f"{config_path}: config_error - {exc}", err=True)
+        except InputParseError as exc:
+            scan_exit_code = 3
+            typer.echo(f"{config_path}: input_parse_error - {exc}", err=True)
+        except AgentsShipgateError as exc:
+            scan_exit_code = 4
+            typer.echo(f"{config_path}: agents_shipgate_error - {exc}", err=True)
+        except Exception as exc:  # noqa: BLE001 - multi-scan boundary.
+            scan_exit_code = 4
+            if verbose:
+                logger.exception("unhandled exception while scanning %s", config_path)
+            typer.echo(f"{config_path}: internal_error - {exc}", err=True)
+        else:
+            typer.echo(
+                f"{config_path}: {report.summary.status} "
+                f"(critical={report.summary.critical_count}, high={report.summary.high_count})"
+            )
         exit_code = max(exit_code, scan_exit_code)
-        typer.echo(
-            f"{config_path}: {report.summary.status} "
-            f"(critical={report.summary.critical_count}, high={report.summary.high_count})"
-        )
     typer.echo("")
     typer.echo(f"Exit code: {exit_code}")
     return exit_code
 
 
 def _safe_output_name(config_path: Path) -> str:
-    parent = config_path.parent.as_posix().strip("./").replace("/", "__")
-    return parent or "root"
+    parent = config_path.parent
+    try:
+        display_parent = parent.resolve().relative_to(Path.cwd().resolve())
+    except ValueError:
+        display_parent = parent.resolve()
+    raw = display_parent.as_posix()
+    if raw in {"", "."}:
+        return "root"
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")
+    return safe or "root"
 
 
 def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = False) -> None:

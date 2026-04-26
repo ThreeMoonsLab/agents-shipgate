@@ -14,8 +14,8 @@ from agents_shipgate.core.baseline import apply_baseline, load_baseline
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.findings import (
-    apply_suppressions,
     apply_severity_overrides,
+    apply_suppressions,
     assign_finding_ids,
     build_report,
     tool_inventory,
@@ -30,9 +30,9 @@ from agents_shipgate.core.models import (
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.inputs.mcp import load_mcp_tools
-from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 
@@ -49,6 +49,7 @@ def run_scan(
     baseline_path: Path | None = None,
     baseline_mode: str = "new-findings",
     deep_import: bool = False,
+    plugins_enabled: bool | None = None,
     verbose: bool = False,
 ) -> tuple[ReadinessReport, int]:
     if deep_import:
@@ -112,7 +113,12 @@ def run_scan(
         config_path=config_path.resolve(),
         api_artifacts=api_artifacts,
     )
-    findings = run_checks(context)
+    loaded_plugins: list[dict[str, str | None]] = []
+    findings = run_checks(
+        context,
+        plugins_enabled=plugins_enabled,
+        loaded_plugins=loaded_plugins,
+    )
     assign_finding_ids(findings)
     apply_severity_overrides(findings, manifest.severity_overrides())
     apply_suppressions(findings, manifest.checks.ignore)
@@ -152,6 +158,7 @@ def run_scan(
             key: _relative_display_path(path, base_dir)
             for key, path in generated_paths.items()
         },
+        loaded_plugins=loaded_plugins,
         source_warnings=warnings,
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
         baseline=baseline_summary,

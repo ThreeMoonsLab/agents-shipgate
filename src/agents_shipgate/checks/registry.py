@@ -2,13 +2,23 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any
 
-from agents_shipgate.checks import api, auth, documentation, inventory, manifest_consistency, manifest_scope, policy, schema, side_effects
+from agents_shipgate.checks import (
+    api,
+    auth,
+    documentation,
+    inventory,
+    manifest_consistency,
+    manifest_scope,
+    policy,
+    schema,
+    side_effects,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
-
 
 BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     inventory.run,
@@ -54,9 +64,23 @@ CHECK_METADATA: list[CheckMetadata] = [
 ]
 
 
-def run_checks(context: ScanContext) -> list[Finding]:
+@dataclass(frozen=True)
+class LoadedPluginCheck:
+    check: Callable[[ScanContext], list[Finding]]
+    info: dict[str, str | None]
+
+
+def run_checks(
+    context: ScanContext,
+    *,
+    plugins_enabled: bool | None = None,
+    loaded_plugins: list[dict[str, str | None]] | None = None,
+) -> list[Finding]:
     findings: list[Finding] = []
-    for check in check_functions():
+    plugin_checks = _plugin_check_records(plugins_enabled=plugins_enabled)
+    if loaded_plugins is not None:
+        loaded_plugins.extend(record.info for record in plugin_checks)
+    for check in [*BUILTIN_CHECKS, *(record.check for record in plugin_checks)]:
         findings.extend(check(context))
     findings.extend(
         manifest_consistency.run(
@@ -67,9 +91,9 @@ def run_checks(context: ScanContext) -> list[Finding]:
     return findings
 
 
-def check_catalog() -> list[CheckMetadata]:
+def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]:
     metadata = [*CHECK_METADATA]
-    for check in _plugin_checks():
+    for check in _plugin_checks(plugins_enabled=plugins_enabled):
         plugin_metadata = getattr(check, "AGENTS_SHIPGATE_METADATA", None)
         if plugin_metadata is None:
             continue
@@ -80,26 +104,102 @@ def check_catalog() -> list[CheckMetadata]:
     return sorted(metadata, key=lambda check: check.id)
 
 
-def check_functions() -> list[Callable[[ScanContext], list[Finding]]]:
-    return [*BUILTIN_CHECKS, *_plugin_checks()]
+def check_functions(
+    *, plugins_enabled: bool | None = None
+) -> list[Callable[[ScanContext], list[Finding]]]:
+    return [*BUILTIN_CHECKS, *_plugin_checks(plugins_enabled=plugins_enabled)]
 
 
-def _plugin_checks() -> list[Callable[[ScanContext], list[Finding]]]:
-    if not _plugins_enabled():
+def _plugin_checks(
+    *, plugins_enabled: bool | None = None
+) -> list[Callable[[ScanContext], list[Finding]]]:
+    return [
+        record.check
+        for record in _plugin_check_records(plugins_enabled=plugins_enabled)
+    ]
+
+
+def _plugin_check_records(
+    *,
+    plugins_enabled: bool | None = None,
+) -> list[LoadedPluginCheck]:
+    if not _plugins_enabled(plugins_enabled):
         return []
-    checks: list[Callable[[ScanContext], list[Finding]]] = []
+    checks: list[LoadedPluginCheck] = []
     for entry_point in entry_points(group="agents_shipgate.checks"):
-        if entry_point.value.startswith("agents_shipgate.checks."):
+        if _is_builtin_entry_point(entry_point):
             continue
         loaded = entry_point.load()
         if callable(loaded):
-            checks.append(loaded)
+            checks.append(
+                LoadedPluginCheck(
+                    check=loaded,
+                    info=_plugin_info(entry_point, loaded),
+                )
+            )
     return checks
 
 
-def _plugins_enabled() -> bool:
+def _plugins_enabled(override: bool | None = None) -> bool:
+    if override is not None:
+        return override
     value = os.environ.get("AGENTS_SHIPGATE_ENABLE_PLUGINS", "")
     return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _is_builtin_entry_point(entry_point: Any) -> bool:
+    dist = getattr(entry_point, "dist", None)
+    distribution_name = _distribution_name(dist)
+    if _normalize_distribution_name(distribution_name) == "agents-shipgate":
+        return True
+    if dist is None:
+        return str(getattr(entry_point, "value", "")).startswith(
+            "agents_shipgate.checks."
+        )
+    return False
+
+
+def _plugin_info(
+    entry_point: Any,
+    loaded: Callable[[ScanContext], list[Finding]],
+) -> dict[str, str | None]:
+    metadata = getattr(loaded, "AGENTS_SHIPGATE_METADATA", None)
+    check_id: str | None = None
+    if isinstance(metadata, CheckMetadata):
+        check_id = metadata.id
+    elif isinstance(metadata, dict) and isinstance(metadata.get("id"), str):
+        check_id = metadata["id"]
+    dist = getattr(entry_point, "dist", None)
+    return {
+        "name": str(getattr(entry_point, "name", "")) or None,
+        "value": str(getattr(entry_point, "value", "")) or None,
+        "distribution": _distribution_name(dist),
+        "version": _distribution_version(dist),
+        "check_id": check_id,
+    }
+
+
+def _distribution_name(dist: Any) -> str | None:
+    if dist is None:
+        return None
+    metadata = getattr(dist, "metadata", None)
+    if metadata is not None:
+        name = metadata.get("Name")
+        if isinstance(name, str):
+            return name
+    name = getattr(dist, "name", None)
+    return str(name) if name else None
+
+
+def _distribution_version(dist: Any) -> str | None:
+    if dist is None:
+        return None
+    version = getattr(dist, "version", None)
+    return str(version) if version else None
+
+
+def _normalize_distribution_name(value: str | None) -> str:
+    return (value or "").replace("_", "-").lower()
 
 
 def _metadata_from_plugin(value: Any) -> CheckMetadata:

@@ -212,7 +212,7 @@ agents-shipgate list-checks --json
 agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING
 ```
 
-Third-party packages can register checks through the `agents_shipgate.checks` Python entry-point group. Plugins are disabled by default because loading them imports third-party Python modules. Set `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` to opt in. A plugin check should expose a callable with the same `ScanContext -> list[Finding]` shape as built-ins and may attach `AGENTS_SHIPGATE_METADATA` as either a `CheckMetadata` instance or a compatible dictionary.
+Third-party packages can register checks through the `agents_shipgate.checks` Python entry-point group. Plugins are disabled by default because loading them imports third-party Python modules. Set `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` to opt in, or pass `--no-plugins` to force them off for a scan or catalog command. Reports include `loaded_plugins` provenance for every third-party check entry point that ran. A plugin check should expose a callable with the same `ScanContext -> list[Finding]` shape as built-ins and may attach `AGENTS_SHIPGATE_METADATA` as either a `CheckMetadata` instance or a compatible dictionary.
 
 ## OpenAI Agents SDK Static Extraction
 

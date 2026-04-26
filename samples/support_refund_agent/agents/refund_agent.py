@@ -1,5 +1,6 @@
 from agents import Agent, function_tool
 
+
 @function_tool
 def send_email_preview(recipient: str, subject: str, body: str) -> str:
     """Render a customer email preview without sending it."""

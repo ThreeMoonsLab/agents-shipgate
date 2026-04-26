@@ -12,7 +12,6 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 
-
 STOPWORDS = {
     "a",
     "an",

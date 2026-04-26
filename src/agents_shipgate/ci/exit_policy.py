@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from agents_shipgate.core.models import ReadinessReport, Severity
 
-
 GATE_FAILURE_EXIT_CODE = 20
 
 

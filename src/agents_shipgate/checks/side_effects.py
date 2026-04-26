@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, is_write_tool, risk_tags
+from agents_shipgate.core.risk_hints import (
+    has_risk_tag,
+    is_effectively_read_only,
+    is_write_tool,
+    risk_tags,
+)
 
 
 def run(context: ScanContext):

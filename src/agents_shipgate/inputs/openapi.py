@@ -10,11 +10,11 @@ from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
     HTTP_METHODS,
     load_structured_file,
+    resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
     tool_name_warning,
 )
-
 
 MAX_SCHEMA_RESOLVE_DEPTH = 32
 MAX_SCHEMA_RESOLVE_NODES = 5000
@@ -22,7 +22,7 @@ MAX_SCHEMA_RESOLVE_NODES = 5000
 
 def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:
     assert source.path is not None
-    path = (base_dir / source.path).resolve()
+    path = resolve_input_path(base_dir, source.path)
     document = load_structured_file(path)
     if not isinstance(document, dict):
         raise InputParseError(f"OpenAPI file must contain an object: {path}")

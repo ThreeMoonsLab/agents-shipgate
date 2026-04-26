@@ -2,23 +2,36 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 
 from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
-from agents_shipgate.core.models import BaselineSummary, Finding, ReadinessReport, ReportSummary, Severity, Tool, ToolSurfaceSummary
+from agents_shipgate.core.models import (
+    BaselineSummary,
+    Finding,
+    ReadinessReport,
+    ReportSummary,
+    Severity,
+    Tool,
+    ToolSurfaceSummary,
+    confidence_rank,
+)
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
-
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {"default_severity"}
 
 
 def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
-    seen: dict[str, int] = {}
+    by_fingerprint: dict[str, list[Finding]] = defaultdict(list)
     for finding in findings:
-        base_id = finding_fingerprint(finding)
-        finding.fingerprint = base_id
-        seen[base_id] = seen.get(base_id, 0) + 1
-        finding.id = base_id if seen[base_id] == 1 else f"{base_id}_{seen[base_id]}"
+        finding.fingerprint = finding_fingerprint(finding)
+        by_fingerprint[finding.fingerprint].append(finding)
+    for finding in findings:
+        assert finding.fingerprint is not None
+        if len(by_fingerprint[finding.fingerprint]) == 1:
+            finding.id = finding.fingerprint
+            continue
+        finding.id = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
     return findings
 
 
@@ -39,6 +52,8 @@ def apply_severity_overrides(
     for finding in findings:
         override = overrides.get(finding.check_id)
         if override:
+            # Keep this audit field out of fingerprinting so overrides can be
+            # applied before or after ID assignment without changing identity.
             finding.evidence.setdefault("default_severity", finding.severity)
             finding.severity = override
     return findings
@@ -122,6 +137,7 @@ def build_report(
     tools: list[Tool],
     findings: list[Finding],
     generated_reports: dict[str, str],
+    loaded_plugins: list[dict[str, object]] | None = None,
     source_warnings: list[str] | None = None,
     api_surface: dict[str, object] | None = None,
     baseline: BaselineSummary | None = None,
@@ -138,6 +154,7 @@ def build_report(
         findings=findings,
         recommended_actions=recommended_actions(findings),
         generated_reports=generated_reports,
+        loaded_plugins=loaded_plugins or [],
         tool_inventory=tool_inventory(tools),
         source_warnings=source_warnings or [],
     )
@@ -178,6 +195,7 @@ def _canonicalize_for_fingerprint(value):
         return {
             key: _canonicalize_for_fingerprint(value[key])
             for key in sorted(value)
+            if key not in FINGERPRINT_EXCLUDED_EVIDENCE_KEYS
         }
     if isinstance(value, list):
         items = [_canonicalize_for_fingerprint(item) for item in value]
@@ -190,20 +208,38 @@ def _canonicalize_for_fingerprint(value):
     return value
 
 
+def _collision_discriminator(finding: Finding) -> str:
+    identity = {
+        "agent_id": finding.agent_id,
+        "category": finding.category,
+        "check_id": finding.check_id,
+        "confidence": finding.confidence,
+        "recommendation": finding.recommendation,
+        "source": finding.source.model_dump(mode="json") if finding.source else None,
+        "title": finding.title,
+        "tool_id": finding.tool_id,
+        "tool_name": finding.tool_name,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            _canonicalize_for_fingerprint(identity),
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()[:8]
+    return digest
+
+
 def _risk_tag_confidence(tool: Tool, min_confidence: str) -> dict[str, str]:
-    threshold = _confidence_rank(min_confidence)
+    threshold = confidence_rank(min_confidence)
     by_tag: dict[str, str] = {}
     for hint in tool.risk_hints:
-        if _confidence_rank(hint.confidence) < threshold:
+        if confidence_rank(hint.confidence) < threshold:
             continue
         current = by_tag.get(hint.tag)
-        if current is None or _confidence_rank(hint.confidence) > _confidence_rank(current):
+        if current is None or confidence_rank(hint.confidence) > confidence_rank(current):
             by_tag[hint.tag] = hint.confidence
     return dict(sorted(by_tag.items()))
-
-
-def _confidence_rank(confidence: str) -> int:
-    return {"low": 1, "medium": 2, "high": 3}.get(confidence, 0)
 
 
 def _has_mixed_evidence(tools: list[Tool]) -> bool:

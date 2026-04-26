@@ -19,11 +19,11 @@ from agents_shipgate.core.models import (
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
+    resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
     tool_name_warning,
 )
-
 
 PROMPT_SUFFIXES = {".md", ".markdown", ".txt"}
 
@@ -345,8 +345,7 @@ def _looks_like_json_schema(value: dict[str, Any]) -> bool:
 
 
 def _resolve(base_dir: Path, value: str) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else base_dir / path
+    return resolve_input_path(base_dir, value)
 
 
 def _display_path(path: Path, base_dir: Path) -> str:

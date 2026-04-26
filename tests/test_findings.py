@@ -3,6 +3,7 @@ from agents_shipgate.core.findings import (
     apply_severity_overrides,
     apply_suppressions,
     assign_finding_ids,
+    finding_fingerprint,
     summarize_findings,
 )
 from agents_shipgate.core.models import Finding, Tool
@@ -63,6 +64,37 @@ def test_finding_ids_are_stable_across_ordering():
     assert second.id == second_id
 
 
+def test_colliding_finding_ids_use_stable_discriminator():
+    first = Finding(
+        check_id="SHIP-A",
+        title="A",
+        severity="high",
+        category="test",
+        tool_name="tool_a",
+        evidence={"field": "same"},
+        recommendation="Fix A.",
+    )
+    second = Finding(
+        check_id="SHIP-A",
+        title="B",
+        severity="high",
+        category="test",
+        tool_name="tool_a",
+        evidence={"field": "same"},
+        recommendation="Fix B.",
+    )
+
+    assign_finding_ids([first, second])
+    first_id = first.id
+    second_id = second.id
+    assign_finding_ids([second, first])
+
+    assert first.fingerprint == second.fingerprint
+    assert first.id == first_id
+    assert second.id == second_id
+    assert first.id != second.id
+
+
 def test_finding_fingerprint_is_stable_across_severity_override():
     finding = Finding(
         check_id="SHIP-DOC-MISSING-DESCRIPTION",
@@ -81,6 +113,23 @@ def test_finding_fingerprint_is_stable_across_severity_override():
     assert finding.severity == "critical"
     assert finding.fingerprint == fingerprint
     assert finding.evidence["default_severity"] == "medium"
+
+
+def test_finding_fingerprint_ignores_default_severity_evidence():
+    finding = Finding(
+        check_id="SHIP-DOC-MISSING-DESCRIPTION",
+        title="Missing description",
+        severity="medium",
+        category="documentation",
+        tool_name="docs.short",
+        evidence={"description_length": 5},
+        recommendation="Add a description.",
+    )
+    fingerprint = finding_fingerprint(finding)
+
+    apply_severity_overrides([finding], {"SHIP-DOC-MISSING-DESCRIPTION": "critical"})
+
+    assert finding_fingerprint(finding) == fingerprint
 
 
 def test_finding_fingerprint_sorts_list_evidence_values():

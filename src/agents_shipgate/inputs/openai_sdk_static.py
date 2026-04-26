@@ -7,7 +7,7 @@ from typing import Any
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool, ToolParameter
-from agents_shipgate.inputs.common import stable_tool_id
+from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
 
 
 def load_openai_sdk_static_tools(
@@ -20,7 +20,7 @@ def load_openai_sdk_static_tools(
             source_type="openai_agents_sdk",
             warnings=["OpenAI Agents SDK source has no entrypoint"],
         )
-    path = (base_dir / entrypoint).resolve()
+    path = resolve_input_path(base_dir, entrypoint)
     if not path.exists():
         return LoadedToolSource(
             source_id=source.id,

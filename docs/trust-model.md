@@ -24,7 +24,13 @@ By default Agents Shipgate does not:
 - `file://`, `http://`, and other external `$ref` values are left as inert schema values.
 - OpenAI Agents SDK enrichment uses `ast.parse` only. It does not import or execute Python modules.
 - `openai_api` artifacts are local prompt, JSON, YAML, or JSONL files. Agents Shipgate parses them locally and does not call OpenAI APIs, validate model availability, estimate pricing, or execute traces.
-- Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points.
+- Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.
+
+## Plugin Trust Boundary
+
+Plugins are Python code. When plugin loading is enabled, Agents Shipgate imports every installed non-core entry point in the `agents_shipgate.checks` group and runs callable checks from those entry points. The default zero-execution guarantee stops at that opt-in boundary.
+
+JSON and Markdown reports include loaded plugin provenance so CI reviewers can see which third-party check packages contributed to the scan. Treat plugin packages like other CI dependencies: pin versions, audit transitive dependencies, and avoid enabling plugins in untrusted environments unless those packages are approved.
 
 ## Failure Policy
 

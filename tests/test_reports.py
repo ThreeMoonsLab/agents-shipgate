@@ -1,11 +1,10 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.report.markdown import render_markdown_report
-
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_MARKDOWN = Path("samples/support_refund_agent/expected/report.md")
@@ -59,6 +58,8 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "severity" in payload["findings"][0]
     assert "fingerprint" in payload["findings"][0]
     assert "tool_inventory" in payload
+    assert "loaded_plugins" in payload
+    assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
     assert payload["report_schema_version"] == "0.2"
 

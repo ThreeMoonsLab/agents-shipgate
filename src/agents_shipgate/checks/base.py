@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Finding, SourceReference, Tool, parse_confidence, parse_severity
+from agents_shipgate.core.models import (
+    Finding,
+    SourceReference,
+    Tool,
+    parse_confidence,
+    parse_severity,
+)
 
 
 def tool_finding(

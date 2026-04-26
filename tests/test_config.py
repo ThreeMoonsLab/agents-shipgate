@@ -5,7 +5,6 @@ import pytest
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import ConfigError
 
-
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
 

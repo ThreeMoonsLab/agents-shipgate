@@ -4,7 +4,6 @@ from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["low", "medium", "high"]
 BaselineStatus = Literal["new", "matched", "resolved"]
@@ -20,6 +19,10 @@ def parse_confidence(value: str) -> Confidence:
     if value not in get_args(Confidence):
         raise ValueError(f"Unsupported confidence: {value}")
     return cast(Confidence, value)
+
+
+def confidence_rank(confidence: str | None) -> int:
+    return {"low": 1, "medium": 2, "high": 3}.get(confidence or "", 0)
 
 
 class SourceReference(BaseModel):
@@ -239,6 +242,7 @@ class ReadinessReport(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     generated_reports: dict[str, str] = Field(default_factory=dict)
+    loaded_plugins: list[dict[str, Any]] = Field(default_factory=list)
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
 

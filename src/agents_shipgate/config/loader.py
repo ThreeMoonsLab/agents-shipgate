@@ -10,7 +10,6 @@ from pydantic import ValidationError
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.errors import ConfigError
 
-
 KNOWN_MANIFEST_FIELDS = {
     "agent",
     "annotations",

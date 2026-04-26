@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from agents_shipgate.core.models import Severity
 
-
 STRICT_MODEL_CONFIG = ConfigDict(extra="forbid")
 
 

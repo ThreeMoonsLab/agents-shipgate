@@ -16,6 +16,7 @@
     "findings",
     "recommended_actions",
     "generated_reports",
+    "loaded_plugins",
     "tool_inventory",
     "source_warnings"
   ],
@@ -92,6 +93,14 @@
     },
     "generated_reports": {
       "type": "object"
+    },
+    "loaded_plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value", "distribution", "version", "check_id"],
+        "additionalProperties": true
+      }
     },
     "tool_inventory": {
       "type": "array",

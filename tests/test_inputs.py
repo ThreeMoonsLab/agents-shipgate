@@ -8,7 +8,6 @@ from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 
-
 BASE = Path("samples/support_refund_agent")
 
 
@@ -116,6 +115,23 @@ def test_mcp_loader_warns_on_duplicate_and_non_conventional_names(tmp_path):
     assert len(loaded.tools) == 2
     assert any("non-conventional" in warning for warning in loaded.warnings)
     assert any("Duplicate MCP tool name" in warning for warning in loaded.warnings)
+
+
+def test_mcp_loader_rejects_path_traversal(tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"tools": []}', encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    try:
+        load_mcp_tools(
+            ToolSourceConfig(id="outside", type="mcp", path="../outside.json"),
+            project,
+        )
+    except InputParseError as exc:
+        assert "resolves outside manifest directory" in str(exc)
+    else:
+        raise AssertionError("Expected InputParseError")
 
 
 def test_json_content_with_yaml_extension_is_parsed_as_json(tmp_path):

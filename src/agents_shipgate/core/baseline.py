@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import BaselineSummary, Finding, ReadinessReport, Severity
 
-
 BASELINE_SCHEMA_VERSION = "0.2"
 
 

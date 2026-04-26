@@ -7,7 +7,6 @@ from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 
-
 SAMPLE = Path("samples/simple_openai_api_agent/shipgate.yaml")
 
 

@@ -10,10 +10,23 @@ import yaml
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import ToolParameter
 
-
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 MAX_INPUT_FILE_BYTES = 10 * 1024 * 1024
 CONVENTIONAL_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,128}$")
+
+
+def resolve_input_path(base_dir: Path, value: str) -> Path:
+    base = base_dir.resolve()
+    raw_path = Path(value)
+    path = raw_path if raw_path.is_absolute() else base / raw_path
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(base)
+    except ValueError as exc:
+        raise InputParseError(
+            f"Input path {value!r} resolves outside manifest directory: {resolved}"
+        ) from exc
+    return resolved
 
 
 def load_structured_file(path: Path) -> Any:

@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.models import Tool, ToolRiskHint, parse_confidence
-
+from agents_shipgate.core.models import Tool, ToolRiskHint, confidence_rank, parse_confidence
 
 HIGH_RISK_TAGS = {
     "destructive",
@@ -34,19 +33,19 @@ def has_risk_tag(tool: Tool, tags: Iterable[str], min_confidence: str | None = N
     best_confidence = 0
     for hint in tool.risk_hints:
         if hint.tag in wanted:
-            best_confidence = max(best_confidence, _confidence_rank(hint.confidence))
+            best_confidence = max(best_confidence, confidence_rank(hint.confidence))
     if min_confidence:
-        return best_confidence >= _confidence_rank(min_confidence)
+        return best_confidence >= confidence_rank(min_confidence)
     return best_confidence > 0
 
 
 def risk_tags(tool: Tool, min_confidence: str | None = None) -> list[str]:
-    threshold = _confidence_rank(min_confidence) if min_confidence else 0
+    threshold = confidence_rank(min_confidence) if min_confidence else 0
     return sorted(
         {
             hint.tag
             for hint in tool.risk_hints
-            if _confidence_rank(hint.confidence) >= threshold
+            if confidence_rank(hint.confidence) >= threshold
         }
     )
 
@@ -160,7 +159,7 @@ def _add_hint(
     confidence_value = confidence if confidence in {"low", "medium", "high"} else "medium"
     for existing in tool.risk_hints:
         if existing.tag == tag and existing.source == source:
-            if _confidence_rank(confidence_value) > _confidence_rank(existing.confidence):
+            if confidence_rank(confidence_value) > confidence_rank(existing.confidence):
                 existing.confidence = parse_confidence(confidence_value)
                 existing.evidence.update(evidence)
             return
@@ -172,7 +171,3 @@ def _add_hint(
             evidence={key: value for key, value in evidence.items() if value is not None},
         )
     )
-
-
-def _confidence_rank(confidence: str) -> int:
-    return {"low": 1, "medium": 2, "high": 3}.get(confidence, 0)
