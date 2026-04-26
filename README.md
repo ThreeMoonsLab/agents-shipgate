@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-header-dark.png">
+    <img src="assets/readme-header.png" alt="Agents Shipgate · static release-readiness for AI agent tool surfaces" width="100%">
+  </picture>
+</p>
+
 # Agents Shipgate
 
 [![PyPI](https://img.shields.io/pypi/v/agents-shipgate)](https://pypi.org/project/agents-shipgate/)
