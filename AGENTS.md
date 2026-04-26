@@ -16,6 +16,26 @@ Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yam
 
 ---
 
+## Naming (canonical)
+
+Use exactly one form depending on context. Mixing them in user-visible copy is an adoption cost.
+
+| Form | When to use |
+|---|---|
+| **Agents Shipgate** | Display name. Prose, headings, marketing copy, social cards, slide titles, blog posts. |
+| **`agents-shipgate`** | Package, CLI binary, repo, GitHub Action, PyPI distribution name, env-var prefix (`AGENTS_SHIPGATE_*`), import path (`agents_shipgate`). Always lowercase, kebab-case. |
+| **`shipgate`** | Short alias for the CLI binary only. Acceptable in shell snippets where brevity helps; never as the project name. |
+
+Do **not** use any of: `Agent Shipgate` (singular), `Agent Shipcheck`, `agents shipgate` (display lowercase), `Agents-Shipgate` (display kebab). When in doubt: prose → `Agents Shipgate`; code → `agents-shipgate`.
+
+The canonical tagline is:
+
+> Static release-readiness scanner for AI agent tool surfaces.
+
+This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the marketing site `<meta name="description">`. Keep them in sync.
+
+---
+
 ## Install (canonical)
 
 ```bash

@@ -1,5 +1,7 @@
 # Roadmap
 
+> **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
+
 ## v0.2
 
 - Improve onboarding with `agents-shipgate init`, `doctor`, and richer examples.
