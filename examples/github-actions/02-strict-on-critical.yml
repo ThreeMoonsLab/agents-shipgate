@@ -1,0 +1,24 @@
+# Strict mode — fail PRs on unsuppressed critical findings.
+# Use after your team has tuned risk_overrides and checks.ignore in advisory
+# mode for a sprint or two.
+name: Agents Shipgate (strict on critical)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        with:
+          ci_mode: strict
+          fail_on: critical
+          pr_comment: 'true'
+          shipgate_version: '0.3.0'

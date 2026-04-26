@@ -1,0 +1,26 @@
+# Strict mode with baseline — fail PRs only on NEW findings.
+# Setup (one-time):
+#   agents-shipgate baseline save -c shipgate.yaml --out .agents-shipgate/baseline.json
+#   git add .agents-shipgate/baseline.json && git commit -m "Baseline shipgate findings"
+name: Agents Shipgate (strict with baseline)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        with:
+          ci_mode: strict
+          fail_on: critical,high
+          baseline: .agents-shipgate/baseline.json
+          pr_comment: 'true'
+          shipgate_version: '0.3.0'

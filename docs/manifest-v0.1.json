@@ -1,0 +1,809 @@
+{
+  "$defs": {
+    "AgentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "declared_purpose": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Purpose",
+          "type": "array"
+        },
+        "instructions_preview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions Preview"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "prohibited_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Actions",
+          "type": "array"
+        },
+        "sdk": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentSdkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AgentConfig",
+      "type": "object"
+    },
+    "AgentSdkConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "deep_import": {
+          "default": false,
+          "title": "Deep Import",
+          "type": "boolean"
+        },
+        "entrypoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entrypoint"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "object": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object"
+        },
+        "static_extract": {
+          "default": true,
+          "title": "Static Extract",
+          "type": "boolean"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "AgentSdkConfig",
+      "type": "object"
+    },
+    "ArtifactPathConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ArtifactPathConfig",
+      "type": "object"
+    },
+    "ChecksConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "ignore": {
+          "items": {
+            "$ref": "#/$defs/SuppressionConfig"
+          },
+          "title": "Ignore",
+          "type": "array"
+        },
+        "severity_overrides": {
+          "additionalProperties": {
+            "enum": [
+              "info",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": "Severity Overrides",
+          "type": "object"
+        }
+      },
+      "title": "ChecksConfig",
+      "type": "object"
+    },
+    "CiConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "default": false,
+          "title": "Annotations",
+          "type": "boolean"
+        },
+        "fail_on": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "info",
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fail On"
+        },
+        "mode": {
+          "default": "advisory",
+          "enum": [
+            "advisory",
+            "strict"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "pr_comment": {
+          "default": true,
+          "title": "Pr Comment",
+          "type": "boolean"
+        },
+        "upload_artifact": {
+          "default": true,
+          "title": "Upload Artifact",
+          "type": "boolean"
+        }
+      },
+      "title": "CiConfig",
+      "type": "object"
+    },
+    "EnvironmentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "promotion_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promotion From"
+        },
+        "promotion_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promotion To"
+        },
+        "target": {
+          "enum": [
+            "local",
+            "staging",
+            "production_like",
+            "production"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "title": "EnvironmentConfig",
+      "type": "object"
+    },
+    "GoogleAdkConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_configs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Agent Configs",
+          "type": "array"
+        },
+        "eval_sets": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Eval Sets",
+          "type": "array"
+        },
+        "python_entrypoints": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Python Entrypoints",
+          "type": "array"
+        },
+        "tool_inventories": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tool Inventories",
+          "type": "array"
+        },
+        "trace_samples": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Trace Samples",
+          "type": "array"
+        }
+      },
+      "title": "GoogleAdkConfig",
+      "type": "object"
+    },
+    "NamedArtifactPathConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "downstream_critical_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Downstream Critical Fields",
+          "type": "array"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "NamedArtifactPathConfig",
+      "type": "object"
+    },
+    "OpenAIApiConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "function_schemas": {
+          "items": {
+            "$ref": "#/$defs/NamedArtifactPathConfig"
+          },
+          "title": "Function Schemas",
+          "type": "array"
+        },
+        "model_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactPathConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "policy_rules": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Policy Rules",
+          "type": "array"
+        },
+        "prompt_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prompt Files",
+          "type": "array"
+        },
+        "response_formats": {
+          "items": {
+            "$ref": "#/$defs/NamedArtifactPathConfig"
+          },
+          "title": "Response Formats",
+          "type": "array"
+        },
+        "test_cases": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Test Cases",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "trace_samples": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Trace Samples",
+          "type": "array"
+        }
+      },
+      "title": "OpenAIApiConfig",
+      "type": "object"
+    },
+    "OutputConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "default": "agents-shipgate-reports",
+          "title": "Directory",
+          "type": "string"
+        },
+        "formats": {
+          "items": {
+            "enum": [
+              "markdown",
+              "json",
+              "sarif"
+            ],
+            "type": "string"
+          },
+          "title": "Formats",
+          "type": "array"
+        }
+      },
+      "title": "OutputConfig",
+      "type": "object"
+    },
+    "PermissionsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "title": "PermissionsConfig",
+      "type": "object"
+    },
+    "PoliciesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "require_approval_for_tools": {
+          "items": {
+            "$ref": "#/$defs/PolicyToolEntry"
+          },
+          "title": "Require Approval For Tools",
+          "type": "array"
+        },
+        "require_confirmation_for_tools": {
+          "items": {
+            "$ref": "#/$defs/PolicyToolEntry"
+          },
+          "title": "Require Confirmation For Tools",
+          "type": "array"
+        },
+        "require_idempotency_for_tools": {
+          "items": {
+            "$ref": "#/$defs/PolicyToolEntry"
+          },
+          "title": "Require Idempotency For Tools",
+          "type": "array"
+        }
+      },
+      "title": "PoliciesConfig",
+      "type": "object"
+    },
+    "PolicyToolEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "PolicyToolEntry",
+      "type": "object"
+    },
+    "ProjectConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repo"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ProjectConfig",
+      "type": "object"
+    },
+    "RiskOverridesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolRiskOverride"
+          },
+          "title": "Tools",
+          "type": "object"
+        }
+      },
+      "title": "RiskOverridesConfig",
+      "type": "object"
+    },
+    "SuppressionConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        }
+      },
+      "required": [
+        "check_id",
+        "reason"
+      ],
+      "title": "SuppressionConfig",
+      "type": "object"
+    },
+    "ToolRiskOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "default": "manual",
+          "title": "Confidence",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "remove_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove Tags",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "ToolRiskOverride",
+      "type": "object"
+    },
+    "ToolSourceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "trust": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trust"
+        },
+        "type": {
+          "enum": [
+            "mcp",
+            "openapi",
+            "openai_agents_sdk",
+            "google_adk"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "ToolSourceConfig",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for shipgate.yaml. Generated from agents_shipgate.config.schema.AgentsShipgateManifest. Do not edit by hand.",
+  "properties": {
+    "agent": {
+      "$ref": "#/$defs/AgentConfig"
+    },
+    "check_severity_overrides": {
+      "additionalProperties": {
+        "enum": [
+          "info",
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "type": "string"
+      },
+      "title": "Check Severity Overrides",
+      "type": "object"
+    },
+    "checks": {
+      "$ref": "#/$defs/ChecksConfig"
+    },
+    "ci": {
+      "$ref": "#/$defs/CiConfig"
+    },
+    "environment": {
+      "$ref": "#/$defs/EnvironmentConfig"
+    },
+    "google_adk": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GoogleAdkConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "openai_api": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenAIApiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "output": {
+      "$ref": "#/$defs/OutputConfig"
+    },
+    "permissions": {
+      "$ref": "#/$defs/PermissionsConfig"
+    },
+    "policies": {
+      "$ref": "#/$defs/PoliciesConfig"
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectConfig"
+    },
+    "risk_overrides": {
+      "$ref": "#/$defs/RiskOverridesConfig"
+    },
+    "tool_sources": {
+      "items": {
+        "$ref": "#/$defs/ToolSourceConfig"
+      },
+      "title": "Tool Sources",
+      "type": "array"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "project",
+    "agent",
+    "environment"
+  ],
+  "title": "Agents Shipgate Manifest v0.1",
+  "type": "object"
+}

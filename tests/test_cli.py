@@ -174,6 +174,56 @@ def test_cli_init_prints_manifest_template(tmp_path):
     assert result.exit_code == 0
     assert "tool_sources:" in result.output
     assert "api.openapi.yaml" in result.output
+    assert "yaml-language-server" in result.output
+
+
+def test_cli_init_write_json_reports_placeholders(tmp_path):
+    result = runner.invoke(
+        app,
+        ["init", "--workspace", str(tmp_path), "--write", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["created"] is True
+    assert payload["path"].endswith("shipgate.yaml")
+    placeholder_paths = {entry["path"] for entry in payload["placeholders"]}
+    # Every starter manifest puts CHANGE_ME under at least agent.name and
+    # agent.declared_purpose; the exact path strings can vary slightly with
+    # rendering, but both keys must appear.
+    assert any("name" in path for path in placeholder_paths)
+    assert any("declared_purpose" in path for path in placeholder_paths)
+    assert "next_action" in payload
+
+
+def test_cli_explain_json_returns_full_metadata():
+    result = runner.invoke(
+        app, ["explain", "SHIP-POLICY-APPROVAL-MISSING", "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["id"] == "SHIP-POLICY-APPROVAL-MISSING"
+    for key in ("category", "default_severity", "description"):
+        assert key in payload
+
+
+def test_cli_agent_mode_emits_structured_error_on_missing_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        ["scan", "--config", str(tmp_path / "missing.yaml")],
+    )
+
+    assert result.exit_code == 2
+    # Find the JSON line on stderr/stdout (typer.testing combines them).
+    json_lines = [
+        line for line in (result.output or "").splitlines() if line.startswith("{")
+    ]
+    assert json_lines, f"no structured-error JSON line in output: {result.output!r}"
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "config_error"
+    assert "next_action" in payload
 
 
 def test_cli_doctor_enumerates_sources():

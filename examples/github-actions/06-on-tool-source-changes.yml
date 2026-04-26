@@ -1,0 +1,32 @@
+# Run only when the tool surface or manifest actually changed. Saves CI
+# minutes on PRs that don't touch agent configuration.
+name: Agents Shipgate (path-filtered)
+
+on:
+  pull_request:
+    paths:
+      - 'shipgate.yaml'
+      - 'tools/**'
+      - 'specs/**'
+      - 'prompts/**'
+      - '**/*.openapi.yaml'
+      - '**/*.openapi.yml'
+      - '**/*.openapi.json'
+      - '**/mcp_tools.json'
+      - '**/agent.py'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        with:
+          ci_mode: advisory
+          pr_comment: 'true'
+          shipgate_version: '0.3.0'

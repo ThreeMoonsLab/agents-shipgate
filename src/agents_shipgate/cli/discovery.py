@@ -84,6 +84,7 @@ def render_manifest_template(workspace: Path) -> str:
     sources = discover_tool_sources(workspace)
     api_artifacts = discover_openai_api_artifacts(workspace)
     lines = [
+        "# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
         "# Agents Shipgate starter manifest.",
         "# Review CHANGE_ME values, then add policy entries for write/high-risk tools.",
         'version: "0.1"',

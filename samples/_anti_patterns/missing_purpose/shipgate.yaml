@@ -1,0 +1,20 @@
+# DELIBERATELY INVALID — do not copy. See README.md.
+# Expected error:
+#   ConfigError: agent.declared_purpose, agent.instructions_preview, or
+#                openai_api.prompt_files is required
+version: "0.1"
+
+project:
+  name: missing-purpose
+
+agent:
+  name: oops-no-purpose
+  # NB: agent.declared_purpose deliberately omitted to trigger validation.
+
+environment:
+  target: local
+
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json

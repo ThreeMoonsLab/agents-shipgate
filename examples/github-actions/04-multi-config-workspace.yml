@@ -1,0 +1,35 @@
+# Multi-config workspace scan — for monorepos with one shipgate.yaml per
+# agent. Each manifest produces its own report under agents-shipgate-reports/.
+# A broken manifest does not stop scanning of sibling manifests; the highest
+# exit code wins.
+name: Agents Shipgate (workspace)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install --quiet agents-shipgate==0.3.0
+      - run: |
+          agents-shipgate scan \
+            --workspace . \
+            --out agents-shipgate-reports \
+            --ci-mode advisory
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agents-shipgate-reports
+          path: agents-shipgate-reports/
+          if-no-files-found: warn

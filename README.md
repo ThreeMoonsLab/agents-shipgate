@@ -1,13 +1,64 @@
 # Agents Shipgate
 
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
-![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue)
+[![PyPI](https://img.shields.io/pypi/v/agents-shipgate)](https://pypi.org/project/agents-shipgate/)
+[![Python](https://img.shields.io/pypi/pyversions/agents-shipgate)](https://pypi.org/project/agents-shipgate/)
+[![GitHub Action](https://img.shields.io/badge/GitHub%20Action-marketplace-blue)](https://github.com/marketplace/actions/agents-shipgate)
+[![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
+[![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**The pre-flight check your agent release is missing.**
+Static release-readiness scanner for AI agent tool surfaces.
+**Inputs:** OpenAI Agents SDK · Google ADK · MCP · OpenAPI · OpenAI Agents API.
+**Outputs:** Markdown · JSON · SARIF.
 
-Agents Shipgate is an **Agent Release Gate**: a static, manifest-first scanner that catches risky agent tool configurations at PR time. It reads `shipgate.yaml`, local MCP tool exports, local OpenAPI specs, simple OpenAI API prompt/tool/schema artifacts, optional OpenAI Agents SDK AST metadata, and Google ADK static metadata, then writes Markdown, JSON, and SARIF reports for release review.
+## Install
 
-An agent release gate is the static, manifest-based pre-flight check that runs on agent PRs before promotion to staging or production. Today, most agent teams ship without one.
+```bash
+pipx install agents-shipgate
+# or in CI:
+# - uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+```
+
+## 60-second run
+
+```bash
+agents-shipgate init --workspace . --write
+agents-shipgate scan -c shipgate.yaml
+# writes agents-shipgate-reports/report.md and report.json
+```
+
+To verify your install on a known fixture without writing any YAML:
+
+```bash
+agents-shipgate fixture run support_refund_agent
+```
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Pass (advisory mode or strict-no-blockers) |
+| `2` | Manifest config error |
+| `3` | Input parse error (file missing, malformed, path traversal blocked) |
+| `4` | Other Agents Shipgate error |
+| `20` | Strict-mode gate failure |
+
+## For coding agents
+
+Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Claude Code, Codex, Cursor, Aider) reading this repo:
+
+- **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
+- **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
+- **[`prompts/`](prompts/)** — reusable prompts for common workflows
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.3.json`](docs/report-schema.v0.3.json)** — JSON Schemas for live editor validation
+- **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
+
+Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
+
+## Why this exists
+
+Once an AI agent can refund, email, cancel, deploy, or modify a record, every tool change becomes a release event. Code review catches code; eval suites catch behavior; observability catches runtime. None of them answer the release question: *given the tool surface declared in this PR, do we have explicit approval policies, scope coverage, idempotency evidence, and review readiness for every action?*
+
+Shipgate produces a deterministic answer to that question, before promotion.
 
 ## Findings Gallery
 

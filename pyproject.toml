@@ -5,12 +5,44 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "0.3.0"
-description = "Manifest-first release readiness scanner for agent tool surfaces."
+description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Google ADK). CLI + GitHub Action."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [
   { name = "Agents Shipgate Contributors" }
+]
+keywords = [
+  "agent",
+  "ai-agent",
+  "agent-release",
+  "agent-release-readiness",
+  "tool-use",
+  "release-readiness",
+  "release-gate",
+  "mcp",
+  "openai-agents-sdk",
+  "google-adk",
+  "openapi",
+  "static-analysis",
+  "github-action",
+  "sarif",
+  "agent-tools",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Security",
+  "Environment :: Console",
+  "Typing :: Typed",
 ]
 dependencies = [
   "pydantic>=2.7,<3",
@@ -22,6 +54,10 @@ dependencies = [
 Homepage = "https://github.com/ThreeMoonsLab/agents-shipgate"
 Repository = "https://github.com/ThreeMoonsLab/agents-shipgate"
 Issues = "https://github.com/ThreeMoonsLab/agents-shipgate/issues"
+Documentation = "https://github.com/ThreeMoonsLab/agents-shipgate/wiki"
+Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELOG.md"
+"Agent Instructions" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md"
+"Stability Contract" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md"
 
 [project.optional-dependencies]
 dev = [
@@ -39,6 +75,7 @@ dev = [
 
 [project.scripts]
 agents-shipgate = "agents_shipgate.cli.main:app"
+shipgate = "agents_shipgate.cli.main:app"
 
 [project.entry-points."agents_shipgate.checks"]
 inventory = "agents_shipgate.checks.inventory:run"
@@ -53,6 +90,11 @@ adk = "agents_shipgate.checks.adk:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_shipgate"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"samples" = "agents_shipgate/_fixtures"
+"AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
+"STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

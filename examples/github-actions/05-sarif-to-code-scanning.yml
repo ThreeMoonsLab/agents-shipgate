@@ -1,0 +1,33 @@
+# SARIF upload to GitHub code scanning. Findings appear in the Security tab
+# AND as inline annotations on the PR diff. Recommended for repos already
+# using CodeQL — this slots into the same review surface.
+name: Agents Shipgate (SARIF)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - id: shipgate
+        uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+        with:
+          ci_mode: advisory
+          formats: markdown,json,sarif
+          pr_comment: 'true'
+          shipgate_version: '0.3.0'
+      - if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.shipgate.outputs.report_sarif || 'agents-shipgate-reports/report.sarif' }}
+          category: agents-shipgate

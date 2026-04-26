@@ -1,0 +1,21 @@
+# DELIBERATELY INVALID — do not copy. See README.md.
+# Expected error:
+#   InputParseError: Input path '../../../../etc/passwd' resolves outside
+#                    manifest directory: /etc/passwd
+version: "0.1"
+
+project:
+  name: path-traversal-anti-pattern
+
+agent:
+  name: pwn-agent
+  declared_purpose:
+    - probe path-traversal containment
+
+environment:
+  target: local
+
+tool_sources:
+  - id: traversal_attempt
+    type: openapi
+    path: ../../../../etc/passwd      # rejected by inputs/common.py:resolve_input_path

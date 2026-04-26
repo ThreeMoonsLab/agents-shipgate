@@ -1,0 +1,475 @@
+{
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json",
+  "checks": [
+    {
+      "category": "adk",
+      "default_severity": "high",
+      "description": "Google ADK toolset cannot be statically enumerated.",
+      "docs_url": "docs/checks.md#ship-adk-dynamic-toolset-not-enumerable",
+      "evidence_fields": [
+        "toolset",
+        "explicit_inventory"
+      ],
+      "fires_when": "A Google ADK toolset is dynamic or unresolved and no explicit MCP/OpenAPI/tool inventory input is declared.",
+      "id": "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
+      "rationale": "Release review needs an explicit tool inventory; ADK MCP/OpenAPI toolsets may resolve tools dynamically at runtime.",
+      "recommendation": "Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK toolsets."
+    },
+    {
+      "category": "adk",
+      "default_severity": "medium",
+      "description": "Google ADK eval coverage is not declared.",
+      "docs_url": "docs/checks.md#ship-adk-eval-coverage-missing",
+      "evidence_fields": [
+        "agent_count",
+        "eval_file_count"
+      ],
+      "fires_when": "Google ADK inputs target production_like or production and no eval files are declared.",
+      "id": "SHIP-ADK-EVAL-COVERAGE-MISSING",
+      "rationale": "ADK releases should include response and tool-trajectory eval evidence before promotion.",
+      "recommendation": "Declare ADK eval files for expected responses and tool-use trajectories."
+    },
+    {
+      "category": "adk",
+      "default_severity": "medium",
+      "description": "Google ADK function tool lacks static metadata.",
+      "docs_url": "docs/checks.md#ship-adk-function-tool-metadata-missing",
+      "evidence_fields": [
+        "missing",
+        "source_type"
+      ],
+      "fires_when": "A Google ADK function/config tool lacks description or parameter metadata.",
+      "id": "SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING",
+      "rationale": "Static review depends on descriptions and parameter schemas because user ADK code is not imported.",
+      "recommendation": "Add docstrings, annotations, or explicit local inventory metadata."
+    },
+    {
+      "category": "adk",
+      "default_severity": "high",
+      "description": "High-risk Google ADK tools lack static guardrail evidence.",
+      "docs_url": "docs/checks.md#ship-adk-guardrail-evidence-missing",
+      "evidence_fields": [
+        "tools"
+      ],
+      "fires_when": "High-risk ADK tools are present without callbacks, plugins, or equivalent manifest policy evidence.",
+      "id": "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING",
+      "rationale": "Callbacks and plugins are the static ADK surface where release reviewers can see guardrail intent.",
+      "recommendation": "Attach ADK callbacks/plugins or manifest policies that document guardrails."
+    },
+    {
+      "category": "adk",
+      "default_severity": "high",
+      "description": "Google ADK long-running tool lacks an operation contract.",
+      "docs_url": "docs/checks.md#ship-adk-longrunning-contract-missing",
+      "evidence_fields": [
+        "output_schema"
+      ],
+      "fires_when": "A LongRunningFunctionTool lacks structured status/progress and operation id output evidence.",
+      "id": "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING",
+      "rationale": "Long-running tools need explicit status and operation-id semantics for safe continuation.",
+      "recommendation": "Document operation id, status/progress fields, and completion behavior."
+    },
+    {
+      "category": "adk",
+      "default_severity": "high",
+      "description": "Google ADK McpToolset lacks a static tool filter.",
+      "docs_url": "docs/checks.md#ship-adk-mcp-toolset-unfiltered",
+      "evidence_fields": [
+        "source_ref",
+        "agent_name",
+        "inventory_path"
+      ],
+      "fires_when": "A Google ADK McpToolset has no static tool_filter.",
+      "id": "SHIP-ADK-MCP-TOOLSET-UNFILTERED",
+      "rationale": "Unfiltered MCP toolsets can expose more tools than reviewers expect.",
+      "recommendation": "Declare a tool_filter and provide a local MCP tool inventory."
+    },
+    {
+      "category": "api",
+      "default_severity": "high",
+      "description": "OpenAI API function schema is not strict enough for reliable tool calls.",
+      "docs_url": "docs/checks.md#ship-api-function-schema-strictness",
+      "evidence_fields": [
+        "issues",
+        "risk_tags"
+      ],
+      "fires_when": "An OpenAI API function lacks strict=true, object parameters, additionalProperties=false, complete required fields, or bounded risky fields.",
+      "id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+      "rationale": "Strict schemas reduce ambiguous tool arguments and downstream side-effect risk.",
+      "recommendation": "Use strict function schemas with explicit required fields and constrained risky parameters."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API flow lacks minimal operational readiness metadata.",
+      "docs_url": "docs/checks.md#ship-api-operational-readiness",
+      "evidence_fields": [
+        "retry_policy",
+        "high_risk_tools",
+        "tool_output_schemas"
+      ],
+      "fires_when": "Retry policy, timeout metadata, tool output success/failure modeling, or simple trace approval evidence is missing or contradictory.",
+      "id": "SHIP-API-OPERATIONAL-READINESS",
+      "rationale": "Retries, timeouts, and success/failure schemas are needed to reason about side effects and failures.",
+      "recommendation": "Declare retry, timeout, output success/failure, and approval evidence for high-risk API flows."
+    },
+    {
+      "category": "api",
+      "default_severity": "high",
+      "description": "Prompt scope contradicts enabled OpenAI API tools.",
+      "docs_url": "docs/checks.md#ship-api-prompt-tool-scope-mismatch",
+      "evidence_fields": [
+        "tools"
+      ],
+      "fires_when": "Prompt text says read-only/advice-only while write tools are enabled, or high-risk tools lack approval/confirmation instructions.",
+      "id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+      "rationale": "Prompt instructions should match the actual write/high-risk tool surface.",
+      "recommendation": "Align prompt scope with enabled tools and add approval/confirmation instructions."
+    },
+    {
+      "category": "api",
+      "default_severity": "medium",
+      "description": "OpenAI API structured output schema is missing or under-specified.",
+      "docs_url": "docs/checks.md#ship-api-structured-output-readiness",
+      "evidence_fields": [
+        "path",
+        "issues",
+        "high_risk_tools"
+      ],
+      "fires_when": "No response format exists, a response schema is too broad, decision/status fields lack enums, or refusal/needs_review/error modeling is absent.",
+      "id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
+      "rationale": "Downstream release decisions need explicit, structured success/refusal/review modeling.",
+      "recommendation": "Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields."
+    },
+    {
+      "category": "auth",
+      "default_severity": "high",
+      "description": "Manifest declares broad permission scopes.",
+      "docs_url": "docs/checks.md#ship-auth-manifest-broad-scope",
+      "evidence_fields": [
+        "scopes"
+      ],
+      "fires_when": "permissions.scopes contains wildcard/admin-like scopes.",
+      "id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
+      "rationale": "Broad manifest scopes weaken least-privilege review.",
+      "recommendation": "Replace with operation-specific scopes."
+    },
+    {
+      "category": "auth",
+      "default_severity": "high",
+      "description": "Scope-requiring tool lacks declared auth scopes.",
+      "docs_url": "docs/checks.md#ship-auth-missing-scope",
+      "evidence_fields": [
+        "risk_tags"
+      ],
+      "fires_when": "A write or sensitive-data tool has no auth scopes.",
+      "id": "SHIP-AUTH-MISSING-SCOPE",
+      "rationale": "Reviewers cannot assess least privilege without scope metadata.",
+      "recommendation": "Declare scopes in OpenAPI, MCP, or manifest metadata."
+    },
+    {
+      "category": "auth",
+      "default_severity": "high",
+      "description": "Tool-required scopes are not covered by manifest permissions.scopes.",
+      "docs_url": "docs/checks.md#ship-auth-scope-coverage-missing",
+      "evidence_fields": [
+        "tool_scopes",
+        "manifest_scopes",
+        "missing_scopes"
+      ],
+      "fires_when": "A tool scope is absent from permissions.scopes and not covered by a wildcard.",
+      "id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+      "rationale": "The manifest should describe the actual permissions needed by the release.",
+      "recommendation": "Add or reconcile required scopes."
+    },
+    {
+      "category": "auth",
+      "default_severity": "high",
+      "description": "Tool declares broad auth scopes.",
+      "docs_url": "docs/checks.md#ship-auth-tool-broad-scope",
+      "evidence_fields": [
+        "scopes"
+      ],
+      "fires_when": "A tool auth scope is wildcard/admin-like.",
+      "id": "SHIP-AUTH-TOOL-BROAD-SCOPE",
+      "rationale": "Tool-level broad scopes may grant more power than the operation needs.",
+      "recommendation": "Use narrower tool scopes."
+    },
+    {
+      "category": "security",
+      "default_severity": "medium",
+      "description": "Tool description contains instruction-override-like language.",
+      "docs_url": "docs/checks.md#ship-doc-injection-risk",
+      "evidence_fields": [
+        "matched"
+      ],
+      "fires_when": "Description text matches instruction override patterns. Severity is high only when multiple patterns match on a write/high-risk tool.",
+      "id": "SHIP-DOC-INJECTION-RISK",
+      "rationale": "Tool metadata can be placed into model context and should not contain prompt-like directives.",
+      "recommendation": "Rewrite the description as neutral metadata."
+    },
+    {
+      "category": "documentation",
+      "default_severity": "medium",
+      "description": "Tool description is missing or too short.",
+      "docs_url": "docs/checks.md#ship-doc-missing-description",
+      "evidence_fields": [
+        "description_length"
+      ],
+      "fires_when": "A tool description is missing or shorter than the minimum.",
+      "id": "SHIP-DOC-MISSING-DESCRIPTION",
+      "rationale": "Poor tool descriptions increase wrong-tool and reviewer misunderstanding risk.",
+      "recommendation": "Add a clear capability description."
+    },
+    {
+      "category": "security",
+      "default_severity": "medium",
+      "description": "Tool description contains a secret-like value.",
+      "docs_url": "docs/checks.md#ship-doc-secret-in-description",
+      "evidence_fields": [
+        "matched"
+      ],
+      "fires_when": "Description contains known key formats or labeled secret-like values. Severity is high only when multiple patterns match on a write/high-risk tool.",
+      "id": "SHIP-DOC-SECRET-IN-DESCRIPTION",
+      "rationale": "Credentials in tool metadata can leak into reports, prompts, or logs.",
+      "recommendation": "Remove and rotate the exposed secret."
+    },
+    {
+      "category": "inventory",
+      "default_severity": "high",
+      "description": "Production target includes low-confidence tool extraction.",
+      "docs_url": "docs/checks.md#ship-inventory-low-confidence-production-surface",
+      "evidence_fields": [
+        "tools"
+      ],
+      "fires_when": "environment.target is production and tools include lower-confidence extraction.",
+      "id": "SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE",
+      "rationale": "Production promotion should not depend primarily on best-effort SDK inference.",
+      "recommendation": "Declare those tools through manifest, MCP, or OpenAPI inputs."
+    },
+    {
+      "category": "inventory",
+      "default_severity": "high",
+      "description": "Tool surface cannot be enumerated from declared inputs.",
+      "docs_url": "docs/checks.md#ship-inventory-not-enumerable",
+      "evidence_fields": [
+        "tool_sources"
+      ],
+      "fires_when": "No tools are loaded from required manifest sources.",
+      "id": "SHIP-INVENTORY-NOT-ENUMERABLE",
+      "rationale": "A release gate must fail closed when it cannot see the agent's tools.",
+      "recommendation": "Declare at least one local MCP JSON or OpenAPI tool source."
+    },
+    {
+      "category": "inventory",
+      "default_severity": "medium",
+      "description": "Tool surface exceeds the MVP review threshold.",
+      "docs_url": "docs/checks.md#ship-inventory-tool-surface-too-large",
+      "evidence_fields": [
+        "tool_count",
+        "threshold"
+      ],
+      "fires_when": "The normalized tool count exceeds the built-in threshold.",
+      "id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+      "rationale": "Large tool surfaces are harder to reason about during promotion.",
+      "recommendation": "Split or reduce the tool surface before release."
+    },
+    {
+      "category": "inventory",
+      "default_severity": "high",
+      "description": "Wildcard or all-tools exposure is declared.",
+      "docs_url": "docs/checks.md#ship-inventory-wildcard-tools",
+      "evidence_fields": [
+        "source_id",
+        "source_ref"
+      ],
+      "fires_when": "A source declares all tools or wildcard exposure.",
+      "id": "SHIP-INVENTORY-WILDCARD-TOOLS",
+      "rationale": "Wildcard tools make review and least-privilege reasoning impossible.",
+      "recommendation": "Replace wildcard exposure with an explicit allowlist."
+    },
+    {
+      "category": "manifest",
+      "default_severity": "high",
+      "description": "Production high-risk tool has no declared owner.",
+      "docs_url": "docs/checks.md#ship-manifest-high-risk-owner-missing",
+      "evidence_fields": [
+        "environment",
+        "risk_tags"
+      ],
+      "fires_when": "environment.target is production_like or production and a high-risk tool lacks owner metadata.",
+      "id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+      "rationale": "High-risk production tools need an accountable owning team for review and remediation.",
+      "recommendation": "Declare an owner for each high-risk production tool."
+    },
+    {
+      "category": "manifest",
+      "default_severity": "medium",
+      "description": "A policy references a missing tool.",
+      "docs_url": "docs/checks.md#ship-manifest-stale-policy",
+      "evidence_fields": [
+        "policy",
+        "tool"
+      ],
+      "fires_when": "A policy entry names a tool that is not loaded.",
+      "id": "SHIP-MANIFEST-STALE-POLICY",
+      "rationale": "Approval, confirmation, and idempotency policies should map to the actual release surface.",
+      "recommendation": "Remove stale policy entries or update them to current tool names."
+    },
+    {
+      "category": "manifest",
+      "default_severity": "medium",
+      "description": "A risk override references a missing tool.",
+      "docs_url": "docs/checks.md#ship-manifest-stale-risk-override",
+      "evidence_fields": [
+        "tool"
+      ],
+      "fires_when": "risk_overrides.tools contains a tool that is not loaded.",
+      "id": "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
+      "rationale": "Risk overrides should not outlive the tool they describe.",
+      "recommendation": "Remove stale risk overrides or update them to current tool names."
+    },
+    {
+      "category": "manifest",
+      "default_severity": "medium",
+      "description": "A suppression references a missing check or tool.",
+      "docs_url": "docs/checks.md#ship-manifest-stale-suppression",
+      "evidence_fields": [
+        "check_id",
+        "tool",
+        "issues"
+      ],
+      "fires_when": "checks.ignore contains an unknown check_id or a tool name that is not loaded.",
+      "id": "SHIP-MANIFEST-STALE-SUPPRESSION",
+      "rationale": "Stale suppressions hide intent and make release review harder to audit.",
+      "recommendation": "Remove stale suppressions or update them to current check IDs and tool names."
+    },
+    {
+      "category": "manifest",
+      "default_severity": "medium",
+      "description": "Manifest declares permission scopes unused by loaded tools.",
+      "docs_url": "docs/checks.md#ship-manifest-unused-scope",
+      "evidence_fields": [
+        "scope",
+        "tool_scopes"
+      ],
+      "fires_when": "permissions.scopes includes a scope not required by any loaded tool.",
+      "id": "SHIP-MANIFEST-UNUSED-SCOPE",
+      "rationale": "Unused permissions weaken least-privilege review and often indicate stale config.",
+      "recommendation": "Remove unused scopes or add tool metadata showing why they are required."
+    },
+    {
+      "category": "policy",
+      "default_severity": "critical",
+      "description": "High-risk tool lacks a declared approval policy.",
+      "docs_url": "docs/checks.md#ship-policy-approval-missing",
+      "evidence_fields": [
+        "risk_tags",
+        "policy_match"
+      ],
+      "fires_when": "Financial/destructive/infrastructure/code-exec risk exists without approval policy.",
+      "id": "SHIP-POLICY-APPROVAL-MISSING",
+      "rationale": "High-risk actions need explicit approval before promotion.",
+      "recommendation": "Declare an approval policy or remove the tool."
+    },
+    {
+      "category": "policy",
+      "default_severity": "high",
+      "description": "Destructive/external/customer-communication tool lacks a confirmation policy.",
+      "docs_url": "docs/checks.md#ship-policy-confirmation-missing",
+      "evidence_fields": [
+        "risk_tags",
+        "policy_match"
+      ],
+      "fires_when": "Risk tags require confirmation but no confirmation policy matches.",
+      "id": "SHIP-POLICY-CONFIRMATION-MISSING",
+      "rationale": "Destructive and external actions should require explicit confirmation.",
+      "recommendation": "Declare confirmation policy or remove the tool."
+    },
+    {
+      "category": "schema",
+      "default_severity": "high",
+      "description": "Action-like tool accepts broad free-form input.",
+      "docs_url": "docs/checks.md#ship-schema-broad-free-text",
+      "evidence_fields": [
+        "parameter",
+        "type"
+      ],
+      "fires_when": "A write/action-like tool has free-form command/action/update-style parameters.",
+      "id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+      "rationale": "Broad action/body/update fields increase blast radius for write tools.",
+      "recommendation": "Constrain the field with structured schema or enums."
+    },
+    {
+      "category": "schema",
+      "default_severity": "medium",
+      "description": "Tool returns free-form string output.",
+      "docs_url": "docs/checks.md#ship-schema-freeform-output",
+      "evidence_fields": [
+        "output_schema"
+      ],
+      "fires_when": "A tool output schema is string or an SDK function returns str.",
+      "id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+      "rationale": "Free-form tool output may carry prompt injection into later model context.",
+      "recommendation": "Prefer structured output for model-consumed tool results."
+    },
+    {
+      "category": "schema",
+      "default_severity": "high",
+      "description": "Risky numeric parameter lacks a maximum bound.",
+      "docs_url": "docs/checks.md#ship-schema-missing-bounds",
+      "evidence_fields": [
+        "parameter",
+        "type"
+      ],
+      "fires_when": "A risky numeric parameter lacks a maximum.",
+      "id": "SHIP-SCHEMA-MISSING-BOUNDS",
+      "rationale": "Unbounded counts or financial amounts weaken blast-radius control.",
+      "recommendation": "Add a maximum or equivalent policy limit."
+    },
+    {
+      "category": "scope",
+      "default_severity": "high",
+      "description": "Tool appears to overlap with a manifest prohibited action.",
+      "docs_url": "docs/checks.md#ship-scope-prohibited-tool-present",
+      "evidence_fields": [
+        "prohibited_action",
+        "risk_tags"
+      ],
+      "fires_when": "Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.",
+      "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+      "rationale": "Prohibited actions should not be contradicted by attached tool capabilities.",
+      "recommendation": "Remove or narrow the tool, or revise policy/scope text."
+    },
+    {
+      "category": "scope",
+      "default_severity": "high",
+      "description": "Write-capable tool contradicts a read-only declared purpose.",
+      "docs_url": "docs/checks.md#ship-scope-tool-outside-purpose",
+      "evidence_fields": [
+        "declared_purpose",
+        "risk_tags"
+      ],
+      "fires_when": "Purpose text is read-only but attached tools are write-capable.",
+      "id": "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE",
+      "rationale": "Declared purpose should constrain the attached tool surface.",
+      "recommendation": "Remove the tool or update release scope."
+    },
+    {
+      "category": "side_effects",
+      "default_severity": "high",
+      "description": "Risky write tool lacks idempotency evidence; critical when retry is known.",
+      "docs_url": "docs/checks.md#ship-sidefx-idempotency-missing",
+      "evidence_fields": [
+        "risk_tags",
+        "retry_policy_known"
+      ],
+      "fires_when": "Risky write tool lacks idempotency annotation, key, or policy.",
+      "id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+      "rationale": "Retries against non-idempotent writes can duplicate financial or external side effects.",
+      "recommendation": "Add idempotency evidence or policy."
+    }
+  ],
+  "description": "Machine-readable catalog of built-in checks. Generated from agents_shipgate.checks.registry.check_catalog(). Do not edit by hand.",
+  "title": "Agents Shipgate Check Catalog"
+}

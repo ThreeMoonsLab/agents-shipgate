@@ -1,0 +1,29 @@
+{
+  "tools": [
+    {
+      "name": "support.lookup_case",
+      "description": "Look up a support case by id and return the latest status.",
+      "annotations": {"readOnlyHint": true},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {"type": "string"}
+        },
+        "required": ["case_id"]
+      }
+    },
+    {
+      "name": "support.send_customer_email",
+      "description": "Send an email to the customer associated with a support case.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "case_id": {"type": "string"},
+          "subject": {"type": "string"},
+          "body":    {"type": "string"}
+        },
+        "required": ["case_id", "subject", "body"]
+      }
+    }
+  ]
+}

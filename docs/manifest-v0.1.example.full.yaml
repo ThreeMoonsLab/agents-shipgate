@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+# Full Agents Shipgate manifest with every section populated. Use this as a
+# reference for what's possible — most repos won't need every field.
+
+version: "0.1"
+
+project:
+  name: refund-assistant
+  owner: support-eng
+  repo: example/refund-agent
+
+agent:
+  name: refund-assistant
+  declared_purpose:
+    - issue customer refunds within policy
+    - look up case history and approval status
+  prohibited_actions:
+    - send mass marketing email
+    - delete production database records
+  instructions_preview: |
+    You help customers with refund-related questions. You can issue refunds
+    up to $500 with manager approval. Always confirm with the customer
+    before issuing a refund.
+  sdk:
+    type: openai_agents
+    language: python
+    entrypoint: agent.py
+
+environment:
+  target: production_like
+  promotion_from: staging
+  promotion_to: production
+
+tool_sources:
+  - id: refund_api
+    type: openapi
+    path: openapi/refunds.yaml
+  - id: support_kb
+    type: mcp
+    path: mcp/support_tools.json
+  - id: agent_sdk
+    type: openai_agents_sdk
+    path: agent.py
+    optional: true
+
+openai_api:
+  prompt_files:
+    - prompts/system.md
+  function_schemas:
+    - path: tools/issue_refund.json
+      name: issue_refund
+  response_formats:
+    - path: schemas/refund_response.schema.json
+      downstream_critical_fields: [decision, refund_amount]
+  test_cases:
+    - path: tests/refund_cases.json
+
+permissions:
+  scopes:
+    - refunds:write
+    - customers:read
+  credential_mode: oauth2_client_credentials
+  notes: "Issued by platform-eng for refund-assistant."
+
+policies:
+  require_approval_for_tools:
+    - tool: issue_refund
+      reason: financial action
+  require_confirmation_for_tools:
+    - send_customer_email
+  require_idempotency_for_tools:
+    - tool: issue_refund
+      reason: avoid double refunds on retry
+
+risk_overrides:
+  tools:
+    legacy_search:
+      remove_tags: [destructive]
+      tags: [read_only]
+      owner: support-eng
+      reason: read-only despite "delete_session_token" parameter; reviewed 2026-04-10
+
+checks:
+  ignore:
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: legacy_search
+      reason: tool deprecated 2026-Q2; deletion tracked in JIRA-1234
+  severity_overrides:
+    SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE: low
+
+ci:
+  mode: strict
+  fail_on:
+    - critical
+    - high
+  pr_comment: true
+  upload_artifact: true
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
+    - sarif

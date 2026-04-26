@@ -1,0 +1,29 @@
+- id: agents-shipgate
+  name: Agents Shipgate scan
+  description: Static release-readiness scan for AI agent tool surfaces
+  entry: agents-shipgate
+  args: [scan, --ci-mode, advisory]
+  language: python
+  pass_filenames: false
+  stages: [pre-commit, pre-push]
+  files: '(shipgate\.yaml|tools/.*\.json|.*openapi.*\.ya?ml|.*mcp.*\.json|prompts/.*|spec[s]?/.*\.ya?ml)$'
+
+- id: agents-shipgate-strict
+  name: Agents Shipgate scan (strict)
+  description: Strict-mode release-readiness scan; fails on critical findings
+  entry: agents-shipgate
+  args: [scan, --ci-mode, strict, --fail-on, critical]
+  language: python
+  pass_filenames: false
+  stages: [pre-push]
+  files: '(shipgate\.yaml|tools/.*\.json|.*openapi.*\.ya?ml|.*mcp.*\.json|prompts/.*|spec[s]?/.*\.ya?ml)$'
+
+- id: agents-shipgate-validate
+  name: Agents Shipgate manifest validate
+  description: Validate shipgate.yaml without running checks
+  entry: agents-shipgate
+  args: [doctor, --json]
+  language: python
+  pass_filenames: false
+  stages: [pre-commit]
+  files: '^shipgate\.yaml$'

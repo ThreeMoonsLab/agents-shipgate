@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "agents-shipgate",
+  "display_name": "Agents Shipgate",
+  "tagline": "Static release-readiness scanner for AI agent tool surfaces",
+  "version": "0.3.0",
+  "license": "Apache-2.0",
+  "publisher": {
+    "name": "Three Moons Lab",
+    "url": "https://threemoonslab.com"
+  },
+  "package": {
+    "pypi": "agents-shipgate",
+    "github_action": "ThreeMoonsLab/agents-shipgate@v0.3.0",
+    "github_repo": "ThreeMoonsLab/agents-shipgate"
+  },
+  "install": {
+    "pipx": "pipx install agents-shipgate",
+    "pip": "python -m pip install agents-shipgate",
+    "uv": "uv tool install agents-shipgate"
+  },
+  "binaries": ["agents-shipgate", "shipgate"],
+  "quickstart": "agents-shipgate init --workspace . --write && agents-shipgate scan -c shipgate.yaml",
+  "fixture_run": "agents-shipgate fixture run support_refund_agent",
+  "self_check": "agents-shipgate self-check --json",
+  "inputs": ["mcp", "openapi", "openai_agents_sdk", "google_adk", "openai_api"],
+  "outputs": ["markdown", "json", "sarif"],
+  "trust_model": "static_by_default",
+  "schemas": {
+    "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
+    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.3.json",
+    "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
+  },
+  "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
+  "stability_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/STABILITY.md",
+  "exit_codes": {
+    "0": "pass",
+    "2": "config_error",
+    "3": "input_parse_error",
+    "4": "other_error",
+    "20": "strict_gate_failure"
+  },
+  "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",
+  "plugin_opt_in_env_var": "AGENTS_SHIPGATE_ENABLE_PLUGINS"
+}

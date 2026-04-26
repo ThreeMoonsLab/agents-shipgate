@@ -3,7 +3,9 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import os
 import re
+import sys
 from difflib import get_close_matches
 from pathlib import Path
 
@@ -12,11 +14,23 @@ import typer
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.discovery import discover_manifest_paths, render_manifest_template
+from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
+from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.core.baseline import write_baseline
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings import SEVERITY_ORDER
 from agents_shipgate.core.logging import configure_logging
+
+
+def _emit_agent_mode_error(error_kind: str, **fields: object) -> None:
+    """When AGENTS_SHIPGATE_AGENT_MODE=1, emit a structured one-line JSON
+    record on stderr after the human-readable error so coding agents can
+    parse the next action without scraping prose."""
+    if os.environ.get("AGENTS_SHIPGATE_AGENT_MODE", "").lower() not in {"1", "true", "yes", "on"}:
+        return
+    payload = {"error": error_kind, **fields}
+    print(json.dumps(payload, default=str), file=sys.stderr)
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -26,6 +40,11 @@ app = typer.Typer(
 )
 baseline_app = typer.Typer(help="Manage local finding baselines.")
 app.add_typer(baseline_app, name="baseline")
+app.add_typer(fixture_app, name="fixture")
+app.command(
+    "self-check",
+    help="Verify install and bundled fixtures. Run this first in a fresh environment.",
+)(self_check)
 logger = logging.getLogger(__name__)
 
 
@@ -131,12 +150,23 @@ def scan(
         )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
+        _emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            next_action="agents-shipgate init --workspace . --write",
+        )
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        _emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            next_action="Inspect the file referenced in the error; ensure it exists, is valid, and resolves under the manifest directory.",
+        )
         raise typer.Exit(3) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        _emit_agent_mode_error("other_error", message=str(exc))
         raise typer.Exit(4) from exc
     except typer.Exit:
         raise
@@ -144,6 +174,7 @@ def scan(
         if verbose:
             logger.exception("unhandled exception")
         typer.echo(f"Internal error: {exc}", err=True)
+        _emit_agent_mode_error("internal_error", message=str(exc))
         raise typer.Exit(4) from exc
 
     raise typer.Exit(exit_code)
@@ -177,15 +208,26 @@ def explain(
         "--no-plugins",
         help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
 ) -> None:
     """Explain why a check exists and when it fires."""
     checks = check_catalog(plugins_enabled=False if no_plugins else None)
     check = next((item for item in checks if item.id == check_id), None)
     if not check:
         matches = get_close_matches(check_id, [item.id for item in checks], n=1)
-        suffix = f". Did you mean {matches[0]}?" if matches else ""
+        suggestion = matches[0] if matches else None
+        suffix = f". Did you mean {suggestion}?" if suggestion else ""
         typer.echo(f"Unknown check id: {check_id}{suffix}", err=True)
+        _emit_agent_mode_error(
+            "unknown_check_id",
+            check_id=check_id,
+            suggestion=suggestion,
+            next_action="agents-shipgate list-checks --json",
+        )
         raise typer.Exit(2)
+    if json_output:
+        typer.echo(json.dumps(check.model_dump(), indent=2, sort_keys=True))
+        return
     typer.echo(check.id)
     typer.echo(f"Category: {check.category}")
     typer.echo(f"Default severity: {check.default_severity}")
@@ -208,18 +250,96 @@ def explain(
 def init(
     workspace: Path = typer.Option(Path("."), "--workspace", help="Workspace to inspect."),
     write: bool = typer.Option(False, "--write", help="Write shipgate.yaml if it does not exist."),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a structured summary (path, placeholders, next_action) on stdout.",
+    ),
 ) -> None:
     """Draft a starter shipgate.yaml from local OpenAPI/MCP-looking files."""
     template = render_manifest_template(workspace.resolve())
     target = workspace / "shipgate.yaml"
+    placeholders = _collect_placeholders(template)
     if write:
         if target.exists():
             typer.echo(f"Config already exists: {target}", err=True)
+            _emit_agent_mode_error(
+                "config_already_exists",
+                path=str(target),
+                next_action=f"Edit {target} directly or remove it before running init --write.",
+            )
             raise typer.Exit(2)
         target.write_text(template, encoding="utf-8")
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {
+                        "path": str(target),
+                        "created": True,
+                        "placeholders": placeholders,
+                        "next_action": (
+                            "Replace placeholders, then run: "
+                            "agents-shipgate scan -c shipgate.yaml"
+                        ),
+                    },
+                    indent=2,
+                )
+            )
+            return
         typer.echo(f"Wrote {target}")
+        if placeholders:
+            typer.echo(
+                f"Replace these placeholders before scanning: "
+                f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
+            )
+        return
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "path": str(target),
+                    "created": False,
+                    "template": template,
+                    "placeholders": placeholders,
+                    "next_action": (
+                        "Inspect the template, then re-run with --write to commit it."
+                    ),
+                },
+                indent=2,
+            )
+        )
         return
     typer.echo(template)
+
+
+def _collect_placeholders(template: str) -> list[dict[str, str]]:
+    """Find ``CHANGE_ME`` markers in the rendered template and return their
+    YAML-pointer-ish locations so an agent can fix them programmatically."""
+    placeholders: list[dict[str, str]] = []
+    section_path: list[str] = []
+    last_indent = -1
+    for line in template.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        # Adjust the path stack to match indentation level.
+        while section_path and last_indent >= indent:
+            section_path.pop()
+            last_indent -= 2
+        stripped = line.strip()
+        if stripped.endswith(":") and "CHANGE_ME" not in stripped:
+            section_path.append(stripped[:-1])
+            last_indent = indent
+            continue
+        if "CHANGE_ME" in line:
+            key = stripped.split(":", 1)[0].lstrip("- ").strip()
+            placeholders.append(
+                {
+                    "path": ".".join([*section_path, key] if key else section_path) or "<root>",
+                    "current": "CHANGE_ME",
+                }
+            )
+    return placeholders
 
 
 @app.command()
@@ -236,9 +356,15 @@ def doctor(
         payloads = [inspect_sources(config_path=path, verbose=verbose) for path in paths]
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
+        _emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            next_action="agents-shipgate init --workspace . --write",
+        )
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        _emit_agent_mode_error("input_parse_error", message=str(exc))
         raise typer.Exit(3) from exc
     if json_output:
         typer.echo(json.dumps(payloads, indent=2, sort_keys=True))

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+# Minimal valid Agents Shipgate manifest. Every field is required; nothing
+# else is. Replace the values below; do not delete keys.
+
+version: "0.1"
+
+project:
+  name: my-agent
+
+agent:
+  name: my-agent
+  declared_purpose:
+    - explain in 1-2 sentences what this agent is allowed to do
+
+environment:
+  target: local              # local | staging | production_like | production
+
+tool_sources:
+  - id: tools                # any stable identifier
+    type: mcp                # mcp | openapi | openai_agents_sdk | google_adk
+    path: mcp_tools.json     # relative to this manifest's directory
