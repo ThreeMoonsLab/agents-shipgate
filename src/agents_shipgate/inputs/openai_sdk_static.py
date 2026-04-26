@@ -9,6 +9,10 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool, ToolParameter
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
 
+DEFAULT_FUNCTION_TOOL_DECORATORS = frozenset(
+    {"function_tool", "agents.function_tool", "openai_agents.function_tool"}
+)
+
 
 def load_openai_sdk_static_tools(
     source: ToolSourceConfig, manifest: AgentsShipgateManifest, base_dir: Path
@@ -33,10 +37,11 @@ def load_openai_sdk_static_tools(
         raise InputParseError(
             f"Unable to parse OpenAI Agents SDK entrypoint {path}: {exc.msg}"
         ) from exc
+    decorator_names = _function_tool_decorator_names(tree)
     tools = [
-        _function_to_tool(node, source, entrypoint)
+        _function_to_tool(node, source, entrypoint, decorator_names)
         for node in ast.walk(tree)
-        if _is_function_tool(node)
+        if _is_function_tool(node, decorator_names)
     ]
     return LoadedToolSource(
         source_id=source.id,
@@ -45,12 +50,26 @@ def load_openai_sdk_static_tools(
     )
 
 
-def _is_function_tool(node: ast.AST) -> bool:
+def _function_tool_decorator_names(tree: ast.Module) -> set[str]:
+    names = set(DEFAULT_FUNCTION_TOOL_DECORATORS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in {"agents", "openai_agents"}:
+            for alias in node.names:
+                if alias.name == "function_tool":
+                    names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in {"agents", "openai_agents"}:
+                    names.add(f"{alias.asname or alias.name}.function_tool")
+    return names
+
+
+def _is_function_tool(node: ast.AST, decorator_names: set[str]) -> bool:
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return False
     for decorator in node.decorator_list:
         name = _decorator_name(decorator)
-        if name in {"function_tool", "agents.function_tool", "openai_agents.function_tool"}:
+        if name in decorator_names:
             return True
     return False
 
@@ -67,9 +86,12 @@ def _decorator_name(decorator: ast.AST) -> str | None:
 
 
 def _function_to_tool(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, source: ToolSourceConfig, source_ref: str
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    source: ToolSourceConfig,
+    source_ref: str,
+    decorator_names: set[str],
 ) -> Tool:
-    tool_name = _tool_name(node)
+    tool_name = _tool_name(node, decorator_names)
     parameters = _parameters(node)
     return_type = _annotation_to_string(node.returns)
     signature = f"{tool_name}({', '.join(param.name for param in parameters)})"
@@ -128,14 +150,12 @@ def _parameter(arg: ast.arg, *, required: bool) -> ToolParameter:
     )
 
 
-def _tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+def _tool_name(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, decorator_names: set[str]
+) -> str:
     for decorator in node.decorator_list:
         call = decorator if isinstance(decorator, ast.Call) else None
-        if not call or _decorator_name(call.func) not in {
-            "function_tool",
-            "agents.function_tool",
-            "openai_agents.function_tool",
-        }:
+        if not call or _decorator_name(call.func) not in decorator_names:
             continue
         for keyword in call.keywords:
             if keyword.arg == "name_override" and isinstance(keyword.value, ast.Constant):

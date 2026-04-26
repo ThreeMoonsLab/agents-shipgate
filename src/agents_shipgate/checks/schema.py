@@ -2,31 +2,12 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.heuristics import (
+    BROAD_FREE_TEXT_PARAMETER_NAMES,
+    RISKY_NUMERIC_PARAMETER_NAMES,
+)
 from agents_shipgate.core.models import Tool, ToolParameter
 from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, is_write_tool
-
-BROAD_FREE_TEXT_NAMES = {
-    "action",
-    "body",
-    "command",
-    "content",
-    "instructions",
-    "message",
-    "prompt",
-    "update",
-    "updates",
-}
-
-BOUNDED_NUMERIC_NAMES = {
-    "amount",
-    "count",
-    "limit",
-    "max",
-    "maximum",
-    "quantity",
-    "refund_amount",
-    "total",
-}
 
 
 def run(context: ScanContext):
@@ -82,7 +63,7 @@ def run(context: ScanContext):
 
 
 def _is_broad_free_text(parameter: ToolParameter) -> bool:
-    if parameter.name.lower() not in BROAD_FREE_TEXT_NAMES:
+    if parameter.name.lower() not in BROAD_FREE_TEXT_PARAMETER_NAMES:
         return False
     if parameter.enum:
         return False
@@ -91,7 +72,7 @@ def _is_broad_free_text(parameter: ToolParameter) -> bool:
 
 def _is_missing_bound(parameter: ToolParameter) -> bool:
     return (
-        parameter.name.lower() in BOUNDED_NUMERIC_NAMES
+        parameter.name.lower() in RISKY_NUMERIC_PARAMETER_NAMES
         and parameter.type in {"number", "integer"}
         and parameter.maximum is None
     )

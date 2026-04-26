@@ -24,7 +24,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True, default=str)
 
 
-def configure_logging(*, verbose: bool = False) -> None:
+def configure_logging(*, verbose: bool = False, force: bool = True) -> None:
     level = logging.DEBUG if verbose else logging.WARNING
     handler = logging.StreamHandler(sys.stderr)
     if os.environ.get("AGENTS_SHIPGATE_LOG_FORMAT") == "json":
@@ -32,7 +32,11 @@ def configure_logging(*, verbose: bool = False) -> None:
     else:
         handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger("agents_shipgate")
-    root.handlers.clear()
+    if root.handlers and not force:
+        root.setLevel(level)
+        return
+    if force:
+        root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
     root.propagate = False

@@ -147,7 +147,12 @@ def load_openai_api_artifacts(
         artifacts.policy_rule_files.append(
             _display_path(_resolve(base_dir, policy_ref.path), base_dir)
         )
-        artifacts.policy_rules.update(data)
+        _merge_policy_rules(
+            artifacts.policy_rules,
+            data,
+            source_ref=policy_ref.path,
+            warnings=artifacts.warnings,
+        )
 
     return (
         LoadedToolSource(
@@ -174,6 +179,43 @@ def _load_required_or_optional(
             raise
         warnings.append(f"Optional OpenAI API {kind} artifact {ref.path!r} failed to load.")
         return None
+
+
+def _merge_policy_rules(
+    target: dict[str, Any],
+    incoming: dict[str, Any],
+    *,
+    source_ref: str,
+    warnings: list[str],
+) -> None:
+    for key, value in incoming.items():
+        if key not in target:
+            target[key] = value
+            continue
+        warnings.append(
+            f"OpenAI API policy_rules key {key!r} from {source_ref!r} overlaps an earlier policy file; merging values."
+        )
+        target[key] = _merge_policy_value(target[key], value)
+
+
+def _merge_policy_value(existing: Any, incoming: Any) -> Any:
+    if isinstance(existing, list) and isinstance(incoming, list):
+        return _merge_list_values(existing, incoming)
+    if isinstance(existing, dict) and isinstance(incoming, dict):
+        return {**existing, **incoming}
+    return incoming
+
+
+def _merge_list_values(existing: list[Any], incoming: list[Any]) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*existing, *incoming]:
+        marker = json.dumps(item, sort_keys=True, default=str)
+        if marker in seen:
+            continue
+        merged.append(item)
+        seen.add(marker)
+    return merged
 
 
 def _load_trace_sample(

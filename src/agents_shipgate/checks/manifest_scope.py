@@ -114,9 +114,9 @@ def run(context: ScanContext):
 def _purpose_is_read_only(purpose_text: str) -> bool:
     if not purpose_text:
         return False
-    normalized = purpose_text.replace("_", "-")
-    has_read_terms = any(term in normalized for term in READ_ONLY_TERMS)
-    has_write_terms = any(term in normalized for term in WRITE_TERMS)
+    tokens = _tokens(purpose_text.replace("_", "-"))
+    has_read_terms = bool(tokens & READ_ONLY_TERMS)
+    has_write_terms = bool(tokens & WRITE_TERMS)
     return has_read_terms and not has_write_terms
 
 

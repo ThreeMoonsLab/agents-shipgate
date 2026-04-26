@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.config.schema import PolicyToolEntry
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 
@@ -129,7 +130,7 @@ def _unused_manifest_scopes(context: ScanContext) -> list:
     for manifest_scope in manifest_scopes:
         if any(_scope_covers_tool_scope(manifest_scope, tool_scope) for tool_scope in tool_scopes):
             continue
-        severity = "high" if _is_broad_write_or_admin_scope(manifest_scope) else "medium"
+        severity = "high" if is_broad_scope(manifest_scope) else "medium"
         findings.append(
             agent_finding(
                 check_id="SHIP-MANIFEST-UNUSED-SCOPE",
@@ -154,13 +155,3 @@ def _scope_covers_tool_scope(manifest_scope: str, tool_scope: str) -> bool:
     if declared in {"*", required}:
         return True
     return declared.endswith(":*") and required.startswith(declared[:-1])
-
-
-def _is_broad_write_or_admin_scope(scope: str) -> bool:
-    lowered = scope.lower()
-    return (
-        lowered in {"*", "admin"}
-        or lowered.endswith(":*")
-        or "admin" in lowered
-        or "write-all" in lowered
-    )

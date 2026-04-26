@@ -4,7 +4,7 @@ from pathlib import Path
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.report.markdown import render_markdown_report
+from agents_shipgate.report.markdown import _safe_markdown_text, render_markdown_report
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_MARKDOWN = Path("samples/support_refund_agent/expected/report.md")
@@ -158,7 +158,7 @@ paths:
         """
 version: "0.1"
 project:
-  name: markdown-test
+  name: "**bold** _team_ <tag>"
 agent:
   name: markdown-agent
   declared_purpose:
@@ -186,6 +186,11 @@ policies:
 
     assert "[Click here](https://evil.example)" not in markdown
     assert "\\[Click here\\]\\(https://evil.example\\)" in markdown
+    assert "**bold** _team_ <tag>" not in markdown
+    assert "\\*\\*bold\\*\\* \\_team\\_ \\<tag\\>" in markdown
+    assert _safe_markdown_text("**bold** _underscore_ <tag>") == (
+        "\\*\\*bold\\*\\* \\_underscore\\_ \\<tag\\>"
+    )
 
 
 def test_clean_report_has_affirmative_pass_result(tmp_path):

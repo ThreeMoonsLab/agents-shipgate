@@ -2,70 +2,13 @@ from __future__ import annotations
 
 from difflib import get_close_matches
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.errors import ConfigError
-
-KNOWN_MANIFEST_FIELDS = {
-    "agent",
-    "annotations",
-    "ci",
-    "confidence",
-    "credential_mode",
-    "declared_purpose",
-    "deep_import",
-    "directory",
-    "downstream_critical_fields",
-    "entrypoint",
-    "environment",
-    "fail_on",
-    "formats",
-    "function_schemas",
-    "id",
-    "ignore",
-    "instructions_preview",
-    "mode",
-    "model_config",
-    "name",
-    "object",
-    "openai_api",
-    "optional",
-    "output",
-    "owner",
-    "path",
-    "permissions",
-    "policies",
-    "pr_comment",
-    "project",
-    "prohibited_actions",
-    "prompt_files",
-    "reason",
-    "repo",
-    "response_formats",
-    "require_approval_for_tools",
-    "require_confirmation_for_tools",
-    "require_idempotency_for_tools",
-    "risk_overrides",
-    "scopes",
-    "sdk",
-    "severity_overrides",
-    "static_extract",
-    "tags",
-    "target",
-    "test_cases",
-    "tool",
-    "tool_sources",
-    "tools",
-    "trace_samples",
-    "trust",
-    "type",
-    "upload_artifact",
-    "version",
-}
 
 
 def load_yaml_file(path: Path) -> dict[str, Any]:
@@ -118,3 +61,33 @@ def _field_suggestion(error: dict[str, Any]) -> str | None:
     field = str(loc[-1])
     matches = get_close_matches(field, KNOWN_MANIFEST_FIELDS, n=1, cutoff=0.72)
     return matches[0] if matches else None
+
+
+def _collect_field_names(
+    model: type[BaseModel], seen: set[type[BaseModel]] | None = None
+) -> set[str]:
+    seen = seen or set()
+    if model in seen:
+        return set()
+    seen.add(model)
+
+    names: set[str] = set()
+    for name, field in model.model_fields.items():
+        names.add(name)
+        if isinstance(field.alias, str):
+            names.add(field.alias)
+        for inner_model in _inner_models(field.annotation):
+            names.update(_collect_field_names(inner_model, seen))
+    return names
+
+
+def _inner_models(annotation: object) -> set[type[BaseModel]]:
+    models: set[type[BaseModel]] = set()
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        models.add(annotation)
+    for arg in get_args(annotation):
+        models.update(_inner_models(arg))
+    return models
+
+
+KNOWN_MANIFEST_FIELDS = frozenset(_collect_field_names(AgentsShipgateManifest))

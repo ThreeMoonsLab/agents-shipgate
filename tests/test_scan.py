@@ -276,6 +276,23 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
     )
 
 
+def test_baseline_save_is_idempotent_for_unchanged_findings(tmp_path):
+    baseline_path = tmp_path / "baseline.json"
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="strict",
+    )
+
+    write_baseline(report, baseline_path)
+    first = baseline_path.read_text(encoding="utf-8")
+    write_baseline(report, baseline_path)
+    second = baseline_path.read_text(encoding="utf-8")
+
+    assert first == second
+
+
 def test_baseline_scan_fails_only_on_new_findings(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -433,7 +450,12 @@ paths:
     {
       "name": "shared.lookup",
       "description": "Look up a shared record from MCP.",
-      "annotations": {"readOnlyHint": true}
+      "annotations": {"readOnlyHint": true},
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["shared:read"]
+      },
+      "owner": "support-platform"
     }
   ]
 }
@@ -471,6 +493,8 @@ tool_sources:
 
     assert report.tool_surface.total_tools == 1
     assert report.tool_inventory[0]["source_type"] == "openapi"
+    assert report.tool_inventory[0]["auth_scopes"] == ["shared:read"]
+    assert report.tool_inventory[0]["owner"] == "support-platform"
     assert any("Duplicate tool name 'shared.lookup'" in warning for warning in report.source_warnings)
 
 

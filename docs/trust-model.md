@@ -20,6 +20,7 @@ By default Agents Shipgate does not:
 ## Input Parsing
 
 - YAML is parsed with `yaml.safe_load`.
+- Declared local input paths are resolved relative to the manifest directory and rejected if they escape that base directory. This prevents a manifest from reading sibling repositories or absolute host files unless the source is first copied or symlinked into the reviewed workspace.
 - OpenAPI `$ref` resolution only follows internal JSON pointers beginning with `#/`.
 - `file://`, `http://`, and other external `$ref` values are left as inert schema values.
 - OpenAI Agents SDK enrichment uses `ast.parse` only. It does not import or execute Python modules.

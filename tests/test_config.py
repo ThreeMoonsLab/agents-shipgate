@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.loader import KNOWN_MANIFEST_FIELDS, load_manifest
 from agents_shipgate.core.errors import ConfigError
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
@@ -68,6 +68,13 @@ tool_sources:
 
     with pytest.raises(ConfigError, match="Did you mean declared_purpose"):
         load_manifest(manifest_path)
+
+
+def test_known_manifest_fields_are_derived_from_schema():
+    assert "function_schemas" in KNOWN_MANIFEST_FIELDS
+    assert "policy_rules" in KNOWN_MANIFEST_FIELDS
+    assert "model_config" in KNOWN_MANIFEST_FIELDS
+    assert "check_severity_overrides" in KNOWN_MANIFEST_FIELDS
 
 
 def test_missing_default_config_points_to_init_command(tmp_path, monkeypatch):

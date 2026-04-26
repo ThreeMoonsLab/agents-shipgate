@@ -216,7 +216,7 @@ Third-party packages can register checks through the `agents_shipgate.checks` Py
 
 ## OpenAI Agents SDK Static Extraction
 
-SDK extraction is optional enrichment. v0.1 detects Python functions decorated directly with `@function_tool`, `@function_tool(...)`, `@agents.function_tool`, or `@openai_agents.function_tool`, such as:
+SDK extraction is optional enrichment. Agents Shipgate detects Python functions decorated directly with `@function_tool`, `@function_tool(...)`, `@agents.function_tool`, `@openai_agents.function_tool`, or simple import aliases such as `from agents import function_tool as ft`, for example:
 
 ```python
 @function_tool

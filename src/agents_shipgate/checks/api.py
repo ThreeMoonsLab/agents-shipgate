@@ -4,6 +4,10 @@ from typing import Any
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.heuristics import (
+    BROAD_FREE_TEXT_PARAMETER_NAMES,
+    RISKY_NUMERIC_PARAMETER_NAMES,
+)
 from agents_shipgate.core.models import Tool, ToolParameter
 from agents_shipgate.core.risk_hints import (
     has_risk_tag,
@@ -12,18 +16,6 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 
-BROAD_TEXT_NAMES = {
-    "action",
-    "body",
-    "command",
-    "content",
-    "instructions",
-    "message",
-    "prompt",
-    "update",
-    "updates",
-}
-RISKY_NUMERIC_NAMES = {"amount", "amt", "count", "qty", "quantity", "limit", "cap", "size"}
 READ_ONLY_PROMPT_TERMS = (
     "advise only",
     "advice only",
@@ -379,7 +371,7 @@ def _needs_idempotency(tool: Tool, artifacts) -> bool:
 
 def _risky_field_without_bounds_or_enum(parameter: ToolParameter) -> bool:
     name = parameter.name.lower()
-    risky_name = any(token in name for token in RISKY_NUMERIC_NAMES)
+    risky_name = any(token in name for token in RISKY_NUMERIC_PARAMETER_NAMES)
     return (
         risky_name
         and parameter.type in {"number", "integer"}
@@ -390,7 +382,7 @@ def _risky_field_without_bounds_or_enum(parameter: ToolParameter) -> bool:
 
 def _broad_free_text(parameter: ToolParameter) -> bool:
     return (
-        parameter.name.lower() in BROAD_TEXT_NAMES
+        parameter.name.lower() in BROAD_FREE_TEXT_PARAMETER_NAMES
         and parameter.type in {None, "string", "object"}
         and not parameter.enum
     )

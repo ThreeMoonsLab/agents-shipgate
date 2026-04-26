@@ -31,10 +31,12 @@ AGENTS_SHIPGATE_LOG_FORMAT=json agents-shipgate doctor --config shipgate.yaml --
 
 ## The SDK Extractor Finds Nothing
 
-The OpenAI Agents SDK extractor is AST-only. It recognizes direct `function_tool` decorators such as:
+The OpenAI Agents SDK extractor is AST-only. It recognizes direct `function_tool` decorators and simple import aliases such as:
 
 ```python
-@function_tool
+from agents import function_tool as ft
+
+@ft
 def lookup_customer(customer_id: str) -> str:
     ...
 ```

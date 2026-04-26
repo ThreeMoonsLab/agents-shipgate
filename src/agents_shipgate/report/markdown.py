@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -11,6 +12,24 @@ DISCLAIMER = (
     "agent safety or compliance. Findings are based on static configuration, declared "
     "policies, tool schemas, and optional SDK metadata. Runtime behavior, actual tool "
     "routing, and output interpretation are not verified."
+)
+MARKDOWN_ESCAPE_CHARS = (
+    "\\",
+    "`",
+    "*",
+    "_",
+    "{",
+    "}",
+    "[",
+    "]",
+    "(",
+    ")",
+    "#",
+    "+",
+    "!",
+    "|",
+    "<",
+    ">",
 )
 
 
@@ -243,6 +262,8 @@ def _result_line(report: ReadinessReport) -> str:
 
 def _safe_markdown_text(value: object) -> str:
     text = "" if value is None else str(value)
-    for char in ("\\", "`", "[", "]", "(", ")", "|"):
+    for char in MARKDOWN_ESCAPE_CHARS:
         text = text.replace(char, f"\\{char}")
+    text = re.sub(r"(?m)^(\s*)-", r"\1\\-", text)
+    text = re.sub(r"(?m)^(\s*\d+)\.", r"\1\\.", text)
     return text

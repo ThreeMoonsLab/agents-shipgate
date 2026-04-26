@@ -4,6 +4,7 @@ import pytest
 
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.schema import ArtifactPathConfig, OpenAIApiConfig
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 
@@ -241,6 +242,48 @@ def test_openai_api_policy_rules_supplement_manifest_policies(tmp_path):
         and finding.tool_name == "send_customer_email"
         for finding in report.findings
     )
+
+
+def test_openai_api_policy_rules_merge_overlapping_files(tmp_path):
+    (tmp_path / "policy-a.yaml").write_text(
+        """
+approval_required:
+  - create_refund
+tool_output_schemas:
+  create_refund:
+    success_fields: [refund_id]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "policy-b.yaml").write_text(
+        """
+approval_required:
+  - send_customer_email
+tool_output_schemas:
+  send_customer_email:
+    success_fields: [message_id]
+""",
+        encoding="utf-8",
+    )
+    config = OpenAIApiConfig(
+        policy_rules=[
+            ArtifactPathConfig(path="policy-a.yaml"),
+            ArtifactPathConfig(path="policy-b.yaml"),
+        ]
+    )
+
+    _, artifacts = load_openai_api_artifacts(config, tmp_path)
+
+    assert artifacts is not None
+    assert artifacts.policy_rules["approval_required"] == [
+        "create_refund",
+        "send_customer_email",
+    ]
+    assert sorted(artifacts.policy_rules["tool_output_schemas"]) == [
+        "create_refund",
+        "send_customer_email",
+    ]
+    assert any("overlaps an earlier policy file" in warning for warning in artifacts.warnings)
 
 
 def test_doctor_includes_openai_api_artifacts():

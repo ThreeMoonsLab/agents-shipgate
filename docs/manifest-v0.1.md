@@ -67,7 +67,7 @@ openai_api:
 - `mcp`: local exported MCP tools JSON.
 - `openai_agents_sdk`: optional static Python AST extraction.
 
-When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then MCP JSON, then SDK static extraction.
+When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then MCP JSON, then SDK static extraction.
 
 ## OpenAI API Artifacts
 
@@ -202,7 +202,7 @@ checks:
     SHIP-AUTH-MISSING-SCOPE: critical
 ```
 
-For compatibility with early design-partner manifests, top-level `check_severity_overrides` is also accepted and is applied after `checks.severity_overrides`.
+For compatibility with early design-partner manifests, top-level `check_severity_overrides` is also accepted and is applied after `checks.severity_overrides`. Prefer `checks.severity_overrides`; the top-level alias is legacy compatibility.
 
 ## Risk Overrides
 

@@ -55,6 +55,7 @@ def baseline_from_report(report: ReadinessReport) -> BaselineFile:
 
 def write_baseline(report: ReadinessReport, path: Path) -> BaselineFile:
     baseline = baseline_from_report(report)
+    baseline = _preserve_created_at_when_content_matches(baseline, path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         baseline.model_dump_json(indent=2, exclude_none=False) + "\n",
@@ -111,3 +112,21 @@ def _active_findings(findings: list[Finding]) -> list[Finding]:
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _preserve_created_at_when_content_matches(
+    baseline: BaselineFile, path: Path
+) -> BaselineFile:
+    if not path.exists():
+        return baseline
+    try:
+        existing = load_baseline(path)
+    except InputParseError:
+        return baseline
+    if _baseline_content_identity(existing) != _baseline_content_identity(baseline):
+        return baseline
+    return baseline.model_copy(update={"created_at": existing.created_at})
+
+
+def _baseline_content_identity(baseline: BaselineFile) -> dict[str, object]:
+    return baseline.model_dump(mode="json", exclude={"created_at"})

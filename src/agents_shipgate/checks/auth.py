@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.risk_hints import has_risk_tag, is_write_tool
+from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.risk_hints import has_risk_tag, is_write_tool, risk_tags
 
 
 def run(context: ScanContext):
     findings = []
-    broad_global_scopes = [scope for scope in context.manifest.permissions.scopes if _is_broad_scope(scope)]
+    broad_global_scopes = [
+        scope for scope in context.manifest.permissions.scopes if is_broad_scope(scope)
+    ]
     if broad_global_scopes:
         findings.append(
             agent_finding(
@@ -30,7 +33,7 @@ def run(context: ScanContext):
                     title=f"{tool.name} lacks declared auth scopes",
                     severity="high",
                     category="auth",
-                    evidence={"risk_tags": [hint.tag for hint in tool.risk_hints if hint.confidence in {"medium", "high"}]},
+                    evidence={"risk_tags": risk_tags(tool, min_confidence="medium")},
                     confidence="medium",
                     recommendation=f"Declare auth scopes for {tool.name} in OpenAPI, MCP metadata, or the manifest before release review.",
                     context=context,
@@ -62,7 +65,7 @@ def run(context: ScanContext):
                     context=context,
                 )
             )
-        broad_scopes = [scope for scope in tool.auth.scopes if _is_broad_scope(scope)]
+        broad_scopes = [scope for scope in tool.auth.scopes if is_broad_scope(scope)]
         if broad_scopes:
             findings.append(
                 tool_finding(
@@ -78,12 +81,6 @@ def run(context: ScanContext):
                 )
             )
     return findings
-
-
-def _is_broad_scope(scope: str) -> bool:
-    lowered = scope.lower()
-    return lowered in {"*", "admin"} or lowered.endswith(":*") or "write-all" in lowered or "admin" in lowered
-
 
 def _tool_requires_scope(tool) -> bool:
     return is_write_tool(tool) or has_risk_tag(

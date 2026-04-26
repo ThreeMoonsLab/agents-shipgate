@@ -82,7 +82,9 @@ def _parse_artifact_entries(value: Any) -> list[ArtifactPathConfig]:
         raise TypeError("artifact entries must be a list")
     entries: list[ArtifactPathConfig] = []
     for item in value:
-        if isinstance(item, str):
+        if isinstance(item, ArtifactPathConfig):
+            entries.append(item)
+        elif isinstance(item, str):
             entries.append(ArtifactPathConfig(path=item))
         elif isinstance(item, dict):
             entries.append(ArtifactPathConfig.model_validate(item))
@@ -98,7 +100,9 @@ def _parse_named_artifact_entries(value: Any) -> list[NamedArtifactPathConfig]:
         raise TypeError("artifact entries must be a list")
     entries: list[NamedArtifactPathConfig] = []
     for item in value:
-        if isinstance(item, str):
+        if isinstance(item, NamedArtifactPathConfig):
+            entries.append(item)
+        elif isinstance(item, str):
             entries.append(NamedArtifactPathConfig(path=item))
         elif isinstance(item, dict):
             entries.append(NamedArtifactPathConfig.model_validate(item))
@@ -172,7 +176,9 @@ def _parse_policy_entries(value: Any) -> list[PolicyToolEntry]:
         raise TypeError("policy value must be a list")
     entries: list[PolicyToolEntry] = []
     for item in value:
-        if isinstance(item, str):
+        if isinstance(item, PolicyToolEntry):
+            entries.append(item)
+        elif isinstance(item, str):
             entries.append(PolicyToolEntry(tool=item))
         elif isinstance(item, dict):
             entries.append(PolicyToolEntry.model_validate(item))
@@ -276,7 +282,7 @@ class OutputConfig(BaseModel):
 class AgentsShipgateManifest(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
-    version: Literal["0.1"]
+    version: str
     project: ProjectConfig
     agent: AgentConfig
     environment: EnvironmentConfig

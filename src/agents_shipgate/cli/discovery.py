@@ -21,13 +21,32 @@ MODEL_CONFIG_PATTERNS = ("openai-config.json",)
 TEST_CASE_PATTERNS = ("tests/*openai*cases*.json", "tests/*api*cases*.json")
 TRACE_SAMPLE_PATTERNS = ("traces/*.json", "traces/*.jsonl")
 POLICY_RULE_PATTERNS = ("policies/*openai*.yaml", "policies/*api*.yaml")
+SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".mypy_cache",
+    ".next",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "agents-shipgate-reports",
+    "build",
+    "dist",
+    "env",
+    "node_modules",
+    "target",
+    "venv",
+}
 
 
 def discover_manifest_paths(workspace: Path) -> list[Path]:
     return sorted(
         path
         for path in workspace.rglob("shipgate.yaml")
-        if ".git" not in path.parts and "agents-shipgate-reports" not in path.parts
+        if not _skip(path)
     )
 
 
@@ -190,7 +209,7 @@ def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:
 
 
 def _skip(path: Path) -> bool:
-    return any(part in {".git", "agents-shipgate-reports", "__pycache__"} for part in path.parts)
+    return any(part in SKIP_DIRS for part in path.parts)
 
 
 def _relative(path: Path, base: Path) -> str:

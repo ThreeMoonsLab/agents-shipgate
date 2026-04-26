@@ -245,14 +245,14 @@ def _flatten_and_deduplicate_tools(
                 by_name[tool.name] = tool
                 continue
             if _source_priority(tool) > _source_priority(existing):
-                by_name[tool.name] = tool
                 kept, dropped = tool, existing
             else:
                 kept, dropped = existing, tool
+            by_name[tool.name] = _merge_duplicate_tool_metadata(kept, dropped)
             warnings.append(
                 "Duplicate tool name "
                 f"{tool.name!r}; kept {kept.source_type} source {kept.source_id!r} "
-                f"and ignored {dropped.source_type} source {dropped.source_id!r}."
+                f"and merged metadata from {dropped.source_type} source {dropped.source_id!r}."
             )
     return list(by_name.values()), warnings
 
@@ -264,6 +264,42 @@ def _source_priority(tool: Tool) -> int:
         "mcp": 20,
         "sdk_function": 10,
     }.get(tool.source_type, 0)
+
+
+def _merge_duplicate_tool_metadata(kept: Tool, dropped: Tool) -> Tool:
+    merged = kept.model_copy(deep=True)
+    merged.annotations = {**dropped.annotations, **merged.annotations}
+    seen_hints = {_risk_hint_key(hint) for hint in merged.risk_hints}
+    for hint in dropped.risk_hints:
+        key = _risk_hint_key(hint)
+        if key in seen_hints:
+            continue
+        merged.risk_hints.append(hint.model_copy(deep=True))
+        seen_hints.add(key)
+    merged.auth = merged.auth.model_copy(deep=True)
+    merged.auth.scopes = _merge_string_values(merged.auth.scopes, dropped.auth.scopes)
+    if not merged.auth.type:
+        merged.auth.type = dropped.auth.type
+    if not merged.auth.credential_mode:
+        merged.auth.credential_mode = dropped.auth.credential_mode
+    if not merged.auth.source and dropped.auth.source:
+        merged.auth.source = dropped.auth.source
+    if merged.owner is None:
+        merged.owner = dropped.owner
+    return merged
+
+
+def _risk_hint_key(hint) -> tuple[str, str, str, str]:
+    evidence = json.dumps(hint.evidence, sort_keys=True, default=str)
+    return hint.tag, hint.source, hint.confidence, evidence
+
+
+def _merge_string_values(primary: list[str], secondary: list[str]) -> list[str]:
+    merged: list[str] = []
+    for value in [*primary, *secondary]:
+        if value not in merged:
+            merged.append(value)
+    return merged
 
 
 def _build_agent(
