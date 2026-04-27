@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import BaselineSummary, Finding, ReadinessReport, Severity
 
@@ -83,6 +84,7 @@ def apply_baseline(
         finding.fingerprint for finding in baseline.findings if finding.fingerprint
     }
     current_active_fingerprints: set[str] = set()
+    matched_legacy_fingerprints: set[str] = set()
     matched = 0
     new = 0
     for finding in findings:
@@ -95,6 +97,10 @@ def apply_baseline(
         if fingerprint in baseline_fingerprints:
             finding.baseline_status = "matched"
             matched += 1
+        elif legacy_match := _legacy_baseline_match(finding, baseline.findings):
+            finding.baseline_status = "matched"
+            matched += 1
+            matched_legacy_fingerprints.add(legacy_match.fingerprint)
         else:
             finding.baseline_status = "new"
             new += 1
@@ -102,12 +108,31 @@ def apply_baseline(
         path=display_path,
         matched_count=matched,
         new_count=new,
-        resolved_count=len(baseline_fingerprints - current_active_fingerprints),
+        resolved_count=len(
+            baseline_fingerprints
+            - current_active_fingerprints
+            - matched_legacy_fingerprints
+        ),
     )
 
 
 def _active_findings(findings: list[Finding]) -> list[Finding]:
     return [finding for finding in findings if not finding.suppressed]
+
+
+def _legacy_baseline_match(
+    finding: Finding, baseline_findings: list[BaselineFinding]
+) -> BaselineFinding | None:
+    for baseline_finding in baseline_findings:
+        if not expands_to_check_id(baseline_finding.check_id, finding.check_id):
+            continue
+        if (
+            baseline_finding.tool_name is not None
+            and baseline_finding.tool_name != finding.tool_name
+        ):
+            continue
+        return baseline_finding
+    return None
 
 
 def _utc_now() -> str:

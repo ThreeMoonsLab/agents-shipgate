@@ -1,4 +1,5 @@
 from agents_shipgate.config.schema import SuppressionConfig
+from agents_shipgate.core.baseline import BaselineFile, BaselineFinding, apply_baseline
 from agents_shipgate.core.findings import (
     apply_severity_overrides,
     apply_suppressions,
@@ -33,6 +34,80 @@ def test_apply_suppressions_matches_tool_name_and_preserves_reason():
 
     assert finding.suppressed is True
     assert finding.suppression_reason == "Intentional free-form search."
+
+
+def test_legacy_api_operational_readiness_suppression_matches_split_check():
+    finding = Finding(
+        check_id="SHIP-API-TIMEOUT-MISSING",
+        title="OpenAI API flow lacks timeout metadata",
+        severity="medium",
+        category="api",
+        recommendation="Declare timeouts.",
+    )
+
+    apply_suppressions(
+        [finding],
+        [
+            SuppressionConfig(
+                check_id="SHIP-API-OPERATIONAL-READINESS",
+                reason="Accepted existing v0.3 operational-readiness finding.",
+            )
+        ],
+    )
+
+    assert finding.suppressed is True
+    assert (
+        finding.suppression_reason
+        == "Accepted existing v0.3 operational-readiness finding."
+    )
+
+
+def test_legacy_api_operational_readiness_severity_override_matches_split_check():
+    finding = Finding(
+        check_id="SHIP-API-RETRY-POLICY-MISSING",
+        title="OpenAI API flow lacks retry policy metadata",
+        severity="medium",
+        category="api",
+        recommendation="Declare retry policy.",
+    )
+
+    apply_severity_overrides(
+        [finding],
+        {"SHIP-API-OPERATIONAL-READINESS": "high"},
+    )
+
+    assert finding.severity == "high"
+    assert finding.evidence["default_severity"] == "medium"
+
+
+def test_legacy_api_operational_readiness_baseline_matches_split_check():
+    finding = Finding(
+        check_id="SHIP-API-TEST-CASES-MISSING",
+        title="OpenAI API flow lacks test case metadata",
+        severity="medium",
+        category="api",
+        recommendation="Add test cases.",
+        fingerprint="fp_current",
+    )
+    baseline = BaselineFile(
+        created_at="2026-04-26T00:00:00Z",
+        source_report_run_id="run_v03",
+        findings=[
+            BaselineFinding(
+                fingerprint="fp_legacy",
+                check_id="SHIP-API-OPERATIONAL-READINESS",
+                severity="medium",
+                title="OpenAI API operational readiness evidence is incomplete",
+            )
+        ],
+    )
+
+    summary = apply_baseline([finding], baseline, display_path="baseline.json")
+
+    assert finding.baseline_status == "matched"
+    assert summary.matched_count == 1
+    assert summary.new_count == 0
+    assert summary.resolved_count == 0
 
 
 def test_finding_ids_are_stable_across_ordering():

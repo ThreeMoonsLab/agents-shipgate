@@ -18,6 +18,7 @@ from agents_shipgate.checks import (
     schema,
     side_effects,
 )
+from agents_shipgate.core.check_ids import known_check_ids_with_legacy
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
 
@@ -64,6 +65,7 @@ CHECK_METADATA: list[CheckMetadata] = [
     CheckMetadata(id="SHIP-API-RETRY-WITHOUT-IDEMPOTENCY", category="api", default_severity="high", description="OpenAI API write tool may be retried without idempotency evidence.", rationale="Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.", fires_when="Retry policy is declared and a risky write tool lacks idempotency evidence.", evidence_fields=["retry_policy", "risk_tags"], recommendation="Add idempotency evidence for retried risky OpenAI API tools or avoid retrying those side effects."),
     CheckMetadata(id="SHIP-API-TRACE-APPROVAL-MISSING", category="api", default_severity="medium", description="OpenAI API trace sample shows a policy-controlled tool without approval.", rationale="Trace samples should demonstrate approval behavior for tools that require approval.", fires_when="A trace sample marks approved=false for a tool with approval policy evidence.", evidence_fields=["tool_name", "approved"], recommendation="Require approval before calling policy-controlled OpenAI API tools."),
     CheckMetadata(id="SHIP-API-TRACE-CONFIRMATION-MISSING", category="api", default_severity="medium", description="OpenAI API trace sample shows a policy-controlled tool without confirmation.", rationale="Trace samples should demonstrate explicit confirmation for tools that require confirmation.", fires_when="A trace sample marks confirmed=false for a tool with confirmation policy evidence.", evidence_fields=["tool_name", "confirmed"], recommendation="Require explicit confirmation before calling policy-controlled OpenAI API tools."),
+    CheckMetadata(id="SHIP-API-OPERATIONAL-READINESS", category="api", default_severity="medium", description="Deprecated compatibility alias for the v0.3 OpenAI API operational readiness bundle.", rationale="v0.4 emits atomic OpenAI API readiness check IDs, but this ID remains available for existing suppressions, severity overrides, baselines, SARIF consumers, and explain/list-checks workflows during the deprecation window.", fires_when="Not emitted by v0.4 scans; matching configuration expands to the v0.4 atomic OpenAI API operational readiness checks.", evidence_fields=["legacy_check_id"], recommendation="Migrate suppressions, severity overrides, and baselines to the specific v0.4 SHIP-API-* readiness check IDs."),
     CheckMetadata(id="SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE", category="adk", default_severity="high", description="Google ADK toolset cannot be statically enumerated.", rationale="Release review needs an explicit tool inventory; ADK MCP/OpenAPI toolsets may resolve tools dynamically at runtime.", fires_when="A Google ADK toolset is dynamic or unresolved and no explicit MCP/OpenAPI/tool inventory input is declared.", evidence_fields=["toolset", "explicit_inventory"], recommendation="Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK toolsets."),
     CheckMetadata(id="SHIP-ADK-MCP-TOOLSET-UNFILTERED", category="adk", default_severity="high", description="Google ADK McpToolset lacks a static tool filter.", rationale="Unfiltered MCP toolsets can expose more tools than reviewers expect.", fires_when="A Google ADK McpToolset has no static tool_filter.", evidence_fields=["source_ref", "agent_name", "inventory_path"], recommendation="Declare a tool_filter and provide a local MCP tool inventory."),
     CheckMetadata(id="SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING", category="adk", default_severity="medium", description="Google ADK function tool lacks static metadata.", rationale="Static review depends on descriptions and parameter schemas because user ADK code is not imported.", fires_when="A Google ADK function/config tool lacks description or parameter metadata.", evidence_fields=["missing", "source_type"], recommendation="Add docstrings, annotations, or explicit local inventory metadata."),
@@ -100,10 +102,12 @@ def run_checks(
     findings.extend(
         manifest_consistency.run(
             context,
-            known_check_ids={
-                *(metadata.id for metadata in CHECK_METADATA),
-                *(extra_known_check_ids or set()),
-            },
+            known_check_ids=known_check_ids_with_legacy(
+                {
+                    *(metadata.id for metadata in CHECK_METADATA),
+                    *(extra_known_check_ids or set()),
+                }
+            ),
         )
     )
     return findings

@@ -59,6 +59,7 @@ baseline summary and do not fail CI.
 | `SHIP-API-RETRY-WITHOUT-IDEMPOTENCY` | high | A risky OpenAI API write tool may be retried without idempotency evidence. |
 | `SHIP-API-TRACE-APPROVAL-MISSING` | medium | A trace sample shows a policy-controlled tool call without approval. |
 | `SHIP-API-TRACE-CONFIRMATION-MISSING` | medium | A trace sample shows a policy-controlled tool call without confirmation. |
+| `SHIP-API-OPERATIONAL-READINESS` | medium | Deprecated v0.3 compatibility alias for the v0.4 atomic OpenAI API operational readiness checks. |
 | `SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE` | high | A Google ADK toolset cannot be statically enumerated and no explicit inventory is declared. |
 | `SHIP-ADK-MCP-TOOLSET-UNFILTERED` | high/medium | A Google ADK `McpToolset` has no static `tool_filter`. |
 | `SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING` | medium | A Google ADK function/config tool lacks static description or parameter metadata. |
@@ -173,9 +174,18 @@ policy, missing timeouts, missing test cases, non-idempotent high-risk tools
 with retry evidence, missing success/failure tool-output modeling, and trace
 samples that show required approval or confirmation missing.
 
-The old bundled check ID is intentionally not kept as an alias. Update v0.3
-suppressions and baselines that referenced `SHIP-API-OPERATIONAL-READINESS` to
-the specific v0.4 ID that now represents the condition.
+The old bundled check ID remains as a deprecated compatibility alias through at
+least one minor release. v0.4 does not emit new findings with
+`SHIP-API-OPERATIONAL-READINESS`, but existing suppressions, severity overrides,
+baseline entries, `explain`, `list-checks`, and stale-suppression validation
+continue to recognize it. New configs should use the specific v0.4 ID that
+represents the condition.
+
+### SHIP-API-OPERATIONAL-READINESS
+
+Deprecated compatibility alias for the v0.3 OpenAI API operational readiness
+bundle. Migrate suppressions, severity overrides, and baselines to the specific
+v0.4 `SHIP-API-*` readiness checks when you touch the config.
 
 ### SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
 

@@ -137,7 +137,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.3.json`](docs/report-schema.v0.3.json) and what's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json) and what's-stable is documented in [STABILITY.md](STABILITY.md).
 
 ### Task 3 · Suppress a finding with a reason
 
@@ -183,7 +183,7 @@ Returns the full `CheckMetadata` with `id`, `category`, `default_severity`, `des
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema | [`docs/report-schema.v0.3.json`](docs/report-schema.v0.3.json) | `0.3` |
+| Report schema | [`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json) | `0.4` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |

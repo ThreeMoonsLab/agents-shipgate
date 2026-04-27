@@ -121,7 +121,7 @@ If you need stability guarantees beyond what's listed here, please open an issue
 
 We follow [SemVer](https://semver.org/) loosely:
 
-- **Patch** (`0.3.x`): bug fixes only. No new features, no breaking changes.
+- **Patch** (`0.4.x`): bug fixes only. No new features, no breaking changes.
 - **Minor** (`0.x.0`): new features (new checks, new input loaders, new flags). Adheres to this contract.
 - **Major** (`1.0.0`): may break the contract. Will be announced with a migration guide.
 

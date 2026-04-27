@@ -22,7 +22,7 @@ Static release-readiness scanner for AI agent tool surfaces.
 ```bash
 pipx install agents-shipgate
 # or in CI:
-# - uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+# - uses: ThreeMoonsLab/agents-shipgate@v0.4.0
 ```
 
 ## 60-second run
@@ -56,7 +56,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.3.json`](docs/report-schema.v0.3.json)** — JSON Schemas for live editor validation
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json)** — JSON Schemas for live editor validation
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "0.4.0"
-description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Google ADK). CLI + GitHub Action."
+description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK). CLI + GitHub Action."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -95,6 +95,11 @@ packages = ["src/agents_shipgate"]
 "samples" = "agents_shipgate/_fixtures"
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.hypothesis",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

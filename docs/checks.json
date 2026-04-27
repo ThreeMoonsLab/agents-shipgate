@@ -100,6 +100,19 @@
     },
     {
       "category": "api",
+      "default_severity": "medium",
+      "description": "Deprecated compatibility alias for the v0.3 OpenAI API operational readiness bundle.",
+      "docs_url": "docs/checks.md#ship-api-operational-readiness",
+      "evidence_fields": [
+        "legacy_check_id"
+      ],
+      "fires_when": "Not emitted by v0.4 scans; matching configuration expands to the v0.4 atomic OpenAI API operational readiness checks.",
+      "id": "SHIP-API-OPERATIONAL-READINESS",
+      "rationale": "v0.4 emits atomic OpenAI API readiness check IDs, but this ID remains available for existing suppressions, severity overrides, baselines, SARIF consumers, and explain/list-checks workflows during the deprecation window.",
+      "recommendation": "Migrate suppressions, severity overrides, and baselines to the specific v0.4 SHIP-API-* readiness check IDs."
+    },
+    {
+      "category": "api",
       "default_severity": "high",
       "description": "Prompt scope contradicts enabled OpenAI API tools.",
       "docs_url": "docs/checks.md#ship-api-prompt-tool-scope-mismatch",

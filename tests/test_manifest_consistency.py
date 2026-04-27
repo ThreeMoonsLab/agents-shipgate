@@ -115,6 +115,8 @@ checks:
     - check_id: SHIP-DOC-MISSING-DESCRIPTION
       tool: support.lookup
       reason: "covered by internal docs"
+    - check_id: SHIP-API-OPERATIONAL-READINESS
+      reason: "legacy v0.3 compatibility alias"
 """,
         encoding="utf-8",
     )

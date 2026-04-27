@@ -91,7 +91,8 @@ def test_cli_list_checks_outputs_catalog():
     assert result.exit_code == 0
     assert "SHIP-POLICY-APPROVAL-MISSING" in result.output
     assert "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY" in result.output
-    assert "SHIP-API-OPERATIONAL-READINESS" not in result.output
+    assert "SHIP-API-OPERATIONAL-READINESS" in result.output
+    assert "Deprecated compatibility alias" in result.output
 
 
 def test_cli_version_outputs_version():
@@ -165,6 +166,13 @@ def test_cli_explain_outputs_atomic_api_check_details():
     assert result.exit_code == 0
     assert "Default severity: high" in result.output
     assert "OpenAI API write tool may be retried without idempotency evidence." in result.output
+
+
+def test_cli_explain_outputs_legacy_compatibility_alias():
+    result = runner.invoke(app, ["explain", "SHIP-API-OPERATIONAL-READINESS"])
+
+    assert result.exit_code == 0
+    assert "Deprecated compatibility alias" in result.output
 
 
 def test_cli_explain_unknown_check_suggests_close_match():
