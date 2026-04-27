@@ -67,11 +67,16 @@ def _function_schema_strictness(context: ScanContext):
 
 def _structured_output_readiness(context: ScanContext):
     # Anthropic config has no first-class response-format artifact in MVP,
-    # so this check stays scoped to the OpenAI Agents API surface.
+    # so this check stays scoped to the OpenAI Agents API surface. Use the
+    # OpenAI-only tool filter so a mixed manifest (anthropic + openai_api)
+    # doesn't list Anthropic tools as high-risk under an OpenAI-shaped
+    # finding.
     artifacts = context.api_artifacts
     if artifacts is None:
         return []
-    high_risk_tools = [tool.name for tool in _api_tools(context) if is_high_risk_tool(tool)]
+    high_risk_tools = [
+        tool.name for tool in _openai_api_tools(context) if is_high_risk_tool(tool)
+    ]
     if not artifacts.response_formats:
         return [
             agent_finding(
@@ -188,13 +193,15 @@ def _prompt_tool_scope_mismatch(context: ScanContext):
 def _operational_readiness(context: ScanContext):
     # The retry / timeout / test-case / output-schema readiness checks key on
     # OpenAI Agents API artifacts. Anthropic MVP doesn't carry equivalent data,
-    # so when only Anthropic artifacts are present these checks intentionally
-    # don't fire — see plan §5.
+    # so we filter to OpenAI tools only — otherwise a mixed manifest would
+    # fire OpenAI-shaped findings against Anthropic tools that have no
+    # response_formats / retry_policy / test_cases / tool_output_schemas
+    # to satisfy. See plan §5.
     artifacts = context.api_artifacts
     if artifacts is None:
         return []
     findings = []
-    api_tools = _api_tools(context)
+    api_tools = _openai_api_tools(context)
     high_risk_tools = [tool for tool in api_tools if is_high_risk_tool(tool)]
     retry_policy = artifacts.retry_policy()
     timeouts = artifacts.timeouts()
@@ -405,8 +412,21 @@ def _broad_free_text(parameter: ToolParameter) -> bool:
 
 
 def _api_tools(context: ScanContext) -> list[Tool]:
+    """Tools backed by an artifact-style adapter (OpenAI Agents API or
+    Anthropic Messages API). Used by checks that apply to both surfaces:
+    function-schema strictness and prompt/tool scope mismatch.
+    """
     return [
         tool
         for tool in context.tools
         if tool.source_type in {"openai_api", "anthropic_api"}
     ]
+
+
+def _openai_api_tools(context: ScanContext) -> list[Tool]:
+    """Tools backed only by the OpenAI Agents API adapter. Used by checks
+    that key on OpenAI-specific artifacts (response_formats, retry_policy,
+    test_cases, tool_output_schemas) — these have no Anthropic equivalent
+    in the v0.4 MVP and would produce false positives on Anthropic tools.
+    """
+    return [tool for tool in context.tools if tool.source_type == "openai_api"]

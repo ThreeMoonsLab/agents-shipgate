@@ -22,10 +22,17 @@ Anthropic-specific differences from the OpenAI loader:
   :data:`agents_shipgate.inputs.common.CONVENTIONAL_TOOL_NAME_RE`). Violations
   are warnings, not errors — the static linter surfaces the issue without
   blocking the load.
-- Server-side built-in tool types (``computer_*``, ``bash_*``,
-  ``web_search``, ``text_editor_*``, ...) have no user-controlled
+- Server-side Anthropic tools (``web_search_*``, ``code_execution_*``)
+  execute on Anthropic infrastructure and have no user-controlled
   ``input_schema``. We skip them with a warning rather than emitting noisy
   schema findings on a managed tool the user cannot fix.
+- Client-side Anthropic tools (``bash_*``, ``text_editor_*``, ``computer_*``,
+  ``memory_*``) execute inside the user's application code and ARE in scope
+  for static release-readiness review. We inventory them as
+  ``source_type='anthropic_api'`` tools, attach explicit risk hints (e.g.
+  ``bash`` -> destructive + write + code_execution), and let the existing
+  framework-agnostic checks (approval policy, auth scopes, owner, etc.)
+  fire normally. See https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-reference
 
 Public docs: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
 """
@@ -39,7 +46,12 @@ from typing import Any
 
 from agents_shipgate.config.schema import AnthropicConfig, ArtifactPathConfig
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import AnthropicArtifacts, LoadedToolSource, Tool
+from agents_shipgate.core.models import (
+    AnthropicArtifacts,
+    LoadedToolSource,
+    Tool,
+    ToolRiskHint,
+)
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -53,6 +65,44 @@ PROMPT_SUFFIXES = {".md", ".markdown", ".txt"}
 # Per https://docs.anthropic.com/en/docs/build-with-claude/tool-use the tool
 # name must match this regex. Surface a warning when it doesn't.
 _ANTHROPIC_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+# Anthropic server-side tool type prefixes. These tools execute on Anthropic
+# infrastructure (sandboxed search, sandboxed code interpreter) and have no
+# user-controlled schema; static checks against `input_schema` would fire
+# spurious findings on a managed surface the user cannot remediate.
+_ANTHROPIC_SERVER_TOOL_PREFIXES: tuple[str, ...] = (
+    "web_search_",
+    "code_execution_",
+)
+
+# Anthropic client-side tool type prefixes mapped to known risk tags. Client
+# tools execute inside the user's application code, so static
+# release-readiness checks ARE relevant: a `bash` tool needs an approval
+# policy, a `computer` tool needs auth scopes, etc. Risk tags are
+# pre-populated here because the keyword classifier alone would miss most of
+# these names (e.g. "computer", "memory", "str_replace_editor").
+_ANTHROPIC_CLIENT_TOOL_RISK_TAGS: dict[str, tuple[str, ...]] = {
+    "bash_": ("code_execution", "destructive", "write"),
+    "text_editor_": ("destructive", "write"),
+    "computer_": ("code_execution", "destructive", "write"),
+    "memory_": ("write",),
+}
+
+
+def _classify_anthropic_typed_tool(tool_type: str) -> tuple[str, tuple[str, ...]]:
+    """Classify a typed Anthropic tool definition.
+
+    Returns ``(category, risk_tags)`` where ``category`` is one of
+    ``"server"``, ``"client"``, or ``"unknown"`` and ``risk_tags`` is the
+    pre-populated tag list for client tools (empty for server/unknown).
+    """
+    for prefix in _ANTHROPIC_SERVER_TOOL_PREFIXES:
+        if tool_type.startswith(prefix):
+            return "server", ()
+    for prefix, tags in _ANTHROPIC_CLIENT_TOOL_RISK_TAGS.items():
+        if tool_type.startswith(prefix):
+            return "client", tags
+    return "unknown", ()
 
 
 def load_anthropic_artifacts(
@@ -209,17 +259,42 @@ def _tool_from_anthropic_definition(
         return None
 
     tool_type = data.get("type")
+    typed_client_risk_tags: tuple[str, ...] = ()
+    typed_client_kind: str | None = None
     if isinstance(tool_type, str) and tool_type != "custom":
-        # Server-side / built-in Anthropic tool. Schema is managed by Anthropic
-        # and is not user-controlled, so static checks against an
-        # `input_schema` would fire spurious findings on something the user
-        # cannot remediate. Per the plan, skip with a warning.
-        skipped_server_tools.append({"name": name, "type": tool_type, "source_ref": source_ref})
-        warnings.append(
-            f"Anthropic server-side tool {name!r} ({tool_type!r}) at {source_ref} skipped; "
-            "managed Anthropic tools have no user-controlled schema."
-        )
-        return None
+        category, risk_tag_seed = _classify_anthropic_typed_tool(tool_type)
+        if category == "server":
+            # Anthropic-managed server tool (web_search, code_execution).
+            # Schema is sandboxed on Anthropic's side; the user cannot
+            # influence behavior, so static checks would be spurious.
+            skipped_server_tools.append(
+                {"name": name, "type": tool_type, "source_ref": source_ref}
+            )
+            warnings.append(
+                f"Anthropic server-side tool {name!r} ({tool_type!r}) at {source_ref} skipped; "
+                "managed Anthropic tools have no user-controlled schema."
+            )
+            return None
+        if category == "unknown":
+            # Forward-compat: a typed tool we don't yet classify. We skip
+            # with an explicit warning so the user can either declare it
+            # under `type: "custom"` (loaded as a normal tool) or wait for
+            # adapter support. This avoids silently dropping high-risk
+            # tools when Anthropic introduces a new type prefix.
+            skipped_server_tools.append(
+                {"name": name, "type": tool_type, "source_ref": source_ref}
+            )
+            warnings.append(
+                f"Anthropic tool {name!r} at {source_ref} declares unrecognized "
+                f"type {tool_type!r}; skipping. If this is a custom tool, omit "
+                "`type` or set it to \"custom\" so the static checks can review it."
+            )
+            return None
+        # Client tool: executes in the user's application code. We inventory
+        # it with pre-populated risk tags so framework-agnostic checks
+        # (approval, auth scope, owner, idempotency, ...) can fire correctly.
+        typed_client_risk_tags = risk_tag_seed
+        typed_client_kind = tool_type
 
     if "input_schema" not in data and "parameters" in data:
         warnings.append(
@@ -249,6 +324,20 @@ def _tool_from_anthropic_definition(
     annotations: dict[str, Any] = {"anthropicTool": True}
     if cache_control is not None:
         annotations["anthropicCacheControl"] = cache_control
+    if typed_client_kind is not None:
+        annotations["anthropicClientTool"] = True
+        annotations["anthropicToolType"] = typed_client_kind
+
+    risk_hints: list[ToolRiskHint] = []
+    for tag in typed_client_risk_tags:
+        risk_hints.append(
+            ToolRiskHint(
+                tag=tag,
+                source="anthropic_client_tool_type",
+                confidence="high",
+                evidence={"anthropic_tool_type": typed_client_kind},
+            )
+        )
 
     return Tool(
         id=stable_tool_id(name),
@@ -260,6 +349,7 @@ def _tool_from_anthropic_definition(
         input_schema=input_schema,
         parameters=schema_to_parameters(input_schema),
         annotations=annotations,
+        risk_hints=risk_hints,
         extraction_confidence="high",
         extraction={"method": "anthropic_api_artifact", "confidence": "high"},
     )
