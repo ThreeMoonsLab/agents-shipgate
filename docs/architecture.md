@@ -50,8 +50,15 @@ Two non-negotiable invariants:
    order; per-finding fingerprints are deterministic (excluding timestamps)
    so they are reproducible across runs and serve as the baseline key.
 
-The test suite has property-based tests (Hypothesis) verifying fingerprint
-stability across input permutations.
+Coverage:
+
+- **Property-based loader tests** (Hypothesis) in
+  [`tests/test_property_loaders.py`](../tests/test_property_loaders.py)
+  fuzz the input adapters with generated manifests and tool-source
+  shapes.
+- **Fingerprint-stability unit tests** in
+  [`tests/test_findings.py`](../tests/test_findings.py) pin the report
+  builder's deterministic fingerprint contract.
 
 ## Adding a new input adapter
 
