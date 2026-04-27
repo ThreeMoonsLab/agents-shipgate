@@ -13,9 +13,12 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-Static release-readiness scanner for AI agent tool surfaces.
+**agents-shipgate is an open-source CLI and GitHub Action that produces release-readiness reports for AI agent tool surfaces.** It reads a manifest plus tool sources and writes deterministic findings as Markdown, JSON, and SARIF.
+
 **Inputs:** OpenAI Agents SDK · Anthropic Messages API · Google ADK · MCP · OpenAPI · OpenAI Agents API.
 **Outputs:** Markdown · JSON · SARIF.
+
+> The pre-flight check your agent release is missing.
 
 ## Install
 

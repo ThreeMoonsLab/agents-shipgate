@@ -1,0 +1,91 @@
+# agents-shipgate
+
+> An open-source CLI and GitHub Action that produces release-readiness reports for AI agent tool surfaces.
+
+agents-shipgate is a static, manifest-first scanner. It reads a `shipgate.yaml`
+manifest plus tool sources and produces deterministic findings as Markdown,
+JSON, and SARIF. It runs locally with no model invocation, no MCP server
+connections, no network calls, and no telemetry by default.
+
+## Canonical names
+
+- Display name: `Agents Shipgate`
+- Package, CLI, repo: `agents-shipgate`
+- Short alias (CLI binary only): `shipgate`
+- **Do not use:** `Agent Shipcheck`, `Agent Shipgate` (singular), `agents shipgate` (lowercase display).
+
+## What it is
+
+agents-shipgate is the pre-flight check that fits in the release-gate slot for
+tool-using AI agents. It runs in CI on every PR and produces a finding list
+across seven dimensions of tool-use readiness — inventory, schema, auth,
+approval policies, side effects, idempotency, and blast radius.
+
+## What it is not
+
+- Not an LLM eval framework. Use it alongside evals, not instead of them.
+- Not a runtime guardrail or LLM gateway.
+- Not a security audit, compliance certification, or SOC/ISO/HIPAA toolkit.
+- Does not invoke the model.
+- Does not connect to MCP servers.
+- Does not call LLMs.
+- Does not collect telemetry by default.
+
+## Inputs
+
+- Model Context Protocol (MCP) exports (`tool_sources[].type: "mcp"`)
+- OpenAPI 3.x specs (`tool_sources[].type: "openapi"`)
+- OpenAI Agents SDK Python entrypoints, static AST extraction (`tool_sources[].type: "openai_agents_sdk"`)
+- Google ADK Python and YAML config (`tool_sources[].type: "google_adk"`)
+- Anthropic Messages API artifacts — system prompts, tools.json, policy rules (top-level `anthropic:` block)
+- OpenAI Agents API artifacts — prompts, function schemas, response formats (top-level `openai_api:` block)
+
+## Outputs
+
+- Markdown report (human review): `agents-shipgate-reports/report.md`
+- JSON report (machine-readable, schema v0.4): `agents-shipgate-reports/report.json`
+- SARIF report (GitHub code-scanning compatible): `agents-shipgate-reports/report.sarif`
+
+## Form factor
+
+```bash
+# CLI
+pipx install agents-shipgate
+agents-shipgate init --workspace . --write
+agents-shipgate scan -c shipgate.yaml
+
+# GitHub Action
+- uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+  with:
+    config: shipgate.yaml
+    ci_mode: advisory
+    pr_comment: "true"
+```
+
+## Source of truth
+
+- Repository: https://github.com/ThreeMoonsLab/agents-shipgate
+- Landing: https://threemoonslab.com/
+- Wiki: https://github.com/ThreeMoonsLab/agents-shipgate/wiki
+- Latest release: https://github.com/ThreeMoonsLab/agents-shipgate/releases/latest
+- AGENTS.md (agent-facing instructions): https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md
+- STABILITY.md (0.x contract): https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md
+- Discovery metadata (.well-known): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
+- Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+- Report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.4.json
+- Check catalog (machine-readable): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
+
+## Category vocabulary
+
+- **Agent release gate** — a static, manifest-based pre-flight check that runs on agent PRs before promotion.
+- **Tool-use readiness** — the seven-dimensional release check on an agent's tool surface.
+- **Tool surface** — the set of named, schemaed actions an agent can invoke.
+- **Manifest-first** — the source-of-truth release artifact lives in a checked-in YAML file.
+
+## License
+
+Apache-2.0.
+
+## Maintained by
+
+Three Moons Lab — https://threemoonslab.com/

@@ -23,7 +23,7 @@
   "quickstart": "agents-shipgate init --workspace . --write && agents-shipgate scan -c shipgate.yaml",
   "fixture_run": "agents-shipgate fixture run support_refund_agent",
   "self_check": "agents-shipgate self-check --json",
-  "inputs": ["mcp", "openapi", "openai_agents_sdk", "google_adk", "openai_api"],
+  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_messages_api", "google_adk", "openai_api"],
   "outputs": ["markdown", "json", "sarif"],
   "trust_model": "static_by_default",
   "schemas": {
