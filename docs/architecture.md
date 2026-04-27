@@ -46,10 +46,12 @@ Two non-negotiable invariants:
 
 1. **No network calls in core code paths.** Inputs are local files. Plugins
    can opt-in but are off by default.
-2. **Same inputs → same report.** Findings are sorted by stable fingerprint;
-   timestamps are excluded from the report fingerprint hash.
+2. **Same inputs → same report.** Findings appear in stable check-execution
+   order; per-finding fingerprints are deterministic (excluding timestamps)
+   so they are reproducible across runs and serve as the baseline key.
 
-The test suite has property-based tests (Hypothesis) verifying both.
+The test suite has property-based tests (Hypothesis) verifying fingerprint
+stability across input permutations.
 
 ## Adding a new input adapter
 

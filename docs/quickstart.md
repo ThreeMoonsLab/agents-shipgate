@@ -31,7 +31,14 @@ agents-shipgate scan -c shipgate.yaml
 `agent.name` and `agent.declared_purpose`. Replace the placeholders before
 running `scan`.
 
-Reports land at `agents-shipgate-reports/report.{md,json,sarif}`.
+Reports land at `agents-shipgate-reports/report.md` and `report.json`
+(the default formats). To also write SARIF for GitHub's code-scanning UI:
+
+```bash
+agents-shipgate scan -c shipgate.yaml --format markdown,json,sarif
+```
+
+The bundled GitHub Action emits all three formats by default.
 
 ## Verify on a known fixture
 
