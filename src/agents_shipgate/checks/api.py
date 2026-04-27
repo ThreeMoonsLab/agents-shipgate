@@ -29,7 +29,7 @@ CONFIRMATION_PROMPT_TERMS = ("confirm", "confirmation", "explicit consent", "ask
 
 
 def run(context: ScanContext):
-    if context.api_artifacts is None:
+    if context.api_artifacts is None and context.anthropic_artifacts is None:
         return []
     findings = []
     findings.extend(_function_schema_strictness(context))
@@ -66,6 +66,8 @@ def _function_schema_strictness(context: ScanContext):
 
 
 def _structured_output_readiness(context: ScanContext):
+    # Anthropic config has no first-class response-format artifact in MVP,
+    # so this check stays scoped to the OpenAI Agents API surface.
     artifacts = context.api_artifacts
     if artifacts is None:
         return []
@@ -118,10 +120,17 @@ def _structured_output_readiness(context: ScanContext):
 
 
 def _prompt_tool_scope_mismatch(context: ScanContext):
-    artifacts = context.api_artifacts
-    if artifacts is None or not artifacts.prompt_text:
+    prompt_segments: list[str] = []
+    if context.api_artifacts is not None and context.api_artifacts.prompt_text:
+        prompt_segments.append(context.api_artifacts.prompt_text)
+    if (
+        context.anthropic_artifacts is not None
+        and context.anthropic_artifacts.prompt_text
+    ):
+        prompt_segments.append(context.anthropic_artifacts.prompt_text)
+    if not prompt_segments:
         return []
-    prompt = artifacts.prompt_text.lower()
+    prompt = "\n\n".join(prompt_segments).lower()
     api_tools = _api_tools(context)
     write_or_high_risk = [
         tool for tool in api_tools if is_write_tool(tool) or is_high_risk_tool(tool)
@@ -177,6 +186,10 @@ def _prompt_tool_scope_mismatch(context: ScanContext):
 
 
 def _operational_readiness(context: ScanContext):
+    # The retry / timeout / test-case / output-schema readiness checks key on
+    # OpenAI Agents API artifacts. Anthropic MVP doesn't carry equivalent data,
+    # so when only Anthropic artifacts are present these checks intentionally
+    # don't fire — see plan §5.
     artifacts = context.api_artifacts
     if artifacts is None:
         return []
@@ -313,7 +326,10 @@ def _function_schema_issues(tool: Tool) -> list[str]:
     schema = tool.input_schema
     if not schema:
         return ["missing_parameters_schema"]
-    if tool.annotations.get("openaiStrict") is not True:
+    # `strict: true` is OpenAI-specific. Anthropic Messages API has no such
+    # field, so emitting `missing_strict_true` for Anthropic tools would be
+    # an unfixable false positive.
+    if tool.source_type == "openai_api" and tool.annotations.get("openaiStrict") is not True:
         issues.append("missing_strict_true")
     if schema.get("type") != "object":
         issues.append("parameters_schema_not_object")
@@ -389,4 +405,8 @@ def _broad_free_text(parameter: ToolParameter) -> bool:
 
 
 def _api_tools(context: ScanContext) -> list[Tool]:
-    return [tool for tool in context.tools if tool.source_type == "openai_api"]
+    return [
+        tool
+        for tool in context.tools
+        if tool.source_type in {"openai_api", "anthropic_api"}
+    ]

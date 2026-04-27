@@ -8,9 +8,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Google ADK Python/config files) and produces deterministic findings.
+Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files) and produces deterministic findings.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Google ADK
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 

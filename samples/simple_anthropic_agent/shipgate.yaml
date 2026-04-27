@@ -1,0 +1,33 @@
+version: "0.1"
+
+project:
+  name: simple-anthropic-agent
+  owner: support-platform
+
+agent:
+  name: anthropic-refund-assistant
+  prohibited_actions:
+    - issue refund without approval
+    - send customer email without confirmation
+
+environment:
+  target: production_like
+
+anthropic:
+  prompt_files:
+    - prompts/support_refund.md
+
+  tools:
+    - path: tools/anthropic-tools.json
+
+  policy_rules:
+    - path: policies/anthropic-policy.yaml
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

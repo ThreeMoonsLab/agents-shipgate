@@ -187,6 +187,51 @@ tool_output_schemas:
 
 Trace samples are JSON arrays or JSONL with simple normalized fields such as `tool_name`, `approved`, `confirmed`, `success`, and `error`. Unsupported raw logs produce source warnings rather than blockers.
 
+## Anthropic Messages API Artifacts
+
+`anthropic` is for agents built on the Anthropic Messages API tool-use surface (https://docs.anthropic.com/en/docs/build-with-claude/tool-use). It is local-only: Agents Shipgate reads files and never calls Anthropic APIs.
+
+Supported fields:
+
+```yaml
+anthropic:
+  prompt_files:
+    - prompts/support_refund.md
+
+  tools:
+    - path: tools/anthropic-tools.json
+
+  policy_rules:
+    - path: policies/anthropic-policy.yaml
+```
+
+Anthropic tool definitions are flat objects (no OpenAI-style `function` wrapper):
+
+```json
+{
+  "tools": [
+    {
+      "name": "create_refund",
+      "description": "Create a refund for a customer payment.",
+      "input_schema": {
+        "type": "object",
+        "properties": {"payment_id": {"type": "string"}},
+        "required": ["payment_id"]
+      },
+      "cache_control": {"type": "ephemeral"}
+    }
+  ]
+}
+```
+
+Tool names are validated against Anthropic's documented regex `^[a-zA-Z0-9_-]{1,64}$`; violations surface as source warnings (the static linter does not block). Server-side built-in tool types (`type: "computer_*"`, `"bash_*"`, `"web_search*"`, `"text_editor_*"`) have no user-controlled `input_schema` and are skipped with a warning so checks like `SHIP-DOC-MISSING-DESCRIPTION` and `SHIP-SCHEMA-MISSING-BOUNDS` do not fire on managed schemas the user cannot fix.
+
+`cache_control` values are captured verbatim into `tool.annotations.anthropicCacheControl`. They have no influence on risk classification in v0.4.
+
+`policy_rules` files share the same shape as the OpenAI Agents API policy file (`approval_required`, `confirmation_required`, `idempotency_required`). They feed `SHIP-POLICY-APPROVAL-MISSING`, `SHIP-POLICY-CONFIRMATION-MISSING`, and `SHIP-SIDEFX-IDEMPOTENCY-MISSING` checks alongside the manifest's top-level `policies` block.
+
+The framework-agnostic checks (`SHIP-INVENTORY-*`, `SHIP-DOC-*`, `SHIP-SCHEMA-*`, `SHIP-AUTH-*`, `SHIP-SCOPE-*`, `SHIP-POLICY-*`, `SHIP-SIDEFX-*`, `SHIP-MANIFEST-*`) all fire on Anthropic tools without any extra configuration. From the `SHIP-API-*` family, `SHIP-API-FUNCTION-SCHEMA-STRICTNESS` and `SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH` apply; the others key on OpenAI-specific data (response formats, retry policy, trace samples) and intentionally do not fire on Anthropic-only manifests. No new `SHIP-ANTHROPIC-*` check IDs are introduced.
+
 ## MCP Tools JSON Contract
 
 Preferred shape:

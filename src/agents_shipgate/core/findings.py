@@ -142,6 +142,7 @@ def build_report(
     loaded_plugins: list[dict[str, object]] | None = None,
     source_warnings: list[str] | None = None,
     api_surface: dict[str, object] | None = None,
+    anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
     baseline: BaselineSummary | None = None,
 ) -> ReadinessReport:
@@ -153,6 +154,7 @@ def build_report(
         summary=summarize_findings(findings, tools),
         tool_surface=summarize_tool_surface(tools),
         api_surface=api_surface,
+        anthropic_surface=anthropic_surface,
         frameworks=frameworks or {},
         baseline=baseline,
         findings=findings,

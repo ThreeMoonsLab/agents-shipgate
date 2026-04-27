@@ -226,6 +226,65 @@ class OpenAIApiArtifacts(BaseModel):
         }
 
 
+class AnthropicArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    prompt_files: list[str] = Field(default_factory=list)
+    prompt_text: str | None = None
+    tool_files: list[str] = Field(default_factory=list)
+    policy_rule_files: list[str] = Field(default_factory=list)
+    policy_rules: dict[str, Any] = Field(default_factory=dict)
+    skipped_server_tools: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    # Mirror OpenAIApiArtifacts so checks/api.py can consume either artifact
+    # source via the same helpers without branching.
+    def approval_tools(self) -> set[str]:
+        return set(_string_list(self.policy_rules.get("approval_required")))
+
+    def confirmation_tools(self) -> set[str]:
+        return set(_string_list(self.policy_rules.get("confirmation_required")))
+
+    def idempotency_tools(self) -> set[str]:
+        return set(_string_list(self.policy_rules.get("idempotency_required")))
+
+    def retry_policy(self) -> dict[str, Any]:
+        value = self.policy_rules.get("retry_policy")
+        return value if isinstance(value, dict) else {}
+
+    def timeouts(self) -> dict[str, Any]:
+        value = self.policy_rules.get("timeouts")
+        return value if isinstance(value, dict) else {}
+
+    def tool_output_schemas(self) -> dict[str, Any]:
+        value = self.policy_rules.get("tool_output_schemas")
+        return value if isinstance(value, dict) else {}
+
+    @property
+    def response_formats(self) -> list[Any]:
+        # Anthropic has no first-class response-format object in the
+        # documented Messages API surface; expose an empty list so the
+        # OpenAI-shaped readiness checks early-return cleanly when the
+        # only artifact present is an Anthropic one.
+        return []
+
+    @property
+    def test_cases(self) -> list[Any]:
+        return []
+
+    @property
+    def trace_samples(self) -> list[Any]:
+        return []
+
+    def surface_summary(self) -> dict[str, Any]:
+        return {
+            "prompt_file_count": len(self.prompt_files),
+            "tool_file_count": len(self.tool_files),
+            "policy_rule_count": len(self.policy_rule_files),
+            "skipped_server_tool_count": len(self.skipped_server_tools),
+        }
+
+
 class GoogleAdkToolset(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -301,6 +360,7 @@ class ReadinessReport(BaseModel):
     summary: ReportSummary
     tool_surface: ToolSurfaceSummary
     api_surface: dict[str, Any] | None = None
+    anthropic_surface: dict[str, Any] | None = None
     frameworks: dict[str, Any] = Field(default_factory=dict)
     baseline: BaselineSummary | None = None
     findings: list[Finding] = Field(default_factory=list)

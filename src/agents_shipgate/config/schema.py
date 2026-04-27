@@ -162,6 +162,39 @@ class OpenAIApiConfig(BaseModel):
         raise TypeError("model_config must be a string path or object with path")
 
 
+class AnthropicConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    prompt_files: list[str] = Field(default_factory=list)
+    tools: list[ArtifactPathConfig] = Field(default_factory=list)
+    policy_rules: list[ArtifactPathConfig] = Field(default_factory=list)
+
+    @field_validator("prompt_files", mode="before")
+    @classmethod
+    def parse_prompt_files(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise TypeError("prompt_files must be a list")
+        files: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                files.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("path"), str):
+                files.append(item["path"])
+            else:
+                raise TypeError("prompt_files entries must be strings or objects with path")
+        return files
+
+    @field_validator("tools", "policy_rules", mode="before")
+    @classmethod
+    def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
+        return _parse_artifact_entries(value)
+
+    def has_inputs(self) -> bool:
+        return any([self.prompt_files, self.tools, self.policy_rules])
+
+
 class GoogleAdkConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -349,6 +382,7 @@ class AgentsShipgateManifest(BaseModel):
     environment: EnvironmentConfig
     tool_sources: list[ToolSourceConfig] = Field(default_factory=list)
     openai_api: OpenAIApiConfig | None = None
+    anthropic: AnthropicConfig | None = None
     google_adk: GoogleAdkConfig | None = None
     policies: PoliciesConfig = Field(default_factory=PoliciesConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
@@ -364,17 +398,26 @@ class AgentsShipgateManifest(BaseModel):
             or self.google_adk is not None
             and self.google_adk.has_inputs()
         )
-        if not self.tool_sources and self.openai_api is None and not has_google_adk:
-            raise ValueError("At least one of tool_sources or openai_api, or google_adk is required")
+        has_anthropic = self.anthropic is not None and self.anthropic.has_inputs()
+        if (
+            not self.tool_sources
+            and self.openai_api is None
+            and not has_anthropic
+            and not has_google_adk
+        ):
+            raise ValueError(
+                "At least one of tool_sources, openai_api, anthropic, or google_adk is required"
+            )
         if (
             not self.agent.declared_purpose
             and not self.agent.instructions_preview
             and not (self.openai_api and self.openai_api.prompt_files)
+            and not (self.anthropic and self.anthropic.prompt_files)
             and not has_google_adk
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "
-                "or openai_api.prompt_files is required"
+                "openai_api.prompt_files, or anthropic.prompt_files is required"
             )
         return self
 

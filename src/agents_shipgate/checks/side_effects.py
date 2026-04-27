@@ -15,6 +15,8 @@ def run(context: ScanContext):
     policy_tools = set(context.manifest.policies.idempotency_tools())
     if context.api_artifacts:
         policy_tools.update(context.api_artifacts.idempotency_tools())
+    if context.anthropic_artifacts:
+        policy_tools.update(context.anthropic_artifacts.idempotency_tools())
     for tool in context.tools:
         if is_effectively_read_only(tool):
             continue

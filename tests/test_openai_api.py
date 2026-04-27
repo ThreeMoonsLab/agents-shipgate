@@ -36,7 +36,7 @@ environment:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="tool_sources or openai_api"):
+    with pytest.raises(ConfigError, match="tool_sources, openai_api"):
         load_manifest(manifest_path)
 
 

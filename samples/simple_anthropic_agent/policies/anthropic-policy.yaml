@@ -1,0 +1,4 @@
+approval_required:
+  - create_refund
+confirmation_required:
+  - send_customer_email

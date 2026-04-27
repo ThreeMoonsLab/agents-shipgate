@@ -84,7 +84,7 @@ INFRASTRUCTURE_KEYWORDS = {
     "terraform",
 }
 
-_KEYWORD_GATED_SOURCE_TYPES = {"openai_api", "sdk_function"}
+_KEYWORD_GATED_SOURCE_TYPES = {"openai_api", "anthropic_api", "sdk_function"}
 
 
 def enrich_tools_with_risk_hints(
@@ -165,6 +165,8 @@ def _add_automatic_hints(tool: Tool) -> None:
     keyword_source = (
         "openai_api_keyword"
         if tool.source_type == "openai_api"
+        else "anthropic_api_keyword"
+        if tool.source_type == "anthropic_api"
         else "sdk_keyword"
         if tool.source_type == "sdk_function"
         else "keyword"

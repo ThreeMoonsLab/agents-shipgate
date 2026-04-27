@@ -22,6 +22,7 @@ from agents_shipgate.core.findings import (
 )
 from agents_shipgate.core.models import (
     Agent,
+    AnthropicArtifacts,
     GoogleAdkArtifacts,
     LoadedToolSource,
     OpenAIApiArtifacts,
@@ -30,6 +31,7 @@ from agents_shipgate.core.models import (
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
+from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
 from agents_shipgate.inputs.frameworks import load_framework_artifacts
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
@@ -80,6 +82,11 @@ def run_scan(
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
+    anthropic_source, anthropic_artifacts = load_anthropic_artifacts(
+        manifest.anthropic, base_dir
+    )
+    if anthropic_source:
+        loaded_sources.append(anthropic_source)
     logger.debug(
         "loaded sources",
         extra={
@@ -121,13 +128,14 @@ def run_scan(
             ]
         },
     )
-    agent = _build_agent(manifest, tools, api_artifacts, adk_artifacts)
+    agent = _build_agent(manifest, tools, api_artifacts, anthropic_artifacts, adk_artifacts)
     context = ScanContext(
         manifest=manifest,
         agent=agent,
         tools=tools,
         config_path=config_path.resolve(),
         api_artifacts=api_artifacts,
+        anthropic_artifacts=anthropic_artifacts,
         adk_artifacts=adk_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
@@ -161,12 +169,16 @@ def run_scan(
 
     out_dir = (base_dir / manifest.output.directory).resolve()
     generated_paths = _planned_generated_paths(out_dir, manifest.output.formats)
+    anthropic_surface = (
+        anthropic_artifacts.surface_summary() if anthropic_artifacts else None
+    )
     report = build_report(
         run_id=_run_id(
             manifest,
             tools,
             findings,
             api_surface=api_artifacts.surface_summary() if api_artifacts else None,
+            anthropic_surface=anthropic_surface,
             frameworks=_frameworks_surface(adk_artifacts),
         ),
         manifest=manifest,
@@ -182,6 +194,7 @@ def run_scan(
         loaded_plugins=loaded_plugins,
         source_warnings=warnings,
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
+        anthropic_surface=anthropic_surface,
         frameworks=_frameworks_surface(adk_artifacts),
         baseline=baseline_summary,
     )
@@ -205,6 +218,11 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
         loaded_sources.append(api_source)
+    anthropic_source, anthropic_artifacts = load_anthropic_artifacts(
+        manifest.anthropic, base_dir
+    )
+    if anthropic_source:
+        loaded_sources.append(anthropic_source)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
@@ -228,6 +246,9 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             for source in loaded_sources
         ],
         "api_surface": api_artifacts.surface_summary() if api_artifacts else None,
+        "anthropic_surface": (
+            anthropic_artifacts.surface_summary() if anthropic_artifacts else None
+        ),
         "frameworks": _frameworks_surface(adk_artifacts),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
         "baseline": _default_baseline_status(base_dir),
@@ -292,8 +313,12 @@ def _flatten_and_deduplicate_tools(
 
 
 def _source_priority(tool: Tool) -> int:
+    # Anthropic and OpenAI artifacts are equally authoritative; on duplicate
+    # tool names across them the first-loaded entry wins (OpenAI is loaded
+    # first in run_scan), and a `Duplicate tool name` warning surfaces.
     return {
         "openai_api": 40,
+        "anthropic_api": 40,
         "openapi": 30,
         "google_adk_inventory": 25,
         "mcp": 20,
@@ -343,6 +368,7 @@ def _build_agent(
     manifest,
     tools: list[Tool],
     api_artifacts: OpenAIApiArtifacts | None = None,
+    anthropic_artifacts: AnthropicArtifacts | None = None,
     adk_artifacts: GoogleAdkArtifacts | None = None,
 ) -> Agent:
     sdk = manifest.agent.sdk
@@ -352,6 +378,14 @@ def _build_agent(
     if not instructions_preview and api_artifacts and api_artifacts.prompt_text:
         instructions_preview = api_artifacts.prompt_text[:500]
         instruction_source = "openai_api_prompt_files"
+        instruction_confidence = "high"
+    if (
+        not instructions_preview
+        and anthropic_artifacts
+        and anthropic_artifacts.prompt_text
+    ):
+        instructions_preview = anthropic_artifacts.prompt_text[:500]
+        instruction_source = "anthropic_prompt_files"
         instruction_confidence = "high"
     if not instructions_preview and adk_artifacts:
         adk_instruction = _first_adk_instruction_preview(adk_artifacts)
@@ -430,6 +464,7 @@ def _run_id(
     tools: list[Tool],
     findings,
     api_surface: dict[str, object] | None = None,
+    anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
 ) -> str:
     payload = {
@@ -446,6 +481,7 @@ def _run_id(
             for finding in findings
         ],
         "api_surface": api_surface,
+        "anthropic_surface": anthropic_surface,
         "frameworks": frameworks or {},
     }
     digest = hashlib.sha256(

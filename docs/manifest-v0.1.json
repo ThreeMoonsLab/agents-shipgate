@@ -116,6 +116,34 @@
       "title": "AgentSdkConfig",
       "type": "object"
     },
+    "AnthropicConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_rules": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Policy Rules",
+          "type": "array"
+        },
+        "prompt_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prompt Files",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "title": "AnthropicConfig",
+      "type": "object"
+    },
     "ArtifactPathConfig": {
       "additionalProperties": false,
       "properties": {
@@ -763,6 +791,17 @@
   "properties": {
     "agent": {
       "$ref": "#/$defs/AgentConfig"
+    },
+    "anthropic": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AnthropicConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "checks": {
       "$ref": "#/$defs/ChecksConfig"

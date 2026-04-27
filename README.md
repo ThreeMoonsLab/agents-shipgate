@@ -14,7 +14,7 @@
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
 Static release-readiness scanner for AI agent tool surfaces.
-**Inputs:** OpenAI Agents SDK · Google ADK · MCP · OpenAPI · OpenAI Agents API.
+**Inputs:** OpenAI Agents SDK · Anthropic Messages API · Google ADK · MCP · OpenAPI · OpenAI Agents API.
 **Outputs:** Markdown · JSON · SARIF.
 
 ## Install

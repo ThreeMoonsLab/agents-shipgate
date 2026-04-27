@@ -1,0 +1,47 @@
+{
+  "tools": [
+    {
+      "name": "create_refund",
+      "description": "Create a refund for a customer payment.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "Payment identifier."
+          },
+          "amount": {
+            "type": "number",
+            "description": "Refund amount."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Free-form refund reason."
+          }
+        },
+        "required": ["payment_id"]
+      },
+      "cache_control": {"type": "ephemeral"}
+    },
+    {
+      "name": "get_help_article",
+      "description": "Fetch a help-center article by slug for the support agent to reference.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Help-center article slug."
+          }
+        },
+        "required": ["slug"]
+      }
+    },
+    {
+      "type": "bash_20250124",
+      "name": "bash"
+    }
+  ]
+}

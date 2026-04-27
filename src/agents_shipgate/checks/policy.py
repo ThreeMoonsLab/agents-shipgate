@@ -25,6 +25,9 @@ def run(context: ScanContext):
     if context.api_artifacts:
         approval_tools.update(context.api_artifacts.approval_tools())
         confirmation_tools.update(context.api_artifacts.confirmation_tools())
+    if context.anthropic_artifacts:
+        approval_tools.update(context.anthropic_artifacts.approval_tools())
+        confirmation_tools.update(context.anthropic_artifacts.confirmation_tools())
     for tool in context.tools:
         if is_effectively_read_only(tool):
             continue
