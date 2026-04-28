@@ -2,49 +2,98 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-## v0.2
+Agents Shipgate is currently in the `0.4.x` line. The `v0.2` through `v0.4`
+items are complete and retained here as release history. Active public planning
+starts at `v0.5.0`.
 
-- Improve onboarding with `agents-shipgate init`, `doctor`, and richer examples.
-- Stabilize JSON report compatibility and finding fingerprints.
-- Add baseline save/apply workflow.
-- Harden OpenAPI parsing through property-based tests and fuzzing.
-- Add MCP fuzzing, plugin-loader tests, coverage reporting, and YAML resource-limit tests.
-- Add SBOM generation, release signing, and dependency audit checks.
-- Expand manifest-aware checks.
+## Completed
 
-## v0.3
+### v0.2
 
-- Add Google ADK static adapter MVP for Tool-Use Readiness:
-  - Support `google_adk` as a manifest tool source.
-  - Parse ADK Agent Config YAML and statically extract Python `LlmAgent` definitions, function tools, `OpenAPIToolset`, `McpToolset`, callbacks, plugins, sub-agents, and eval file references.
-  - Normalize discovered ADK tools into the existing `Tool` schema and reuse MCP/OpenAPI loaders where possible.
-  - Add ADK checks for dynamic or unresolved toolsets, unfiltered MCP toolsets, missing function-tool metadata, long-running tool contracts, guardrail evidence, and eval coverage.
-- Add SARIF output.
-- Add baseline diff mode for PRs.
-- Add optional trace normalization.
-- Add GitLab CI, CircleCI, and Jenkins examples.
+- Improved onboarding with `agents-shipgate init`, `doctor`, `self-check`, fixtures, and richer examples.
+- Stabilized JSON report compatibility, finding fingerprints, and agent-friendly JSON command output.
+- Added baseline save/apply workflow for strict CI adoption.
+- Hardened OpenAPI, MCP, plugin-loader, YAML resource-limit, and coverage test paths.
+- Added SBOM generation, release signing workflow, and dependency audit checks.
+- Expanded manifest-aware checks and severity overrides.
 
-## v0.4
+### v0.3
 
-- Add external policy/check packs:
+- Added Google ADK static adapter MVP for Tool-Use Readiness:
+  - Supported `google_adk` as a manifest tool source.
+  - Parsed ADK Agent Config YAML and statically extracted Python `Agent` / `LlmAgent` definitions, function tools, `OpenAPIToolset`, `McpToolset`, callbacks, plugins, sub-agents, eval references, and explicit local inventories.
+  - Normalized discovered ADK tools into the existing `Tool` schema and reused MCP/OpenAPI loaders where possible.
+  - Added ADK checks for dynamic or unresolved toolsets, unfiltered MCP toolsets, missing function-tool metadata, long-running tool contracts, guardrail evidence, and eval coverage.
+- Added SARIF output.
+- Added baseline diff mode for PRs.
+- Added optional trace normalization.
+- Added GitLab CI, CircleCI, and Jenkins examples.
+
+### v0.4
+
+- Added external policy/check packs:
   - Declarative YAML policy packs under `checks.policy_packs`.
   - CLI and GitHub Action policy-pack overrides for CI.
   - Policy-pack findings flow through suppressions, severity overrides, baselines, Markdown, JSON, and SARIF.
-- Harden multi-framework adapter support:
-  - Introduce a shared framework adapter interface where it reduces duplication.
-  - Stabilize ADK report schema fields.
-  - Document explicit runtime inventory as a future trust-gated command; do not ship it in v0.4.
-  - Investigate TypeScript, Go, and Java ADK support after the Python MVP.
+- Hardened multi-framework adapter support:
+  - Introduced a shared framework adapter interface where it reduces duplication.
+  - Stabilized ADK report schema fields.
+  - Documented explicit runtime inventory as a future trust-gated command; it is not part of default CI.
+  - Kept TypeScript, Go, and Java ADK support as post-Python-MVP investigation items.
 - Split bundled OpenAI API operational readiness findings into atomic check IDs.
-- Remove the legacy top-level `check_severity_overrides` alias.
-- Revisit container image distribution if demand appears and the image has CI coverage.
+- Removed the legacy top-level `check_severity_overrides` alias.
+- Revisited container image distribution and kept it deferred until there is an exercised build-and-test path.
 
-## Google ADK Support Plan
+## Open
 
-- Phase 1: Add a static-only Python and Agent Config loader. Do not import user ADK code.
-- Phase 2: Integrate ADK OpenAPI and MCP toolsets through the existing loaders when users provide local specs or inventories.
-- Phase 3: Add ADK-specific readiness checks and a Google ADK surface summary in reports.
-- Phase 4: Consider optional dynamic inventory export only as an explicit command; keep it out of default CI.
-- Phase 5: Refactor shared framework adapter seams after the ADK MVP validates the shape.
+### v0.5.0 Cross-Platform CI And Agent Platform Coverage
 
-ADK support must preserve the default trust model: no `adk run`, `adk web`, `adk eval`, MCP connection, tool call, model call, or network call by default. ADK callbacks and plugins are static guardrail evidence only, not proof of runtime enforcement. Dynamic toolsets must produce warnings or findings unless the user provides explicit MCP, OpenAPI, or tool inventory inputs.
+Goal: make Agents Shipgate easy to adopt across major CI systems and major agent
+development platforms while preserving the default static trust model.
+
+- Promote GitLab CI and CircleCI from examples to first-class integration recipes:
+  - documented strict/advisory gating;
+  - baseline artifact handling;
+  - SARIF or native security report guidance where supported;
+  - copy-pasteable workflows for monorepos and multi-manifest scans.
+- Add or harden recipes for additional CI platforms:
+  - Jenkins;
+  - Buildkite;
+  - Azure Pipelines;
+  - Bitbucket Pipelines;
+  - local pre-commit / pre-push usage;
+  - generic POSIX shell integration for unsupported CI systems.
+- Expand agent-platform coverage beyond the current MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, and Google ADK surfaces:
+  - LangGraph / LangChain tool definitions;
+  - CrewAI agents and tools;
+  - AutoGen multi-agent tool surfaces;
+  - Semantic Kernel plugins/functions;
+  - LlamaIndex tools and workflows;
+  - TypeScript/JavaScript agent frameworks where static extraction is practical;
+  - additional Google ADK language surfaces after the Python adapter remains stable.
+- Add a framework adapter checklist so new platform support is consistent:
+  - static extraction only by default;
+  - no agent execution, model call, tool call, network call, or MCP connection;
+  - deterministic tool inventory normalization;
+  - source warnings for dynamic or unresolved tools;
+  - framework surface summary in JSON, Markdown, and SARIF-compatible metadata.
+- Improve cross-platform release-gate documentation:
+  - reference architecture for advisory-to-strict rollout;
+  - baseline management across CI providers;
+  - recommended artifact retention;
+  - failure-mode examples for security review and platform engineering teams.
+
+### Later Candidates
+
+- Optional trust-gated runtime inventory export as an explicit command, separate from default static CI.
+- Container image distribution if the image has CI coverage, security scanning, and release signing.
+- Homebrew or other package-manager distribution if CLI usage warrants it.
+- Public versions of the private release-readiness research themes once they are shaped into concrete checks and schema changes.
+
+## Google ADK Support Principles
+
+ADK support must preserve the default trust model: no `adk run`, `adk web`,
+`adk eval`, MCP connection, tool call, model call, or network call by default.
+ADK callbacks and plugins are static guardrail evidence only, not proof of
+runtime enforcement. Dynamic toolsets must produce warnings or findings unless
+the user provides explicit MCP, OpenAPI, or tool inventory inputs.
