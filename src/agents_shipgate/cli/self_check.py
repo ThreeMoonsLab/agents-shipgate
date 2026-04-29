@@ -29,6 +29,8 @@ _DEFAULT_FIXTURES = (
     "clean_read_only_agent",
     "support_refund_agent",
     "google_adk_agent",
+    "simple_langchain_agent",
+    "simple_crewai_agent",
 )
 
 

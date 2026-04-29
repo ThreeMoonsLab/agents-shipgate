@@ -1,0 +1,23 @@
+stages:
+  - test
+
+agents_shipgate:
+  stage: test
+  image: python:3.12
+  rules:
+    - changes:
+        - shipgate.yaml
+        - "**/shipgate.yaml"
+        - "**/*.openapi.yaml"
+        - "**/*.openapi.yml"
+        - "**/*openapi*.json"
+        - "**/*mcp*.json"
+        - "**/*.py"
+  script:
+    - python -m pip install "agents-shipgate==0.5.0"
+    - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - agents-shipgate-reports/

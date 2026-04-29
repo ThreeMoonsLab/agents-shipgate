@@ -10,9 +10,14 @@ SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_MARKDOWN = Path("samples/support_refund_agent/expected/report.md")
 OPENAI_API_SAMPLE = Path("samples/simple_openai_api_agent/shipgate.yaml")
 OPENAI_API_EXPECTED_MARKDOWN = Path("samples/simple_openai_api_agent/expected/report.md")
+LANGCHAIN_SAMPLE = Path("samples/simple_langchain_agent/shipgate.yaml")
+LANGCHAIN_EXPECTED_MARKDOWN = Path("samples/simple_langchain_agent/expected/report.md")
+CREWAI_SAMPLE = Path("samples/simple_crewai_agent/shipgate.yaml")
+CREWAI_EXPECTED_MARKDOWN = Path("samples/simple_crewai_agent/expected/report.md")
 REPORT_SCHEMA = Path("docs/report-schema.v0.1.json")
 REPORT_SCHEMA_V02 = Path("docs/report-schema.v0.2.json")
 REPORT_SCHEMA_V04 = Path("docs/report-schema.v0.4.json")
+REPORT_SCHEMA_V05 = Path("docs/report-schema.v0.5.json")
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -44,6 +49,34 @@ def test_openai_api_markdown_report_matches_golden(tmp_path):
     assert actual == expected
 
 
+def test_langchain_markdown_report_matches_golden(tmp_path):
+    run_scan(
+        config_path=LANGCHAIN_SAMPLE,
+        output_dir=tmp_path,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+    )
+
+    actual = (tmp_path / "report.md").read_text(encoding="utf-8")
+    expected = LANGCHAIN_EXPECTED_MARKDOWN.read_text(encoding="utf-8")
+
+    assert actual == expected
+
+
+def test_crewai_markdown_report_matches_golden(tmp_path):
+    run_scan(
+        config_path=CREWAI_SAMPLE,
+        output_dir=tmp_path,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+    )
+
+    actual = (tmp_path / "report.md").read_text(encoding="utf-8")
+    expected = CREWAI_EXPECTED_MARKDOWN.read_text(encoding="utf-8")
+
+    assert actual == expected
+
+
 def test_json_report_contains_integration_contract_keys(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE,
@@ -62,7 +95,7 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_plugins" in payload
     assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
-    assert payload["report_schema_version"] == "0.4"
+    assert payload["report_schema_version"] == "0.5"
     assert "frameworks" in payload
     assert "loaded_policy_packs" in payload
 
@@ -117,14 +150,14 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v04_schema(tmp_path):
+def test_json_report_validates_against_v05_schema(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE,
         output_dir=tmp_path,
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V04.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V05.read_text(encoding="utf-8"))
 
     validate(instance=report.model_dump(mode="json"), schema=schema)
 

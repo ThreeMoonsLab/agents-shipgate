@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: pip install --quiet agents-shipgate==0.4.0
+      - run: pip install --quiet agents-shipgate==0.5.0
       - run: |
           agents-shipgate scan \
             --workspace . \

@@ -251,6 +251,27 @@
       "title": "CiConfig",
       "type": "object"
     },
+    "CrewAiConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "python_entrypoints": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Python Entrypoints",
+          "type": "array"
+        },
+        "tool_inventories": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tool Inventories",
+          "type": "array"
+        }
+      },
+      "title": "CrewAiConfig",
+      "type": "object"
+    },
     "EnvironmentConfig": {
       "additionalProperties": false,
       "properties": {
@@ -335,6 +356,27 @@
         }
       },
       "title": "GoogleAdkConfig",
+      "type": "object"
+    },
+    "LangChainConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "python_entrypoints": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Python Entrypoints",
+          "type": "array"
+        },
+        "tool_inventories": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tool Inventories",
+          "type": "array"
+        }
+      },
+      "title": "LangChainConfig",
       "type": "object"
     },
     "NamedArtifactPathConfig": {
@@ -770,7 +812,9 @@
             "mcp",
             "openapi",
             "openai_agents_sdk",
-            "google_adk"
+            "google_adk",
+            "langchain",
+            "crewai"
           ],
           "title": "Type",
           "type": "string"
@@ -809,6 +853,17 @@
     "ci": {
       "$ref": "#/$defs/CiConfig"
     },
+    "crewai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CrewAiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "environment": {
       "$ref": "#/$defs/EnvironmentConfig"
     },
@@ -816,6 +871,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/GoogleAdkConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "langchain": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LangChainConfig"
         },
         {
           "type": "null"

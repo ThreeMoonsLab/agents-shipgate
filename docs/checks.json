@@ -288,6 +288,34 @@
       "recommendation": "Use narrower tool scopes."
     },
     {
+      "category": "crewai",
+      "default_severity": "high",
+      "description": "CrewAI tool surface cannot be statically enumerated.",
+      "docs_url": "docs/checks.md#ship-crewai-dynamic-tool-surface-not-enumerable",
+      "evidence_fields": [
+        "surface",
+        "explicit_inventory"
+      ],
+      "fires_when": "A CrewAI agent tool binding is dynamic or unresolved and no explicit local inventory is declared.",
+      "id": "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "rationale": "CrewAI exposes ad hoc agent-bound tool lists rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.",
+      "recommendation": "Provide explicit MCP-style tool inventory metadata for dynamic CrewAI tool lists."
+    },
+    {
+      "category": "crewai",
+      "default_severity": "medium",
+      "description": "CrewAI function tool lacks static metadata.",
+      "docs_url": "docs/checks.md#ship-crewai-function-tool-metadata-missing",
+      "evidence_fields": [
+        "missing",
+        "source_type"
+      ],
+      "fires_when": "A CrewAI @tool or BaseTool class lacks description or parameter metadata.",
+      "id": "SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING",
+      "rationale": "Static review depends on descriptions and parameter schemas because user CrewAI code is not imported.",
+      "recommendation": "Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata."
+    },
+    {
       "category": "security",
       "default_severity": "medium",
       "description": "Tool description contains instruction-override-like language.",
@@ -379,6 +407,34 @@
       "id": "SHIP-INVENTORY-WILDCARD-TOOLS",
       "rationale": "Wildcard tools make review and least-privilege reasoning impossible.",
       "recommendation": "Replace wildcard exposure with an explicit allowlist."
+    },
+    {
+      "category": "langchain",
+      "default_severity": "high",
+      "description": "LangChain tool surface cannot be statically enumerated.",
+      "docs_url": "docs/checks.md#ship-langchain-dynamic-tool-surface-not-enumerable",
+      "evidence_fields": [
+        "surface",
+        "explicit_inventory"
+      ],
+      "fires_when": "A LangChain or LangGraph tool binding is dynamic or unresolved and no explicit local inventory is declared.",
+      "id": "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "rationale": "LangChain and LangGraph expose ad hoc tool lists and agent-bound tools rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.",
+      "recommendation": "Provide explicit MCP-style tool inventory metadata for dynamic LangChain tool lists."
+    },
+    {
+      "category": "langchain",
+      "default_severity": "medium",
+      "description": "LangChain function tool lacks static metadata.",
+      "docs_url": "docs/checks.md#ship-langchain-function-tool-metadata-missing",
+      "evidence_fields": [
+        "missing",
+        "source_type"
+      ],
+      "fires_when": "A LangChain @tool or StructuredTool lacks description or parameter metadata.",
+      "id": "SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING",
+      "rationale": "Static review depends on descriptions and parameter schemas because user LangChain code is not imported.",
+      "recommendation": "Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata."
     },
     {
       "category": "manifest",

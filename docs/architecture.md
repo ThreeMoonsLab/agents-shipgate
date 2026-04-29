@@ -12,6 +12,8 @@ inputs/{mcp,openapi,    →  per-source loaders normalize into Tool objects
   openai_api,           ↓     each loader is pure (no network, no model)
   anthropic_api,
   google_adk,
+  langchain,
+  crewai,
   openai_sdk_static}.py
                         ↓
 core/risk_hints.py      →  enriches tools with risk tags (read_only, write,
@@ -35,7 +37,8 @@ src/agents_shipgate/
 ├── config/          Pydantic schema + manifest loader
 ├── core/            Shared models (Tool, Finding, Report, ScanContext)
 ├── checks/          Per-category check functions (api, auth, doc, ...)
-├── inputs/          Adapters: mcp, openapi, openai_*, anthropic_api, google_adk
+├── inputs/          Adapters: mcp, openapi, openai_*, anthropic_api,
+│                   google_adk, langchain, crewai
 ├── report/          Output formatters: markdown, json, sarif
 └── plugins/         Plugin loading machinery (off by default)
 ```
@@ -71,6 +74,8 @@ Coverage:
 4. Wire into `cli/scan.py` (`run_scan` and `inspect_sources`).
 5. Add a sample fixture under `samples/` and golden expected reports.
 6. Add tests in `tests/test_<adapter>.py`.
+7. For framework adapters, follow
+   [`framework-adapter-checklist.md`](framework-adapter-checklist.md).
 
 ## Adding a new check
 

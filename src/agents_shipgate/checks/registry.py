@@ -10,8 +10,10 @@ from agents_shipgate.checks import (
     adk,
     api,
     auth,
+    crewai,
     documentation,
     inventory,
+    langchain,
     manifest_consistency,
     manifest_scope,
     policy,
@@ -32,6 +34,8 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     side_effects.run,
     api.run,
     adk.run,
+    langchain.run,
+    crewai.run,
 ]
 
 
@@ -72,6 +76,10 @@ CHECK_METADATA: list[CheckMetadata] = [
     CheckMetadata(id="SHIP-ADK-LONGRUNNING-CONTRACT-MISSING", category="adk", default_severity="high", description="Google ADK long-running tool lacks an operation contract.", rationale="Long-running tools need explicit status and operation-id semantics for safe continuation.", fires_when="A LongRunningFunctionTool lacks structured status/progress and operation id output evidence.", evidence_fields=["output_schema"], recommendation="Document operation id, status/progress fields, and completion behavior."),
     CheckMetadata(id="SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING", category="adk", default_severity="high", description="High-risk Google ADK tools lack static guardrail evidence.", rationale="Callbacks and plugins are the static ADK surface where release reviewers can see guardrail intent.", fires_when="High-risk ADK tools are present without callbacks, plugins, or equivalent manifest policy evidence.", evidence_fields=["tools"], recommendation="Attach ADK callbacks/plugins or manifest policies that document guardrails."),
     CheckMetadata(id="SHIP-ADK-EVAL-COVERAGE-MISSING", category="adk", default_severity="medium", description="Google ADK eval coverage is not declared.", rationale="ADK releases should include response and tool-trajectory eval evidence before promotion.", fires_when="Google ADK inputs target production_like or production and no eval files are declared.", evidence_fields=["agent_count", "eval_file_count"], recommendation="Declare ADK eval files for expected responses and tool-use trajectories."),
+    CheckMetadata(id="SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE", category="langchain", default_severity="high", description="LangChain tool surface cannot be statically enumerated.", rationale="LangChain and LangGraph expose ad hoc tool lists and agent-bound tools rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.", fires_when="A LangChain or LangGraph tool binding is dynamic or unresolved and no explicit local inventory is declared.", evidence_fields=["surface", "explicit_inventory"], recommendation="Provide explicit MCP-style tool inventory metadata for dynamic LangChain tool lists."),
+    CheckMetadata(id="SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING", category="langchain", default_severity="medium", description="LangChain function tool lacks static metadata.", rationale="Static review depends on descriptions and parameter schemas because user LangChain code is not imported.", fires_when="A LangChain @tool or StructuredTool lacks description or parameter metadata.", evidence_fields=["missing", "source_type"], recommendation="Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata."),
+    CheckMetadata(id="SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE", category="crewai", default_severity="high", description="CrewAI tool surface cannot be statically enumerated.", rationale="CrewAI exposes ad hoc agent-bound tool lists rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.", fires_when="A CrewAI agent tool binding is dynamic or unresolved and no explicit local inventory is declared.", evidence_fields=["surface", "explicit_inventory"], recommendation="Provide explicit MCP-style tool inventory metadata for dynamic CrewAI tool lists."),
+    CheckMetadata(id="SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING", category="crewai", default_severity="medium", description="CrewAI function tool lacks static metadata.", rationale="Static review depends on descriptions and parameter schemas because user CrewAI code is not imported.", fires_when="A CrewAI @tool or BaseTool class lacks description or parameter metadata.", evidence_fields=["missing", "source_type"], recommendation="Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata."),
     CheckMetadata(id="SHIP-MANIFEST-STALE-SUPPRESSION", category="manifest", default_severity="medium", description="A suppression references a missing check or tool.", rationale="Stale suppressions hide intent and make release review harder to audit.", fires_when="checks.ignore contains an unknown check_id or a tool name that is not loaded.", evidence_fields=["check_id", "tool", "issues"], recommendation="Remove stale suppressions or update them to current check IDs and tool names."),
     CheckMetadata(id="SHIP-MANIFEST-STALE-POLICY", category="manifest", default_severity="medium", description="A policy references a missing tool.", rationale="Approval, confirmation, and idempotency policies should map to the actual release surface.", fires_when="A policy entry names a tool that is not loaded.", evidence_fields=["policy", "tool"], recommendation="Remove stale policy entries or update them to current tool names."),
     CheckMetadata(id="SHIP-MANIFEST-STALE-RISK-OVERRIDE", category="manifest", default_severity="medium", description="A risk override references a missing tool.", rationale="Risk overrides should not outlive the tool they describe.", fires_when="risk_overrides.tools contains a tool that is not loaded.", evidence_fields=["tool"], recommendation="Remove stale risk overrides or update them to current tool names."),

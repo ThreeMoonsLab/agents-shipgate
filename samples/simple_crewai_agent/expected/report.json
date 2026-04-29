@@ -1,0 +1,134 @@
+{
+  "schema_version": "0.1",
+  "report_schema_version": "0.5",
+  "run_id": "agents_shipgate_1c4577c21998a147",
+  "project": {
+    "name": "simple-crewai-agent"
+  },
+  "agent": {
+    "id": "agent:simple-crewai-agent/support-case-crew",
+    "name": "support-case-crew",
+    "source": {
+      "source": "manifest"
+    },
+    "instructions": {
+      "value_preview": null,
+      "source": "dynamic_unknown",
+      "confidence": "medium"
+    },
+    "declared_purpose": [
+      "look up and summarize read-only support case metadata"
+    ],
+    "prohibited_actions": [],
+    "tools": [
+      "summarize_case",
+      "lookup_case",
+      "FileReadTool"
+    ],
+    "handoffs": [],
+    "guardrails": {
+      "input": "unknown",
+      "output": "unknown",
+      "tool": "unknown",
+      "source": "unknown"
+    },
+    "extraction": {
+      "method": "config_assisted",
+      "confidence": "medium",
+      "missing_fields": [
+        "runtime_traces"
+      ],
+      "dynamic_fields": []
+    }
+  },
+  "environment": {
+    "target": "local"
+  },
+  "summary": {
+    "status": "human_review_recommended",
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "low_count": 0,
+    "info_count": 0,
+    "suppressed_count": 0,
+    "human_review_recommended": true,
+    "evidence_coverage": "mixed"
+  },
+  "tool_surface": {
+    "total_tools": 3,
+    "high_risk_tools": 0,
+    "sources": {
+      "crewai_class_tool": 1,
+      "crewai_function": 1,
+      "crewai_prebuilt_tool": 1
+    },
+    "wildcard_tools": 0,
+    "missing_descriptions": 0
+  },
+  "api_surface": null,
+  "anthropic_surface": null,
+  "frameworks": {
+    "crewai": {
+      "python_entrypoint_count": 1,
+      "agent_count": 1,
+      "crew_count": 1,
+      "function_tool_count": 1,
+      "class_tool_count": 1,
+      "prebuilt_tool_count": 1,
+      "dynamic_tool_surface_count": 0,
+      "tool_inventory_file_count": 0,
+      "warnings": [
+        "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review."
+      ]
+    }
+  },
+  "baseline": null,
+  "findings": [],
+  "recommended_actions": [],
+  "generated_reports": {
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
+  },
+  "loaded_policy_packs": [],
+  "loaded_plugins": [],
+  "tool_inventory": [
+    {
+      "name": "FileReadTool",
+      "source_type": "crewai_prebuilt_tool",
+      "source_ref": "crew.py",
+      "risk_tags": [],
+      "risk_tag_confidence": {},
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "low"
+    },
+    {
+      "name": "lookup_case",
+      "source_type": "crewai_class_tool",
+      "source_ref": "crew.py",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium"
+    },
+    {
+      "name": "summarize_case",
+      "source_type": "crewai_function",
+      "source_ref": "crew.py",
+      "risk_tags": [],
+      "risk_tag_confidence": {},
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium"
+    }
+  ],
+  "source_warnings": [
+    "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review."
+  ]
+}

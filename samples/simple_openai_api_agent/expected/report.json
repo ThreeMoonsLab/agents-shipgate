@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.4",
-  "run_id": "agents_shipgate_abbe19ac5c15d475",
+  "report_schema_version": "0.5",
+  "run_id": "agents_shipgate_d07e1421099084ae",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -74,6 +74,7 @@
     "trace_sample_count": 1,
     "policy_rule_count": 1
   },
+  "anthropic_surface": null,
   "frameworks": {},
   "baseline": null,
   "findings": [

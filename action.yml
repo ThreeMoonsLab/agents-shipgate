@@ -26,7 +26,7 @@ inputs:
   baseline_mode:
     required: false
     default: new-findings
-    description: Baseline comparison mode. v0.4 supports new-findings.
+    description: "Baseline comparison mode. Supported value: new-findings."
   policy_packs:
     required: false
     default: ""

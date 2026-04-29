@@ -4,9 +4,10 @@
 
 A manifest is valid when it declares at least one of:
 
-- `tool_sources` for MCP, OpenAPI, optional OpenAI Agents SDK metadata, or Google ADK static metadata.
+- `tool_sources` for MCP, OpenAPI, optional OpenAI Agents SDK metadata, Google ADK static metadata, LangChain/LangGraph Python, or CrewAI Python.
 - `openai_api` for simple OpenAI API apps that use prompt files, OpenAI tool schemas, and structured output schemas directly.
 - `google_adk` for explicit Google ADK Agent Config, eval, trace, or inventory artifacts.
+- `langchain` and `crewai` for supplemental Python entrypoints and explicit local tool inventories.
 
 Agent scope text can come from `agent.declared_purpose`, `agent.instructions_preview`, or `openai_api.prompt_files`.
 
@@ -68,8 +69,10 @@ openai_api:
 - `mcp`: local exported MCP tools JSON.
 - `openai_agents_sdk`: optional static Python AST extraction.
 - `google_adk`: static Google ADK Python entrypoint or Agent Config YAML.
+- `langchain`: static LangChain/LangGraph Python entrypoint.
+- `crewai`: static CrewAI Python entrypoint.
 
-When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then Google ADK inventories, then MCP JSON, then SDK/ADK static extraction.
+When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then Google ADK/LangChain/CrewAI inventories, then MCP JSON, then SDK/ADK/LangChain/CrewAI static extraction. Low-confidence framework stubs rank below static custom function/class tools.
 
 ## Google ADK Artifacts
 
@@ -119,6 +122,60 @@ Module-relative expressions such as `Path(__file__).parent / "spec.yaml"` or
 assignment-then-read patterns may be reported as dynamic. In those cases,
 declare the same spec or MCP inventory explicitly in `tool_sources` or
 `google_adk.tool_inventories`.
+
+## LangChain And CrewAI Artifacts
+
+LangChain/LangGraph and CrewAI support is local-only and static-only. Agents
+Shipgate parses Python AST and does not import framework packages, call models,
+run crews/graphs/agents, connect to MCP servers, call tools, or execute
+subprocesses.
+
+Prefer declaring primary framework entrypoints in `tool_sources` so the scanned
+surface is visible beside MCP and OpenAPI inputs. Use the top-level
+`langchain` and `crewai` blocks for supplemental batch entrypoints or explicit
+local MCP-style inventories that document dynamic or prebuilt runtime tool
+surfaces.
+
+```yaml
+tool_sources:
+  - id: support_langchain
+    type: langchain
+    path: agents/langchain_agent.py
+  - id: support_crewai
+    type: crewai
+    path: agents/support_crew.py
+
+langchain:
+  python_entrypoints:
+    - agents/graph.py
+  tool_inventories:
+    - inventories/langchain-tools.json
+
+crewai:
+  python_entrypoints:
+    - agents/crew.py
+  tool_inventories:
+    - inventories/crewai-tools.json
+```
+
+Supported static LangChain/LangGraph signals:
+
+- `@tool` decorators from `langchain.tools` and `langchain_core.tools`, including aliases.
+- `StructuredTool.from_function(...)`.
+- Static tool lists passed to `create_agent`, `create_react_agent`, `ToolNode`, and `bind_tools`.
+- Same-file Pydantic `args_schema` classes with simple annotated fields and `Field(...)` descriptions.
+
+Supported static CrewAI signals:
+
+- `@tool` decorators from `crewai.tools`, including aliases.
+- `BaseTool` subclasses with `name`, `description`, `_run`, and same-file `args_schema`.
+- Static `Agent(..., tools=[...])` and `Crew(...)` references.
+- `crewai_tools.*Tool()` prebuilt references as low-confidence stubs plus source warnings.
+
+Dynamic framework tool surfaces such as `tools=get_tools()`, list
+comprehensions, loop-built lists, unresolved imported toolkits, or unresolved
+external schema classes remain visible as source warnings and framework
+findings unless an explicit local inventory resolves the surface.
 
 ## OpenAI API Artifacts
 

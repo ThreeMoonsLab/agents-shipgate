@@ -26,6 +26,7 @@ By default Agents Shipgate does not:
 - OpenAI Agents SDK enrichment uses `ast.parse` only. It does not import or execute Python modules.
 - `openai_api` artifacts are local prompt, JSON, YAML, or JSONL files. Agents Shipgate parses them locally and does not call OpenAI APIs, validate model availability, estimate pricing, or execute traces.
 - Google ADK support is static-only. Agents Shipgate parses Python AST and Agent Config YAML, but does not import ADK code, run `adk run`, run `adk web`, run `adk eval`, connect to MCP servers, call tools, call models, or fetch remote specs by default.
+- LangChain/LangGraph and CrewAI support is static-only. Agents Shipgate parses Python AST, but does not import framework packages, run graphs, crews, or agents, call models, call tools, execute `exec`/`eval`, connect to MCP servers, shell out to framework subprocesses, or make network calls.
 - ADK callbacks and plugins are recorded as static guardrail evidence only. They are not proof that runtime enforcement is correct.
 - Declarative policy packs are local YAML data. They do not import Python,
   execute code, connect to services, or weaken the default no-execution model.

@@ -1,0 +1,33 @@
+version: 2.1
+
+jobs:
+  agents-shipgate:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run: python -m pip install "agents-shipgate==0.5.0"
+      - run:
+          name: Run only when tool sources changed
+          command: |
+            changed="$(git diff --name-only origin/main...HEAD -- \
+              'shipgate.yaml' \
+              '**/shipgate.yaml' \
+              '**/*.openapi.yaml' \
+              '**/*.openapi.yml' \
+              '**/*openapi*.json' \
+              '**/*mcp*.json' \
+              '**/*.py')"
+            if [ -z "${changed}" ]; then
+              echo "No Agents Shipgate inputs changed; skipping scan."
+              exit 0
+            fi
+            agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
+      - store_artifacts:
+          path: agents-shipgate-reports
+          destination: agents-shipgate-reports
+
+workflows:
+  agents-shipgate:
+    jobs:
+      - agents-shipgate

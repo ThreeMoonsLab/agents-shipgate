@@ -1,6 +1,6 @@
 # Runtime Inventory Design Note
 
-Runtime inventory remains design-only in v0.4. Agents Shipgate does not ship a
+Runtime inventory remains design-only in v0.5. Agents Shipgate does not ship a
 runtime inventory command, does not run agents, and does not connect to MCP
 servers by default.
 

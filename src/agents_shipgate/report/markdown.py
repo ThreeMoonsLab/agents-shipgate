@@ -198,32 +198,70 @@ def _append_api_surface(lines: list[str], report: ReadinessReport) -> None:
 
 
 def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
-    adk_surface = report.frameworks.get("google_adk") if report.frameworks else None
-    if not isinstance(adk_surface, dict):
+    if not report.frameworks:
         return
-    lines.extend(
-        [
+    specs = [
+        (
+            "google_adk",
+            "Google ADK",
             "## Google ADK Surface Summary",
-            "",
-            f"- Python entrypoints: {adk_surface.get('python_entrypoint_count', 0)}",
-            f"- Agent config files: {adk_surface.get('agent_config_count', 0)}",
-            f"- Agents: {adk_surface.get('agent_count', 0)}",
-            f"- Function tools: {adk_surface.get('function_tool_count', 0)}",
-            f"- Long-running tools: {adk_surface.get('long_running_tool_count', 0)}",
-            f"- Toolsets: {adk_surface.get('toolset_count', 0)}",
-            f"- Dynamic or unresolved toolsets: {adk_surface.get('dynamic_toolset_count', 0)}",
-            f"- Callbacks: {adk_surface.get('callback_count', 0)}",
-            f"- Plugins: {adk_surface.get('plugin_count', 0)}",
-            f"- Eval files: {adk_surface.get('eval_file_count', 0)}",
-            "",
-        ]
-    )
-    warnings = adk_surface.get("warnings")
-    if isinstance(warnings, list) and warnings:
-        lines.extend(["Google ADK warnings:", ""])
-        for warning in warnings:
-            lines.append(f"- {_safe_markdown_text(warning)}")
+            [
+                ("Python entrypoints", "python_entrypoint_count"),
+                ("Agent config files", "agent_config_count"),
+                ("Agents", "agent_count"),
+                ("Function tools", "function_tool_count"),
+                ("Long-running tools", "long_running_tool_count"),
+                ("Toolsets", "toolset_count"),
+                ("Dynamic or unresolved toolsets", "dynamic_toolset_count"),
+                ("Callbacks", "callback_count"),
+                ("Plugins", "plugin_count"),
+                ("Eval files", "eval_file_count"),
+            ],
+        ),
+        (
+            "langchain",
+            "LangChain",
+            "## LangChain Surface Summary",
+            [
+                ("Python entrypoints", "python_entrypoint_count"),
+                ("Function tools", "function_tool_count"),
+                ("Structured tools", "structured_tool_count"),
+                ("Tool nodes", "tool_node_count"),
+                ("Agent tool bindings", "agent_tool_binding_count"),
+                ("Dynamic or unresolved tool surfaces", "dynamic_tool_surface_count"),
+                ("Tool inventory files", "tool_inventory_file_count"),
+            ],
+        ),
+        (
+            "crewai",
+            "CrewAI",
+            "## CrewAI Surface Summary",
+            [
+                ("Python entrypoints", "python_entrypoint_count"),
+                ("Agents", "agent_count"),
+                ("Crews", "crew_count"),
+                ("Function tools", "function_tool_count"),
+                ("Class tools", "class_tool_count"),
+                ("Prebuilt tools", "prebuilt_tool_count"),
+                ("Dynamic or unresolved tool surfaces", "dynamic_tool_surface_count"),
+                ("Tool inventory files", "tool_inventory_file_count"),
+            ],
+        ),
+    ]
+    for framework_key, label, title, fields in specs:
+        surface = report.frameworks.get(framework_key)
+        if not isinstance(surface, dict):
+            continue
+        lines.extend([title, ""])
+        for field_label, field_name in fields:
+            lines.append(f"- {field_label}: {surface.get(field_name, 0)}")
         lines.append("")
+        warnings = surface.get("warnings")
+        if isinstance(warnings, list) and warnings:
+            lines.extend([f"{label} warnings:", ""])
+            for warning in warnings:
+                lines.append(f"- {_safe_markdown_text(warning)}")
+            lines.append("")
 
 
 def _append_findings_by_category(lines: list[str], findings: list[Finding]) -> None:

@@ -69,8 +69,9 @@ evidence.
 
 Static OpenAPI spec resolution covers simple literal-path idioms such as
 `Path("spec.yaml").read_text()` and `open("spec.yaml").read()`. Module-relative
-patterns such as `Path(__file__).parent / "spec.yaml"` are treated as dynamic in
-v0.4. Declare those specs under `tool_sources` or provide a local inventory
+patterns such as `Path(__file__).parent / "spec.yaml"` are treated as dynamic
+by the static extractor. Declare those specs under `tool_sources` or provide a
+local inventory
 artifact when you want them resolved by the scanner.
 
 ## A Finding Is Intentional

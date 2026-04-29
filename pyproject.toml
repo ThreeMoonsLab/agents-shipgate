@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.4.0"
-description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK). CLI + GitHub Action."
+version = "0.5.0"
+description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK, LangChain, CrewAI). CLI + GitHub Action."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -87,6 +87,8 @@ policy = "agents_shipgate.checks.policy:run"
 side_effects = "agents_shipgate.checks.side_effects:run"
 api = "agents_shipgate.checks.api:run"
 adk = "agents_shipgate.checks.adk:run"
+langchain = "agents_shipgate.checks.langchain:run"
+crewai = "agents_shipgate.checks.crewai:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_shipgate"]

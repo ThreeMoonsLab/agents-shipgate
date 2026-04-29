@@ -5,7 +5,7 @@ These items require release infrastructure, registry credentials, domains, or Gi
 ## Package Channels
 
 - Publish `agents-shipgate` to PyPI.
-- Publish a pinned GitHub Action release tag such as `v0.4.0`.
+- Publish a pinned GitHub Action release tag such as `v0.5.0`.
 - Evaluate a container image later only if it has an exercised build-and-test path.
 - Evaluate Homebrew once CLI usage warrants it.
 
@@ -38,4 +38,4 @@ release tag.
 The repository keeps a root `action.yml` for GitHub Marketplace publication and
 a minimal `.github/workflows/ci.yml` for project validation plus a tag-triggered
 release workflow. The action remains a composite action; there is no Docker
-action entrypoint in v0.4.
+action entrypoint in v0.5.

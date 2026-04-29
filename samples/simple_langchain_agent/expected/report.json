@@ -1,0 +1,117 @@
+{
+  "schema_version": "0.1",
+  "report_schema_version": "0.5",
+  "run_id": "agents_shipgate_09ab0114a3ecb63a",
+  "project": {
+    "name": "simple-langchain-agent"
+  },
+  "agent": {
+    "id": "agent:simple-langchain-agent/support-case-reader",
+    "name": "support-case-reader",
+    "source": {
+      "source": "manifest"
+    },
+    "instructions": {
+      "value_preview": null,
+      "source": "dynamic_unknown",
+      "confidence": "medium"
+    },
+    "declared_purpose": [
+      "look up and summarize read-only support case metadata"
+    ],
+    "prohibited_actions": [],
+    "tools": [
+      "lookup_case",
+      "summarize_case"
+    ],
+    "handoffs": [],
+    "guardrails": {
+      "input": "unknown",
+      "output": "unknown",
+      "tool": "unknown",
+      "source": "unknown"
+    },
+    "extraction": {
+      "method": "config_assisted",
+      "confidence": "medium",
+      "missing_fields": [
+        "runtime_traces"
+      ],
+      "dynamic_fields": []
+    }
+  },
+  "environment": {
+    "target": "local"
+  },
+  "summary": {
+    "status": "human_review_recommended",
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "low_count": 0,
+    "info_count": 0,
+    "suppressed_count": 0,
+    "human_review_recommended": true,
+    "evidence_coverage": "mixed"
+  },
+  "tool_surface": {
+    "total_tools": 2,
+    "high_risk_tools": 0,
+    "sources": {
+      "langchain_function": 1,
+      "langchain_structured_tool": 1
+    },
+    "wildcard_tools": 0,
+    "missing_descriptions": 0
+  },
+  "api_surface": null,
+  "anthropic_surface": null,
+  "frameworks": {
+    "langchain": {
+      "python_entrypoint_count": 1,
+      "function_tool_count": 1,
+      "structured_tool_count": 1,
+      "tool_node_count": 0,
+      "agent_tool_binding_count": 1,
+      "dynamic_tool_surface_count": 0,
+      "tool_inventory_file_count": 0,
+      "warnings": []
+    }
+  },
+  "baseline": null,
+  "findings": [],
+  "recommended_actions": [],
+  "generated_reports": {
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
+  },
+  "loaded_policy_packs": [],
+  "loaded_plugins": [],
+  "tool_inventory": [
+    {
+      "name": "lookup_case",
+      "source_type": "langchain_function",
+      "source_ref": "agent.py",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium"
+    },
+    {
+      "name": "summarize_case",
+      "source_type": "langchain_structured_tool",
+      "source_ref": "agent.py",
+      "risk_tags": [],
+      "risk_tag_confidence": {},
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium"
+    }
+  ],
+  "source_warnings": []
+}

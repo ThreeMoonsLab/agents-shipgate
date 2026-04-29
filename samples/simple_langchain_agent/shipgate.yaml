@@ -1,0 +1,17 @@
+version: "0.1"
+
+project:
+  name: simple-langchain-agent
+
+agent:
+  name: support-case-reader
+  declared_purpose:
+    - look up and summarize read-only support case metadata
+
+environment:
+  target: local
+
+tool_sources:
+  - id: langchain_agent
+    type: langchain
+    path: agent.py

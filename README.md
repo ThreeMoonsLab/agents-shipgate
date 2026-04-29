@@ -17,7 +17,7 @@ Static release-readiness scanner for AI agent tool surfaces.
 
 **agents-shipgate is an open-source CLI and GitHub Action that produces release-readiness reports for AI agent tool surfaces.** It reads a manifest plus tool sources and writes deterministic findings as Markdown, JSON, and SARIF.
 
-**Inputs:** OpenAI Agents SDK · Anthropic Messages API · Google ADK · MCP · OpenAPI · OpenAI Agents API.
+**Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI Agents API.
 **Outputs:** Markdown · JSON · SARIF.
 
 ## Install
@@ -25,7 +25,7 @@ Static release-readiness scanner for AI agent tool surfaces.
 ```bash
 pipx install agents-shipgate
 # or in CI:
-# - uses: ThreeMoonsLab/agents-shipgate@v0.4.0
+# - uses: ThreeMoonsLab/agents-shipgate@v0.5.0
 ```
 
 ## 60-second run
@@ -59,7 +59,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json)** — JSON Schemas for live editor validation
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json)** — JSON Schemas for live editor validation
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -134,6 +134,8 @@ Try the bundled fixture:
 agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
 agents-shipgate scan --config samples/simple_openai_api_agent/shipgate.yaml
 agents-shipgate scan --config samples/google_adk_agent/shipgate.yaml
+agents-shipgate scan --config samples/simple_langchain_agent/shipgate.yaml
+agents-shipgate scan --config samples/simple_crewai_agent/shipgate.yaml
 agents-shipgate scan --config samples/clean_read_only_agent/shipgate.yaml
 ```
 
@@ -199,6 +201,33 @@ google_adk:
 
 Dynamic ADK toolsets produce warnings or findings unless you provide explicit MCP, OpenAPI, or local tool inventory inputs.
 
+## LangChain And CrewAI
+
+v0.5 adds static Python extraction for LangChain/LangGraph and CrewAI. The
+adapters parse Python AST only; they do not import framework packages or user
+modules.
+
+```yaml
+tool_sources:
+  - id: langchain_agent
+    type: langchain
+    path: agent.py
+  - id: crewai_agent
+    type: crewai
+    path: crew.py
+```
+
+For dynamic or prebuilt tool surfaces, provide explicit local inventory files:
+
+```yaml
+langchain:
+  tool_inventories:
+    - inventories/langchain-tools.json
+crewai:
+  tool_inventories:
+    - inventories/crewai-tools.json
+```
+
 ## Policy Packs
 
 v0.4 adds local declarative YAML policy packs for organization-specific release
@@ -229,8 +258,8 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability.
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` in v0.4 so existing configs keep working. Reports add `report_schema_version: "0.4"` while preserving the v0.1 payload keys.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK/LangChain/CrewAI inputs; tools that are not declared or statically discoverable are not scanned.
+- The manifest remains `version: "0.1"` in v0.5 so existing configs keep working. Reports add `report_schema_version: "0.5"` while preserving the v0.1 payload keys.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -259,7 +288,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.4.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.5.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -287,7 +316,7 @@ If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-base
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.4](docs/report-schema.v0.4.json)
+- [JSON report schema v0.5](docs/report-schema.v0.5.json)
 - [Trust model](docs/trust-model.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)

@@ -84,7 +84,15 @@ INFRASTRUCTURE_KEYWORDS = {
     "terraform",
 }
 
-_KEYWORD_GATED_SOURCE_TYPES = {"openai_api", "anthropic_api", "sdk_function"}
+_KEYWORD_GATED_SOURCE_TYPES = {
+    "openai_api",
+    "anthropic_api",
+    "sdk_function",
+    "langchain_function",
+    "langchain_structured_tool",
+    "crewai_function",
+    "crewai_class_tool",
+}
 
 
 def enrich_tools_with_risk_hints(

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 - 2026-04-28
+
+- Added static LangChain/LangGraph and CrewAI Python adapters with manifest
+  source types, supplemental inventories, framework report blocks, fixtures,
+  and self-check coverage.
+- Added framework-specific checks for dynamic LangChain/CrewAI tool surfaces
+  and missing function-tool metadata.
+- Promoted GitLab CI and CircleCI to first-class integration recipes with
+  advisory, strict baseline, artifact, multi-config, and tool-source trigger
+  examples.
+- Added report schema v0.5 for additive LangChain/CrewAI framework fields.
+- Added a framework adapter checklist for future static framework support.
+
 ## 0.4.0 - 2026-04-27
 
 - Added declarative YAML policy packs with manifest, CLI, report, SARIF, and GitHub Action support.

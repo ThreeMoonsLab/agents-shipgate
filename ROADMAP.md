@@ -2,7 +2,7 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-Agents Shipgate is currently in the `0.4.x` line. The `v0.2` through `v0.4`
+Agents Shipgate is currently in the `0.5.x` line. The `v0.2` through `v0.4`
 items are complete and retained here as release history. Active public planning
 starts at `v0.5.0`.
 
@@ -46,16 +46,33 @@ starts at `v0.5.0`.
 
 ## Open
 
-### v0.5.0 Cross-Platform CI And Agent Platform Coverage
+### v0.5.0 LangChain/CrewAI And Focused CI
 
-Goal: make Agents Shipgate easy to adopt across major CI systems and major agent
-development platforms while preserving the default static trust model.
+Goal: add static Python coverage for LangChain/LangGraph and CrewAI, and make
+GitLab CI plus CircleCI first-class CI targets while preserving the default
+static trust model.
 
 - Promote GitLab CI and CircleCI from examples to first-class integration recipes:
   - documented strict/advisory gating;
   - baseline artifact handling;
   - SARIF or native security report guidance where supported;
   - copy-pasteable workflows for monorepos and multi-manifest scans.
+- Expand agent-platform coverage beyond the current MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, and Google ADK surfaces:
+  - LangGraph / LangChain tool definitions;
+  - CrewAI agents and tools.
+- Add a framework adapter checklist so new platform support is consistent:
+  - static extraction only by default;
+  - no agent execution, model call, tool call, network call, or MCP connection;
+  - deterministic tool inventory normalization;
+  - source warnings for dynamic or unresolved tools;
+  - framework surface summary in JSON, Markdown, and SARIF-compatible metadata.
+- Bump the additive report schema to `report_schema_version: "0.5"` while
+  keeping manifest `version: "0.1"`.
+
+### v0.5.1 Cross-Platform CI Expansion
+
+Goal: broaden CI documentation after the v0.5.0 adapter work lands.
+
 - Add or harden recipes for additional CI platforms:
   - Jenkins;
   - Buildkite;
@@ -63,20 +80,6 @@ development platforms while preserving the default static trust model.
   - Bitbucket Pipelines;
   - local pre-commit / pre-push usage;
   - generic POSIX shell integration for unsupported CI systems.
-- Expand agent-platform coverage beyond the current MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, and Google ADK surfaces:
-  - LangGraph / LangChain tool definitions;
-  - CrewAI agents and tools;
-  - AutoGen multi-agent tool surfaces;
-  - Semantic Kernel plugins/functions;
-  - LlamaIndex tools and workflows;
-  - TypeScript/JavaScript agent frameworks where static extraction is practical;
-  - additional Google ADK language surfaces after the Python adapter remains stable.
-- Add a framework adapter checklist so new platform support is consistent:
-  - static extraction only by default;
-  - no agent execution, model call, tool call, network call, or MCP connection;
-  - deterministic tool inventory normalization;
-  - source warnings for dynamic or unresolved tools;
-  - framework surface summary in JSON, Markdown, and SARIF-compatible metadata.
 - Improve cross-platform release-gate documentation:
   - reference architecture for advisory-to-strict rollout;
   - baseline management across CI providers;
@@ -85,6 +88,12 @@ development platforms while preserving the default static trust model.
 
 ### Later Candidates
 
+- Expand agent-platform coverage beyond the v0.5.0 framework adapters:
+  - AutoGen multi-agent tool surfaces;
+  - Semantic Kernel plugins/functions;
+  - LlamaIndex tools and workflows;
+  - TypeScript/JavaScript agent frameworks where static extraction is practical;
+  - additional Google ADK language surfaces after the Python adapter remains stable.
 - Optional trust-gated runtime inventory export as an explicit command, separate from default static CI.
 - Container image distribution if the image has CI coverage, security scanning, and release signing.
 - Homebrew or other package-manager distribution if CLI usage warrants it.
@@ -92,8 +101,8 @@ development platforms while preserving the default static trust model.
 
 ## Google ADK Support Principles
 
-ADK support must preserve the default trust model: no `adk run`, `adk web`,
-`adk eval`, MCP connection, tool call, model call, or network call by default.
+ADK support is read-only by default: local file parsing only; no `adk run`,
+`adk web`, `adk eval`, MCP connection, tool call, model call, or network call.
 ADK callbacks and plugins are static guardrail evidence only, not proof of
 runtime enforcement. Dynamic toolsets must produce warnings or findings unless
 the user provides explicit MCP, OpenAPI, or tool inventory inputs.

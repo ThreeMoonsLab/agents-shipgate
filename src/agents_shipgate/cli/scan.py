@@ -23,7 +23,9 @@ from agents_shipgate.core.findings import (
 from agents_shipgate.core.models import (
     Agent,
     AnthropicArtifacts,
+    CrewAiArtifacts,
     GoogleAdkArtifacts,
+    LangChainArtifacts,
     LoadedToolSource,
     OpenAIApiArtifacts,
     ReadinessReport,
@@ -78,6 +80,8 @@ def run_scan(
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
     framework_result = load_framework_artifacts(manifest, base_dir)
     adk_artifacts = framework_result.adk_artifacts
+    langchain_artifacts = framework_result.langchain_artifacts
+    crewai_artifacts = framework_result.crewai_artifacts
     loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
@@ -102,12 +106,17 @@ def run_scan(
     warnings.extend(duplicate_warnings)
     if adk_artifacts:
         warnings.extend(adk_artifacts.warnings)
+    if langchain_artifacts:
+        warnings.extend(langchain_artifacts.warnings)
+    if crewai_artifacts:
+        warnings.extend(crewai_artifacts.warnings)
     policy_packs = load_policy_packs(
         manifest,
         base_dir,
         cli_policy_packs=policy_pack_paths,
     )
     warnings.extend(policy_packs.warnings)
+    warnings = list(dict.fromkeys(warnings))
     tools = enrich_tools_with_risk_hints(manifest, tools)
     logger.debug(
         "risk hints generated",
@@ -128,7 +137,13 @@ def run_scan(
             ]
         },
     )
-    agent = _build_agent(manifest, tools, api_artifacts, anthropic_artifacts, adk_artifacts)
+    agent = _build_agent(
+        manifest,
+        tools,
+        api_artifacts,
+        anthropic_artifacts,
+        adk_artifacts,
+    )
     context = ScanContext(
         manifest=manifest,
         agent=agent,
@@ -137,6 +152,8 @@ def run_scan(
         api_artifacts=api_artifacts,
         anthropic_artifacts=anthropic_artifacts,
         adk_artifacts=adk_artifacts,
+        langchain_artifacts=langchain_artifacts,
+        crewai_artifacts=crewai_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
@@ -172,6 +189,11 @@ def run_scan(
     anthropic_surface = (
         anthropic_artifacts.surface_summary() if anthropic_artifacts else None
     )
+    frameworks_surface = _frameworks_surface(
+        adk_artifacts,
+        langchain_artifacts,
+        crewai_artifacts,
+    )
     report = build_report(
         run_id=_run_id(
             manifest,
@@ -179,7 +201,7 @@ def run_scan(
             findings,
             api_surface=api_artifacts.surface_summary() if api_artifacts else None,
             anthropic_surface=anthropic_surface,
-            frameworks=_frameworks_surface(adk_artifacts),
+            frameworks=frameworks_surface,
         ),
         manifest=manifest,
         agent=agent.model_dump(exclude_none=True),
@@ -195,7 +217,7 @@ def run_scan(
         source_warnings=warnings,
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
         anthropic_surface=anthropic_surface,
-        frameworks=_frameworks_surface(adk_artifacts),
+        frameworks=frameworks_surface,
         baseline=baseline_summary,
     )
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -214,6 +236,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
     framework_result = load_framework_artifacts(manifest, base_dir)
     adk_artifacts = framework_result.adk_artifacts
+    langchain_artifacts = framework_result.langchain_artifacts
+    crewai_artifacts = framework_result.crewai_artifacts
     loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
@@ -228,8 +252,13 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     warnings.extend(duplicate_warnings)
     if adk_artifacts:
         warnings.extend(adk_artifacts.warnings)
+    if langchain_artifacts:
+        warnings.extend(langchain_artifacts.warnings)
+    if crewai_artifacts:
+        warnings.extend(crewai_artifacts.warnings)
     policy_packs = load_policy_packs(manifest, base_dir)
     warnings.extend(policy_packs.warnings)
+    warnings = list(dict.fromkeys(warnings))
     return {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
@@ -249,7 +278,11 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
         "anthropic_surface": (
             anthropic_artifacts.surface_summary() if anthropic_artifacts else None
         ),
-        "frameworks": _frameworks_surface(adk_artifacts),
+        "frameworks": _frameworks_surface(
+            adk_artifacts,
+            langchain_artifacts,
+            crewai_artifacts,
+        ),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
@@ -268,6 +301,9 @@ def _load_sources(manifest, base_dir: Path, *, verbose: bool) -> list[LoadedTool
                 loaded.append(load_openai_sdk_static_tools(source, manifest, base_dir))
             elif source.type == "google_adk":
                 # Google ADK sources are loaded with framework artifacts below.
+                continue
+            elif source.type in {"langchain", "crewai"}:
+                # Framework sources are loaded with framework artifacts below.
                 continue
         except InputParseError:
             if source.optional:
@@ -321,10 +357,17 @@ def _source_priority(tool: Tool) -> int:
         "anthropic_api": 40,
         "openapi": 30,
         "google_adk_inventory": 25,
+        "langchain_inventory": 25,
+        "crewai_inventory": 25,
         "mcp": 20,
         "google_adk_function": 10,
+        "langchain_function": 10,
+        "langchain_structured_tool": 10,
+        "crewai_function": 10,
+        "crewai_class_tool": 10,
         "sdk_function": 10,
         "google_adk_config": 5,
+        "crewai_prebuilt_tool": 5,
     }.get(tool.source_type, 0)
 
 
@@ -492,10 +535,17 @@ def _run_id(
 
 def _frameworks_surface(
     adk_artifacts: GoogleAdkArtifacts | None,
+    langchain_artifacts: LangChainArtifacts | None = None,
+    crewai_artifacts: CrewAiArtifacts | None = None,
 ) -> dict[str, object]:
-    if not adk_artifacts:
-        return {}
-    return {"google_adk": adk_artifacts.surface_summary()}
+    surface: dict[str, object] = {}
+    if adk_artifacts:
+        surface["google_adk"] = adk_artifacts.surface_summary()
+    if langchain_artifacts:
+        surface["langchain"] = langchain_artifacts.surface_summary()
+    if crewai_artifacts:
+        surface["crewai"] = crewai_artifacts.surface_summary()
+    return surface
 
 
 def _default_baseline_status(base_dir: Path) -> dict[str, object]:

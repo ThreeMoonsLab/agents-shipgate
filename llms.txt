@@ -37,13 +37,15 @@ approval policies, side effects, idempotency, and blast radius.
 - OpenAPI 3.x specs (`tool_sources[].type: "openapi"`)
 - OpenAI Agents SDK Python entrypoints, static AST extraction (`tool_sources[].type: "openai_agents_sdk"`)
 - Google ADK Python and YAML config (`tool_sources[].type: "google_adk"`)
+- LangChain/LangGraph Python entrypoints (`tool_sources[].type: "langchain"`)
+- CrewAI Python entrypoints (`tool_sources[].type: "crewai"`)
 - Anthropic Messages API artifacts — system prompts, tools.json, policy rules (top-level `anthropic:` block)
 - OpenAI Agents API artifacts — prompts, function schemas, response formats (top-level `openai_api:` block)
 
 ## Outputs
 
 - Markdown report (human review): `agents-shipgate-reports/report.md`
-- JSON report (machine-readable, schema v0.4): `agents-shipgate-reports/report.json`
+- JSON report (machine-readable, schema v0.5): `agents-shipgate-reports/report.json`
 - SARIF report (GitHub code-scanning compatible): `agents-shipgate-reports/report.sarif`
 
 ## Form factor
@@ -55,7 +57,7 @@ agents-shipgate init --workspace . --write
 agents-shipgate scan -c shipgate.yaml
 
 # GitHub Action
-- uses: ThreeMoonsLab/agents-shipgate@v0.3.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.5.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -72,7 +74,7 @@ agents-shipgate scan -c shipgate.yaml
 - STABILITY.md (0.x contract): https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md
 - Discovery metadata (.well-known): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
-- Report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.4.json
+- Report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.5.json
 - Check catalog (machine-readable): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 
 ## Category vocabulary

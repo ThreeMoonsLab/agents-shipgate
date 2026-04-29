@@ -8,9 +8,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files) and produces deterministic findings.
+Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files) and produces deterministic findings.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 
@@ -101,7 +101,7 @@ Config error: Config file not found: missing.yaml
 
 Use it when the user is:
 
-- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK)
+- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI)
 - Adding a new tool, scope, or policy to an existing agent
 - Preparing an agent for production promotion
 - Wiring a release gate into PR CI
@@ -137,7 +137,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json) and what's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json) and what's-stable is documented in [STABILITY.md](STABILITY.md).
 
 ### Task 3 · Suppress a finding with a reason
 
@@ -183,7 +183,7 @@ Returns the full `CheckMetadata` with `id`, `category`, `default_severity`, `des
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema | [`docs/report-schema.v0.4.json`](docs/report-schema.v0.4.json) | `0.4` |
+| Report schema | [`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json) | `0.5` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |

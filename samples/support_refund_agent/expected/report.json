@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.4",
-  "run_id": "agents_shipgate_42a625b68c0df0a8",
+  "report_schema_version": "0.5",
+  "run_id": "agents_shipgate_3716da0eb0ec2fad",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -87,6 +87,7 @@
     "missing_descriptions": 0
   },
   "api_surface": null,
+  "anthropic_surface": null,
   "frameworks": {},
   "baseline": null,
   "findings": [

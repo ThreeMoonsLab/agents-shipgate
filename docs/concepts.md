@@ -37,7 +37,7 @@ invoke at runtime. It is declared via:
 
 - Model Context Protocol (MCP) exports
 - OpenAPI specs
-- Framework-specific code (OpenAI Agents SDK Python, Google ADK)
+- Framework-specific code (OpenAI Agents SDK Python, Google ADK, LangChain/LangGraph, CrewAI)
 - API-specific artifacts (Anthropic Messages API tools.json, OpenAI
   Agents API function schemas)
 

@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.4.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.5.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -88,28 +88,56 @@ AGENTS_SHIPGATE_LOG_FORMAT=json agents-shipgate scan --config shipgate.yaml --ve
 
 ## GitLab CI
 
+First-class GitLab CI recipes live in [`../examples/gitlab-ci/`](../examples/gitlab-ci/):
+
+- advisory rollout;
+- strict mode with a baseline;
+- SARIF-or-artifact retention;
+- monorepo multi-config scans;
+- tool-source-change triggers.
+
 ```yaml
 agents-shipgate:
+  stage: test
   image: python:3.12
   script:
-    - python -m pip install agents-shipgate
-    - agents-shipgate scan --config shipgate.yaml --ci-mode advisory
+    - python -m pip install "agents-shipgate==0.5.0"
+    - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
+    when: always
+    expire_in: 1 week
     paths:
       - agents-shipgate-reports/
 ```
 
+GitLab SARIF report ingestion is tier/version dependent. Always retain
+`agents-shipgate-reports/` as path artifacts; enable `artifacts:reports:sarif`
+only where your GitLab instance supports it.
+
 ## CircleCI
 
+First-class CircleCI recipes live in [`../examples/circleci/`](../examples/circleci/):
+
+- advisory rollout;
+- strict mode with a baseline;
+- SARIF artifact retention;
+- monorepo multi-config scans;
+- tool-source-change triggers.
+
 ```yaml
+version: 2.1
+
 jobs:
   agents-shipgate:
     docker:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install agents-shipgate
-      - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory
+      - run: python -m pip install "agents-shipgate==0.5.0"
+      - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
+      - store_artifacts:
+          path: agents-shipgate-reports
+          destination: agents-shipgate-reports
 ```
 
 ## Jenkins

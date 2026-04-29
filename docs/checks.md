@@ -66,6 +66,10 @@ baseline summary and do not fail CI.
 | `SHIP-ADK-LONGRUNNING-CONTRACT-MISSING` | high | A Google ADK long-running tool lacks operation-id and status/progress contract evidence. |
 | `SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING` | high | High-risk Google ADK tools lack callback/plugin or policy guardrail evidence. |
 | `SHIP-ADK-EVAL-COVERAGE-MISSING` | medium | Production-like Google ADK inputs are present without declared eval files. |
+| `SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A LangChain/LangGraph tool surface cannot be statically enumerated and no explicit inventory is declared. |
+| `SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING` | medium | A LangChain/LangGraph function tool lacks static description or parameter metadata. |
+| `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A CrewAI tool surface cannot be statically enumerated and no explicit inventory is declared. |
+| `SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING` | medium | A CrewAI function/class tool lacks static description or parameter metadata. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -224,6 +228,35 @@ Google ADK inputs target `production_like` or `production` without declared eval
 files. Add eval artifacts that cover expected responses and tool-use
 trajectories.
 
+### SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+A LangChain/LangGraph tool list, binding, or graph node could not be enumerated
+statically. Provide an explicit local inventory when tools are produced by
+factories, comprehensions, loop-built lists, unresolved imports, or other
+runtime-only code. This ID uses `TOOL-SURFACE` instead of ADK's `TOOLSET`
+because LangChain exposes ad hoc tool lists and model/graph bindings rather
+than a consistent toolset abstraction.
+
+### SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING
+
+A LangChain/LangGraph `@tool` function or `StructuredTool.from_function(...)`
+surface lacks a static description or parameter metadata. Add docstrings,
+function annotations, or same-file Pydantic `args_schema` metadata.
+
+### SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+A CrewAI agent or crew tool surface could not be enumerated statically. Provide
+an explicit local inventory when tools are produced by factories,
+comprehensions, loop-built lists, unresolved imports, or other runtime-only
+code. This ID uses `TOOL-SURFACE` instead of ADK's `TOOLSET` because CrewAI
+agents bind ad hoc tool lists rather than a consistent toolset abstraction.
+
+### SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING
+
+A CrewAI `@tool` function or `BaseTool` subclass lacks a static description or
+parameter metadata. Add descriptions, `_run` annotations, or same-file Pydantic
+`args_schema` metadata.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -317,3 +350,17 @@ The ADK extractor does not import user modules, run `adk`, connect to MCP
 servers, fetch OpenAPI specs over the network, call tools, or call models.
 Dynamic ADK toolsets produce source warnings and one ADK finding per unresolved
 toolset unless explicit local MCP/OpenAPI/tool inventory inputs are provided.
+
+## LangChain And CrewAI Static Extraction
+
+LangChain/LangGraph and CrewAI extraction are optional static enrichment.
+Agents Shipgate detects supported Python tool definitions, wrappers, agent
+bindings, and local inventory files where those values are statically knowable.
+
+The extractors do not import user modules, import framework packages, run
+agents, run graphs, run crews, connect to MCP servers, fetch specs over the
+network, call tools, call models, or execute framework subprocesses. Dynamic
+tool surfaces produce source warnings and framework findings unless explicit
+local tool inventory inputs are provided. CrewAI prebuilt `crewai_tools.*Tool()`
+references are emitted as low-confidence stubs and warnings; they do not by
+themselves produce the dynamic-tools finding.

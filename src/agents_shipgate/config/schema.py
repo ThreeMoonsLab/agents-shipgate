@@ -50,7 +50,14 @@ class ToolSourceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     id: str
-    type: Literal["mcp", "openapi", "openai_agents_sdk", "google_adk"]
+    type: Literal[
+        "mcp",
+        "openapi",
+        "openai_agents_sdk",
+        "google_adk",
+        "langchain",
+        "crewai",
+    ]
     path: str | None = None
     trust: str | None = None
     mode: str | None = None
@@ -58,7 +65,7 @@ class ToolSourceConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_path_when_needed(self) -> ToolSourceConfig:
-        if self.type in {"mcp", "openapi", "google_adk"} and not self.path:
+        if self.type in {"mcp", "openapi", "google_adk", "langchain", "crewai"} and not self.path:
             raise ValueError(f"tool source {self.id!r} requires path")
         return self
 
@@ -228,6 +235,36 @@ class GoogleAdkConfig(BaseModel):
         )
 
 
+class LangChainConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    python_entrypoints: list[ArtifactPathConfig] = Field(default_factory=list)
+    tool_inventories: list[ArtifactPathConfig] = Field(default_factory=list)
+
+    @field_validator("python_entrypoints", "tool_inventories", mode="before")
+    @classmethod
+    def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
+        return _parse_artifact_entries(value)
+
+    def has_inputs(self) -> bool:
+        return any([self.python_entrypoints, self.tool_inventories])
+
+
+class CrewAiConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    python_entrypoints: list[ArtifactPathConfig] = Field(default_factory=list)
+    tool_inventories: list[ArtifactPathConfig] = Field(default_factory=list)
+
+    @field_validator("python_entrypoints", "tool_inventories", mode="before")
+    @classmethod
+    def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
+        return _parse_artifact_entries(value)
+
+    def has_inputs(self) -> bool:
+        return any([self.python_entrypoints, self.tool_inventories])
+
+
 class PolicyToolEntry(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -384,6 +421,8 @@ class AgentsShipgateManifest(BaseModel):
     openai_api: OpenAIApiConfig | None = None
     anthropic: AnthropicConfig | None = None
     google_adk: GoogleAdkConfig | None = None
+    langchain: LangChainConfig | None = None
+    crewai: CrewAiConfig | None = None
     policies: PoliciesConfig = Field(default_factory=PoliciesConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     risk_overrides: RiskOverridesConfig = Field(default_factory=RiskOverridesConfig)
@@ -398,15 +437,28 @@ class AgentsShipgateManifest(BaseModel):
             or self.google_adk is not None
             and self.google_adk.has_inputs()
         )
+        has_langchain = (
+            any(source.type == "langchain" for source in self.tool_sources)
+            or self.langchain is not None
+            and self.langchain.has_inputs()
+        )
+        has_crewai = (
+            any(source.type == "crewai" for source in self.tool_sources)
+            or self.crewai is not None
+            and self.crewai.has_inputs()
+        )
         has_anthropic = self.anthropic is not None and self.anthropic.has_inputs()
         if (
             not self.tool_sources
             and self.openai_api is None
             and not has_anthropic
             and not has_google_adk
+            and not has_langchain
+            and not has_crewai
         ):
             raise ValueError(
-                "At least one of tool_sources, openai_api, anthropic, or google_adk is required"
+                "At least one of tool_sources, openai_api, anthropic, google_adk, "
+                "langchain, or crewai is required"
             )
         if (
             not self.agent.declared_purpose
@@ -414,10 +466,13 @@ class AgentsShipgateManifest(BaseModel):
             and not (self.openai_api and self.openai_api.prompt_files)
             and not (self.anthropic and self.anthropic.prompt_files)
             and not has_google_adk
+            and not has_langchain
+            and not has_crewai
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "
-                "openai_api.prompt_files, or anthropic.prompt_files is required"
+                "openai_api.prompt_files, anthropic.prompt_files, or framework "
+                "inputs are required"
             )
         return self
 

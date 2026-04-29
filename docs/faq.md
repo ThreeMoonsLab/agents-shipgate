@@ -51,6 +51,8 @@ See [`docs/trust-model.md`](trust-model.md) for the full disclosure.
 - OpenAI Agents SDK Python entrypoints (static AST extraction, no import)
 - Anthropic Messages API artifacts (system prompts + tools.json + policy YAML)
 - Google ADK Python and YAML config
+- LangChain/LangGraph Python entrypoints
+- CrewAI Python entrypoints
 - OpenAI Agents API artifacts (prompts + function schemas + response formats)
 
 See [`docs/manifest-v0.1.md`](manifest-v0.1.md) for the full manifest
@@ -60,13 +62,13 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.4). Always parse this for programmatic use.
+  (schema v0.5). Always parse this for programmatic use.
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
   GitHub's code-scanning UI on the Files Changed view.
 
 ## Is it production-ready?
 
-v0.3.0 is the latest released version. The manifest schema is stable
+v0.5.0 is the latest released version. The manifest schema is stable
 across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 
@@ -78,8 +80,9 @@ baseline lets you adopt the gate without flipping every existing PR red.
 
 ## Does it work without GitHub?
 
-Yes. The CLI is the same on any platform. Recipes for GitLab CI,
-CircleCI, and Jenkins are in [`docs/integrations.md`](integrations.md).
+Yes. The CLI is the same on any platform. First-class recipes for GitLab CI
+and CircleCI are in [`docs/integrations.md`](integrations.md); Jenkins remains
+available as a lightweight snippet.
 
 ## How much does it cost?
 

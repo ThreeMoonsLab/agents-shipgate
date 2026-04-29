@@ -340,6 +340,58 @@ class GoogleAdkArtifacts(BaseModel):
         }
 
 
+class LangChainArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    python_entrypoints: list[str] = Field(default_factory=list)
+    tool_inventory_files: list[str] = Field(default_factory=list)
+    function_tools: list[dict[str, Any]] = Field(default_factory=list)
+    structured_tools: list[dict[str, Any]] = Field(default_factory=list)
+    tool_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    agent_bindings: list[dict[str, Any]] = Field(default_factory=list)
+    dynamic_tool_surfaces: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        return {
+            "python_entrypoint_count": len(self.python_entrypoints),
+            "function_tool_count": len(self.function_tools),
+            "structured_tool_count": len(self.structured_tools),
+            "tool_node_count": len(self.tool_nodes),
+            "agent_tool_binding_count": len(self.agent_bindings),
+            "dynamic_tool_surface_count": len(self.dynamic_tool_surfaces),
+            "tool_inventory_file_count": len(self.tool_inventory_files),
+            "warnings": self.warnings,
+        }
+
+
+class CrewAiArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    python_entrypoints: list[str] = Field(default_factory=list)
+    tool_inventory_files: list[str] = Field(default_factory=list)
+    agents: list[dict[str, Any]] = Field(default_factory=list)
+    crews: list[dict[str, Any]] = Field(default_factory=list)
+    function_tools: list[dict[str, Any]] = Field(default_factory=list)
+    class_tools: list[dict[str, Any]] = Field(default_factory=list)
+    prebuilt_tools: list[dict[str, Any]] = Field(default_factory=list)
+    dynamic_tool_surfaces: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        return {
+            "python_entrypoint_count": len(self.python_entrypoints),
+            "agent_count": len(self.agents),
+            "crew_count": len(self.crews),
+            "function_tool_count": len(self.function_tools),
+            "class_tool_count": len(self.class_tools),
+            "prebuilt_tool_count": len(self.prebuilt_tools),
+            "dynamic_tool_surface_count": len(self.dynamic_tool_surfaces),
+            "tool_inventory_file_count": len(self.tool_inventory_files),
+            "warnings": self.warnings,
+        }
+
+
 class LoadedPolicyPack(BaseModel):
     id: str
     name: str
@@ -352,7 +404,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.4"
+    report_schema_version: str = "0.5"
     run_id: str
     project: dict[str, Any]
     agent: dict[str, Any]

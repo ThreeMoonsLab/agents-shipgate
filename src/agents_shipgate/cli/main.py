@@ -408,6 +408,25 @@ def doctor(
                 f"dynamic_toolsets={adk_surface.get('dynamic_toolset_count', 0)}, "
                 f"eval_files={adk_surface.get('eval_file_count', 0)}"
             )
+        if isinstance(frameworks, dict) and frameworks.get("langchain"):
+            langchain_surface = frameworks["langchain"]
+            typer.echo(
+                "LangChain artifacts: "
+                f"functions={langchain_surface.get('function_tool_count', 0)}, "
+                f"structured_tools={langchain_surface.get('structured_tool_count', 0)}, "
+                f"tool_nodes={langchain_surface.get('tool_node_count', 0)}, "
+                f"dynamic_surfaces={langchain_surface.get('dynamic_tool_surface_count', 0)}"
+            )
+        if isinstance(frameworks, dict) and frameworks.get("crewai"):
+            crewai_surface = frameworks["crewai"]
+            typer.echo(
+                "CrewAI artifacts: "
+                f"agents={crewai_surface.get('agent_count', 0)}, "
+                f"functions={crewai_surface.get('function_tool_count', 0)}, "
+                f"class_tools={crewai_surface.get('class_tool_count', 0)}, "
+                f"prebuilt_tools={crewai_surface.get('prebuilt_tool_count', 0)}, "
+                f"dynamic_surfaces={crewai_surface.get('dynamic_tool_surface_count', 0)}"
+            )
         if payload.get("baseline"):
             baseline = payload["baseline"]
             typer.echo(
