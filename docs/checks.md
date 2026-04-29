@@ -356,6 +356,8 @@ toolset unless explicit local MCP/OpenAPI/tool inventory inputs are provided.
 LangChain/LangGraph and CrewAI extraction are optional static enrichment.
 Agents Shipgate detects supported Python tool definitions, wrappers, agent
 bindings, and local inventory files where those values are statically knowable.
+CrewAI `BaseTool` class metadata may use literal strings or Pydantic-style
+`Field(default="...")` assignments for `name` and `description`.
 
 The extractors do not import user modules, import framework packages, run
 agents, run graphs, run crews, connect to MCP servers, fetch specs over the

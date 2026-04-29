@@ -13,6 +13,9 @@ model calls, no MCP connections, and no network access.
   package runtime APIs to discover tools.
 - Reuse `inputs/common.py` for path containment, size limits, structured-file
   parsing, schema conversion, and stable tool IDs.
+- For Python framework adapters, reuse `inputs/_python_framework.py` for
+  source loading, inventory wrapping, AST ordering, duplicate handling, and
+  shared `Tool` construction before adding framework-specific extraction logic.
 - Keep file processing deterministic: manifest references in declared order,
   supplemental discovered files sorted by resolved path, and AST objects in
   source order.
@@ -83,4 +86,6 @@ model calls, no MCP connections, and no network access.
 - Document the manifest form, supported static patterns, unsupported dynamic
   patterns, trust boundary, source priorities, and remediation path through
   explicit inventories.
+- Document the tested framework version range so users can map unsupported
+  source shapes to version churn instead of scanner failure.
 - Add check catalog entries for every new `SHIP-*` ID.

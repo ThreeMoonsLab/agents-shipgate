@@ -65,11 +65,11 @@ openai_api:
 
 langchain:
   tool_inventories:
-    - inventories/langchain-tools.json
+    - path: inventories/langchain-tools.json
 
 crewai:
   tool_inventories:
-    - inventories/crewai-tools.json
+    - path: inventories/crewai-tools.json
 
 permissions:
   scopes:
@@ -83,7 +83,7 @@ policies:
     - tool: issue_refund
       reason: financial action
   require_confirmation_for_tools:
-    - send_customer_email
+    - tool: send_customer_email
   require_idempotency_for_tools:
     - tool: issue_refund
       reason: avoid double refunds on retry

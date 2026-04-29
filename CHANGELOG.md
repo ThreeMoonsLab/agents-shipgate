@@ -12,6 +12,8 @@
   examples.
 - Added report schema v0.5 for additive LangChain/CrewAI framework fields.
 - Added a framework adapter checklist for future static framework support.
+- Deduplicated `source_warnings`; baselines from 0.4.x may report a small
+  number of resolved warning entries on first run after upgrade.
 
 ## 0.4.0 - 2026-04-27
 

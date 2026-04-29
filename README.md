@@ -205,7 +205,8 @@ Dynamic ADK toolsets produce warnings or findings unless you provide explicit MC
 
 v0.5 adds static Python extraction for LangChain/LangGraph and CrewAI. The
 adapters parse Python AST only; they do not import framework packages or user
-modules.
+modules. The supported LangChain/LangGraph patterns target LangChain Core
+0.3+, LangChain 1.x `create_agent`, and LangGraph 0.2+ source shapes.
 
 ```yaml
 tool_sources:

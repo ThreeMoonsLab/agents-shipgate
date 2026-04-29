@@ -164,6 +164,64 @@ tool_sources:
     }
 
 
+def test_langchain_tool_variable_shadowing_preserves_tools_and_warns(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        """
+from langchain.tools import tool
+from langchain_core.tools import StructuredTool
+
+@tool
+def summarize_case(case_id: str) -> dict:
+    \"\"\"Summarize read-only support case metadata.\"\"\"
+    return {"case_id": case_id}
+
+def summarize_case_wrapped(case_id: str) -> dict:
+    \"\"\"Summarize read-only support case metadata for reviewer handoff.\"\"\"
+    return {"case_id": case_id}
+
+summarize_case = StructuredTool.from_function(
+    func=summarize_case_wrapped,
+    name="summarize_case_wrapped",
+    description="Summarize read-only support case metadata for reviewer handoff.",
+)
+agent = create_agent(model=None, tools=[summarize_case])
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: langchain-shadow-test
+agent:
+  name: shadow-agent
+environment:
+  target: local
+tool_sources:
+  - id: langchain
+    type: langchain
+    path: agent.py
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert {tool["name"] for tool in report.tool_inventory} == {
+        "summarize_case",
+        "summarize_case_wrapped",
+    }
+    assert report.frameworks["langchain"]["dynamic_tool_surface_count"] == 1
+    assert any("tool variable 'summarize_case' is reassigned" in w for w in report.source_warnings)
+
+
 def test_langchain_inventory_suppresses_dynamic_surface_finding(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

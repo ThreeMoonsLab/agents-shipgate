@@ -178,6 +178,61 @@ tool_sources:
     }
 
 
+def test_crewai_basetool_field_default_description_is_extracted(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "crew.py").write_text(
+        """
+from crewai import Agent
+from crewai.tools import BaseTool
+from pydantic import Field
+
+class LookupTool(BaseTool):
+    name: str = Field(default="lookup_case", description="Tool name.")
+    description: str = Field(
+        default="Look up read-only metadata for an existing support case.",
+        description="Tool description.",
+    )
+
+    def _run(self, case_id: str) -> dict:
+        return {"case_id": case_id}
+
+lookup_tool = LookupTool()
+researcher = Agent(role="reader", goal="read", backstory="", tools=[lookup_tool])
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: crewai-field-description-test
+agent:
+  name: field-description-crew
+environment:
+  target: local
+tool_sources:
+  - id: crewai
+    type: crewai
+    path: crew.py
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    inventory = {tool["name"]: tool for tool in report.tool_inventory}
+    assert "lookup_case" in inventory
+    assert "SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING" not in {
+        finding.check_id for finding in report.findings
+    }
+
+
 def test_crewai_inventory_suppresses_dynamic_surface_finding(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

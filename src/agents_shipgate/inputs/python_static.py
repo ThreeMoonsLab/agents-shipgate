@@ -203,6 +203,14 @@ def field_description(node: ast.AST | None) -> str | None:
     return keyword_string(node, "description")
 
 
+def field_default_string(node: ast.AST | None) -> str | None:
+    if not isinstance(node, ast.Call) or last_name(node.func) != "Field":
+        return None
+    if value := keyword_string(node, "default"):
+        return value
+    return literal_string(node.args[0]) if node.args else None
+
+
 def field_bounds(node: ast.AST | None) -> tuple[float | int | None, float | int | None]:
     if not isinstance(node, ast.Call) or last_name(node.func) != "Field":
         return None, None

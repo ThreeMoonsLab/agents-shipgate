@@ -1,6 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
+import yaml
+from jsonschema import validate
 
 from agents_shipgate.config.loader import KNOWN_MANIFEST_FIELDS, load_manifest
 from agents_shipgate.core.errors import ConfigError
@@ -103,6 +106,16 @@ def test_known_manifest_fields_are_derived_from_schema():
     assert "policy_rules" in KNOWN_MANIFEST_FIELDS
     assert "model_config" in KNOWN_MANIFEST_FIELDS
     assert "policy_packs" in KNOWN_MANIFEST_FIELDS
+
+
+def test_manifest_examples_validate_against_generated_schema():
+    schema = json.loads(Path("docs/manifest-v0.1.json").read_text(encoding="utf-8"))
+
+    for path in [
+        Path("docs/manifest-v0.1.example.minimal.yaml"),
+        Path("docs/manifest-v0.1.example.full.yaml"),
+    ]:
+        validate(instance=yaml.safe_load(path.read_text(encoding="utf-8")), schema=schema)
 
 
 def test_removed_top_level_severity_override_alias_has_migration_error(tmp_path):
