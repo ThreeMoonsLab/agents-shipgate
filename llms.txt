@@ -57,7 +57,7 @@ agents-shipgate init --workspace . --write
 agents-shipgate scan -c shipgate.yaml
 
 # GitHub Action
-- uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.5.1
   with:
     config: shipgate.yaml
     ci_mode: advisory

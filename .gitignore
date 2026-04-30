@@ -19,3 +19,26 @@ dist/
 .DS_Store
 agents-shipgate-reports/
 .claude/
+
+# Launch/deck workspaces
+docs/decks/**/scratch/
+docs/decks/**/.DS_Store
+docs/decks/**/.~lock*
+docs/decks/**/~$*
+docs/decks/**/*.tmp
+docs/decks/**/qa*.jpg
+docs/decks/vc-thesis/slide-08-options/*.html
+docs/decks/vc-thesis/slide-08-options/_v3_*.png
+samples/**/.agents-shipgate/baseline.json
+
+# Keep curated final VC deck artifacts despite the generic build/ ignore.
+!docs/decks/vc-thesis/build/
+docs/decks/vc-thesis/build/*
+!docs/decks/vc-thesis/build/fragments/
+docs/decks/vc-thesis/build/fragments/*
+!docs/decks/vc-thesis/build/_logo-mark-*.png
+!docs/decks/vc-thesis/build/contact-sheet*.png
+!docs/decks/vc-thesis/build/deck*.pdf
+!docs/decks/vc-thesis/build/deck*.pptx
+!docs/decks/vc-thesis/build/slide-*.png
+!docs/decks/vc-thesis/build/fragments/*.png

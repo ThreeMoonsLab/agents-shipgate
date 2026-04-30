@@ -98,7 +98,7 @@ def scan(
     baseline_mode: str = typer.Option(
         "new-findings",
         "--baseline-mode",
-        help="Baseline comparison mode. v0.4 supports new-findings.",
+        help="Baseline comparison mode. Supported value: new-findings.",
     ),
     policy_packs: list[Path] | None = typer.Option(
         None,

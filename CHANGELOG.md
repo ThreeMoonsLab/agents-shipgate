@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-04-29
+
+- Polished launch-facing docs after the v0.5.0 release.
+- Updated active examples and discovery metadata to the v0.5.1 release tag.
+- Added curated launch marketing and presentation assets while excluding them
+  from PyPI source distributions.
+- Fixed stale baseline-mode CLI help text.
+
 ## 0.5.0 - 2026-04-28
 
 - Added static LangChain/LangGraph and CrewAI Python adapters with manifest

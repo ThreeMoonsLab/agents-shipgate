@@ -4,14 +4,15 @@ These items require release infrastructure, registry credentials, domains, or Gi
 
 ## Package Channels
 
-- Publish `agents-shipgate` to PyPI.
-- Publish a pinned GitHub Action release tag such as `v0.5.0`.
+- `agents-shipgate` is published on PyPI.
+- Pinned GitHub Action release tags are published, including `v0.5.1`.
+- GitHub Releases attach the wheel, sdist, SBOM, and Sigstore bundles.
 - Evaluate a container image later only if it has an exercised build-and-test path.
 - Evaluate Homebrew once CLI usage warrants it.
 
-The GitHub Action can install from its tagged source before PyPI publication. A
-`shipgate_version` input is available for release flows that intentionally
-install a published PyPI version.
+The GitHub Action installs from its tagged source by default. A
+`shipgate_version` input is available for release flows that intentionally need
+to install a published PyPI version.
 
 ## Supply Chain
 
@@ -22,14 +23,12 @@ install a published PyPI version.
 - Use Dependabot for Python and GitHub Actions updates.
 - Add a lockfile for release and dev dependency builds once packaging workflow is finalized.
 
-PyPI release prerequisite: configure the `agents-shipgate` PyPI project with a
-Trusted Publisher for this repository, workflow `.github/workflows/release.yml`,
-environment `pypi`, and the tag-triggered release job before pushing a public
-release tag.
+PyPI Trusted Publishing is configured for this repository's tag-triggered
+release workflow and protected `pypi` environment.
 
 ## Marketplace And Site
 
-- Submit `ThreeMoonsLab/agents-shipgate` to GitHub Marketplace after the first tagged release.
+- `ThreeMoonsLab/agents-shipgate` is listed on GitHub Marketplace.
 - Create a small landing page with install instructions, trust model, and findings gallery.
 - Consider a local-only playground later; do not accept private customer manifests into a hosted service without a separate privacy review.
 

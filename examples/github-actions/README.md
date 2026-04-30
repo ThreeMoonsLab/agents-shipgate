@@ -29,9 +29,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.5.1
   with:
-    shipgate_version: "0.5.0"
+    shipgate_version: "0.5.1"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient on `@main`, less reproducible.
@@ -42,7 +42,7 @@ Useful for downstream steps:
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+  uses: ThreeMoonsLab/agents-shipgate@v0.5.1
 
 - if: steps.shipgate.outputs.critical_count != '0'
   run: echo "Action this!"

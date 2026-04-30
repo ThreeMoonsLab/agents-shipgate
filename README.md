@@ -25,7 +25,7 @@ Static release-readiness scanner for AI agent tool surfaces.
 ```bash
 pipx install agents-shipgate
 # or in CI:
-# - uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+# - uses: ThreeMoonsLab/agents-shipgate@v0.5.1
 ```
 
 ## 60-second run
@@ -289,7 +289,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.5.1
         with:
           config: shipgate.yaml
           ci_mode: advisory

@@ -20,12 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.5.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.5.1
         with:
           ci_mode: advisory
           formats: markdown,json,sarif
           pr_comment: 'true'
-          shipgate_version: '0.5.0'
+          shipgate_version: '0.5.1'
       - if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:

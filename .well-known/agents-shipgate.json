@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "Static release-readiness scanner for AI agent tool surfaces",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -11,7 +11,7 @@
   },
   "package": {
     "pypi": "agents-shipgate",
-    "github_action": "ThreeMoonsLab/agents-shipgate@v0.5.0",
+    "github_action": "ThreeMoonsLab/agents-shipgate@v0.5.1",
     "github_repo": "ThreeMoonsLab/agents-shipgate"
   },
   "install": {
