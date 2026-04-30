@@ -18,7 +18,9 @@ dist/
 
 .DS_Store
 agents-shipgate-reports/
-.claude/
+# Ignore .claude/ developer-local state, but keep the public agent surface checked in.
+.claude/*
+!.claude/commands/
 
 # Launch/deck workspaces
 docs/decks/**/scratch/

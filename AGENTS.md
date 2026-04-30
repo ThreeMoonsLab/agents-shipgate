@@ -252,7 +252,7 @@ Prebuilt prompts for common workflows live in [`prompts/`](prompts/):
 - [`stabilize-strict-mode.md`](prompts/stabilize-strict-mode.md) — tune → baseline → promote
 - [`triage-false-positive.md`](prompts/triage-false-positive.md) — override vs suppress decision
 
-Slash commands for Claude Code: [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md).
+Claude Code: a `/shipgate` slash command lives at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md), and an auto-discoverable skill lives at [`skills/shipgate/SKILL.md`](skills/shipgate/SKILL.md). To install both into your own agent project, see [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md).
 
 ---
 

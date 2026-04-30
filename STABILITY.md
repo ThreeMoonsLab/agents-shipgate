@@ -90,6 +90,16 @@ The manifest schema version (`version: "0.1"`) is independent of the CLI version
 
 Fixture names listed by `agents-shipgate fixture list` are stable. Names will not be renamed. New fixtures may be added.
 
+### Agent-skill paths
+
+The following paths are part of the public agent surface and will not move within `0.x`:
+
+- [`prompts/`](prompts/) — task-shaped recipes, individual filenames are stable
+- [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) — Claude Code slash command
+- [`skills/shipgate/SKILL.md`](skills/shipgate/SKILL.md) — Claude Code skill (frontmatter `name` and the trigger phrases in `description` may broaden additively but will not narrow)
+
+The body content of these files may change to reflect new prompts; the entry-point paths will not.
+
 ---
 
 ## What MAY change additively in any minor release

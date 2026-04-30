@@ -1,0 +1,20 @@
+---
+description: Bootstrap agents-shipgate (install, init, scan, report top findings)
+---
+
+Run the agents-shipgate bootstrap flow on the current repo: install the CLI, generate `shipgate.yaml`, fill in placeholders, run a scan, and surface the top findings from the JSON report.
+
+The canonical, self-contained instructions live in `prompts/add-shipgate-to-repo.md`. Read that file first and follow it verbatim:
+
+- If this repo is a clone of `agents-shipgate` itself, read it from the local path: `prompts/add-shipgate-to-repo.md`.
+- Otherwise, fetch it from: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/prompts/add-shipgate-to-repo.md
+
+Required behavior (do not skip):
+
+1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so errors emit a `next_action` JSON line on stderr.
+2. Confirm with the user before running `agents-shipgate init --workspace . --write` (it writes `shipgate.yaml` to the workspace).
+3. Parse `agents-shipgate-reports/report.json` directly — do not scrape the markdown. Stable fields: `summary.{critical_count, high_count, medium_count, status}`, `findings[].{check_id, severity, tool_name, recommendation}`.
+4. Add `agents-shipgate-reports/` to `.gitignore` if it is not already.
+5. Do **not** run `agents-shipgate baseline save` in this flow — baselining is a separate decision.
+
+Report back: status, top 3 findings by severity, and one suggested next step.

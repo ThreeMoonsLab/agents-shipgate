@@ -59,6 +59,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
+- **[`skills/shipgate/SKILL.md`](skills/shipgate/SKILL.md)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — Claude Code skill and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json)** — JSON Schemas for live editor validation
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
