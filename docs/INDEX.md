@@ -4,6 +4,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## Concepts
 
+- [`overview.md`](overview.md) — one-page summary for developers, reviewers, and AI agents
 - [`concepts.md`](concepts.md) — tool-use readiness in depth (the seven dimensions)
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
@@ -23,6 +24,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## Examples
 
+- [`examples.md`](examples.md) — narrative tour of sample agents and CI recipes
 - [`manifest-v0.1.example.minimal.yaml`](manifest-v0.1.example.minimal.yaml) — smallest valid manifest
 - [`manifest-v0.1.example.full.yaml`](manifest-v0.1.example.full.yaml) — every section populated
 - [`../samples/`](../samples/) — runnable fixtures

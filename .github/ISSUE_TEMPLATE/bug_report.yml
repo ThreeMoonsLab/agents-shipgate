@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible problem in Agents Shipgate.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include enough detail for a deterministic repro.
+  - type: input
+    id: version
+    attributes:
+      label: Agents Shipgate version
+      placeholder: "v0.5.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI
+        - GitHub Action
+        - Manifest validation
+        - MCP input
+        - OpenAPI input
+        - SDK/framework adapter
+        - Report output
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Include commands, manifest snippets, and relevant tool-source shape.
+      placeholder: |
+        1. Run ...
+        2. Expected ...
+        3. Actual ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output or error
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I checked the latest release and docs.
+          required: true
+        - label: This is not a vulnerability report. I will email security@threemoonslab.com for vulnerabilities.
+          required: true

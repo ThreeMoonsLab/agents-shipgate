@@ -1,0 +1,48 @@
+name: Check request
+description: Propose a deterministic release-readiness check.
+title: "[Check]: "
+labels: ["check-request"]
+body:
+  - type: textarea
+    id: risk
+    attributes:
+      label: Release risk
+      description: What risky tool-surface state should Agents Shipgate detect?
+      placeholder: "Example: write tools without an approval policy..."
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Likely category
+      options:
+        - inventory
+        - schema
+        - auth
+        - policy
+        - side_effects
+        - manifest
+        - api
+        - framework-specific
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Static evidence available
+      description: What manifest, schema, source, or metadata fields can prove the check should fire?
+    validations:
+      required: true
+  - type: textarea
+    id: safe_case
+    attributes:
+      label: Nearby safe case
+      description: What similar tool or manifest shape should not fire this check?
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example manifest or tool snippet
+      render: yaml

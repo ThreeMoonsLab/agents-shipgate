@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "0.5.1"
-description = "Static release-readiness scanner for AI agent tool surfaces (MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK, LangChain, CrewAI). CLI + GitHub Action."
+description = "Static release-readiness gate for AI agent tool surfaces. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -51,7 +51,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ThreeMoonsLab/agents-shipgate"
+Homepage = "https://threemoonslab.com/"
 Repository = "https://github.com/ThreeMoonsLab/agents-shipgate"
 Issues = "https://github.com/ThreeMoonsLab/agents-shipgate/issues"
 Documentation = "https://github.com/ThreeMoonsLab/agents-shipgate/wiki"

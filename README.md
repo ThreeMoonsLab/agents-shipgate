@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme-header-dark.png">
-    <img src="assets/readme-header.png" alt="Agents Shipgate · static release-readiness for AI agent tool surfaces" width="100%">
+    <img src="assets/readme-header.png" alt="Agents Shipgate · static release-readiness gate for AI agent tool surfaces" width="100%">
   </picture>
 </p>
 
@@ -13,34 +13,67 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-Static release-readiness scanner for AI agent tool surfaces.
+**Static release-readiness gate for AI agent tool surfaces.**
 
-**agents-shipgate is an open-source CLI and GitHub Action that produces release-readiness reports for AI agent tool surfaces.** It reads a manifest plus tool sources and writes deterministic findings as Markdown, JSON, and SARIF.
+Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
+OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
+LangChain/LangGraph, CrewAI, and OpenAI Agents API artifacts, then writes a
+deterministic **Tool-Use Readiness Report** before your agent gets
+production-like permissions.
 
-**Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI Agents API.
-**Outputs:** Markdown · JSON · SARIF.
+No agent execution. No LLM calls. No MCP server connections. No scanner network
+calls. No scanner telemetry. Apache-2.0.
 
-## Install
+## Try it in 60 seconds
 
 ```bash
 pipx install agents-shipgate
-# or in CI:
-# - uses: ThreeMoonsLab/agents-shipgate@v0.5.1
+agents-shipgate fixture run support_refund_agent
 ```
 
-## 60-second run
+This runs a bundled fixture with no manifest required and writes
+`agents-shipgate-reports/report.md` showing 18 findings, including 2 critical
+findings on `stripe.create_refund`: missing approval policy and missing
+idempotency evidence.
+
+![Sample Tool-Use Readiness Report](assets/sample-report.png)
+
+## Scan your repo
 
 ```bash
 agents-shipgate init --workspace . --write
 agents-shipgate scan -c shipgate.yaml
-# writes agents-shipgate-reports/report.md and report.json
 ```
 
-To verify your install on a known fixture without writing any YAML:
+Reports land at `agents-shipgate-reports/report.md` and `report.json`.
 
-```bash
-agents-shipgate fixture run support_refund_agent
+## Use in CI
+
+```yaml
+- uses: ThreeMoonsLab/agents-shipgate@v0.5.1
+  with:
+    config: shipgate.yaml
+    ci_mode: advisory
 ```
+
+## What it scans
+
+| Input | Status |
+|---|---|
+| Model Context Protocol (MCP) exports | Supported |
+| OpenAPI 3.x specs | Supported |
+| OpenAI Agents SDK Python entrypoints | Supported |
+| Anthropic Messages API artifacts | Supported |
+| Google ADK Python and YAML config | Supported |
+| LangChain/LangGraph static Python inputs | Supported |
+| CrewAI static Python inputs | Supported |
+| OpenAI Agents API artifacts | Supported |
+
+## What it produces
+
+- **Markdown report** for human release review.
+- **JSON report** for tools and coding agents.
+- **SARIF report** for GitHub code-scanning workflows.
 
 ## Exit codes
 
@@ -68,7 +101,7 @@ Every command has a `--json` form. Errors emit a structured `next_action` line o
 
 Once an AI agent can refund, email, cancel, deploy, or modify a record, every tool change becomes a release event. Code review catches code; eval suites catch behavior; observability catches runtime. None of them answer the release question: *given the tool surface declared in this PR, do we have explicit approval policies, scope coverage, idempotency evidence, and review readiness for every action?*
 
-Shipgate produces a deterministic answer to that question, before promotion.
+Agents Shipgate produces a deterministic answer to that question, before promotion.
 
 ## Findings Gallery
 

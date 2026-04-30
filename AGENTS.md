@@ -8,7 +8,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness scanner for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files) and produces deterministic findings.
+Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files) and produces deterministic findings.
 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI
 - **Outputs:** Markdown · JSON · SARIF
@@ -30,7 +30,7 @@ Do **not** use any of: `Agent Shipgate` (singular), `Agent Shipcheck`, `agents s
 
 The canonical tagline is:
 
-> Static release-readiness scanner for AI agent tool surfaces.
+> Static release-readiness gate for AI agent tool surfaces.
 
 This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the marketing site `<meta name="description">`. Keep them in sync.
 
@@ -175,6 +175,46 @@ agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING --json
 ```
 
 Returns the full `CheckMetadata` with `id`, `category`, `default_severity`, `description`, `rationale`, `fires_when`, `evidence_fields`, `recommendation`.
+
+---
+
+## Agent FAQ
+
+### Where is the manifest schema?
+
+Use [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) for machine
+validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
+
+### Where is the report schema?
+
+Parse `agents-shipgate-reports/report.json` and validate against
+[`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json). Do not scrape
+Markdown when JSON is available.
+
+### How do I add a new check?
+
+Follow [`docs/architecture.md`](docs/architecture.md) and update the check
+registry, tests, [`docs/checks.md`](docs/checks.md), and
+[`docs/checks.json`](docs/checks.json). Check IDs must not change after
+publication.
+
+### How do I add a new framework adapter?
+
+Start with [`docs/framework-adapter-checklist.md`](docs/framework-adapter-checklist.md).
+Adapters must be static by default: no user-code import, no network access, no
+agent execution.
+
+### Where are runnable examples?
+
+Use [`samples/README.md`](samples/README.md) for sample agents and
+[`docs/examples.md`](docs/examples.md) for a narrative overview. The fastest
+fixture is `agents-shipgate fixture run support_refund_agent`.
+
+### What vocabulary should I use in user-facing copy?
+
+Use the canonical names table above and the website glossary:
+https://threemoonslab.com/glossary/. Do not introduce `Agent Shipcheck` or
+`Agent Shipgate` as product names.
 
 ---
 

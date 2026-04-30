@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
-  "tagline": "Static release-readiness scanner for AI agent tool surfaces",
+  "tagline": "Static release-readiness gate for AI agent tool surfaces",
   "version": "0.5.1",
   "license": "Apache-2.0",
   "publisher": {

@@ -1,5 +1,10 @@
 name: Agents Shipgate
-description: Run Agents Shipgate release-readiness scan.
+description: >-
+  Static release-readiness gate for AI agent tool surfaces. Scans MCP, OpenAPI,
+  OpenAI Agents SDK, Anthropic, Google ADK, LangChain, and CrewAI artifacts.
+  Writes a Tool-Use Readiness Report (Markdown / JSON / SARIF) before your
+  agent gets production-like permissions. No LLM calls. No agent execution.
+  Apache-2.0.
 author: ThreeMoonsLab
 
 branding:

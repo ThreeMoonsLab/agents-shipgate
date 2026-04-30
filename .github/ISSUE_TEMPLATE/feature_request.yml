@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a capability or workflow improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What release-readiness workflow is hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the CLI, config, report, or GitHub Action behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface area
+      options:
+        - CLI
+        - GitHub Action
+        - Manifest schema
+        - Report schema
+        - Input adapter
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: The feature should preserve static-by-default behavior.
+          required: true
