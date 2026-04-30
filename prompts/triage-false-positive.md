@@ -32,12 +32,12 @@ The user thinks a specific finding is wrong. You need to decide whether to overr
    (e.g. "destructive" tag on a GET; "financial_action" tag on a non-financial scope)
        → YES: override via risk_overrides.tools.{tool}.remove_tags
        → NO:  continue
-   
+
    Is the check fundamentally inapplicable to this tool?
    (e.g. SHIP-DOC-MISSING-DESCRIPTION on an internal-only tool slated for removal)
        → YES: suppress via checks.ignore with a concrete reason
        → NO:  continue
-   
+
    The check is correct. Fix the tool definition.
        → use the fix-top-finding.md prompt
    ```
