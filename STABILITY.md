@@ -95,8 +95,9 @@ Fixture names listed by `agents-shipgate fixture list` are stable. Names will no
 The following paths are part of the public agent surface and will not move within `0.x`:
 
 - [`prompts/`](prompts/) — task-shaped recipes, individual filenames are stable
-- [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) — Claude Code slash command
-- [`skills/shipgate/SKILL.md`](skills/shipgate/SKILL.md) — Claude Code skill (frontmatter `name` and the trigger phrases in `description` may broaden additively but will not narrow)
+- [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) — Claude Code `/shipgate` slash command
+- [`skills/agents-shipgate/SKILL.md`](skills/agents-shipgate/SKILL.md) — Claude Code skill. Frontmatter `name` is fixed at `agents-shipgate` (deliberately distinct from the `/shipgate` command so the skill cannot preempt it). Trigger phrases in `description` may broaden additively but will not narrow.
+- [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and [`skills/agents-shipgate/ci-recipes/`](skills/agents-shipgate/ci-recipes/) — bundled supporting files the skill references via relative paths. Filenames listed in `SKILL.md` are stable.
 
 The body content of these files may change to reflect new prompts; the entry-point paths will not.
 

@@ -5,9 +5,11 @@ Two pieces of agent-facing surface ship with this repo. Drop them into your own 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
 | `/shipgate` slash command | Bootstrap flow: install → `init --write` → fill placeholders → `scan` → report top findings | [`.claude/commands/shipgate.md`](../../.claude/commands/shipgate.md) |
-| `shipgate` skill | Auto-discovered when the user mentions release readiness, scanning an agent, fixing a finding, or `shipgate.yaml`. Routes to the right [`prompts/`](../../prompts/) recipe. | [`skills/shipgate/SKILL.md`](../../skills/shipgate/SKILL.md) |
+| `agents-shipgate` skill | Auto-discovered when the user mentions release readiness, scanning an agent, fixing a finding, adding Shipgate to CI, or `shipgate.yaml`. Routes to bundled recipes. | [`skills/agents-shipgate/SKILL.md`](../../skills/agents-shipgate/SKILL.md) |
 
-Both wrap the canonical [`prompts/`](../../prompts/) and [`AGENTS.md`](../../AGENTS.md). They do not duplicate content — when you upgrade agents-shipgate, the prompts are the source of truth.
+The skill is named `agents-shipgate`, not `shipgate`, on purpose: Claude Code lets a skill with the same name as a command preempt it, which would silently bypass the `/shipgate` slash command. Keeping the names distinct lets users invoke the slash command explicitly **and** lets the skill auto-trigger on relevant phrases.
+
+The skill bundles all five [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
 
 ## Install in your agent project
 
@@ -19,37 +21,47 @@ mkdir -p .claude/commands
 curl -fsSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.claude/commands/shipgate.md \
   -o .claude/commands/shipgate.md
 
-# Skill
-mkdir -p .claude/skills/shipgate
-curl -fsSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/skills/shipgate/SKILL.md \
-  -o .claude/skills/shipgate/SKILL.md
+# Skill (bundled recipes — recursive)
+mkdir -p .claude/skills/agents-shipgate
+for f in SKILL.md \
+         prompts/add-shipgate-to-repo.md \
+         prompts/fix-top-finding.md \
+         prompts/triage-false-positive.md \
+         prompts/stabilize-strict-mode.md \
+         prompts/upgrade-shipgate-version.md \
+         ci-recipes/advisory-pr-comment.yml; do
+  mkdir -p ".claude/skills/agents-shipgate/$(dirname "$f")"
+  curl -fsSL "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/skills/agents-shipgate/$f" \
+    -o ".claude/skills/agents-shipgate/$f"
+done
 ```
 
 Or, if you have this repo cloned, copy them over:
 
 ```bash
-cp -r /path/to/agents-shipgate/.claude/commands/shipgate.md .claude/commands/shipgate.md
-cp -r /path/to/agents-shipgate/skills/shipgate .claude/skills/shipgate
+cp /path/to/agents-shipgate/.claude/commands/shipgate.md .claude/commands/shipgate.md
+cp -r /path/to/agents-shipgate/skills/agents-shipgate .claude/skills/agents-shipgate
 ```
 
 ## Verify
 
 Open Claude Code in the project. Two checks:
 
-1. Type `/shipgate` and confirm the command shows up.
-2. Ask Claude Code "add release-readiness checks for this agent" — the `shipgate` skill should auto-trigger and walk through the bootstrap.
+1. Type `/shipgate` and confirm the command shows up. It should run the bootstrap flow (slash command, NOT the skill).
+2. In a fresh chat, ask "add release-readiness checks for this agent" without saying the word "shipgate" — the `agents-shipgate` skill should auto-trigger.
 
 If `/shipgate` runs the bootstrap end-to-end, you are done. The first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and produces `agents-shipgate-reports/report.json`.
 
 ## What the skill knows about
 
-The `shipgate` skill routes to [these recipes](../../prompts/) by task:
+The `agents-shipgate` skill routes to bundled recipes (relative paths inside the skill directory):
 
-- Bootstrap a repo → [`add-shipgate-to-repo.md`](../../prompts/add-shipgate-to-repo.md)
-- Fix the top finding → [`fix-top-finding.md`](../../prompts/fix-top-finding.md)
-- Triage a false positive → [`triage-false-positive.md`](../../prompts/triage-false-positive.md)
-- Promote to strict CI → [`stabilize-strict-mode.md`](../../prompts/stabilize-strict-mode.md)
-- Upgrade the version → [`upgrade-shipgate-version.md`](../../prompts/upgrade-shipgate-version.md)
+- Bootstrap a repo → `prompts/add-shipgate-to-repo.md`
+- First-time CI (advisory PR comment) → `ci-recipes/advisory-pr-comment.yml`
+- Fix the top finding → `prompts/fix-top-finding.md`
+- Triage a false positive → `prompts/triage-false-positive.md`
+- Promote advisory CI to strict → `prompts/stabilize-strict-mode.md`
+- Upgrade the version → `prompts/upgrade-shipgate-version.md`
 
 For the stable CLI / JSON contract the skill relies on, see [`STABILITY.md`](../../STABILITY.md).
 
