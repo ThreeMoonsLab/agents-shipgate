@@ -40,7 +40,7 @@ harmful.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainers at security@threemoonslab.com. All
+reported to the project maintainers at help@threemoonslab.com. All
 complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution

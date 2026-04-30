@@ -212,9 +212,8 @@ fixture is `agents-shipgate fixture run support_refund_agent`.
 
 ### What vocabulary should I use in user-facing copy?
 
-Use the canonical names table above and the website glossary:
-https://threemoonslab.com/glossary/. Do not introduce `Agent Shipcheck` or
-`Agent Shipgate` as product names.
+Use the [canonical names](#canonical-names) table above and the website
+glossary: https://threemoonslab.com/glossary/.
 
 ---
 

@@ -36,7 +36,7 @@ This runs a bundled fixture with no manifest required and writes
 findings on `stripe.create_refund`: missing approval policy and missing
 idempotency evidence.
 
-![Sample Tool-Use Readiness Report](assets/sample-report.png)
+![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
 
 ## Scan your repo
 
@@ -86,6 +86,9 @@ Reports land at `agents-shipgate-reports/report.md` and `report.json`.
 | `20` | Strict-mode gate failure |
 
 ## For coding agents
+
+Human readers can skip this section; it exists so coding agents can find the
+repo's machine-readable contracts quickly.
 
 Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Claude Code, Codex, Cursor, Aider) reading this repo:
 

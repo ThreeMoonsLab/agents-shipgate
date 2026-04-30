@@ -126,7 +126,7 @@ declare the same spec or MCP inventory explicitly in `tool_sources` or
 ## LangChain And CrewAI Artifacts
 
 LangChain/LangGraph and CrewAI support is local-only and static-only. Agents
-Agents Shipgate parses Python AST and does not import framework packages, call models,
+Shipgate parses Python AST and does not import framework packages, call models,
 run crews/graphs/agents, connect to MCP servers, call tools, or execute
 subprocesses.
 

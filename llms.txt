@@ -98,6 +98,11 @@
 - Baseline: a reviewed finding snapshot used so strict mode fails only on new findings.
 - Suppression: an explicit ignored finding with a required written reason.
 
+## Trajectory
+
+- Today: static release-readiness checks for declared AI agent tool surfaces.
+- Next: baselines, suppressions, runtime evidence, and release-review evidence across the agent lifecycle.
+
 ## Maintainer
 
 - Three Moons Lab: https://threemoonslab.com/

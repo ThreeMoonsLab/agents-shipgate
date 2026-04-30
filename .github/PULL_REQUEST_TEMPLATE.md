@@ -12,10 +12,11 @@
 
 ## Verification
 
-- [ ] `python -m ruff check .`
-- [ ] `python -m compileall -q src tests`
-- [ ] `python -m pytest`
-- [ ] `agents-shipgate fixture run support_refund_agent`
+CI is authoritative for `python -m ruff check .`, `python -m compileall -q src tests`, and `python -m pytest`.
+
+Additional local checks run:
+
+-
 
 ## Release-readiness notes
 
