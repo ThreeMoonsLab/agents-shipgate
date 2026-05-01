@@ -164,6 +164,15 @@ for finding in active_findings:
         surface_to_user(finding)
         continue
 
+    if finding.suggested_patch_kind == "none":
+        # Scan ran with --suggest-patches but the generator emitted
+        # nothing for this finding (empty patches list — see "Three
+        # patch states" above). There's nothing to apply via
+        # apply-patches at any confidence level. Surface for human
+        # triage instead.
+        surface_to_user(finding)
+        continue
+
     if finding.autofix_safe is True:
         # Safe to include in the next `apply-patches --confidence high`.
         plan_to_apply(finding)
