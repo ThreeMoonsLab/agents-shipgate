@@ -57,7 +57,7 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
 
 7. **Apply the safe patches:**
    ```bash
-   agents-shipgate apply-patches --from agents-shipgate-reports/report.json --confidence high --apply
+   agents-shipgate apply-patches --from agents-shipgate-reports/report.json --confidence high --apply --json
    ```
    Default `--confidence high` only mutates patches whose `confidence` field is `"high"`. Today that's the 3 stale-manifest removals. Scope-coverage appends ship at `medium` and require explicit `--confidence medium` to apply. ManualPatches are never auto-applied.
 
