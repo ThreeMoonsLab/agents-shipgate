@@ -13,6 +13,7 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.discovery import (
     detect_workspace,
@@ -56,6 +57,14 @@ app.command(
     "detect",
     help="Classify a workspace: which agent framework(s), if any. Read-only.",
 )(_detect_command)
+app.command(
+    "apply-patches",
+    help=(
+        "Apply patches from a scan JSON report. Dry-run by default; pass "
+        "--apply to mutate. Containment-checked against the report's "
+        "manifest_dir."
+    ),
+)(_apply_patches_command)
 logger = logging.getLogger(__name__)
 
 

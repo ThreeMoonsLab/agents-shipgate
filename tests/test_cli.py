@@ -26,7 +26,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.5.1" in result.output
+    assert "Agents Shipgate 0.6.0" in result.output
     assert "release_blockers_detected" in result.output
 
 
@@ -99,7 +99,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.5.1"
+    assert result.output.strip() == "Agents Shipgate 0.6.0"
 
 
 def test_cli_scan_help_hides_deferred_flags():
