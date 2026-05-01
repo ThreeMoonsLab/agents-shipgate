@@ -139,3 +139,46 @@ def test_report_includes_loaded_plugin_provenance(monkeypatch, tmp_path):
             "check_id": "ACME-CHECK",
         }
     ]
+
+
+def test_no_plugins_with_suggest_patches_does_not_load_plugins(monkeypatch, tmp_path):
+    """Combined --no-plugins + --suggest-patches must NOT load plugin
+    entry points even when ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` is set
+    in the environment.
+
+    Regression for v0.7 PR 3 review: ``_attach_patches`` previously
+    called ``check_catalog()`` without forwarding the scan's
+    ``plugins_enabled`` flag, so the recommendation lookup it builds
+    for the patch generators would honor the env var even after the
+    scan opted out via ``--no-plugins``.
+    """
+    loaded = {"called": False}
+
+    class FakeEntryPoint:
+        name = "acme"
+        value = "acme_shipgate_checks:run"
+        dist = FakeDist()
+
+        def load(self):
+            loaded["called"] = True
+            return lambda context: []
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    monkeypatch.setattr(registry, "entry_points", lambda group: [FakeEntryPoint()])
+
+    report, _ = run_scan(
+        config_path=Path("samples/clean_read_only_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        # Combined flag — the load-bearing combination from the review.
+        plugins_enabled=False,
+        suggest_patches=True,
+    )
+
+    assert loaded["called"] is False, (
+        "plugin entry point was loaded even though --no-plugins was passed. "
+        "Either _attach_patches forgot to forward plugins_enabled, or the "
+        "annotate_remediation lookup leaked plugin loading."
+    )
+    assert report.loaded_plugins == []

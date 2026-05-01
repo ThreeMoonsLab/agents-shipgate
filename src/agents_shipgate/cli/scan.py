@@ -169,7 +169,12 @@ def run_scan(
     apply_severity_overrides(findings, manifest.severity_overrides())
     apply_suppressions(findings, manifest.checks.ignore)
     if suggest_patches:
-        _attach_patches(findings, manifest, config_path)
+        _attach_patches(
+            findings,
+            manifest,
+            config_path,
+            plugins_enabled=plugins_enabled,
+        )
     # v0.7: annotate every finding (regardless of --suggest-patches) with
     # the four remediation fields. When patches are present they're
     # derived from those; otherwise the per-check CheckMetadata seeds
@@ -541,6 +546,8 @@ def _attach_patches(
     findings: list,
     manifest,
     config_path: Path,
+    *,
+    plugins_enabled: bool | None,
 ) -> None:
     """Attach Patch objects to unsuppressed findings (per v0.6 plan §3).
 
@@ -551,6 +558,13 @@ def _attach_patches(
     a generator exists, ManualPatch otherwise). Findings without
     --suggest-patches keep ``patches=None`` (per C4) and are filtered
     out of the JSON by ``report_json_payload``.
+
+    Per the v0.7 PR 3 review: ``plugins_enabled`` is forwarded into
+    ``check_catalog`` so the recommendation lookup honors the scan's
+    explicit ``--no-plugins`` flag even when ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1``
+    is set in the environment. Without this, the patch-attachment path
+    would load third-party plugin entry points before
+    ``annotate_remediation`` ran with its plugin-safe lookup.
     """
     from agents_shipgate.checks.patches import (
         PatchContext,
@@ -560,7 +574,7 @@ def _attach_patches(
 
     recommendation_lookup = {
         check.id: check.recommendation
-        for check in check_catalog()
+        for check in check_catalog(plugins_enabled=plugins_enabled)
         if check.recommendation
     }
     context = PatchContext(
