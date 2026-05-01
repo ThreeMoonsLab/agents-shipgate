@@ -38,6 +38,7 @@ detects, configures, scans, and auto-applies safe fixes in one turn:
 ```bash
 agents-shipgate detect --json                                              # 1. classify
 agents-shipgate init --write --ci --json                                   # 2. manifest + workflow
+# 2b. Replace any CHANGE_ME placeholders before scanning (see below)
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json      # 3. scan + suggest
 agents-shipgate apply-patches \
     --from agents-shipgate-reports/report.json \
@@ -47,18 +48,29 @@ agents-shipgate apply-patches \
 `detect` reports whether the workspace looks like an agent project and which
 framework(s) are present. `init --write --ci` produces a schema-valid
 `shipgate.yaml` (with framework-specific `tool_sources` populated) and an
-optional GitHub Actions workflow. `scan --suggest-patches` attaches a Patch
-object to every active finding. `apply-patches --confidence high` mutates
-only the safe stale-manifest removals — scope-coverage appends require an
-explicit `--confidence medium`.
+optional GitHub Actions workflow.
+
+**Replace placeholders before scanning.** `init --write --json` returns a
+`placeholders[]` array enumerating every value the template could not infer.
+On a fresh workspace the array typically contains both:
+
+- `agent.name: CHANGE_ME` — the agent's role (no strong `Agent(name="…")`
+  literal was found).
+- `agent.declared_purpose[]: CHANGE_ME` — a one-line description of what
+  the agent should do (auto-init can't infer this; the schema requires
+  a non-empty value).
+
+Walk `placeholders[]`, edit each one in `shipgate.yaml`, then re-run
+`scan`. Skipping this step leaves an invalid adoption artifact — the
+manifest validates but downstream consumers see meaningless defaults.
+
+`scan --suggest-patches` attaches a Patch object to every active finding.
+`apply-patches --confidence high` mutates only the safe stale-manifest
+removals — scope-coverage appends require an explicit `--confidence medium`.
 
 For agent-specific guidance and decision rules, see
 [`agent-recipes.md`](agent-recipes.md). For framework-by-framework minimal
 manifests, see [`minimal-real-configs.md`](minimal-real-configs.md).
-
-When `init` produces `agent.name: CHANGE_ME` (because there was no strong
-name signal in your code), replace it with the agent's actual role before
-re-scanning.
 
 Reports land at `agents-shipgate-reports/report.md` and `report.json`
 (the default formats). To also write SARIF for GitHub's code-scanning UI:

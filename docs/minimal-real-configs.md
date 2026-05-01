@@ -13,7 +13,7 @@ For the full manifest field reference, see
 | OpenAI Agents SDK (`@function_tool` Python) | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `agents/refund_agent.py` is the Python entrypoint | `tool_sources[*].type: openai_agents_sdk` with `path: agents/refund_agent.py` |
 | MCP export (single agent) | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `.agents-shipgate/mcp-tools.json` | `tool_sources[*].type: mcp` |
 | MCP export (multi-agent monorepo) | [`samples/multi_agent_workspace`](../samples/multi_agent_workspace/) — `support/` and `billing/` each have their own `tools.json` | one `shipgate.yaml` per agent, each with its own `tool_sources` |
-| OpenAPI tool surface | [`samples/support_refund_agent/specs/`](../samples/support_refund_agent/specs/) — `support-tools.openapi.yaml` is a real OpenAPI 3.x spec | `tool_sources[*].type: openapi` with `path: specs/support-tools.openapi.yaml` |
+| OpenAPI tool surface | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `specs/support-tools.openapi.yaml` is a real OpenAPI 3.x spec referenced from the fixture's `shipgate.yaml` | `tool_sources[*].type: openapi` with `path: specs/support-tools.openapi.yaml` |
 | OpenAI API artifacts (Messages API) | [`samples/simple_openai_api_agent`](../samples/simple_openai_api_agent/) | `manifest.openai_api` block (prompts, tools, schemas, traces, policies) |
 | Anthropic Messages API | [`samples/simple_anthropic_agent`](../samples/simple_anthropic_agent/) | `manifest.anthropic` block (prompts, tools, policy_rules) |
 | Google ADK | [`samples/google_adk_agent`](../samples/google_adk_agent/) | `tool_sources[*].type: google_adk` plus `manifest.google_adk` config |
