@@ -127,6 +127,15 @@ def scan(
         "--no-plugins",
         help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
     ),
+    suggest_patches: bool = typer.Option(
+        False,
+        "--suggest-patches",
+        help=(
+            "Attach machine-applicable patches (or ManualPatch fallback) to "
+            "every active finding. Use `agents-shipgate apply-patches` to "
+            "apply them; the report stays read-only."
+        ),
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
 ) -> None:
     """Run a static release-readiness scan."""
@@ -150,6 +159,7 @@ def scan(
                 policy_pack_paths=policy_packs,
                 plugins_enabled=False if no_plugins else None,
                 verbose=verbose,
+                suggest_patches=suggest_patches,
             )
             _print_cli_summary(report, ci_mode or "advisory", exit_code, verbose=verbose)
             raise typer.Exit(exit_code)
@@ -165,6 +175,7 @@ def scan(
             policy_packs=policy_packs or [],
             plugins_enabled=False if no_plugins else None,
             verbose=verbose,
+            suggest_patches=suggest_patches,
         )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
@@ -645,6 +656,7 @@ def _run_multi_scan(
     policy_packs: list[Path],
     plugins_enabled: bool | None,
     verbose: bool,
+    suggest_patches: bool = False,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo(f"Scanning {len(config_paths)} manifests")
@@ -667,6 +679,7 @@ def _run_multi_scan(
                 policy_pack_paths=policy_packs,
                 plugins_enabled=plugins_enabled,
                 verbose=verbose,
+                suggest_patches=suggest_patches,
             )
         except ConfigError as exc:
             scan_exit_code = 2
