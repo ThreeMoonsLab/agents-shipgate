@@ -22,7 +22,6 @@ from agents_shipgate.cli.discovery.ci_workflow import (
 )
 from agents_shipgate.cli.main import app
 
-
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
 
@@ -48,7 +47,10 @@ def test_write_ci_workflow_writes_to_fresh_workspace(tmp_path: Path) -> None:
     target = tmp_path / WORKFLOW_RELATIVE_PATH
     assert target.exists()
     content = target.read_text(encoding="utf-8")
-    assert "ThreeMoonsLab/agents-shipgate@main" in content
+    # Generated workflow pins to the current package version (per v0.6
+    # reviewer feedback: @main is unpinned and breaks reproducibility).
+    from agents_shipgate import __version__
+    assert f"ThreeMoonsLab/agents-shipgate@v{__version__}" in content
     assert "ci_mode: advisory" in content
 
 

@@ -24,7 +24,6 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
-import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -274,7 +273,7 @@ def _apply_yaml(text: str, patches: list[Patch]) -> str:
     yaml.preserve_quotes = True
     yaml.width = 4096
     data = yaml.load(text) or {}
-    for patch in patches:
+    for patch in _ordered_for_apply(patches):
         _apply_patch_to_data(data, patch)
     import io
 
@@ -285,9 +284,50 @@ def _apply_yaml(text: str, patches: list[Patch]) -> str:
 
 def _apply_json(text: str, patches: list[Patch]) -> str:
     data = json.loads(text)
-    for patch in patches:
+    for patch in _ordered_for_apply(patches):
         _apply_patch_to_data(data, patch)
     return json.dumps(data, indent=2) + "\n"
+
+
+def _ordered_for_apply(patches: list[Patch]) -> list[Patch]:
+    """Order patches so list-mutating removes don't invalidate each other.
+
+    Two removes against the same YAML list (e.g. /policies/.../0 and
+    /policies/.../1) crash or silently delete the wrong element when
+    applied in report order: the first delete shifts subsequent indexes.
+
+    Apply sets and appends first (they don't shift indexes), then
+    removes — sorted so deeper pointers fire before shallower ones
+    (children before parents) and within a shared parent list, higher
+    indexes fire before lower indexes.
+    """
+    sets_and_appends: list[Patch] = []
+    removes: list[RemovePointerPatch] = []
+    others: list[Patch] = []
+    for patch in patches:
+        if isinstance(patch, RemovePointerPatch):
+            removes.append(patch)
+        elif isinstance(patch, (SetPointerPatch, AppendPointerPatch)):
+            sets_and_appends.append(patch)
+        else:
+            others.append(patch)
+    return sets_and_appends + sorted(removes, key=_remove_sort_key) + others
+
+
+def _remove_sort_key(patch: RemovePointerPatch) -> tuple:
+    """Sort key that puts deeper pointers first, then within the same
+    parent puts higher list indexes first."""
+    tokens = _split_pointer(patch.pointer)
+    parent = tuple(tokens[:-1])
+    leaf = tokens[-1] if tokens else ""
+    try:
+        # Numeric leaf: sort descending (priority 0).
+        leaf_key: tuple = (0, -int(leaf))
+    except ValueError:
+        # Dict-key leaf: order doesn't matter for correctness.
+        leaf_key = (1, leaf)
+    # -depth so deeper pointers (longer token lists) sort first.
+    return (-len(tokens), parent, leaf_key)
 
 
 def _apply_patch_to_data(root: Any, patch: Patch) -> None:

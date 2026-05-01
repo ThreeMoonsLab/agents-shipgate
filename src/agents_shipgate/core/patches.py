@@ -14,7 +14,7 @@ findings get a ``ManualPatch`` populated from ``CheckMetadata.recommendation``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,6 +76,6 @@ class ManualPatch(_PatchBase):
 
 
 Patch = Annotated[
-    Union[SetPointerPatch, AppendPointerPatch, RemovePointerPatch, ManualPatch],
+    SetPointerPatch | AppendPointerPatch | RemovePointerPatch | ManualPatch,
     Field(discriminator="kind"),
 ]

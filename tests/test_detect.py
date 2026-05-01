@@ -10,7 +10,6 @@ from agents_shipgate.cli.discovery.signals import (
     detect_workspace,
 )
 
-
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
 

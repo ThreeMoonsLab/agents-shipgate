@@ -35,7 +35,6 @@ from agents_shipgate.core.patches import (
     RemovePointerPatch,
 )
 
-
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
 

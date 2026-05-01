@@ -35,7 +35,6 @@ import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -339,7 +338,7 @@ def _score_python_signals(fact: _PyFacts, scores: dict[str, _FrameworkScore]) ->
         scores["langchain"].add(2.0, "strong", f"{fact.rel_path}: @tool from langchain")
         scores["langchain"].add_file(fact.rel_path)
     if fact.constructors & LANGCHAIN_AGENT_CALLS or any(
-        c.endswith(("." + name)) for c in fact.constructors for name in LANGCHAIN_AGENT_CALLS
+        c.endswith("." + name) for c in fact.constructors for name in LANGCHAIN_AGENT_CALLS
     ):
         scores["langchain"].add(2.0, "strong", f"{fact.rel_path}: langchain agent call")
         scores["langchain"].add_file(fact.rel_path)

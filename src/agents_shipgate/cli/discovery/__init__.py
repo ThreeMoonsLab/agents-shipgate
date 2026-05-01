@@ -32,16 +32,16 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_tool_sources,
     render_manifest_template,
 )
+from agents_shipgate.cli.discovery.ci_workflow import (
+    WORKFLOW_RELATIVE_PATH,
+    CiWorkflowResult,
+    write_ci_workflow,
+)
 from agents_shipgate.cli.discovery.signals import (
     DetectResult,
     FrameworkDetection,
     NameCandidate,
     detect_workspace,
-)
-from agents_shipgate.cli.discovery.ci_workflow import (
-    WORKFLOW_RELATIVE_PATH,
-    CiWorkflowResult,
-    write_ci_workflow,
 )
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 

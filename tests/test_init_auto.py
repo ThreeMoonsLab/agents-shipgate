@@ -23,7 +23,6 @@ from agents_shipgate.cli.discovery import (
 from agents_shipgate.cli.main import app
 from agents_shipgate.config.schema import AgentsShipgateManifest
 
-
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
 
@@ -140,6 +139,46 @@ def test_init_cli_auto_default_emits_auto_detected_payload(tmp_path: Path) -> No
         fw["type"] == "langchain"
         for fw in payload["auto_detected"]["frameworks"]
     )
+
+
+def test_artifact_only_openai_workspace_emits_openai_api_block(tmp_path: Path) -> None:
+    """A workspace with prompts/ and tools/openai-tools.json — but NO
+    Python framework imports — must still get an ``openai_api:`` block
+    rather than a CHANGE_ME stub.
+
+    Regression for v0.6 reviewer feedback: the openai_api block was
+    gated on framework detection, which only fires for openai-config.json
+    or `from agents import` Python source.
+    """
+    workspace = tmp_path / "openai_artifact_only"
+    workspace.mkdir()
+    (workspace / "prompts").mkdir()
+    (workspace / "tools").mkdir()
+    (workspace / "prompts" / "support.md").write_text("You are helpful.", encoding="utf-8")
+    (workspace / "tools" / "openai-tools.json").write_text("[]", encoding="utf-8")
+
+    detect = detect_workspace(workspace)
+    text = render_auto_manifest(workspace, detect)
+    manifest = _validates(text)
+    assert manifest.openai_api is not None
+    assert manifest.openai_api.prompt_files == ["prompts/support.md"]
+    assert [t.path for t in manifest.openai_api.tools] == ["tools/openai-tools.json"]
+
+
+def test_artifact_only_openai_workspace_does_not_emit_anthropic_block(tmp_path: Path) -> None:
+    """The OpenAI artifact-only workspace must NOT also emit an
+    ``anthropic:`` block (prompts/ overlaps both adapters by glob)."""
+    workspace = tmp_path / "openai_artifact_only2"
+    workspace.mkdir()
+    (workspace / "prompts").mkdir()
+    (workspace / "tools").mkdir()
+    (workspace / "prompts" / "support.md").write_text("hi", encoding="utf-8")
+    (workspace / "tools" / "openai-tools.json").write_text("[]", encoding="utf-8")
+
+    detect = detect_workspace(workspace)
+    text = render_auto_manifest(workspace, detect)
+    assert "openai_api:" in text
+    assert "anthropic:" not in text
 
 
 def test_init_auto_flag_is_accepted_as_no_op(tmp_path: Path) -> None:

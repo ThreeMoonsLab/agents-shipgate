@@ -27,7 +27,6 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.discovery.ci_workflow import WORKFLOW_RELATIVE_PATH
 from agents_shipgate.cli.main import app
 
-
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
 

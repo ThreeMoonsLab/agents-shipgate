@@ -22,9 +22,32 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Hard-coded workflow template. Inputs/outputs mirror ``action.yml``;
-# update both when adding inputs. A snapshot test guards against drift.
-WORKFLOW_TEMPLATE = """\
+from agents_shipgate import __version__
+
+# The generated workflow pins to the current package version so users
+# get a reproducible action reference. Override via the
+# ``AGENTS_SHIPGATE_WORKFLOW_REF`` env var if you need to track main or
+# pin to a different release for testing.
+
+
+def _action_ref() -> str:
+    """Return the action ref the generated workflow should pin to.
+
+    Defaults to ``v<__version__>`` so newly-onboarded repos pin to the
+    Shipgate release that wrote their workflow. ``@main`` is unpinned and
+    breaks reproducibility.
+    """
+    import os
+
+    override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
+    if override:
+        return override
+    return f"v{__version__}"
+
+
+# Inputs/outputs mirror ``action.yml``; update both when adding inputs.
+# A snapshot test guards against drift.
+_WORKFLOW_TEMPLATE = """\
 name: Agents Shipgate
 
 on:
@@ -43,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Agents Shipgate
-        uses: ThreeMoonsLab/agents-shipgate@main
+        uses: ThreeMoonsLab/agents-shipgate@{ref}
         with:
           config: shipgate.yaml
           ci_mode: advisory       # change to "strict" once findings are clean
@@ -51,6 +74,14 @@ jobs:
           # baseline: .agents-shipgate/baseline.json
           # pr_comment: "true"
 """
+
+
+def _render_workflow_template() -> str:
+    return _WORKFLOW_TEMPLATE.format(ref=_action_ref())
+
+
+# Backwards-compat: tests and external callers may import the constant.
+WORKFLOW_TEMPLATE = _render_workflow_template()
 
 WORKFLOW_RELATIVE_PATH = ".github/workflows/agents-shipgate.yml"
 
@@ -102,7 +133,9 @@ def write_ci_workflow(workspace: Path) -> CiWorkflowResult:
         )
 
     workflows_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(WORKFLOW_TEMPLATE, encoding="utf-8")
+    # Re-render at write time so the ref reflects the current package
+    # version (or the AGENTS_SHIPGATE_WORKFLOW_REF override).
+    target.write_text(_render_workflow_template(), encoding="utf-8")
     return CiWorkflowResult(
         status="written",
         path=str(target),

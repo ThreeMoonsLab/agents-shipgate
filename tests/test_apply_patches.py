@@ -11,7 +11,6 @@ Per the v0.6 plan §4:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -21,7 +20,6 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
-
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
@@ -295,3 +293,93 @@ def test_manual_patches_never_applied(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     # No files touched (only manual filtered through, then dropped).
     assert payload["files"] == {}
+
+
+# --- Multi-remove ordering (regression: list index shifts) ----------------
+
+
+def test_multi_remove_against_same_list_does_not_corrupt(tmp_path: Path) -> None:
+    """Two RemovePointerPatch ops against the same YAML list (e.g.
+    /policies/.../0 and /policies/.../1) must NOT raise IndexError or
+    silently delete the wrong entry.
+
+    Regression for the v0.6 reviewer's reproduction: applying in report
+    order was buggy because the first delete shifts subsequent indexes.
+    Fix: removes are now sorted so higher list indexes fire first.
+    """
+    from agents_shipgate.cli.apply_patches import _apply_yaml
+    from agents_shipgate.core.patches import RemovePointerPatch
+
+    text = (
+        "policies:\n"
+        "  require_approval_for_tools:\n"
+        "    - tool: a\n"
+        "      reason: x\n"
+        "    - tool: b\n"
+        "      reason: y\n"
+        "    - tool: c\n"
+        "      reason: z\n"
+    )
+    patches = [
+        RemovePointerPatch(
+            target_file="x",
+            pointer="/policies/require_approval_for_tools/0",
+            target_format="yaml",
+            confidence="high",
+            rationale="x",
+            target_sha256="0",
+        ),
+        RemovePointerPatch(
+            target_file="x",
+            pointer="/policies/require_approval_for_tools/1",
+            target_format="yaml",
+            confidence="high",
+            rationale="x",
+            target_sha256="0",
+        ),
+    ]
+    result = _apply_yaml(text, patches)
+    # Removed indexes 0 and 1 of the original list → only `c` remains.
+    assert "tool: c" in result
+    assert "tool: a" not in result
+    assert "tool: b" not in result
+
+
+def test_multi_remove_index_overflow_does_not_crash(tmp_path: Path) -> None:
+    """2-element list, remove indexes 0 and 1 in report order would
+    crash with IndexError after fix=False. Sorted highest-first, both
+    succeed and the list is empty."""
+    from agents_shipgate.cli.apply_patches import _apply_yaml
+    from agents_shipgate.core.patches import RemovePointerPatch
+
+    text = (
+        "policies:\n"
+        "  require_approval_for_tools:\n"
+        "    - tool: a\n"
+        "      reason: x\n"
+        "    - tool: b\n"
+        "      reason: y\n"
+    )
+    patches = [
+        RemovePointerPatch(
+            target_file="x",
+            pointer="/policies/require_approval_for_tools/0",
+            target_format="yaml",
+            confidence="high",
+            rationale="x",
+            target_sha256="0",
+        ),
+        RemovePointerPatch(
+            target_file="x",
+            pointer="/policies/require_approval_for_tools/1",
+            target_format="yaml",
+            confidence="high",
+            rationale="x",
+            target_sha256="0",
+        ),
+    ]
+    result = _apply_yaml(text, patches)
+    # Both entries removed; list should be empty.
+    assert "tool: a" not in result
+    assert "tool: b" not in result
+    assert "require_approval_for_tools: []" in result

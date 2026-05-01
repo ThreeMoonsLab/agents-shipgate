@@ -23,8 +23,8 @@ would be ambiguous.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.models import Finding

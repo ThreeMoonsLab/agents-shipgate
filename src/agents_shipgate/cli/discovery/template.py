@@ -23,7 +23,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_anthropic_artifacts,
     discover_openai_api_artifacts,
 )
-from agents_shipgate.cli.discovery.signals import DetectResult, FrameworkDetection
+from agents_shipgate.cli.discovery.signals import DetectResult
 
 # Frameworks that register one tool_sources entry per candidate file.
 PYTHON_AST_FRAMEWORKS = {"langchain", "crewai", "google_adk", "openai_agents_sdk"}
@@ -185,10 +185,21 @@ def _source_id_for(framework_type: str, path: str) -> str:
 
 
 def _anthropic_block(workspace: Path, detect_result: DetectResult) -> list[str]:
-    if not any(fw.type == "anthropic" for fw in detect_result.frameworks):
-        return []
+    """Emit anthropic config from discovered artifacts.
+
+    Decoupled from framework detection (per v0.6 reviewer feedback): an
+    artifact-only Anthropic project (tools/anthropic-tools.json,
+    policies/anthropic-policy.yaml) shouldn't drop to a CHANGE_ME stub
+    just because no Python import was found. Anthropic is artifact-based
+    by design.
+    """
     artifacts = discover_anthropic_artifacts(workspace)
-    if not any(artifacts.values()):
+    # Only emit if at least one Anthropic-specific artifact is present.
+    # Bare prompts/ alone is ambiguous (OpenAI projects also have prompts);
+    # tools/anthropic-tools.json and policies/anthropic-policy.yaml are
+    # the load-bearing markers.
+    anthropic_specific_keys = ("tools", "policy_rules")
+    if not any(artifacts.get(key) for key in anthropic_specific_keys):
         return []
     lines = ["anthropic:"]
     if artifacts["prompt_files"]:
@@ -207,10 +218,22 @@ def _anthropic_block(workspace: Path, detect_result: DetectResult) -> list[str]:
 
 
 def _openai_api_block(workspace: Path, detect_result: DetectResult) -> list[str]:
-    if not any(fw.type == "openai_agents_sdk" for fw in detect_result.frameworks):
-        return []
+    """Emit openai_api config from discovered artifacts.
+
+    Decoupled from framework detection (per v0.6 reviewer feedback): a
+    workspace with prompts/ and tools/openai-tools.json is a valid
+    artifact-only OpenAI API project even without ``openai-config.json``
+    or any ``from agents import`` Python source. Auto-init must not
+    produce a CHANGE_ME stub for those repos.
+    """
     artifacts = discover_openai_api_artifacts(workspace)
-    if not any(artifacts.values()):
+    # Only emit if at least one OpenAI-specific artifact is present.
+    # Bare prompts/ alone could belong to an Anthropic-only project; the
+    # OpenAI-specific artifact patterns (tools/openai-tools.json,
+    # openai-config.json, tests/*openai*cases*.json,
+    # policies/*openai*.yaml, policies/*api*.yaml) anchor the block.
+    openai_specific_keys = ("tools", "model_config", "test_cases", "policy_rules")
+    if not any(artifacts.get(key) for key in openai_specific_keys):
         return []
     lines = ["openai_api:"]
     if artifacts["prompt_files"]:

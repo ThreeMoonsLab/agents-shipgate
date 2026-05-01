@@ -16,13 +16,10 @@ from pydantic import ValidationError
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.models import Finding
 from agents_shipgate.core.patches import (
-    AppendPointerPatch,
     ManualPatch,
-    Patch,
     RemovePointerPatch,
     SetPointerPatch,
 )
-
 
 SAMPLE = Path(__file__).resolve().parent.parent / "samples" / "support_refund_agent" / "shipgate.yaml"
 
