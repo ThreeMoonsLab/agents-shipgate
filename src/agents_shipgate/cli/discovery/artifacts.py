@@ -14,13 +14,21 @@ MCP_PATTERNS = (
     "*mcp*.json",
     ".agents-shipgate/*.json",
 )
-PROMPT_PATTERNS = ("prompts/*.md",)
+PROMPT_PATTERNS = ("prompts/*.md", "prompts/*.txt")
 OPENAI_TOOL_PATTERNS = ("tools/*openai*tools*.json",)
 RESPONSE_SCHEMA_PATTERNS = ("schemas/*.schema.json",)
 MODEL_CONFIG_PATTERNS = ("openai-config.json",)
 TEST_CASE_PATTERNS = ("tests/*openai*cases*.json", "tests/*api*cases*.json")
 TRACE_SAMPLE_PATTERNS = ("traces/*.json", "traces/*.jsonl")
 POLICY_RULE_PATTERNS = ("policies/*openai*.yaml", "policies/*api*.yaml")
+ANTHROPIC_TOOL_PATTERNS = (
+    "tools/*anthropic*tools*.json",
+    "tools/anthropic-tools.json",
+)
+ANTHROPIC_POLICY_PATTERNS = (
+    "policies/*anthropic*.yaml",
+    "policies/anthropic-policy.yaml",
+)
 SKIP_DIRS = {
     ".git",
     ".hg",
@@ -194,6 +202,21 @@ def discover_openai_api_artifacts(workspace: Path) -> dict[str, list[str]]:
         "test_cases": _discover_patterns(workspace, TEST_CASE_PATTERNS),
         "trace_samples": _discover_patterns(workspace, TRACE_SAMPLE_PATTERNS),
         "policy_rules": _discover_patterns(workspace, POLICY_RULE_PATTERNS),
+    }
+
+
+def discover_anthropic_artifacts(workspace: Path) -> dict[str, list[str]]:
+    """Glob Anthropic-shaped artifacts. Mirrors the OpenAI-API discovery shape.
+
+    Anthropic adoption stores prompts under ``prompts/``, tool defs under
+    ``tools/anthropic-tools.json`` (or ``*anthropic*tools*.json``), and policy
+    rules under ``policies/anthropic-policy.yaml`` (or ``*anthropic*.yaml``).
+    Auto-init feeds the result into the manifest's ``anthropic:`` block.
+    """
+    return {
+        "prompt_files": _discover_patterns(workspace, PROMPT_PATTERNS),
+        "tools": _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS),
+        "policy_rules": _discover_patterns(workspace, ANTHROPIC_POLICY_PATTERNS),
     }
 
 

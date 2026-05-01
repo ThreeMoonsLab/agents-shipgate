@@ -13,6 +13,7 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.discovery import discover_manifest_paths, render_manifest_template
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
@@ -45,6 +46,10 @@ app.command(
     "self-check",
     help="Verify install and bundled fixtures. Run this first in a fresh environment.",
 )(self_check)
+app.command(
+    "detect",
+    help="Classify a workspace: which agent framework(s), if any. Read-only.",
+)(_detect_command)
 logger = logging.getLogger(__name__)
 
 

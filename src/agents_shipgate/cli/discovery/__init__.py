@@ -14,6 +14,8 @@ Internal layout:
 from __future__ import annotations
 
 from agents_shipgate.cli.discovery.artifacts import (
+    ANTHROPIC_POLICY_PATTERNS,
+    ANTHROPIC_TOOL_PATTERNS,
     MCP_PATTERNS,
     MODEL_CONFIG_PATTERNS,
     OPENAI_TOOL_PATTERNS,
@@ -24,15 +26,27 @@ from agents_shipgate.cli.discovery.artifacts import (
     SKIP_DIRS,
     TEST_CASE_PATTERNS,
     TRACE_SAMPLE_PATTERNS,
+    discover_anthropic_artifacts,
     discover_manifest_paths,
     discover_openai_api_artifacts,
     discover_tool_sources,
     render_manifest_template,
 )
+from agents_shipgate.cli.discovery.signals import (
+    DetectResult,
+    FrameworkDetection,
+    NameCandidate,
+    detect_workspace,
+)
 
 __all__ = [
+    "ANTHROPIC_POLICY_PATTERNS",
+    "ANTHROPIC_TOOL_PATTERNS",
+    "DetectResult",
+    "FrameworkDetection",
     "MCP_PATTERNS",
     "MODEL_CONFIG_PATTERNS",
+    "NameCandidate",
     "OPENAI_TOOL_PATTERNS",
     "OPENAPI_PATTERNS",
     "POLICY_RULE_PATTERNS",
@@ -41,6 +55,8 @@ __all__ = [
     "SKIP_DIRS",
     "TEST_CASE_PATTERNS",
     "TRACE_SAMPLE_PATTERNS",
+    "detect_workspace",
+    "discover_anthropic_artifacts",
     "discover_manifest_paths",
     "discover_openai_api_artifacts",
     "discover_tool_sources",
