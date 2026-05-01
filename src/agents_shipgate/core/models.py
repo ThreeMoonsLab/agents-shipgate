@@ -4,6 +4,8 @@ from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.core.patches import Patch
+
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["low", "medium", "high"]
 BaselineStatus = Literal["new", "matched", "resolved"]
@@ -131,6 +133,11 @@ class Finding(BaseModel):
     suppressed: bool = False
     suppression_reason: str | None = None
     baseline_status: BaselineStatus | None = None
+    # v0.6: populated only when scan ran with --suggest-patches. None
+    # default + dict post-processing in write_json_report keeps the JSON
+    # contract additive — non-opting callers see no `patches` key at all
+    # (per C4).
+    patches: list[Patch] | None = None
 
 
 class ReportSummary(BaseModel):
@@ -404,8 +411,13 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.5"
+    report_schema_version: str = "0.6"
     run_id: str
+    # v0.6 (per C13): absolute path to the directory containing
+    # shipgate.yaml. apply-patches uses this to enforce a containment
+    # check on every patch's target_file. Optional for backwards
+    # compatibility with older reports loaded as baselines.
+    manifest_dir: str | None = None
     project: dict[str, Any]
     agent: dict[str, Any]
     environment: dict[str, Any]

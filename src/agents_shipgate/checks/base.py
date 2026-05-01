@@ -10,6 +10,7 @@ from agents_shipgate.core.models import (
     parse_confidence,
     parse_severity,
 )
+from agents_shipgate.core.patches import Patch
 
 
 def tool_finding(
@@ -23,6 +24,7 @@ def tool_finding(
     confidence: str,
     recommendation: str,
     context: ScanContext,
+    patches: list[Patch] | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -40,6 +42,7 @@ def tool_finding(
             location=tool.source_location,
         ),
         recommendation=recommendation,
+        patches=patches,
     )
 
 
@@ -53,6 +56,7 @@ def agent_finding(
     confidence: str,
     recommendation: str,
     context: ScanContext,
+    patches: list[Patch] | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -64,6 +68,7 @@ def agent_finding(
         confidence=parse_confidence(confidence),
         source=SourceReference(type="manifest", ref=_manifest_ref(context.config_path)),
         recommendation=recommendation,
+        patches=patches,
     )
 
 

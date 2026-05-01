@@ -146,9 +146,11 @@ def build_report(
     anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
     baseline: BaselineSummary | None = None,
+    manifest_dir: str | None = None,
 ) -> ReadinessReport:
     return ReadinessReport(
         run_id=run_id,
+        manifest_dir=manifest_dir,
         project=manifest.project.model_dump(exclude_none=True),
         agent=agent,
         environment=environment,

@@ -204,6 +204,7 @@ def run_scan(
             frameworks=frameworks_surface,
         ),
         manifest=manifest,
+        manifest_dir=str(config_path.resolve().parent),
         agent=agent.model_dump(exclude_none=True),
         environment=manifest.environment.model_dump(exclude_none=True),
         tools=tools,
@@ -518,7 +519,10 @@ def _run_id(
         "findings": [
             finding.model_dump(
                 mode="json",
-                exclude={"id", "baseline_status"},
+                # Exclude `patches` (per C11): it's a derived enrichment,
+                # not an input to the scan. Including it would shift
+                # run_id whenever --suggest-patches is toggled.
+                exclude={"id", "baseline_status", "patches"},
                 exclude_none=False,
             )
             for finding in findings

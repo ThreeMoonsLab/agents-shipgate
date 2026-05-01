@@ -17,7 +17,7 @@ CREWAI_EXPECTED_MARKDOWN = Path("samples/simple_crewai_agent/expected/report.md"
 REPORT_SCHEMA = Path("docs/report-schema.v0.1.json")
 REPORT_SCHEMA_V02 = Path("docs/report-schema.v0.2.json")
 REPORT_SCHEMA_V04 = Path("docs/report-schema.v0.4.json")
-REPORT_SCHEMA_V05 = Path("docs/report-schema.v0.5.json")
+REPORT_SCHEMA_V06 = Path("docs/report-schema.v0.6.json")
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -95,7 +95,7 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_plugins" in payload
     assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
-    assert payload["report_schema_version"] == "0.5"
+    assert payload["report_schema_version"] == "0.6"
     assert "frameworks" in payload
     assert "loaded_policy_packs" in payload
 
@@ -150,16 +150,38 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v05_schema(tmp_path):
+def test_json_report_validates_against_v06_schema(tmp_path):
+    """v0.6 schema is additive over v0.5: adds optional `manifest_dir`
+    and optional per-finding `patches`. Pre-existing required fields
+    keep their shape."""
+    from agents_shipgate.report.json_report import report_json_payload
+
     report, _ = run_scan(
         config_path=SAMPLE,
         output_dir=tmp_path,
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V05.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V06.read_text(encoding="utf-8"))
 
-    validate(instance=report.model_dump(mode="json"), schema=schema)
+    validate(instance=report_json_payload(report), schema=schema)
+
+
+def test_json_report_omits_patches_key_when_not_suggested(tmp_path):
+    """Per C4: scan without --suggest-patches must NOT include the
+    `patches` key on any finding. Run-id stability for non-opting
+    callers depends on this."""
+    from agents_shipgate.report.json_report import report_json_payload
+
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    payload = report_json_payload(report)
+    for finding in payload["findings"]:
+        assert "patches" not in finding
 
 
 def test_markdown_escapes_user_controlled_tool_metadata(tmp_path):
