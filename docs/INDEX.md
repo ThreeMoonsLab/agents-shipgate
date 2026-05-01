@@ -43,6 +43,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 ## For agents
 
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow (`detect → init → scan → apply-patches`)
+- [`autofix-policy.md`](autofix-policy.md) — which findings are safe to apply, which need review, and how `apply-patches --confidence` filters them
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
 - [`../AGENTS.md`](../AGENTS.md) — agent-facing instructions
 - [`../CLAUDE.md`](../CLAUDE.md) — Claude Code-specific notes

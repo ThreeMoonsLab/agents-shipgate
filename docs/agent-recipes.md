@@ -221,12 +221,10 @@ up with an explicit edit.
 ## Reference
 
 - [`docs/checks.md`](checks.md) — full check catalog with rationale
+- [`docs/autofix-policy.md`](autofix-policy.md) — which findings are
+  safe to apply, which need review, and how `apply-patches --confidence`
+  filters them
 - [`docs/minimal-real-configs.md`](minimal-real-configs.md) —
   framework-specific minimal manifests
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table
-
-> A dedicated `docs/autofix-policy.md` lands later in the v0.7 series
-> (with the per-finding remediation metadata) and is not present yet.
-> Until then, the per-step guidance in Recipe 1 step 4 above is the
-> authoritative answer for what `--confidence high` mutates by default.
