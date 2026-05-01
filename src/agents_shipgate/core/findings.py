@@ -108,22 +108,36 @@ def annotate_remediation(
         meta = check_metadata_lookup.get(finding.check_id)
         catalog_doc_url = meta.docs_url if meta is not None else None
 
-        if finding.patches:
+        # Three states, treated distinctly:
+        # 1. `patches is None`  → scan ran without --suggest-patches.
+        #    Seed from CheckMetadata (or safe-closed fallback for
+        #    unknown check IDs).
+        # 2. `patches == []`    → scan ran WITH --suggest-patches but
+        #    the generator emitted nothing for this finding. Treat as
+        #    safe-closed with `suggested_patch_kind="none"` — falling
+        #    back to the catalog would misleadingly report a patch
+        #    kind that the report doesn't actually carry.
+        # 3. `patches` non-empty → derive from the actual patches
+        #    via the strict rule below.
+        if finding.patches is None:
+            if meta is not None:
+                autofix_safe = meta.autofix_safe
+                requires_human_review = meta.requires_human_review
+                suggested_patch_kind = meta.suggested_patch_kind
+            else:
+                autofix_safe = bool(_REMEDIATION_FALLBACK["autofix_safe"])
+                requires_human_review = bool(
+                    _REMEDIATION_FALLBACK["requires_human_review"]
+                )
+                suggested_patch_kind = str(
+                    _REMEDIATION_FALLBACK["suggested_patch_kind"]
+                )
+        else:
             (
                 autofix_safe,
                 requires_human_review,
                 suggested_patch_kind,
             ) = _derive_from_patches(finding.patches)
-        elif meta is not None:
-            autofix_safe = meta.autofix_safe
-            requires_human_review = meta.requires_human_review
-            suggested_patch_kind = meta.suggested_patch_kind
-        else:
-            autofix_safe = bool(_REMEDIATION_FALLBACK["autofix_safe"])
-            requires_human_review = bool(
-                _REMEDIATION_FALLBACK["requires_human_review"]
-            )
-            suggested_patch_kind = str(_REMEDIATION_FALLBACK["suggested_patch_kind"])
 
         finding.autofix_safe = autofix_safe
         finding.requires_human_review = requires_human_review

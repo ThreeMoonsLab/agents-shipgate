@@ -161,14 +161,22 @@ def test_all_manual_yields_manual_kind():
     assert finding.requires_human_review is True
 
 
-def test_empty_patches_list_yields_none_kind():
-    """Empty list (rare but possible) → ``suggested_patch_kind="none"``."""
-    finding = _finding("SHIP-DOC-MISSING-DESCRIPTION", patches=[])
+def test_empty_patches_list_yields_none_kind_and_safe_closed():
+    """An explicit empty patches list means the scan ran with
+    ``--suggest-patches`` but the generator emitted nothing for this
+    finding. The annotation must NOT fall through to the catalog
+    (which could misleadingly report a patch kind the report doesn't
+    actually carry); instead it returns the safe-closed shape with
+    ``suggested_patch_kind="none"``.
+
+    Regression for v0.7 PR 3 review feedback: the earlier
+    ``if finding.patches:`` check treated ``[]`` like ``None``,
+    bypassing the empty-list branch in ``_derive_from_patches``."""
+    finding = _finding("SHIP-MANIFEST-STALE-SUPPRESSION", patches=[])
     annotate_remediation([finding], _builtin_lookup())
-    # Empty patches falls into the catalog branch (`if finding.patches:`
-    # is False for both None and []), so values come from CheckMetadata.
-    catalog = _builtin_lookup()["SHIP-DOC-MISSING-DESCRIPTION"]
-    assert finding.suggested_patch_kind == catalog.suggested_patch_kind
+    assert finding.autofix_safe is False
+    assert finding.requires_human_review is True
+    assert finding.suggested_patch_kind == "none"
 
 
 # --- CheckMetadata fallback (no patches) -----------------------------------

@@ -143,20 +143,26 @@ class Finding(BaseModel):
     # --suggest-patches), so any consumer reading `report.json` gets
     # remediation policy without opting into patches.
     #
-    # Derivation rule (when `patches` is non-empty):
-    # - autofix_safe = True iff EVERY patch is non-manual AND has
-    #   confidence == "high". Mixed-state (one safe + one manual, or
-    #   one high + one medium) → autofix_safe = False.
-    # - requires_human_review = True iff autofix_safe is False.
-    # - suggested_patch_kind = kind of the first non-manual patch, or
-    #   "manual" if all are manual, or "none" if patches list is empty.
+    # Three derivation states:
+    # - `patches is None` (scan without --suggest-patches): fields come
+    #   from the matching CheckMetadata entry; safe-closed fallback for
+    #   unknown check IDs (policy packs, third-party plugins).
+    # - `patches == []` (scan WITH --suggest-patches but generator
+    #   emitted nothing): safe-closed shape with
+    #   `suggested_patch_kind="none"`. Does NOT fall back to catalog —
+    #   the report carries no patches, so reporting a catalog-level
+    #   kind would be misleading.
+    # - `patches` non-empty: derived from the actual emitted patches:
+    #   * autofix_safe = True iff EVERY patch is non-manual AND has
+    #     confidence == "high". Mixed-state (one safe + one manual, or
+    #     one high + one medium) → autofix_safe = False.
+    #   * requires_human_review = True iff autofix_safe is False.
+    #   * suggested_patch_kind = kind of the first non-manual patch
+    #     (even when ManualPatches are also present), or "manual" if
+    #     all patches are ManualPatch.
     #
-    # When `patches` is None (scan without --suggest-patches): copied
-    # from the matching CheckMetadata entry, falling back to the
-    # safe-closed default for unknown check IDs (policy-pack /
-    # third-party plugin findings).
-    #
-    # `docs_url` always sourced from CheckMetadata.docs_url.
+    # `docs_url` always sourced from CheckMetadata.docs_url; patches
+    # don't carry per-instance documentation URLs.
     autofix_safe: bool | None = None
     requires_human_review: bool | None = None
     suggested_patch_kind: str | None = None

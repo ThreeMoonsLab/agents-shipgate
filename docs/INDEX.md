@@ -19,7 +19,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.6.json`](report-schema.v0.6.json) — JSON Schema for `report.json` (current)
+- [`report-schema.v0.7.json`](report-schema.v0.7.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.7"`)
+- [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 
 ## Examples
