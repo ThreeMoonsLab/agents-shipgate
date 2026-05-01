@@ -550,7 +550,7 @@
       "suggested_patch_kind": "manual"
     },
     {
-      "autofix_safe": true,
+      "autofix_safe": false,
       "category": "manifest",
       "default_severity": "medium",
       "description": "A policy references a missing tool.",
@@ -563,11 +563,11 @@
       "id": "SHIP-MANIFEST-STALE-POLICY",
       "rationale": "Approval, confirmation, and idempotency policies should map to the actual release surface.",
       "recommendation": "Remove stale policy entries or update them to current tool names.",
-      "requires_human_review": false,
+      "requires_human_review": true,
       "suggested_patch_kind": "remove_pointer"
     },
     {
-      "autofix_safe": true,
+      "autofix_safe": false,
       "category": "manifest",
       "default_severity": "medium",
       "description": "A risk override references a missing tool.",
@@ -579,11 +579,11 @@
       "id": "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
       "rationale": "Risk overrides should not outlive the tool they describe.",
       "recommendation": "Remove stale risk overrides or update them to current tool names.",
-      "requires_human_review": false,
+      "requires_human_review": true,
       "suggested_patch_kind": "remove_pointer"
     },
     {
-      "autofix_safe": true,
+      "autofix_safe": false,
       "category": "manifest",
       "default_severity": "medium",
       "description": "A suppression references a missing check or tool.",
@@ -597,7 +597,7 @@
       "id": "SHIP-MANIFEST-STALE-SUPPRESSION",
       "rationale": "Stale suppressions hide intent and make release review harder to audit.",
       "recommendation": "Remove stale suppressions or update them to current check IDs and tool names.",
-      "requires_human_review": false,
+      "requires_human_review": true,
       "suggested_patch_kind": "remove_pointer"
     },
     {

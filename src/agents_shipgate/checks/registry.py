@@ -42,31 +42,44 @@ def _docs_url(check_id: str) -> str:
 # `suggested_patch_kind="manual"`. Listed entries override only the
 # fields they specify; everything else inherits the safe-closed default.
 #
-# v0.7 generator coverage (per the autofix policy):
-# - Stale-manifest removals: high-confidence auto-applicable.
-# - Scope coverage append: medium-confidence (NOT default-applied).
-# - Trace approval/confirmation findings: permanent ManualPatch.
+# Important contract: `autofix_safe` and `requires_human_review` at the
+# catalog level describe the *worst-case* per-check outcome — what an
+# agent should assume when it has only `list-checks --json` and no
+# scan output. A check whose generator USUALLY emits a safe non-manual
+# patch but falls back to `ManualPatch` in edge cases (ambiguous
+# duplicate matches, missing evidence fields, etc.) MUST keep the
+# safe-closed defaults at this level. The mirror Finding-level fields
+# (PR 3) read the actual emitted patches and can be more permissive —
+# they tell the truth for that specific finding instance.
+#
+# `suggested_patch_kind` is informational here: it documents the kind
+# the generator *targets* when conditions are clean. An agent that sees
+# `suggested_patch_kind: "remove_pointer"` should still consult the
+# per-Finding fields (or `Finding.patches` directly) to know whether
+# this particular instance produced a remove_pointer or fell back to
+# a ManualPatch.
 _REMEDIATION_OVERRIDES: dict[str, dict[str, object]] = {
+    # Stale-manifest checks: generator targets remove_pointer when the
+    # match is unique. Falls back to ManualPatch when ≥ 2 manifest
+    # entries match the same evidence (ambiguous removal — see
+    # `checks/patches.py::_gen_stale_*`). Catalog stays conservative:
+    # `autofix_safe=False`, `requires_human_review=True`. Per-Finding
+    # fields will mark `autofix_safe=True` only for findings whose
+    # actual emitted patch is high-confidence non-manual.
     "SHIP-MANIFEST-STALE-SUPPRESSION": {
-        "autofix_safe": True,
-        "requires_human_review": False,
         "suggested_patch_kind": "remove_pointer",
     },
     "SHIP-MANIFEST-STALE-POLICY": {
-        "autofix_safe": True,
-        "requires_human_review": False,
         "suggested_patch_kind": "remove_pointer",
     },
     "SHIP-MANIFEST-STALE-RISK-OVERRIDE": {
-        "autofix_safe": True,
-        "requires_human_review": False,
         "suggested_patch_kind": "remove_pointer",
     },
+    # Scope coverage: generator emits append_pointer at medium
+    # confidence (NOT default-applied — adding scopes can encode policy
+    # choices, so `apply-patches --confidence high` skips it). Catalog
+    # stays conservative for the same reason as above.
     "SHIP-AUTH-SCOPE-COVERAGE-MISSING": {
-        # autofix_safe stays False — adding scopes can encode policy
-        # choices, so default `apply-patches --confidence high` skips it.
-        # The non-manual generator emits an append_pointer at medium
-        # confidence; explicit `--confidence medium` opts in.
         "suggested_patch_kind": "append_pointer",
     },
 }
