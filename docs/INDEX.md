@@ -19,7 +19,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.5.json`](report-schema.v0.5.json) — JSON Schema for `report.json`
+- [`report-schema.v0.6.json`](report-schema.v0.6.json) — JSON Schema for `report.json` (current)
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 
 ## Examples
@@ -41,6 +41,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## For agents
 
+- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow (`detect → init → scan → apply-patches`)
+- [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
 - [`../AGENTS.md`](../AGENTS.md) — agent-facing instructions
 - [`../CLAUDE.md`](../CLAUDE.md) — Claude Code-specific notes
 - [`../STABILITY.md`](../STABILITY.md) — what won't break across `0.x`

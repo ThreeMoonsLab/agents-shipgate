@@ -18,29 +18,7 @@ python -m agents_shipgate --help           # run from a pip install without PATH
 
 The CLI binary is `agents-shipgate`; a short alias `shipgate` is also installed.
 
-## First scan
-
-In a repo containing an agent and its tools:
-
-```bash
-agents-shipgate init --workspace . --write
-agents-shipgate scan -c shipgate.yaml
-```
-
-`init --write` produces a `shipgate.yaml` with `CHANGE_ME` placeholders for
-`agent.name` and `agent.declared_purpose`. Replace the placeholders before
-running `scan`.
-
-Reports land at `agents-shipgate-reports/report.md` and `report.json`
-(the default formats). To also write SARIF for GitHub's code-scanning UI:
-
-```bash
-agents-shipgate scan -c shipgate.yaml --format markdown,json,sarif
-```
-
-The bundled GitHub Action emits all three formats by default.
-
-## Verify on a known fixture
+## First scan (60 seconds against a fixture)
 
 Without writing any YAML:
 
@@ -51,6 +29,45 @@ agents-shipgate fixture run support_refund_agent
 This runs against a bundled fixture that intentionally fails several checks,
 so you can confirm the install works and see what a real finding list looks
 like.
+
+## Second 60 seconds (your real repo)
+
+In a repo containing an agent and its tools, the canonical four-call flow
+detects, configures, scans, and auto-applies safe fixes in one turn:
+
+```bash
+agents-shipgate detect --json                                              # 1. classify
+agents-shipgate init --write --ci --json                                   # 2. manifest + workflow
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json      # 3. scan + suggest
+agents-shipgate apply-patches \
+    --from agents-shipgate-reports/report.json \
+    --confidence high --apply                                              # 4. apply safe fixes
+```
+
+`detect` reports whether the workspace looks like an agent project and which
+framework(s) are present. `init --write --ci` produces a schema-valid
+`shipgate.yaml` (with framework-specific `tool_sources` populated) and an
+optional GitHub Actions workflow. `scan --suggest-patches` attaches a Patch
+object to every active finding. `apply-patches --confidence high` mutates
+only the safe stale-manifest removals — scope-coverage appends require an
+explicit `--confidence medium`.
+
+For agent-specific guidance and decision rules, see
+[`agent-recipes.md`](agent-recipes.md). For framework-by-framework minimal
+manifests, see [`minimal-real-configs.md`](minimal-real-configs.md).
+
+When `init` produces `agent.name: CHANGE_ME` (because there was no strong
+name signal in your code), replace it with the agent's actual role before
+re-scanning.
+
+Reports land at `agents-shipgate-reports/report.md` and `report.json`
+(the default formats). To also write SARIF for GitHub's code-scanning UI:
+
+```bash
+agents-shipgate scan -c shipgate.yaml --format markdown,json,sarif
+```
+
+The bundled GitHub Action emits all three formats by default.
 
 ## GitHub Action
 
@@ -71,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.5.1
+      - uses: ThreeMoonsLab/agents-shipgate@v0.6.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -84,9 +101,11 @@ triaged existing findings.
 
 ## Next
 
-- [`docs/manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
-- [`docs/checks.md`](checks.md) — what the scanner looks for
-- [`docs/category.md`](category.md) — what an "agent release gate" is
-- [`docs/faq.md`](faq.md) — common questions
-- [`docs/concepts.md`](concepts.md) — tool-use readiness in depth
-- [`docs/glossary.md`](glossary.md) — category vocabulary
+- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow
+- [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework minimal manifest references
+- [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
+- [`checks.md`](checks.md) — what the scanner looks for
+- [`category.md`](category.md) — what an "agent release gate" is
+- [`faq.md`](faq.md) — common questions
+- [`concepts.md`](concepts.md) — tool-use readiness in depth
+- [`glossary.md`](glossary.md) — category vocabulary

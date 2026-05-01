@@ -65,6 +65,10 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 is dry-run by default and refuses to mutate anything outside the
 manifest's directory.
 
+For agents driving this flow programmatically, see
+[`docs/agent-recipes.md`](docs/agent-recipes.md). For framework-by-framework
+minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-configs.md).
+
 ## Use in CI
 
 ```yaml

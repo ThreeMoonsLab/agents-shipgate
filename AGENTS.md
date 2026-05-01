@@ -145,6 +145,26 @@ Do NOT use it for:
 - Behavior testing (use evals)
 - Stopping a tool call in flight (use a gateway or guardrail)
 
+### Should I run Shipgate on this PR?
+
+| Trigger in this PR | Run Shipgate? |
+|---|---|
+| Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
+| Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
+| Adds/edits `.github/workflows/agents-shipgate.yml` or related CI | Yes |
+| Pure read-only doc/test changes with no manifest impact | Skip |
+| Refactor with no behavior change to tools or policies | Skip (or dry-run only) |
+
+**Stop conditions.** Stop and do not run `init` only when **all** of these hold:
+
+- `agents-shipgate detect --json` returns `is_agent_project: false`, AND
+- `suggested_sources` is empty (no MCP/OpenAPI hits flowing in as `mcp` or `openapi`), AND
+- no `shipgate.yaml` already exists in the workspace, AND
+- the user did not explicitly request a scan.
+
+Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos register as `is_agent_project: false` because they have no Python framework imports — but they are valid Shipgate targets and their hits surface as `suggested_sources`. The trigger table above is the authoritative go/no-go.
+
 ---
 
 ## Five common agent tasks
