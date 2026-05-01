@@ -191,6 +191,53 @@ Deprecated compatibility alias for the v0.3 OpenAI API operational readiness
 bundle. Migrate suppressions, severity overrides, and baselines to the specific
 v0.4 `SHIP-API-*` readiness checks when you touch the config.
 
+### SHIP-API-RETRY-POLICY-MISSING
+
+A high-risk OpenAI API tool flow runs without declared retry policy metadata.
+Reviewers cannot reason about duplicate side effects when retry behavior is
+unspecified. Declare `retry_policy` in `openai_api.policy_rules` or
+`openai_api.model_config`.
+
+### SHIP-API-TIMEOUT-MISSING
+
+A high-risk OpenAI API tool flow runs without declared timeout metadata.
+Without an explicit timeout, failure behavior and tool-call continuation
+become ambiguous. Declare a tool-call timeout in policy rules or model
+config.
+
+### SHIP-API-TEST-CASES-MISSING
+
+High-risk OpenAI API tools exist with no declared test cases. Tool-call flows
+that approve refunds, send mail, or modify state should ship with simple test
+cases as release evidence. Add cases under `openai_api.test_cases`.
+
+### SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING
+
+A high-risk OpenAI API tool lacks declared success/failure output modeling.
+Reviewers depend on `success_fields` and `failure_fields` to reason about
+downstream failure handling. Declare them in policy rules.
+
+### SHIP-API-RETRY-WITHOUT-IDEMPOTENCY
+
+A retry policy is declared and a risky write tool lacks idempotency evidence.
+Retries against non-idempotent writes can duplicate financial, destructive, or
+external side effects. Either add idempotency evidence or remove the retry
+policy for this tool.
+
+### SHIP-API-TRACE-APPROVAL-MISSING
+
+A trace sample shows a policy-controlled tool call with `approved: false` for
+a tool that has approval policy evidence elsewhere in the manifest. Implement
+the runtime approval gate; **do not edit the trace recording** to flip
+`approved` — that patches the evidence, not the agent's behavior.
+
+### SHIP-API-TRACE-CONFIRMATION-MISSING
+
+A trace sample shows a policy-controlled tool call with `confirmed: false`
+for a tool that has confirmation policy evidence. Implement the runtime
+confirmation gate; **do not edit the trace recording** to flip `confirmed`
+— same anti-pattern as the approval-missing finding above.
+
 ### SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
 
 A Google ADK `OpenAPIToolset`, `McpToolset`, or dynamic tools expression could

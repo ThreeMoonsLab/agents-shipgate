@@ -443,6 +443,15 @@ class LoadedToolSource(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+SuggestedPatchKind = Literal[
+    "manual",
+    "remove_pointer",
+    "append_pointer",
+    "set_pointer",
+    "none",
+]
+
+
 class CheckMetadata(BaseModel):
     id: str
     category: str
@@ -453,6 +462,13 @@ class CheckMetadata(BaseModel):
     evidence_fields: list[str] = Field(default_factory=list)
     recommendation: str | None = None
     docs_url: str | None = None
+    # v0.7 remediation policy: describes per-check policy independent of
+    # any scan run. The mirror Finding-level fields land in PR 3 and are
+    # derived from `Finding.patches` when present, falling back to these
+    # check-level values otherwise.
+    autofix_safe: bool = False
+    requires_human_review: bool = True
+    suggested_patch_kind: SuggestedPatchKind = "manual"
 
 
 def _string_list(value: Any) -> list[str]:
