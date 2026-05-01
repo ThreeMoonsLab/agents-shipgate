@@ -61,11 +61,34 @@ starts at `v0.6.0`.
 - Bumped the additive report schema to `report_schema_version: "0.5"` while
   keeping manifest `version: "0.1"`.
 
+### v0.6.0 Agent-Friendly Adoption
+
+Goal: compress the 5-step setup (install → init → edit YAML → scan →
+read findings → wire CI) into a single tool-using turn for AI coding
+agents.
+
+- Added `agents-shipgate detect` for read-only workspace classification
+  (which framework, which agent-name candidates, which suggested
+  sources).
+- Made `agents-shipgate init` auto-detect by default; framework-specific
+  manifests are produced for LangChain, CrewAI, Google ADK, OpenAI
+  Agents SDK, Anthropic, and OpenAI API. `--minimal` preserves the
+  pre-v0.6 template byte-exact.
+- Added `agents-shipgate init --ci` for opt-in workflow generation,
+  with cross-workflow shipgate detection.
+- Added `agents-shipgate scan --suggest-patches` and
+  `agents-shipgate apply-patches` for machine-applicable manifest fixes
+  (stale-manifest removals at high confidence; scope-coverage appends
+  at medium confidence opt-in).
+- Bumped report schema to v0.6 (additive: per-finding `patches`,
+  top-level `manifest_dir`).
+
 ## Open
 
-### v0.6.0 Cross-Platform CI Expansion
+### v0.7.0 Cross-Platform CI Expansion
 
-Goal: broaden CI documentation after the v0.5 framework adapter work lands.
+Goal: broaden CI documentation after the v0.6 agent-friendly adoption
+work lands.
 
 - Add or harden recipes for additional CI platforms:
   - Jenkins;
@@ -79,6 +102,18 @@ Goal: broaden CI documentation after the v0.5 framework adapter work lands.
   - baseline management across CI providers;
   - recommended artifact retention;
   - failure-mode examples for security review and platform engineering teams.
+
+### v0.6.x Source-Provenance Enrichment (incremental)
+
+Once we have origin (file path, line index for JSONL, list index for
+arrays) threaded through finding evidence, expand the patch generator
+catalog beyond manifest-only. Candidate generators:
+
+- `SHIP-API-RETRY-POLICY-MISSING` and `SHIP-API-TIMEOUT-MISSING`
+  targeting policy-rule files (likely with a new `create_file` patch
+  kind).
+- Trace-event metadata enrichments — but never approval/confirmation
+  flips, which stay manual permanently.
 
 ### Later Candidates
 

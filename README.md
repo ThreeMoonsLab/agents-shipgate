@@ -47,10 +47,28 @@ agents-shipgate scan -c shipgate.yaml
 
 Reports land at `agents-shipgate-reports/report.md` and `report.json`.
 
+## Adopt in one turn (for AI coding agents)
+
+The v0.6 single-turn flow takes a workspace from "looks like an agent
+project" to "Shipgate integrated, scan green or with safe patches
+applied, CI workflow drafted":
+
+```bash
+agents-shipgate detect --json                                          # 1. classify
+agents-shipgate init --write --ci --json                               # 2. manifest + workflow
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json  # 3. scan + suggest
+agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
+    --confidence high --apply                                          # 4. apply safe trivial fixes
+```
+
+`init --ci` writes `.github/workflows/agents-shipgate.yml`. `apply-patches`
+is dry-run by default and refuses to mutate anything outside the
+manifest's directory.
+
 ## Use in CI
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.5.1
+- uses: ThreeMoonsLab/agents-shipgate@v0.6.0
   with:
     config: shipgate.yaml
     ci_mode: advisory

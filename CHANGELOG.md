@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0 - 2026-04-30
+
+Agent-friendly adoption: compresses Shipgate setup into a single
+tool-using turn for AI coding agents.
+
+- Added `agents-shipgate detect` — read-only command that classifies a
+  workspace as an agent project and reports which framework(s) it uses,
+  with confidence and per-framework evidence.
+- `agents-shipgate init` now auto-detects by default. Generated
+  manifests are schema-valid (validated before write) and include
+  framework-specific tool sources and config blocks (LangChain, CrewAI,
+  Google ADK, OpenAI Agents SDK, Anthropic, OpenAI API). The legacy
+  CHANGE_ME-heavy template is preserved under `--minimal`.
+- Added `agents-shipgate init --ci` — opt-in flag that writes
+  `.github/workflows/agents-shipgate.yml`. Orthogonal to `--write`:
+  each gets its own overwrite-refusal check. Detects cross-workflow
+  shipgate references and skips with a distinct message.
+- Added `agents-shipgate scan --suggest-patches` — attaches Patch
+  objects to every active finding (machine-applicable for the safe
+  subset; ManualPatch for everything else). `Finding.patches` is
+  absent when the flag is not set; non-opting JSON consumers see no
+  contract change.
+- Added `agents-shipgate apply-patches` — applies patches from a scan
+  JSON report. File-grouped, single SHA per file, dry-run by default,
+  containment-checked against the report's new `manifest_dir` field.
+- v0.6 patch generators (manifest-target only):
+  - High-confidence `RemovePointerPatch` for the 3 stale-manifest
+    checks (SUPPRESSION, POLICY, RISK-OVERRIDE).
+  - Medium-confidence `AppendPointerPatch` for
+    `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (NOT applied at default
+    `--confidence high` — adding scopes can encode policy choices).
+  - Permanent `ManualPatch` (with anti-pattern instructions) for
+    `SHIP-API-TRACE-{APPROVAL,CONFIRMATION}-MISSING` — flipping
+    approved/confirmed in a trace patches the evidence, not the agent.
+- Bumped report schema to v0.6 (additive: optional `Finding.patches`
+  array; new top-level `manifest_dir`). v0.5 schema retained for
+  reference.
+- Anthropic-specific glob coverage in `init`: tools and policies
+  matching `tools/anthropic-tools.json` and
+  `policies/anthropic-policy.yaml` now populate the `anthropic:` block
+  automatically.
+- Added end-to-end agent task `02_three_command_flow` exercising the
+  full `detect → init → scan → apply-patches` pipeline.
+- Added `ruamel.yaml>=0.18` as a dependency for round-trip-preserving
+  YAML edits in `apply-patches`.
+
 ## 0.5.1 - 2026-04-29
 
 - Polished launch-facing docs after the v0.5.0 release.

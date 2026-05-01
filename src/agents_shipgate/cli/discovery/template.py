@@ -53,13 +53,16 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
         f"  name: {agent_name}",
     ]
 
+    # The manifest schema requires non-empty declared_purpose unless a
+    # prompt-bearing framework block is present. Auto-init can't infer
+    # purpose, so we always seed one CHANGE_ME entry — agents replace it
+    # in the same turn that fills in agent.name.
     if agent_name == "CHANGE_ME":
         lines.append("  # No strong agent-name signal found; replace CHANGE_ME with the agent's role.")
-        lines.append("  declared_purpose:")
-        lines.append("    - CHANGE_ME")
     else:
-        lines.append("  # ADD declared_purpose entries describing what this agent should do.")
-        lines.append("  declared_purpose: []")
+        lines.append("  # Replace CHANGE_ME with a one-line description of what this agent should do.")
+    lines.append("  declared_purpose:")
+    lines.append("    - CHANGE_ME")
     lines.append("  prohibited_actions: []")
     lines.append("")
 

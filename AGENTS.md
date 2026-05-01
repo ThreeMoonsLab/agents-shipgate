@@ -73,13 +73,43 @@ agents-shipgate fixture run support_refund_agent
 
 ---
 
+## Single-turn agent flow (v0.6+)
+
+For coding agents adopting Shipgate end-to-end in one turn:
+
+```bash
+agents-shipgate detect --json
+agents-shipgate init --write --ci --json
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
+    --confidence high --apply
+```
+
+- **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
+  means stop early.
+- **`init`** — auto-detects by default. `--ci` writes
+  `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
+  `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
+- **`scan --suggest-patches`** — attaches Patch objects to every active
+  finding. `Finding.patches` is absent without the flag.
+- **`apply-patches`** — file-grouped, dry-run by default. Containment-
+  checked against `report.manifest_dir`. v0.6 default `--confidence high`
+  applies only manifest stale-removals; scope-coverage appends require
+  `--confidence medium`. Trace approval/confirmation findings are
+  always `ManualPatch` — never auto-applied (flipping the trace patches
+  the evidence, not the agent's runtime gate).
+
+---
+
 ## Agent mode
 
 Every command supports JSON output for programmatic consumption:
 
 ```bash
+agents-shipgate detect --workspace . --json
 agents-shipgate init --workspace . --write --json
 agents-shipgate scan -c shipgate.yaml                    # already produces report.json
+agents-shipgate apply-patches --from agents-shipgate-reports/report.json --json
 agents-shipgate doctor --json
 agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING --json
 agents-shipgate list-checks --json
