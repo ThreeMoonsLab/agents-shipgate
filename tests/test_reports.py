@@ -18,6 +18,7 @@ REPORT_SCHEMA = Path("docs/report-schema.v0.1.json")
 REPORT_SCHEMA_V02 = Path("docs/report-schema.v0.2.json")
 REPORT_SCHEMA_V04 = Path("docs/report-schema.v0.4.json")
 REPORT_SCHEMA_V06 = Path("docs/report-schema.v0.6.json")
+REPORT_SCHEMA_V07 = Path("docs/report-schema.v0.7.json")
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -95,7 +96,7 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_plugins" in payload
     assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
-    assert payload["report_schema_version"] == "0.6"
+    assert payload["report_schema_version"] == "0.7"
     assert "frameworks" in payload
     assert "loaded_policy_packs" in payload
 
@@ -150,10 +151,11 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v06_schema(tmp_path):
-    """v0.6 schema is additive over v0.5: adds optional `manifest_dir`
-    and optional per-finding `patches`. Pre-existing required fields
-    keep their shape."""
+def test_json_report_validates_against_v07_schema(tmp_path):
+    """v0.7 schema is additive over v0.6: adds the four optional
+    per-finding remediation fields (`autofix_safe`,
+    `requires_human_review`, `suggested_patch_kind`, `docs_url`).
+    Pre-existing required fields keep their shape."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -162,21 +164,23 @@ def test_json_report_validates_against_v06_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V06.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V07.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
 
-def test_v06_schema_preserves_nested_required_lists():
+def test_v07_schema_preserves_nested_required_lists():
     """Top-level required fields plus nested required lists for Finding,
     tool_inventory[], loaded_plugins[], LoadedPolicyPack, and per-framework
-    surfaces must mirror the v0.5 contract. Optional v0.6 additions
-    (Finding.patches, top-level manifest_dir) are not added here.
+    surfaces must mirror the v0.5 contract. Optional v0.7 additions
+    (Finding.patches, manifest_dir, and the four remediation fields)
+    are NOT added to required — they remain optional for additive
+    consumers.
 
     Regression for v0.6 reviewer feedback: Pydantic auto-generation
     weakens nested requireds because most fields have defaults.
     """
-    schema = json.loads(REPORT_SCHEMA_V06.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V07.read_text(encoding="utf-8"))
 
     finding_required = set(schema["$defs"]["Finding"]["required"])
     assert finding_required >= {
@@ -192,8 +196,17 @@ def test_v06_schema_preserves_nested_required_lists():
         "suppressed",
         "baseline_status",
     }
-    # patches stays optional (additive).
+    # patches and v0.7 additions stay optional (additive).
     assert "patches" not in finding_required
+    for new_field in (
+        "autofix_safe",
+        "requires_human_review",
+        "suggested_patch_kind",
+        "docs_url",
+    ):
+        assert new_field not in finding_required, (
+            f"v0.7 added {new_field} as optional; must not appear in required"
+        )
 
     tool_inventory_required = set(
         schema["properties"]["tool_inventory"]["items"]["required"]

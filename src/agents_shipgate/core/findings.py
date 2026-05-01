@@ -8,6 +8,7 @@ from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionCon
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.models import (
     BaselineSummary,
+    CheckMetadata,
     Finding,
     LoadedPolicyPack,
     ReadinessReport,
@@ -17,6 +18,7 @@ from agents_shipgate.core.models import (
     ToolSurfaceSummary,
     confidence_rank,
 )
+from agents_shipgate.core.patches import ManualPatch
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -59,6 +61,103 @@ def apply_severity_overrides(
             finding.evidence.setdefault("default_severity", finding.severity)
             finding.severity = override
     return findings
+
+
+# v0.7: safe-closed default for findings whose check_id isn't in the
+# loaded catalog — policy-pack rules, third-party plugins, or any check
+# emitted outside the built-in set. The static catalog is silent for
+# these, so we default-close: human review required, no auto-fix kind
+# claimed.
+_REMEDIATION_FALLBACK = {
+    "autofix_safe": False,
+    "requires_human_review": True,
+    "suggested_patch_kind": "manual",
+    "docs_url": None,
+}
+
+
+def annotate_remediation(
+    findings: list[Finding],
+    check_metadata_lookup: dict[str, CheckMetadata],
+) -> list[Finding]:
+    """Populate the v0.7 per-finding remediation fields in place.
+
+    Strict derivation policy:
+
+    - When ``finding.patches`` is non-empty, the safety bools are derived
+      from the actual emitted patches:
+      * ``autofix_safe=True`` iff EVERY patch is non-manual AND has
+        ``confidence == "high"``. Mixed-state (e.g. one safe + one
+        manual, one high + one medium) → ``autofix_safe=False``.
+      * ``requires_human_review`` is the inverse of ``autofix_safe``.
+      * ``suggested_patch_kind`` = kind of the first non-manual patch,
+        or ``"manual"`` when all are manual, or ``"none"`` when the
+        list is empty.
+    - When ``finding.patches`` is None (scan ran without
+      ``--suggest-patches``), the safety bools and
+      ``suggested_patch_kind`` come from the matching ``CheckMetadata``
+      entry, with the safe-closed fallback for unknown check IDs.
+    - ``docs_url`` is always sourced from CheckMetadata (or None for
+      unknown check IDs). Patches don't carry per-instance doc URLs.
+
+    Caller (`scan.run_scan`) builds the metadata lookup from the
+    catalog with the scan's actual ``plugins_enabled`` setting, so this
+    function never triggers plugin loading at serialization time.
+    """
+    for finding in findings:
+        meta = check_metadata_lookup.get(finding.check_id)
+        catalog_doc_url = meta.docs_url if meta is not None else None
+
+        if finding.patches:
+            (
+                autofix_safe,
+                requires_human_review,
+                suggested_patch_kind,
+            ) = _derive_from_patches(finding.patches)
+        elif meta is not None:
+            autofix_safe = meta.autofix_safe
+            requires_human_review = meta.requires_human_review
+            suggested_patch_kind = meta.suggested_patch_kind
+        else:
+            autofix_safe = bool(_REMEDIATION_FALLBACK["autofix_safe"])
+            requires_human_review = bool(
+                _REMEDIATION_FALLBACK["requires_human_review"]
+            )
+            suggested_patch_kind = str(_REMEDIATION_FALLBACK["suggested_patch_kind"])
+
+        finding.autofix_safe = autofix_safe
+        finding.requires_human_review = requires_human_review
+        finding.suggested_patch_kind = suggested_patch_kind
+        finding.docs_url = catalog_doc_url
+    return findings
+
+
+def _derive_from_patches(patches: list) -> tuple[bool, bool, str]:
+    """Strict derivation: ``autofix_safe`` is True only when EVERY
+    emitted patch is non-manual AND high-confidence. Mixed states fall
+    to safe-closed."""
+    if not patches:
+        return (False, True, "none")
+
+    has_manual = any(isinstance(p, ManualPatch) for p in patches)
+    non_manual = [p for p in patches if not isinstance(p, ManualPatch)]
+    all_high_confidence_non_manual = (
+        not has_manual
+        and bool(non_manual)
+        and all(getattr(p, "confidence", None) == "high" for p in non_manual)
+    )
+
+    # Per the plan §2 derivation rule: kind of the FIRST non-manual
+    # patch takes priority (even when ManualPatches are also present).
+    # All-manual → "manual". Empty list → "none" (handled above).
+    if non_manual:
+        suggested_patch_kind = non_manual[0].kind
+    else:
+        suggested_patch_kind = "manual"
+
+    autofix_safe = all_high_confidence_non_manual
+    requires_human_review = not autofix_safe
+    return (autofix_safe, requires_human_review, suggested_patch_kind)
 
 
 def summarize_findings(findings: list[Finding], tools: list[Tool]) -> ReportSummary:

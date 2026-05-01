@@ -138,6 +138,29 @@ class Finding(BaseModel):
     # contract additive — non-opting callers see no `patches` key at all
     # (per C4).
     patches: list[Patch] | None = None
+    # v0.7 remediation enrichment. Populated by `annotate_remediation`
+    # in core/findings.py during build_report (regardless of
+    # --suggest-patches), so any consumer reading `report.json` gets
+    # remediation policy without opting into patches.
+    #
+    # Derivation rule (when `patches` is non-empty):
+    # - autofix_safe = True iff EVERY patch is non-manual AND has
+    #   confidence == "high". Mixed-state (one safe + one manual, or
+    #   one high + one medium) → autofix_safe = False.
+    # - requires_human_review = True iff autofix_safe is False.
+    # - suggested_patch_kind = kind of the first non-manual patch, or
+    #   "manual" if all are manual, or "none" if patches list is empty.
+    #
+    # When `patches` is None (scan without --suggest-patches): copied
+    # from the matching CheckMetadata entry, falling back to the
+    # safe-closed default for unknown check IDs (policy-pack /
+    # third-party plugin findings).
+    #
+    # `docs_url` always sourced from CheckMetadata.docs_url.
+    autofix_safe: bool | None = None
+    requires_human_review: bool | None = None
+    suggested_patch_kind: str | None = None
+    docs_url: str | None = None
 
 
 class ReportSummary(BaseModel):
@@ -411,7 +434,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.6"
+    report_schema_version: str = "0.7"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
