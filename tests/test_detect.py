@@ -50,10 +50,36 @@ def test_detects_artifact_only_anthropic_sample() -> None:
     assert any("anthropic-policy.yaml" in ev for ev in anthropic.evidence)
 
 
-def test_detects_openai_api_sample_via_openai_config() -> None:
+def test_detects_openai_api_sample_as_openai_api_not_sdk() -> None:
+    """OpenAI API artifact projects (openai-config.json + tools/policies/...)
+    must classify as ``openai_api`` (artifact-based Messages API surface),
+    NOT ``openai_agents_sdk`` (the Python @function_tool surface).
+
+    Per v0.6 reviewer feedback: openai_api and openai_agents_sdk are
+    distinct things in the manifest schema (manifest.openai_api block vs
+    tool_sources[*].type == 'openai_agents_sdk') and detection must
+    reflect that.
+    """
     result = detect_workspace(SAMPLES / "simple_openai_api_agent")
     assert result.is_agent_project is True
-    assert any(fw.type == "openai_agents_sdk" for fw in result.frameworks)
+    assert any(fw.type == "openai_api" for fw in result.frameworks)
+    # Must NOT have been mislabeled as the SDK adapter.
+    assert not any(fw.type == "openai_agents_sdk" for fw in result.frameworks)
+
+
+def test_detects_artifact_only_openai_api_workspace(tmp_path: Path) -> None:
+    """A workspace with only prompts/ and tools/openai-tools.json must
+    register as an agent project so the canonical agent flow doesn't
+    skip a repo that init can onboard. Regression for v0.6 reviewer
+    feedback."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "prompts" / "support.md").write_text("you are helpful", encoding="utf-8")
+    (tmp_path / "tools" / "openai-tools.json").write_text("[]", encoding="utf-8")
+    result = detect_workspace(tmp_path)
+    assert result.is_agent_project is True
+    assert any(fw.type == "openai_api" for fw in result.frameworks)
+    assert result.next_action.startswith("agents-shipgate init")
 
 
 def test_clean_read_only_workspace_is_not_agent_project() -> None:

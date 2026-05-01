@@ -43,8 +43,11 @@ from agents_shipgate.cli.discovery.artifacts import (
     ANTHROPIC_TOOL_PATTERNS,
     MCP_PATTERNS,
     MODEL_CONFIG_PATTERNS,
+    OPENAI_TOOL_PATTERNS,
     OPENAPI_PATTERNS,
+    POLICY_RULE_PATTERNS,
     SKIP_DIRS,
+    TEST_CASE_PATTERNS,
     _discover_patterns,
     _relative,
     _skip,
@@ -102,6 +105,8 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "google_adk": ("google-adk", "google_adk", "google-genai"),
     "anthropic": ("anthropic",),
     "openai_agents_sdk": ("openai-agents", "openai_agents", "agents"),
+    # openai_api is artifact-based; package hints aren't meaningful for it.
+    "openai_api": (),
 }
 
 CONVENTIONAL_DIRS = ("prompts", "tools", ".agents-shipgate")
@@ -187,6 +192,10 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         "google_adk": _FrameworkScore(),
         "anthropic": _FrameworkScore(),
         "openai_agents_sdk": _FrameworkScore(),
+        # openai_api is the artifact-based OpenAI Messages API surface
+        # (manifest.openai_api block). Distinct from openai_agents_sdk
+        # (Python @function_tool decorators).
+        "openai_api": _FrameworkScore(),
     }
 
     for fact in py_facts:
@@ -441,12 +450,17 @@ class _GlobHit:
 def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
     """Per-framework glob signals.
 
-    Anthropic is artifact-only: ``tools/anthropic-tools.json`` /
-    ``policies/anthropic-policy.yaml`` are unambiguous framework markers,
-    so they count as STRONG. The OpenAI Agents SDK has a similar
-    artifact-anchor in ``openai-config.json``. MCP/OpenAPI hits don't
-    classify a framework by themselves — they're reported as
-    ``suggested_sources`` instead.
+    Three artifact-based frameworks have unambiguous filename markers:
+
+    - Anthropic: ``tools/anthropic-tools.json`` /
+      ``policies/anthropic-policy.yaml``.
+    - OpenAI API: ``openai-config.json``, ``tools/*openai*tools*.json``,
+      ``policies/*openai*.yaml`` / ``policies/*api*.yaml``,
+      ``tests/*openai*cases*.json``. (Distinct from openai_agents_sdk,
+      which is the Python ``@function_tool`` decorator surface.)
+
+    MCP/OpenAPI hits don't classify a framework by themselves — they're
+    reported as ``suggested_sources`` instead.
     """
     hits: dict[str, list[_GlobHit]] = {
         "langchain": [],
@@ -454,6 +468,7 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         "google_adk": [],
         "anthropic": [],
         "openai_agents_sdk": [],
+        "openai_api": [],
     }
     for path in _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS):
         hits["anthropic"].append(
@@ -463,9 +478,23 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         hits["anthropic"].append(
             _GlobHit(2.0, "strong", f"anthropic policy file: {path}")
         )
+    # openai-config.json is the OpenAI Messages API model-config marker —
+    # belongs to openai_api, not the agents SDK (manifest.openai_api.model_config).
     for path in _discover_patterns(workspace, MODEL_CONFIG_PATTERNS):
-        hits["openai_agents_sdk"].append(
+        hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai-config marker: {path}")
+        )
+    for path in _discover_patterns(workspace, OPENAI_TOOL_PATTERNS):
+        hits["openai_api"].append(
+            _GlobHit(2.0, "strong", f"openai tool file: {path}")
+        )
+    for path in _discover_patterns(workspace, POLICY_RULE_PATTERNS):
+        hits["openai_api"].append(
+            _GlobHit(2.0, "strong", f"openai-api policy file: {path}")
+        )
+    for path in _discover_patterns(workspace, TEST_CASE_PATTERNS):
+        hits["openai_api"].append(
+            _GlobHit(2.0, "strong", f"openai-api test cases: {path}")
         )
     return hits
 
@@ -474,7 +503,8 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
     present = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     if not present:
         return {f: [] for f in (
-            "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk"
+            "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",
+            "openai_api",
         )}
     # Conventional dirs are weak signals shared across all framework
     # candidates — they hint "this looks like an agent project" but don't
@@ -483,7 +513,14 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
     # downstream by ``has_strong``.
     return {
         framework: list(present)
-        for framework in ("langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk")
+        for framework in (
+            "langchain",
+            "crewai",
+            "google_adk",
+            "anthropic",
+            "openai_agents_sdk",
+            "openai_api",
+        )
     }
 
 

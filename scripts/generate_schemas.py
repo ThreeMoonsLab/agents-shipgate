@@ -55,6 +55,14 @@ def write_report_schema() -> None:
     The minor version is derived from ``ReadinessReport.report_schema_version``
     so a schema bump is one-step: change the default in models.py and rerun
     this script. CI's clean-tree assertion catches any field drift.
+
+    Post-processing preserves v0.5's stable public contract (additive only):
+    - ``schema_version`` and ``report_schema_version`` keep their version
+      constants (Pydantic emits them as plain strings with defaults).
+    - ``required`` keeps the v0.5 list of fields that consumers depend on,
+      regardless of whether the Pydantic model marks them as having
+      defaults. Optional v0.6 additions (``manifest_dir``, per-finding
+      ``patches``) stay optional.
     """
     from agents_shipgate.core.models import ReadinessReport
 
@@ -70,9 +78,39 @@ def write_report_schema() -> None:
     schema["title"] = title
     schema["description"] = (
         "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. "
-        "Generated from agents_shipgate.core.models.ReadinessReport. "
+        "Generated from agents_shipgate.core.models.ReadinessReport with "
+        "post-processing to preserve the v0.5 public contract. "
         "Do not edit by hand."
     )
+    # Preserve v0.5's stable required list. Optional v0.6 additions
+    # (manifest_dir, per-finding patches) are not added here, so they stay
+    # optional for additive consumers.
+    schema["required"] = sorted(
+        [
+            "schema_version",
+            "report_schema_version",
+            "run_id",
+            "project",
+            "agent",
+            "environment",
+            "summary",
+            "tool_surface",
+            "frameworks",
+            "findings",
+            "recommended_actions",
+            "generated_reports",
+            "loaded_policy_packs",
+            "loaded_plugins",
+            "tool_inventory",
+            "source_warnings",
+        ]
+    )
+    # Preserve version constants. Pydantic emits these as plain strings
+    # with `default`, but consumers may validate `const` against the
+    # actual report shape.
+    properties = schema.setdefault("properties", {})
+    properties["schema_version"] = {"const": "0.1"}
+    properties["report_schema_version"] = {"const": minor}
     target = DOCS / f"report-schema.v{minor}.json"
     target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {target.relative_to(REPO_ROOT)}")

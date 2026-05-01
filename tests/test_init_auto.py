@@ -181,6 +181,59 @@ def test_artifact_only_openai_workspace_does_not_emit_anthropic_block(tmp_path: 
     assert "anthropic:" not in text
 
 
+def test_init_json_agent_name_matches_yaml_when_no_literal(tmp_path: Path) -> None:
+    """JSON ``auto_detected.agent_name`` must reflect the value the
+    manifest actually carries, not the first candidate. Regression for
+    v0.6 reviewer feedback: the JSON used to claim a workspace-dir name
+    while the YAML still had CHANGE_ME.
+    """
+    workspace = _copy_sample("simple_langchain_agent", tmp_path / "lc")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["init", "--workspace", str(workspace), "--write", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    import json as _json
+
+    payload = _json.loads(result.output)
+    yaml_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    if "name: CHANGE_ME" in yaml_text:
+        # When the template emits CHANGE_ME, JSON must NOT report a value.
+        assert payload["auto_detected"]["agent_name"] is None
+    else:
+        # When a strong literal IS used, JSON value must match YAML.
+        assert payload["auto_detected"]["agent_name"] is not None
+        assert (
+            f"name: {payload['auto_detected']['agent_name']}" in yaml_text
+            or f'name: "{payload["auto_detected"]["agent_name"]}"' in yaml_text
+        )
+    # All candidates surfaced separately so agents can override.
+    assert "agent_name_candidates" in payload["auto_detected"]
+    assert all(
+        "source" in c for c in payload["auto_detected"]["agent_name_candidates"]
+    )
+
+
+def test_init_json_agent_name_matches_yaml_when_literal_present(tmp_path: Path) -> None:
+    """ADK fixture has ``Agent(name="adk_support_agent")`` — JSON must
+    report it and the YAML must use it (no CHANGE_ME)."""
+    workspace = _copy_sample("google_adk_agent", tmp_path / "adk")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["init", "--workspace", str(workspace), "--write", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    import json as _json
+
+    payload = _json.loads(result.output)
+    assert payload["auto_detected"]["agent_name"] == "adk_support_agent"
+    yaml_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "name: adk_support_agent" in yaml_text
+    assert "name: CHANGE_ME" not in yaml_text
+
+
 def test_init_auto_flag_is_accepted_as_no_op(tmp_path: Path) -> None:
     """``--auto`` is a self-documenting alias; auto is the default since v0.6."""
     workspace = _copy_sample("simple_langchain_agent", tmp_path / "lc")

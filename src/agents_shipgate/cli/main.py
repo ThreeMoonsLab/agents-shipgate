@@ -346,6 +346,15 @@ def init(
             )
             raise typer.Exit(4) from exc
         placeholders = _collect_placeholders(template)
+        # Mirror the template's selection logic so JSON output never claims
+        # a name that the YAML left as CHANGE_ME. Per v0.6 reviewer
+        # feedback: workspace_dir is a candidate but NOT chosen for
+        # agent.name; only Agent_name_literal/ADK_name_field do.
+        chosen_agent_name: str | None = None
+        for candidate in detect_result.agent_name_candidates:
+            if candidate.source in {"Agent_name_literal", "ADK_name_field"}:
+                chosen_agent_name = candidate.value
+                break
         auto_detected = {
             "is_agent_project": detect_result.is_agent_project,
             "frameworks": [
@@ -356,11 +365,15 @@ def init(
                 }
                 for fw in detect_result.frameworks
             ],
-            "agent_name": (
-                detect_result.agent_name_candidates[0].value
-                if detect_result.agent_name_candidates
-                else None
-            ),
+            # The actual value the manifest will carry (None when the
+            # template falls back to CHANGE_ME).
+            "agent_name": chosen_agent_name,
+            # Full candidate list with sources, so agents can pick a
+            # different one if they want to override.
+            "agent_name_candidates": [
+                {"value": c.value, "source": c.source}
+                for c in detect_result.agent_name_candidates
+            ],
         }
         next_action_create = (
             "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
