@@ -14,7 +14,12 @@ import typer
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.detect import detect as _detect_command
-from agents_shipgate.cli.discovery import discover_manifest_paths, render_manifest_template
+from agents_shipgate.cli.discovery import (
+    detect_workspace,
+    discover_manifest_paths,
+    render_auto_manifest,
+    render_manifest_template,
+)
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.cli.self_check import self_check
@@ -267,11 +272,73 @@ def init(
         "--json",
         help="Emit a structured summary (path, placeholders, next_action) on stdout.",
     ),
+    minimal: bool = typer.Option(
+        False,
+        "--minimal",
+        help="Use the legacy CHANGE_ME-heavy template instead of auto-detection.",
+    ),
+    auto: bool = typer.Option(
+        False,
+        "--auto",
+        help="(No-op alias.) Auto-detection is the default in v0.6+.",
+        hidden=True,
+    ),
 ) -> None:
-    """Draft a starter shipgate.yaml from local OpenAPI/MCP-looking files."""
-    template = render_manifest_template(workspace.resolve())
+    """Draft a starter shipgate.yaml from a workspace.
+
+    Default (v0.6+): walk the workspace, detect agent framework(s), and
+    emit a near-complete manifest. Use --minimal to fall back to the
+    pre-v0.6 CHANGE_ME-heavy template.
+    """
+    workspace_resolved = workspace.resolve()
     target = workspace / "shipgate.yaml"
-    placeholders = _collect_placeholders(template)
+
+    if minimal:
+        template = render_manifest_template(workspace_resolved)
+        placeholders = _collect_placeholders(template)
+        auto_detected: dict[str, object] = {}
+        next_action_create = (
+            "Replace placeholders, then run: agents-shipgate scan -c shipgate.yaml"
+        )
+        next_action_dry = "Inspect the template, then re-run with --write to commit it."
+    else:
+        detect_result = detect_workspace(workspace_resolved)
+        template = render_auto_manifest(workspace_resolved, detect_result)
+        # Validation gate: refuse to emit a manifest the schema would reject.
+        try:
+            _validate_manifest_text(template)
+        except Exception as exc:  # noqa: BLE001 - validation surface
+            typer.echo(f"Generated manifest failed validation: {exc}", err=True)
+            _emit_agent_mode_error(
+                "internal_error",
+                message=f"Generated manifest failed validation: {exc}",
+                next_action="agents-shipgate init --minimal",
+            )
+            raise typer.Exit(4) from exc
+        placeholders = _collect_placeholders(template)
+        auto_detected = {
+            "is_agent_project": detect_result.is_agent_project,
+            "frameworks": [
+                {
+                    "type": fw.type,
+                    "score": fw.score,
+                    "confidence": fw.confidence,
+                }
+                for fw in detect_result.frameworks
+            ],
+            "agent_name": (
+                detect_result.agent_name_candidates[0].value
+                if detect_result.agent_name_candidates
+                else None
+            ),
+        }
+        next_action_create = (
+            "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
+        )
+        next_action_dry = (
+            "Inspect the template, then re-run with --write to commit it."
+        )
+
     if write:
         if target.exists():
             typer.echo(f"Config already exists: {target}", err=True)
@@ -283,20 +350,15 @@ def init(
             raise typer.Exit(2)
         target.write_text(template, encoding="utf-8")
         if json_output:
-            typer.echo(
-                json.dumps(
-                    {
-                        "path": str(target),
-                        "created": True,
-                        "placeholders": placeholders,
-                        "next_action": (
-                            "Replace placeholders, then run: "
-                            "agents-shipgate scan -c shipgate.yaml"
-                        ),
-                    },
-                    indent=2,
-                )
-            )
+            payload = {
+                "path": str(target),
+                "created": True,
+                "placeholders": placeholders,
+                "next_action": next_action_create,
+            }
+            if auto_detected:
+                payload["auto_detected"] = auto_detected
+            typer.echo(json.dumps(payload, indent=2))
             return
         typer.echo(f"Wrote {target}")
         if placeholders:
@@ -306,22 +368,28 @@ def init(
             )
         return
     if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "path": str(target),
-                    "created": False,
-                    "template": template,
-                    "placeholders": placeholders,
-                    "next_action": (
-                        "Inspect the template, then re-run with --write to commit it."
-                    ),
-                },
-                indent=2,
-            )
-        )
+        payload = {
+            "path": str(target),
+            "created": False,
+            "template": template,
+            "placeholders": placeholders,
+            "next_action": next_action_dry,
+        }
+        if auto_detected:
+            payload["auto_detected"] = auto_detected
+        typer.echo(json.dumps(payload, indent=2))
         return
     typer.echo(template)
+
+
+def _validate_manifest_text(text: str) -> None:
+    """Run the generated manifest through the schema before write."""
+    import yaml
+
+    from agents_shipgate.config.schema import AgentsShipgateManifest
+
+    data = yaml.safe_load(text)
+    AgentsShipgateManifest.model_validate(data)
 
 
 def _collect_placeholders(template: str) -> list[dict[str, str]]:

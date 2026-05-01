@@ -38,6 +38,7 @@ from agents_shipgate.cli.discovery.signals import (
     NameCandidate,
     detect_workspace,
 )
+from agents_shipgate.cli.discovery.template import render_auto_manifest
 
 __all__ = [
     "ANTHROPIC_POLICY_PATTERNS",
@@ -60,5 +61,6 @@ __all__ = [
     "discover_manifest_paths",
     "discover_openai_api_artifacts",
     "discover_tool_sources",
+    "render_auto_manifest",
     "render_manifest_template",
 ]
