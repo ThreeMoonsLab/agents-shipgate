@@ -167,6 +167,64 @@ def test_json_report_validates_against_v06_schema(tmp_path):
     validate(instance=report_json_payload(report), schema=schema)
 
 
+def test_v06_schema_preserves_nested_required_lists():
+    """Top-level required fields plus nested required lists for Finding,
+    tool_inventory[], loaded_plugins[], LoadedPolicyPack, and per-framework
+    surfaces must mirror the v0.5 contract. Optional v0.6 additions
+    (Finding.patches, top-level manifest_dir) are not added here.
+
+    Regression for v0.6 reviewer feedback: Pydantic auto-generation
+    weakens nested requireds because most fields have defaults.
+    """
+    schema = json.loads(REPORT_SCHEMA_V06.read_text(encoding="utf-8"))
+
+    finding_required = set(schema["$defs"]["Finding"]["required"])
+    assert finding_required >= {
+        "id",
+        "fingerprint",
+        "check_id",
+        "title",
+        "severity",
+        "category",
+        "evidence",
+        "confidence",
+        "recommendation",
+        "suppressed",
+        "baseline_status",
+    }
+    # patches stays optional (additive).
+    assert "patches" not in finding_required
+
+    tool_inventory_required = set(
+        schema["properties"]["tool_inventory"]["items"]["required"]
+    )
+    assert tool_inventory_required == {
+        "name",
+        "source_type",
+        "risk_tags",
+        "auth_scopes",
+        "confidence",
+    }
+    loaded_plugins_required = set(
+        schema["properties"]["loaded_plugins"]["items"]["required"]
+    )
+    assert loaded_plugins_required == {
+        "name",
+        "value",
+        "distribution",
+        "version",
+        "check_id",
+    }
+    loaded_pack_required = set(schema["$defs"]["LoadedPolicyPack"]["required"])
+    assert loaded_pack_required == {"id", "name", "path", "rule_count"}
+
+    google_adk_required = set(
+        schema["properties"]["frameworks"]["properties"]["google_adk"]["required"]
+    )
+    assert "agent_count" in google_adk_required
+    assert "dynamic_toolset_count" in google_adk_required
+
+
 def test_json_report_omits_patches_key_when_not_suggested(tmp_path):
     """Per C4: scan without --suggest-patches must NOT include the
     `patches` key on any finding. Run-id stability for non-opting

@@ -111,6 +111,120 @@ def write_report_schema() -> None:
     properties = schema.setdefault("properties", {})
     properties["schema_version"] = {"const": "0.1"}
     properties["report_schema_version"] = {"const": minor}
+
+    # Preserve nested v0.5 required lists. Pydantic auto-generation marks
+    # only fields without defaults as required, but consumers depend on
+    # several optional-with-default fields being present in every report.
+    # Optional v0.6 additions (Finding.patches) intentionally stay
+    # optional — additive only.
+    defs = schema.setdefault("$defs", {})
+    if "Finding" in defs:
+        defs["Finding"]["required"] = sorted(
+            [
+                "id",
+                "fingerprint",
+                "check_id",
+                "title",
+                "severity",
+                "category",
+                "evidence",
+                "confidence",
+                "recommendation",
+                "suppressed",
+                "baseline_status",
+            ]
+        )
+    if "LoadedPolicyPack" in defs:
+        defs["LoadedPolicyPack"]["required"] = sorted(
+            ["id", "name", "path", "rule_count"]
+        )
+
+    # tool_inventory[] and loaded_plugins[] are typed as
+    # ``list[dict[str, Any]]`` on the model, so Pydantic emits item
+    # schemas without per-item required lists. v0.5 documented these
+    # required keys; preserve them.
+    if "tool_inventory" in properties and properties["tool_inventory"].get("type") == "array":
+        properties["tool_inventory"]["items"] = {
+            "type": "object",
+            "additionalProperties": True,
+            "required": sorted(
+                ["name", "source_type", "risk_tags", "auth_scopes", "confidence"]
+            ),
+        }
+    if "loaded_plugins" in properties and properties["loaded_plugins"].get("type") == "array":
+        properties["loaded_plugins"]["items"] = {
+            "type": "object",
+            "additionalProperties": True,
+            "required": sorted(
+                ["name", "value", "distribution", "version", "check_id"]
+            ),
+        }
+
+    # frameworks.{google_adk,langchain,crewai} surface counts. These are
+    # also list[dict[str, Any]]-shaped at the model level; v0.5 enumerated
+    # the per-framework count keys that consumers check.
+    frameworks_property = properties.setdefault(
+        "frameworks", {"type": "object", "additionalProperties": True}
+    )
+    frameworks_property.setdefault("type", "object")
+    frameworks_property["additionalProperties"] = True
+    frameworks_sub = frameworks_property.setdefault("properties", {})
+    frameworks_sub["google_adk"] = {
+        "type": "object",
+        "additionalProperties": True,
+        "required": sorted(
+            [
+                "python_entrypoint_count",
+                "agent_config_count",
+                "agent_count",
+                "function_tool_count",
+                "long_running_tool_count",
+                "toolset_count",
+                "dynamic_toolset_count",
+                "callback_count",
+                "plugin_count",
+                "sub_agent_count",
+                "eval_file_count",
+                "trace_sample_count",
+                "tool_inventory_file_count",
+                "warnings",
+            ]
+        ),
+    }
+    frameworks_sub["langchain"] = {
+        "type": "object",
+        "additionalProperties": True,
+        "required": sorted(
+            [
+                "python_entrypoint_count",
+                "function_tool_count",
+                "structured_tool_count",
+                "tool_node_count",
+                "agent_tool_binding_count",
+                "dynamic_tool_surface_count",
+                "tool_inventory_file_count",
+                "warnings",
+            ]
+        ),
+    }
+    frameworks_sub["crewai"] = {
+        "type": "object",
+        "additionalProperties": True,
+        "required": sorted(
+            [
+                "python_entrypoint_count",
+                "agent_count",
+                "crew_count",
+                "function_tool_count",
+                "class_tool_count",
+                "prebuilt_tool_count",
+                "dynamic_tool_surface_count",
+                "tool_inventory_file_count",
+                "warnings",
+            ]
+        ),
+    }
+
     target = DOCS / f"report-schema.v{minor}.json"
     target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {target.relative_to(REPO_ROOT)}")

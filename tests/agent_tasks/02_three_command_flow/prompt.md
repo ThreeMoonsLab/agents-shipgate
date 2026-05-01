@@ -24,5 +24,10 @@ attaches patches to every active finding. Step 4 mutates only the
 high-confidence patches (today: stale-manifest removals); the rest
 remain as `ManualPatch` for human review.
 
-After the flow, replace `agent.declared_purpose: [- CHANGE_ME]` with a
-one-line description of what this agent should do.
+After the flow, replace any remaining `CHANGE_ME` placeholders in
+`shipgate.yaml`. For this LangChain starter `init` emits two:
+
+- `agent.name: CHANGE_ME` — there is no `Agent(name="…")` literal in
+  the source, so set this to the agent's role (e.g. `support-case-reader`).
+- `agent.declared_purpose: [- CHANGE_ME]` — replace with a one-line
+  description of what the agent should do.

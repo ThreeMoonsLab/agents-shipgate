@@ -9,10 +9,17 @@ from pathlib import Path
 def assert_outcome(workdir: Path) -> None:
     manifest = workdir / "shipgate.yaml"
     assert manifest.is_file(), "shipgate.yaml was not created"
-    manifest_text = manifest.read_text(encoding="utf-8")
-    assert "CHANGE_ME" not in manifest_text, (
-        "CHANGE_ME placeholder remains in shipgate.yaml; the agent should "
-        "have replaced agent.declared_purpose with a real one-liner."
+    # Parse the YAML so we only flag CHANGE_ME in actual values — the
+    # auto-init template embeds the literal in comments ("replace
+    # CHANGE_ME with …") which is informational, not a placeholder.
+    import yaml as _yaml
+
+    data = _yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    leftover = _find_change_me(data)
+    assert not leftover, (
+        f"CHANGE_ME placeholder remains in shipgate.yaml at {leftover!r}; "
+        "the agent should have replaced every CHANGE_ME value (including "
+        "agent.name when no Agent(name=…) literal was detected)."
     )
 
     workflow = workdir / ".github" / "workflows" / "agents-shipgate.yml"
@@ -42,3 +49,25 @@ def assert_outcome(workdir: Path) -> None:
                 f"finding {finding['check_id']} has no patches; agent likely "
                 "skipped --suggest-patches"
             )
+
+
+def _find_change_me(node, path: str = "$") -> str | None:
+    """Walk a parsed YAML tree and return the JSON-pointer-ish path of
+    the first CHANGE_ME value, or None when none remain."""
+    if isinstance(node, str):
+        if node == "CHANGE_ME":
+            return path
+        return None
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            hit = _find_change_me(item, f"{path}[{i}]")
+            if hit:
+                return hit
+        return None
+    if isinstance(node, dict):
+        for key, value in node.items():
+            hit = _find_change_me(value, f"{path}.{key}")
+            if hit:
+                return hit
+        return None
+    return None

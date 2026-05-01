@@ -276,11 +276,17 @@
         }
       },
       "required": [
-        "check_id",
-        "title",
-        "severity",
+        "baseline_status",
         "category",
-        "recommendation"
+        "check_id",
+        "confidence",
+        "evidence",
+        "fingerprint",
+        "id",
+        "recommendation",
+        "severity",
+        "suppressed",
+        "title"
       ],
       "title": "Finding",
       "type": "object"
@@ -648,6 +654,57 @@
     },
     "frameworks": {
       "additionalProperties": true,
+      "properties": {
+        "crewai": {
+          "additionalProperties": true,
+          "required": [
+            "agent_count",
+            "class_tool_count",
+            "crew_count",
+            "dynamic_tool_surface_count",
+            "function_tool_count",
+            "prebuilt_tool_count",
+            "python_entrypoint_count",
+            "tool_inventory_file_count",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "google_adk": {
+          "additionalProperties": true,
+          "required": [
+            "agent_config_count",
+            "agent_count",
+            "callback_count",
+            "dynamic_toolset_count",
+            "eval_file_count",
+            "function_tool_count",
+            "long_running_tool_count",
+            "plugin_count",
+            "python_entrypoint_count",
+            "sub_agent_count",
+            "tool_inventory_file_count",
+            "toolset_count",
+            "trace_sample_count",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "langchain": {
+          "additionalProperties": true,
+          "required": [
+            "agent_tool_binding_count",
+            "dynamic_tool_surface_count",
+            "function_tool_count",
+            "python_entrypoint_count",
+            "structured_tool_count",
+            "tool_inventory_file_count",
+            "tool_node_count",
+            "warnings"
+          ],
+          "type": "object"
+        }
+      },
       "title": "Frameworks",
       "type": "object"
     },
@@ -661,6 +718,13 @@
     "loaded_plugins": {
       "items": {
         "additionalProperties": true,
+        "required": [
+          "check_id",
+          "distribution",
+          "name",
+          "value",
+          "version"
+        ],
         "type": "object"
       },
       "title": "Loaded Plugins",
@@ -720,6 +784,13 @@
     "tool_inventory": {
       "items": {
         "additionalProperties": true,
+        "required": [
+          "auth_scopes",
+          "confidence",
+          "name",
+          "risk_tags",
+          "source_type"
+        ],
         "type": "object"
       },
       "title": "Tool Inventory",

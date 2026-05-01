@@ -22,10 +22,16 @@ agents-shipgate apply-patches \
     --confidence high \
     --apply
 
-# 5. Replace the seeded CHANGE_ME purpose with a real description.
+# 5. Replace ALL CHANGE_ME placeholders.
+#
+# The LangChain starter has no `Agent(name="…")` literal, so auto-init
+# also emits `agent.name: CHANGE_ME` in addition to the seeded
+# `declared_purpose: [- CHANGE_ME]`. The post-flow assertion forbids any
+# CHANGE_ME survivor in shipgate.yaml, so we replace both.
 python - <<'PY'
 from pathlib import Path
 text = Path("shipgate.yaml").read_text()
+text = text.replace("name: CHANGE_ME", "name: support-case-reader")
 text = text.replace("- CHANGE_ME", "- look up support cases for the agent")
 Path("shipgate.yaml").write_text(text)
 PY

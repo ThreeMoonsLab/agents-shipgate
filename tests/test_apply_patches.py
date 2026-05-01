@@ -345,6 +345,32 @@ def test_multi_remove_against_same_list_does_not_corrupt(tmp_path: Path) -> None
     assert "tool: b" not in result
 
 
+def test_malformed_patch_payload_exits_2(tmp_path: Path) -> None:
+    """A patch with missing required fields must exit 2 (documented
+    contract for malformed --from input), not raise a Pydantic
+    traceback exiting 1.
+
+    Regression for v0.6 reviewer feedback.
+    """
+    report = {
+        "manifest_dir": str(tmp_path),
+        "findings": [
+            {
+                "patches": [
+                    # Missing target_file, pointer, target_format,
+                    # rationale, target_sha256.
+                    {"kind": "remove_pointer", "confidence": "high"}
+                ]
+            }
+        ],
+    }
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    result = runner.invoke(app, ["apply-patches", "--from", str(path)])
+    assert result.exit_code == 2, result.output
+    assert "Malformed patch" in (result.output or "")
+
+
 def test_multi_remove_index_overflow_does_not_crash(tmp_path: Path) -> None:
     """2-element list, remove indexes 0 and 1 in report order would
     crash with IndexError after fix=False. Sorted highest-first, both

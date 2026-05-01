@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 from ruamel.yaml import YAML
 
 from agents_shipgate.core.patches import (
@@ -103,12 +104,24 @@ def apply_patches(
         for patch in finding.get("patches") or []:
             raw_patches.append(patch)
 
-    typed_patches = [
-        _coerce_patch(p)
-        for p in raw_patches
-        if p.get("kind") in kind_set
-        and (p.get("kind") == "manual" or p.get("confidence") in confidence_levels)
-    ]
+    # Coerce raw patches into typed Patch instances. A malformed payload
+    # (missing required fields, unknown kind, etc.) maps to exit code 2
+    # per the documented contract — not an uncaught Pydantic traceback
+    # exiting 1.
+    try:
+        typed_patches = [
+            _coerce_patch(p)
+            for p in raw_patches
+            if p.get("kind") in kind_set
+            and (p.get("kind") == "manual" or p.get("confidence") in confidence_levels)
+        ]
+    except (ValidationError, typer.BadParameter) as exc:
+        typer.echo(
+            f"Malformed patch in report at {from_path}: {exc}",
+            err=True,
+        )
+        _emit_input_error("malformed_patch", str(exc))
+        raise typer.Exit(2) from exc
     typed_patches = [p for p in typed_patches if not isinstance(p, ManualPatch)]
 
     # Containment check (per C13). Every target must live under manifest_dir.
@@ -145,6 +158,24 @@ def apply_patches(
 
 
 # --- Internals --------------------------------------------------------------
+
+
+def _emit_input_error(kind: str, message: str) -> None:
+    """Emit a structured one-line JSON error on stderr when
+    AGENTS_SHIPGATE_AGENT_MODE=1 is set, matching the convention used by
+    other commands. Silent otherwise."""
+    import os
+    import sys
+
+    if os.environ.get("AGENTS_SHIPGATE_AGENT_MODE", "").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+    payload = {"error": kind, "message": message}
+    print(json.dumps(payload, default=str), file=sys.stderr)
 
 
 def _confidence_set(min_level: str) -> set[str]:
