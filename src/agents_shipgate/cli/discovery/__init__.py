@@ -38,11 +38,17 @@ from agents_shipgate.cli.discovery.signals import (
     NameCandidate,
     detect_workspace,
 )
+from agents_shipgate.cli.discovery.ci_workflow import (
+    WORKFLOW_RELATIVE_PATH,
+    CiWorkflowResult,
+    write_ci_workflow,
+)
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 
 __all__ = [
     "ANTHROPIC_POLICY_PATTERNS",
     "ANTHROPIC_TOOL_PATTERNS",
+    "CiWorkflowResult",
     "DetectResult",
     "FrameworkDetection",
     "MCP_PATTERNS",
@@ -56,6 +62,7 @@ __all__ = [
     "SKIP_DIRS",
     "TEST_CASE_PATTERNS",
     "TRACE_SAMPLE_PATTERNS",
+    "WORKFLOW_RELATIVE_PATH",
     "detect_workspace",
     "discover_anthropic_artifacts",
     "discover_manifest_paths",
@@ -63,4 +70,5 @@ __all__ = [
     "discover_tool_sources",
     "render_auto_manifest",
     "render_manifest_template",
+    "write_ci_workflow",
 ]

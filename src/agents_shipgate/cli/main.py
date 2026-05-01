@@ -19,6 +19,7 @@ from agents_shipgate.cli.discovery import (
     discover_manifest_paths,
     render_auto_manifest,
     render_manifest_template,
+    write_ci_workflow,
 )
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
@@ -283,6 +284,15 @@ def init(
         help="(No-op alias.) Auto-detection is the default in v0.6+.",
         hidden=True,
     ),
+    ci: bool = typer.Option(
+        False,
+        "--ci",
+        help=(
+            "Also generate .github/workflows/agents-shipgate.yml. Refuses to "
+            "overwrite. Skips with a message if another workflow already "
+            "calls ThreeMoonsLab/agents-shipgate."
+        ),
+    ),
 ) -> None:
     """Draft a starter shipgate.yaml from a workspace.
 
@@ -339,47 +349,81 @@ def init(
             "Inspect the template, then re-run with --write to commit it."
         )
 
+    # Manifest action — orthogonal to --ci. Track outcome instead of
+    # exiting immediately so --ci can still run when the manifest exists.
+    manifest_status = "not_attempted"
+    manifest_exit = 0
+    manifest_message: str | None = None
     if write:
         if target.exists():
-            typer.echo(f"Config already exists: {target}", err=True)
+            manifest_status = "skipped_existing"
+            manifest_exit = 2
+            manifest_message = f"Config already exists: {target}"
             _emit_agent_mode_error(
                 "config_already_exists",
                 path=str(target),
                 next_action=f"Edit {target} directly or remove it before running init --write.",
             )
-            raise typer.Exit(2)
-        target.write_text(template, encoding="utf-8")
-        if json_output:
-            payload = {
-                "path": str(target),
-                "created": True,
-                "placeholders": placeholders,
-                "next_action": next_action_create,
-            }
-            if auto_detected:
-                payload["auto_detected"] = auto_detected
-            typer.echo(json.dumps(payload, indent=2))
-            return
-        typer.echo(f"Wrote {target}")
-        if placeholders:
-            typer.echo(
-                f"Replace these placeholders before scanning: "
-                f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
-            )
-        return
-    if json_output:
-        payload = {
-            "path": str(target),
-            "created": False,
-            "template": template,
-            "placeholders": placeholders,
-            "next_action": next_action_dry,
+        else:
+            target.write_text(template, encoding="utf-8")
+            manifest_status = "written"
+            manifest_message = f"Wrote {target}"
+
+    # Workflow action — independent of manifest action.
+    workflow_outcome: dict[str, object] | None = None
+    if ci:
+        result = write_ci_workflow(workspace_resolved)
+        workflow_outcome = {
+            "status": result.status,
+            "path": result.path,
+            "message": result.message,
         }
+        if result.cross_reference_path is not None:
+            workflow_outcome["cross_reference_path"] = result.cross_reference_path
+
+    # Output
+    if json_output:
+        payload: dict[str, object] = {
+            "path": str(target),
+            "created": manifest_status == "written",
+            "manifest_status": manifest_status,
+            "placeholders": placeholders,
+        }
+        if manifest_message:
+            payload["manifest_message"] = manifest_message
+        if not write:
+            payload["template"] = template
+            payload["next_action"] = next_action_dry
+        else:
+            payload["next_action"] = next_action_create
         if auto_detected:
             payload["auto_detected"] = auto_detected
+        if workflow_outcome is not None:
+            payload["workflow"] = workflow_outcome
         typer.echo(json.dumps(payload, indent=2))
-        return
-    typer.echo(template)
+    else:
+        if not write:
+            typer.echo(template)
+        else:
+            if manifest_status == "written":
+                typer.echo(manifest_message)
+                if placeholders:
+                    typer.echo(
+                        f"Replace these placeholders before scanning: "
+                        f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
+                    )
+            elif manifest_status == "skipped_existing":
+                typer.echo(manifest_message, err=True)
+        if workflow_outcome is not None:
+            stream = (
+                sys.stderr
+                if workflow_outcome["status"].startswith("skipped")
+                else sys.stdout
+            )
+            print(workflow_outcome["message"], file=stream)
+
+    if manifest_exit:
+        raise typer.Exit(manifest_exit)
 
 
 def _validate_manifest_text(text: str) -> None:
