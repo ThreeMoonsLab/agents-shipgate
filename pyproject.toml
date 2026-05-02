@@ -62,7 +62,7 @@ Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELO
 
 [project.optional-dependencies]
 dev = [
-  "build>=1.2,<2",
+  "build>=1.5.0,<2",
   "cyclonedx-bom>=5,<7",
   "hypothesis>=6,<7",
   "jsonschema>=4,<5",
