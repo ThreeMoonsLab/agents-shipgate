@@ -118,7 +118,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.5.json`](docs/report-schema.v0.5.json)** — JSON Schemas for live editor validation
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.7"`)
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -348,7 +348,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.5.1
+        uses: ThreeMoonsLab/agents-shipgate@v0.7.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -376,7 +376,7 @@ If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-base
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.5](docs/report-schema.v0.5.json)
+- [JSON report schema v0.7](docs/report-schema.v0.7.json)
 - [Trust model](docs/trust-model.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)
