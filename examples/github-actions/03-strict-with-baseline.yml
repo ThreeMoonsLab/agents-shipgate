@@ -23,4 +23,4 @@ jobs:
           fail_on: critical,high
           baseline: .agents-shipgate/baseline.json
           pr_comment: 'true'
-          shipgate_version: '0.5.1'
+          shipgate_version: '0.7.0'

@@ -25,7 +25,7 @@ jobs:
           ci_mode: advisory
           formats: markdown,json,sarif
           pr_comment: 'true'
-          shipgate_version: '0.5.1'
+          shipgate_version: '0.7.0'
       - if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:

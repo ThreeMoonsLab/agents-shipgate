@@ -31,7 +31,7 @@ For reproducible CI, pin both the action and the underlying CLI:
 ```yaml
 - uses: ThreeMoonsLab/agents-shipgate@v0.7.0
   with:
-    shipgate_version: "0.5.1"
+    shipgate_version: "0.7.0"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient on `@main`, less reproducible.

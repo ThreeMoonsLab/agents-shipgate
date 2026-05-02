@@ -21,4 +21,4 @@ jobs:
           ci_mode: strict
           fail_on: critical
           pr_comment: 'true'
-          shipgate_version: '0.5.1'
+          shipgate_version: '0.7.0'

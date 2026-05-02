@@ -59,7 +59,7 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 ## Stable contracts (rely on these)
 
 - **CLI surface** is frozen for `0.x` — see https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md.
-- **Report JSON**: `report_schema_version: "0.5"`. Stable fields include `summary.{critical_count, high_count, medium_count, status}` and `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`.
+- **Report JSON**: `report_schema_version: "0.7"`. Stable fields include `summary.{critical_count, high_count, medium_count, status}`, `manifest_dir` (top-level, v0.6+), and `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}` plus the v0.7 remediation fields `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url}` (populated for every active finding regardless of `--suggest-patches`). When scan ran with `--suggest-patches`, each active finding also carries `findings[].patches[]` (each patch has `kind` ∈ `{set_pointer, append_pointer, remove_pointer, manual}` plus per-patch `confidence` for non-manual kinds). Reports validate against [`docs/report-schema.v0.7.json`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/report-schema.v0.7.json) (current); pre-v0.7 reports validate against [`docs/report-schema.v0.6.json`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/report-schema.v0.6.json) (frozen reference).
 - **Exit codes**: `0` pass, `2` config error, `3` parse error, `4` other error, `20` strict-mode gate failure.
 - **Check IDs** (e.g. `SHIP-POLICY-APPROVAL-MISSING`) are stable; new ones may be added but existing ones will not be renamed or repurposed.
 
