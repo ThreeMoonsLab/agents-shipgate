@@ -101,7 +101,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.5.1"
+    - python -m pip install "agents-shipgate==0.7.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -133,7 +133,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.5.1"
+      - run: python -m pip install "agents-shipgate==0.7.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports

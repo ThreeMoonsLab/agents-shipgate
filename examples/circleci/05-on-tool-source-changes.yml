@@ -6,7 +6,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.5.1"
+      - run: python -m pip install "agents-shipgate==0.7.0"
       - run:
           name: Run only when tool sources changed
           command: |
