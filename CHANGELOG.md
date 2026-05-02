@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.7.0 - 2026-05-01
+
+Adoption activation: makes the v0.6 features visible to humans and AI
+coding agents on real repos, plus exposes per-check remediation
+metadata so agents can route findings without re-walking the catalog.
+
+- Agent-facing docs surface:
+  - New "Should I run Shipgate on this PR?" trigger table in
+    `AGENTS.md` with the soft-stop rule (don't skip MCP/OpenAPI-only
+    repos that surface as `is_agent_project: false`).
+  - New `docs/agent-recipes.md` — copy-pasteable AI-agent workflows
+    for the canonical 4-call flow.
+  - New `docs/autofix-policy.md` — four classes (safe / medium /
+    manual / never), catalog-vs-Finding contract, strict derivation
+    rule, three patch states, unknown-check-id fallback,
+    `apply-patches --confidence` table, decision tree.
+  - New `docs/minimal-real-configs.md` — per-framework references to
+    runnable `samples/*` fixtures (no inline snippets to drift).
+  - `docs/INDEX.md` cleanup: stale `report-schema.v0.5.json` link
+    removed; current schema link now `report-schema.v0.7.json`.
+  - `docs/quickstart.md` adds a "second 60 seconds" real-repo path.
+- `CheckMetadata` extensions:
+  - New `autofix_safe`, `requires_human_review`, `suggested_patch_kind`
+    fields on every check (45 entries). `docs_url` populated for every
+    check pointing at a stable `### SHIP-...` anchor in
+    `docs/checks.md`. 7 new per-check sections added to `docs/checks.md`
+    so every check has a stable anchor.
+  - Catalog-level safety bools stay conservative — even checks whose
+    generator usually produces a safe non-manual patch (stale-manifest
+    removals, scope coverage) keep `autofix_safe: false` /
+    `requires_human_review: true` because the generator can fall back
+    to `ManualPatch` in edge cases (ambiguous duplicates, etc.).
+    `suggested_patch_kind` is informational — describes what the
+    generator targets when conditions are clean.
+- `Finding` extensions + derivation:
+  - Same four optional fields on every Finding, populated by
+    `annotate_remediation` during scan. Three patch states handled
+    distinctly:
+    - `patches: None` (no `--suggest-patches`) → seed from
+      CheckMetadata; safe-closed fallback for unknown check IDs
+      (policy packs, third-party plugins).
+    - `patches: []` (--suggest-patches ran but generator emitted
+      nothing) → safe-closed shape with `suggested_patch_kind: "none"`.
+      Does NOT fall back to catalog (the report carries no patches).
+    - `patches: [...]` (non-empty) → strict derivation rule:
+      `autofix_safe: true` ONLY when EVERY emitted patch is non-manual
+      AND high-confidence. Mixed states fall to safe-closed.
+  - `docs_url` always sourced from CheckMetadata (patches don't carry
+    per-instance documentation URLs).
+- Report schema bumped to `v0.7` per
+  [STABILITY.md](STABILITY.md#stability-contract) ("`report_schema_version`
+  bumps minor on additive changes"). `docs/report-schema.v0.7.json`
+  added; `v0.6.json` retained as a frozen reference.
+- `_run_id` excludes the four new derived fields plus `patches` so
+  toggling `--suggest-patches` (or future enrichment fields) doesn't
+  shift the hash. New regression test pins this.
+- Plugin-loading isolation: every code path that reads the catalog
+  during scan honors the scan's `plugins_enabled` setting, including
+  the `_attach_patches` recommendation lookup.
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan --no-plugins`
+  no longer loads plugins.
+- Onboarding prompt rewrite: `prompts/add-shipgate-to-repo.md` now
+  leads with the canonical 4-call flow (`detect → init --write --ci →
+  scan --suggest-patches → apply-patches --json`) and includes the
+  decision tree from `docs/autofix-policy.md`. Soft-stop rule
+  documented inline. `apply-patches --json` flag added so the
+  reporting step has structured data to read.
+- Dual-copy prompt parity: byte-identical mirror between
+  `prompts/` and `skills/agents-shipgate/prompts/` enforced by
+  `tests/test_prompt_parity.py` so the two surfaces can't drift.
+- Test coverage: 314 tests pass. New test files:
+  `tests/test_remediation_metadata.py`,
+  `tests/test_finding_remediation.py`,
+  `tests/test_docs_links.py`,
+  `tests/test_prompt_parity.py`,
+  `tests/test_v07_metadata_roundtrip.py`.
+
 ## 0.6.0 - 2026-04-30
 
 Agent-friendly adoption: compresses Shipgate setup into a single

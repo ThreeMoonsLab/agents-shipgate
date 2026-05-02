@@ -12,7 +12,7 @@
 - Publisher: Three Moons Lab
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
-- Latest public release: v0.6.0
+- Latest public release: v0.7.0
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -67,7 +67,7 @@
 - Run a zero-config fixture: `agents-shipgate fixture run support_refund_agent`.
 - Initialize a repo manifest: `agents-shipgate init --workspace . --write`.
 - Scan a repo: `agents-shipgate scan -c shipgate.yaml`.
-- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.6.0`.
+- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.7.0`.
 
 ## Source of truth
 

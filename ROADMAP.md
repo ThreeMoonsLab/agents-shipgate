@@ -2,9 +2,9 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-Agents Shipgate is currently in the `0.5.x` line. The `v0.2` through `v0.5`
-items are complete and retained here as release history. Active public planning
-starts at `v0.6.0`.
+Agents Shipgate is currently in the `0.7.x` line. Releases `v0.2` through
+`v0.7` are complete and retained here as release history. Active public
+planning starts at `v0.8.0`.
 
 ## Completed
 
@@ -83,11 +83,45 @@ agents.
 - Bumped report schema to v0.6 (additive: per-finding `patches`,
   top-level `manifest_dir`).
 
+### v0.7.0 Adoption Activation
+
+Goal: make the v0.6 features visible to humans and AI coding agents
+on real repos, plus expose per-check remediation metadata so agents
+can decide what's safe to auto-fix.
+
+- Added `AGENTS.md` "Should I run Shipgate?" trigger table with the
+  soft-stop rule (don't skip MCP/OpenAPI-only repos).
+- Added `docs/agent-recipes.md`, `docs/autofix-policy.md`, and
+  `docs/minimal-real-configs.md` as the agent-facing surface.
+- Extended `CheckMetadata` with `autofix_safe`,
+  `requires_human_review`, `suggested_patch_kind`, populated
+  `docs_url` for all 45 entries (PR 2 — catalog-conservative
+  defaults; per-check generator targets documented).
+- Added the same four optional fields to `Finding`, plus the
+  derivation policy: when `Finding.patches` is non-empty, derive
+  from actual patches (`autofix_safe=True` only when EVERY patch
+  is non-manual AND high confidence); otherwise seed from
+  `CheckMetadata`. Unknown check IDs (policy packs, plugins) get
+  the safe-closed fallback. Three patch states (None / [] /
+  non-empty) handled distinctly.
+- Bumped report schema to v0.7 (additive over v0.6 — four new
+  optional Finding fields). v0.6 schema retained as a frozen
+  reference.
+- `_run_id` excludes the four new derived fields plus `patches`;
+  scan run_id is identical with or without `--suggest-patches`.
+- Plugin-loading isolation: every code path that reads the catalog
+  during scan honors the scan's `plugins_enabled` setting, so
+  `--no-plugins` is respected even when
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` is set in the environment.
+- Onboarding prompt rewritten to lead with the v0.6 4-call flow;
+  byte-parity test enforces dual-copy synchrony between
+  `prompts/` and `skills/agents-shipgate/prompts/`.
+
 ## Open
 
-### v0.7.0 Cross-Platform CI Expansion
+### v0.8.0 Cross-Platform CI Expansion
 
-Goal: broaden CI documentation after the v0.6 agent-friendly adoption
+Goal: broaden CI documentation after the v0.7 adoption activation
 work lands.
 
 - Add or harden recipes for additional CI platforms:
@@ -103,7 +137,7 @@ work lands.
   - recommended artifact retention;
   - failure-mode examples for security review and platform engineering teams.
 
-### v0.6.x Source-Provenance Enrichment (incremental)
+### v0.7.x Source-Provenance Enrichment (incremental)
 
 Once we have origin (file path, line index for JSONL, list index for
 arrays) threaded through finding evidence, expand the patch generator

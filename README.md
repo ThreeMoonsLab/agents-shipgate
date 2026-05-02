@@ -72,7 +72,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 ## Use in CI
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.6.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.7.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
