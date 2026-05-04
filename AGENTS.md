@@ -345,6 +345,7 @@ Prebuilt prompts for common workflows live in [`prompts/`](prompts/):
 
 - [`add-shipgate-to-repo.md`](prompts/add-shipgate-to-repo.md) — bootstrap a repo
 - [`fix-top-finding.md`](prompts/fix-top-finding.md) — iterate on a single finding
+- [`recommend-fixes.md`](prompts/recommend-fixes.md) — walk all active findings and surface targeted fix recommendations across the four autofix-policy classes
 - [`stabilize-strict-mode.md`](prompts/stabilize-strict-mode.md) — tune → baseline → promote
 - [`triage-false-positive.md`](prompts/triage-false-positive.md) — override vs suppress decision
 
