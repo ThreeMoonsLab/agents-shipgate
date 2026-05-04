@@ -9,7 +9,7 @@ Two pieces of agent-facing surface ship with this repo. Drop them into your own 
 
 The skill is named `agents-shipgate`, not `shipgate`, on purpose: Claude Code lets a skill with the same name as a command preempt it, which would silently bypass the `/shipgate` slash command. Keeping the names distinct lets users invoke the slash command explicitly **and** lets the skill auto-trigger on relevant phrases.
 
-The skill bundles all five [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
+The skill bundles all six [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
 
 ## Install in your agent project
 
@@ -26,6 +26,7 @@ mkdir -p .claude/skills/agents-shipgate
 for f in SKILL.md \
          prompts/add-shipgate-to-repo.md \
          prompts/fix-top-finding.md \
+         prompts/recommend-fixes.md \
          prompts/triage-false-positive.md \
          prompts/stabilize-strict-mode.md \
          prompts/upgrade-shipgate-version.md \
@@ -59,6 +60,7 @@ The `agents-shipgate` skill routes to bundled recipes (relative paths inside the
 - Bootstrap a repo → `prompts/add-shipgate-to-repo.md`
 - First-time CI (advisory PR comment) → `ci-recipes/advisory-pr-comment.yml`
 - Fix the top finding → `prompts/fix-top-finding.md`
+- Recommend fixes across all findings → `prompts/recommend-fixes.md`
 - Triage a false positive → `prompts/triage-false-positive.md`
 - Promote advisory CI to strict → `prompts/stabilize-strict-mode.md`
 - Upgrade the version → `prompts/upgrade-shipgate-version.md`
