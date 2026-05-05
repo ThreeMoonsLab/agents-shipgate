@@ -24,6 +24,18 @@ production-like permissions.
 No agent execution. No LLM calls. No MCP server connections. No scanner network
 calls. No scanner telemetry. Apache-2.0.
 
+## Use this when
+
+Run Agents Shipgate when a PR adds or changes agent tool surfaces or the policy
+evidence around them:
+
+- MCP exports, OpenAPI specs, or local tool inventories.
+- OpenAI Agents SDK, Google ADK, LangChain/LangGraph, CrewAI, Anthropic
+  Messages API, or OpenAI Agents API tool definitions.
+- Prompts, permission scopes, approval policies, confirmation policies,
+  prohibited actions, or `shipgate.yaml`.
+- GitHub Actions or CI release gates for a tool-using AI agent.
+
 ## Try it in 60 seconds
 
 ```bash
@@ -78,6 +90,10 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
     ci_mode: advisory
 ```
 
+Set `pr_comment: "true"` to post a compact PR summary:
+
+![Preview of the optional Agents Shipgate PR comment showing release blockers, severity counts, top findings, and report artifacts.](assets/pr-comment-preview.png)
+
 ## What it scans
 
 | Input | Status |
@@ -118,6 +134,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
+- **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.7"`)
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
@@ -262,10 +279,11 @@ Dynamic ADK toolsets produce warnings or findings unless you provide explicit MC
 
 ## LangChain And CrewAI
 
-v0.5 adds static Python extraction for LangChain/LangGraph and CrewAI. The
-adapters parse Python AST only; they do not import framework packages or user
-modules. The supported LangChain/LangGraph patterns target LangChain Core
-0.3+, LangChain 1.x `create_agent`, and LangGraph 0.2+ source shapes.
+Agents Shipgate includes static Python extraction for LangChain/LangGraph and
+CrewAI. The adapters parse Python AST only; they do not import framework
+packages or user modules. The supported LangChain/LangGraph patterns target
+LangChain Core 0.3+, LangChain 1.x `create_agent`, and LangGraph 0.2+ source
+shapes.
 
 ```yaml
 tool_sources:
@@ -319,7 +337,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK/LangChain/CrewAI inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` in v0.5 so existing configs keep working. Reports add `report_schema_version: "0.5"` while preserving the v0.1 payload keys.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.7"` while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -369,6 +387,10 @@ Agents Shipgate is and will remain free OSS for individuals and teams running it
 
 If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-based evidence emerge, they should live in a separate optional product rather than moving core OSS functionality behind a paywall.
 
+Teams shipping production-like tool-using agents can read the
+[design partner notes](docs/design-partners.md) for early review criteria and
+contact details.
+
 ## Docs
 
 - [Agent Release Gate category](docs/category.md)
@@ -378,6 +400,8 @@ If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-base
 - [Baseline workflow](docs/baseline.md)
 - [JSON report schema v0.7](docs/report-schema.v0.7.json)
 - [Trust model](docs/trust-model.md)
+- [AI search summary](docs/ai-search-summary.md)
+- [Design partners](docs/design-partners.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Integration recipes](docs/integrations.md)

@@ -9,6 +9,36 @@ agents-shipgate is a static, manifest-first scanner that catches risky
 agent tool configurations at PR time. It is a CLI and GitHub Action.
 Open source, Apache-2.0.
 
+## What is agent release readiness?
+
+Agent release readiness is the static pre-flight review of an AI agent's
+release artifact before promotion. For agents-shipgate, that artifact is the
+checked-in manifest, declared tool surface, schemas, scopes, policies, prompts,
+and release evidence that describe what the agent can do.
+
+## What is tool-use readiness?
+
+Tool-use readiness is the seven-dimensional release check on an agent's
+declared tool surface: inventory, schema, auth, approval policies, side
+effects, idempotency, and blast radius. It asks whether the tool surface is
+reviewable before production-like permissions are granted.
+
+## What is an AI agent tool surface?
+
+An AI agent tool surface is the set of named, schemaed actions an agent can
+invoke at runtime. agents-shipgate reads tool surfaces from MCP exports,
+OpenAPI specs, OpenAI Agents SDK Python entrypoints, Anthropic Messages API
+artifacts, Google ADK, LangChain/LangGraph, CrewAI, and OpenAI Agents API
+artifacts.
+
+## How does agents-shipgate work?
+
+agents-shipgate reads `shipgate.yaml` plus declared local tool sources,
+normalizes them into a static inventory, runs deterministic release-readiness
+checks, and writes Markdown, JSON, and optional SARIF reports. It does not run
+the agent, call tools, invoke LLMs, connect to MCP servers, or collect scanner
+telemetry by default.
+
 ## What does it actually check?
 
 Seven dimensions of an agent's tool surface across every declared tool
@@ -62,7 +92,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.5). Always parse this for programmatic use.
+  (schema v0.7). Always parse this for programmatic use.
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
   GitHub's code-scanning UI on the Files Changed view.
 

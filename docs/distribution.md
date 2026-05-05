@@ -32,9 +32,24 @@ release workflow and protected `pypi` environment.
 - Create a small landing page with install instructions, trust model, and findings gallery.
 - Consider a local-only playground later; do not accept private customer manifests into a hosted service without a separate privacy review.
 
+## Release Fan-Out Checklist
+
+The tag-triggered release workflow publishes PyPI artifacts and creates the
+GitHub release. After each release tag, verify the external surfaces that live
+outside this repository:
+
+- PyPI shows the new package version.
+- GitHub Marketplace shows the new release tag as Latest.
+- The website header, footer, `/llms.txt`, and
+  `/.well-known/agents-shipgate.json` show the new version.
+- Website discovery metadata points at the current report schema and GitHub
+  Action pin.
+- `/sitemap.xml` resolves to the current sitemap or redirects to
+  `/sitemap-index.xml`.
+
 ## Marketplace Repository Notes
 
 The repository keeps a root `action.yml` for GitHub Marketplace publication and
 a minimal `.github/workflows/ci.yml` for project validation plus a tag-triggered
 release workflow. The action remains a composite action; there is no Docker
-action entrypoint in v0.5.
+action entrypoint in the current release.

@@ -8,6 +8,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`concepts.md`](concepts.md) — tool-use readiness in depth (the seven dimensions)
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
+- [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
+- [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
@@ -50,4 +52,5 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`../STABILITY.md`](../STABILITY.md) — what won't break across `0.x`
 - [`../prompts/`](../prompts/) — reusable prompts
 - [`../llms.txt`](../llms.txt) — AI-readable project summary
+- [`ai-search-summary.md`](ai-search-summary.md) — prose companion to `llms.txt`
 - [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) — discovery metadata

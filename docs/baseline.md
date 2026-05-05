@@ -37,7 +37,7 @@ fail CI.
 
 Reports keep the v0.1 payload contract and add baseline fields:
 
-- `report_schema_version: "0.5"` in v0.5 reports
+- `report_schema_version: "0.7"` in current reports
 - `baseline.path`
 - `baseline.matched_count`
 - `baseline.new_count`
