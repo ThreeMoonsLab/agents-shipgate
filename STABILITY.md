@@ -43,7 +43,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
-- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status}` (reference-only — full Finding payload is in `findings[]`)
+- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`)
 - `summary.{critical_count, high_count, medium_count, low_count, info_count, suppressed_count, status, human_review_recommended}`
 - `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`
 - `findings[].tool_name` (string or null)
