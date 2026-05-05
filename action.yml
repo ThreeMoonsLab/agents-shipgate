@@ -227,6 +227,8 @@ runs:
             "decision": release_decision.get("decision", ""),
             "blocker_count": len(release_decision.get("blockers") or []),
             "review_item_count": len(release_decision.get("review_items") or []),
+            # v0.8+ output. Pinned older package versions emit no release_decision,
+            # so this stays false until the workflow installs v0.8+.
             "ci_would_fail": str(bool(fail_policy.get("would_fail_ci"))).lower(),
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:

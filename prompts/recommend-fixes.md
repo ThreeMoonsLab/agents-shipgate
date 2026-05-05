@@ -1,15 +1,15 @@
 # Prompt · Recommend fixes for active Agents Shipgate findings
 
-You are working in a repo with `shipgate.yaml` already in place and want a coordinated remediation pass across **all** active findings — not just the top one. Walk every finding, classify it against the v0.7 autofix policy, and surface targeted fix recommendations. Apply only the safe, high-confidence patches (after preview + explicit confirmation); leave the rest for human review with concrete advice.
+You are working in a repo with `shipgate.yaml` already in place and want a coordinated remediation pass across **all** active findings — not just the top one. Walk every finding, classify it against the current autofix policy, and surface targeted fix recommendations. Apply only the safe, high-confidence patches (after preview + explicit confirmation); leave the rest for human review with concrete advice.
 
 ## Your task
 
-1. **Always run a fresh v0.7 scan with patches.** Do not reuse a stale report — earlier scans may be pre-v0.7 (no remediation fields) or may lack `patches[]` (no `--suggest-patches`). Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
+1. **Always run a fresh v0.8+ scan with patches.** Do not reuse a stale report — earlier scans may be pre-v0.7 (no remediation fields), pre-v0.8 (no `release_decision`), or may lack `patches[]` (no `--suggest-patches`). Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
    ```bash
    AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate scan -c shipgate.yaml \
        --suggest-patches --format json --ci-mode advisory
    ```
-   Read `agents-shipgate-reports/report.json`. Verify `report_schema_version` is `"0.7"` or higher. Filter `findings[]` to entries with `"suppressed": false`.
+   Read `agents-shipgate-reports/report.json`. Verify `report_schema_version` is `"0.8"` or higher. Filter `findings[]` to entries with `"suppressed": false`.
 
 2. **Bucket each active finding into one of four classes.** Use the per-Finding fields (the catalog values are worst-case; per-Finding fields tell the truth for this scan). The buckets come from [`docs/autofix-policy.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/autofix-policy.md):
 

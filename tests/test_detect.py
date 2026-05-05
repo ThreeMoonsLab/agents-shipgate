@@ -155,6 +155,23 @@ def test_detect_ignores_local_private_and_virtualenv_fixtures(tmp_path: Path) ->
     assert result.suggested_sources == []
 
 
+def test_detect_does_not_skip_workspace_because_parent_is_skipped_name(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".claude" / "worktrees" / "agent-review"
+    workspace.mkdir(parents=True)
+    (workspace / "agent.py").write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(workspace)
+
+    assert result.is_agent_project is True
+    langchain = next(fw for fw in result.frameworks if fw.type == "langchain")
+    assert langchain.candidate_files == ["agent.py"]
+
+
 def test_detect_respects_gitignored_nested_agent_artifacts(tmp_path: Path) -> None:
     if not shutil.which("git"):
         pytest.skip("git is required for git-aware discovery regression coverage")

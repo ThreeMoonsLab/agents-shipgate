@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import subprocess
 from pathlib import Path
 
@@ -237,8 +238,12 @@ def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:
     return sorted(found)
 
 
-def _skip(path: Path) -> bool:
-    return any(_skip_part(part) for part in path.parts)
+def _skip(path: Path, workspace: Path) -> bool:
+    try:
+        rel_parts = path.resolve().relative_to(workspace.resolve()).parts
+    except ValueError:
+        return True
+    return any(_skip_part(part) for part in rel_parts)
 
 
 def _skip_part(part: str) -> bool:
@@ -312,21 +317,22 @@ def _git_candidate_files(workspace: Path) -> list[Path] | None:
         except UnicodeDecodeError:
             continue
         path = (git_root / rel).resolve()
-        try:
-            path.relative_to(workspace)
-        except ValueError:
-            continue
-        if path.is_file() and not _skip(path):
+        if path.is_file() and not _skip(path, workspace):
             candidates.append(path)
     return sorted(candidates)
 
 
 def _walk_candidate_files(workspace: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in workspace.rglob("*")
-        if path.is_file() and not _skip(path)
-    )
+    candidates: list[Path] = []
+    workspace = workspace.resolve()
+    for root, dirnames, filenames in os.walk(workspace):
+        dirnames[:] = [dirname for dirname in dirnames if not _skip_part(dirname)]
+        root_path = Path(root)
+        for filename in filenames:
+            path = root_path / filename
+            if path.is_file() and not _skip(path, workspace):
+                candidates.append(path)
+    return sorted(candidates)
 
 
 def _matches_pattern(path: Path, workspace: Path, pattern: str) -> bool:
