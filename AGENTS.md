@@ -348,6 +348,7 @@ Prebuilt prompts for common workflows live in [`prompts/`](prompts/):
 - [`recommend-fixes.md`](prompts/recommend-fixes.md) — walk all active findings and surface targeted fix recommendations across the four autofix-policy classes
 - [`stabilize-strict-mode.md`](prompts/stabilize-strict-mode.md) — tune → baseline → promote
 - [`triage-false-positive.md`](prompts/triage-false-positive.md) — override vs suppress decision
+- [`upgrade-shipgate-version.md`](prompts/upgrade-shipgate-version.md) — bump agents-shipgate version safely (regenerate baseline if needed)
 
 Claude Code: a `/shipgate` slash command lives at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md), and an auto-discoverable skill lives at [`skills/agents-shipgate/`](skills/agents-shipgate/) (named `agents-shipgate` to avoid colliding with the slash command — Claude Code lets a same-named skill preempt a command). The skill bundles the recipes in [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and a starter advisory CI workflow at [`skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml`](skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml); when you change anything in [`prompts/`](prompts/) or `examples/github-actions/01-advisory-pr-comment.yml`, sync the bundled copy. To install both surfaces into your own agent project, see [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md).
 
