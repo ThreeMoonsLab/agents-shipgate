@@ -13,7 +13,8 @@ By default Agents Shipgate does not:
 - connect to MCP servers;
 - resolve remote or local filesystem OpenAPI `$ref` values;
 - make network calls;
-- shell out to subprocesses;
+- shell out to subprocesses, except for bounded local `git` discovery in
+  `detect` and auto-init;
 - import third-party check plugins;
 - collect telemetry.
 
@@ -23,6 +24,12 @@ By default Agents Shipgate does not:
 - Declared local input paths are resolved relative to the manifest directory and rejected if they escape that base directory. This prevents a manifest from reading sibling repositories or absolute host files unless the source is first copied or symlinked into the reviewed workspace.
 - OpenAPI `$ref` resolution only follows internal JSON pointers beginning with `#/`.
 - `file://`, `http://`, and other external `$ref` values are left as inert schema values.
+- Workspace discovery for `detect` and auto-init may invoke the local `git`
+  binary (`rev-parse` and `ls-files`) with short timeouts to enumerate
+  tracked/unignored files. This does not contact remotes, execute user code,
+  run framework CLIs, connect to MCP servers, call tools, call models, or
+  affect scan verdict semantics. If `git` is unavailable or fails, Agents
+  Shipgate falls back to local filesystem walking with skip rules.
 - OpenAI Agents SDK enrichment uses `ast.parse` only. It does not import or execute Python modules.
 - `openai_api` artifacts are local prompt, JSON, YAML, or JSONL files. Agents Shipgate parses them locally and does not call OpenAI APIs, validate model availability, estimate pricing, or execute traces.
 - Google ADK support is static-only. Agents Shipgate parses Python AST and Agent Config YAML, but does not import ADK code, run `adk run`, run `adk web`, run `adk eval`, connect to MCP servers, call tools, call models, or fetch remote specs by default.

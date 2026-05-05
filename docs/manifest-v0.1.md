@@ -285,7 +285,7 @@ Tool names are validated against Anthropic's documented regex `^[a-zA-Z0-9_-]{1,
 
 `cache_control` values are captured verbatim into `tool.annotations.anthropicCacheControl`. They have no influence on risk classification in v0.4.
 
-`policy_rules` files share the same shape as the OpenAI Agents API policy file (`approval_required`, `confirmation_required`, `idempotency_required`). They feed `SHIP-POLICY-APPROVAL-MISSING`, `SHIP-POLICY-CONFIRMATION-MISSING`, and `SHIP-SIDEFX-IDEMPOTENCY-MISSING` checks alongside the manifest's top-level `policies` block.
+`policy_rules` files share the same shape as the OpenAI API policy file (`approval_required`, `confirmation_required`, `idempotency_required`). They feed `SHIP-POLICY-APPROVAL-MISSING`, `SHIP-POLICY-CONFIRMATION-MISSING`, and `SHIP-SIDEFX-IDEMPOTENCY-MISSING` checks alongside the manifest's top-level `policies` block.
 
 The framework-agnostic checks (`SHIP-INVENTORY-*`, `SHIP-DOC-*`, `SHIP-SCHEMA-*`, `SHIP-AUTH-*`, `SHIP-SCOPE-*`, `SHIP-POLICY-*`, `SHIP-SIDEFX-*`, `SHIP-MANIFEST-*`) all fire on Anthropic tools without any extra configuration. From the `SHIP-API-*` family, `SHIP-API-FUNCTION-SCHEMA-STRICTNESS` and `SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH` apply; the others key on OpenAI-specific data (response formats, retry policy, trace samples) and intentionally do not fire on Anthropic-only manifests. No new `SHIP-ANTHROPIC-*` check IDs are introduced.
 

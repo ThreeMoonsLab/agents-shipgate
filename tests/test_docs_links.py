@@ -71,6 +71,20 @@ def test_index_lists_current_v08_schema():
     )
 
 
+def test_trust_model_documents_bounded_git_discovery_exception():
+    """The trust model must keep the local git subprocess exception explicit.
+
+    Discovery can use git to avoid private/cache/generated workspace noise, but
+    the no-user-code/no-network boundary still holds.
+    """
+    text = (DOCS_DIR / "trust-model.md").read_text(encoding="utf-8")
+    assert "- shell out to subprocesses;" not in text
+    assert "bounded local `git` discovery" in text
+    assert "`rev-parse` and `ls-files`" in text
+    assert "does not contact remotes" in text
+    assert "run framework CLIs" in text
+
+
 def test_agent_recipes_internal_links_resolve():
     """Internal markdown links in `agent-recipes.md` (the doc most
     likely to grow forward references) must point at files that

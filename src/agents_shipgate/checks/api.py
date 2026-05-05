@@ -67,7 +67,7 @@ def _function_schema_strictness(context: ScanContext):
 
 def _structured_output_readiness(context: ScanContext):
     # Anthropic config has no first-class response-format artifact in MVP,
-    # so this check stays scoped to the OpenAI Agents API surface. Use the
+    # so this check stays scoped to the OpenAI API artifact surface. Use the
     # OpenAI-only tool filter so a mixed manifest (anthropic + openai_api)
     # doesn't list Anthropic tools as high-risk under an OpenAI-shaped
     # finding.
@@ -192,7 +192,7 @@ def _prompt_tool_scope_mismatch(context: ScanContext):
 
 def _operational_readiness(context: ScanContext):
     # The retry / timeout / test-case / output-schema readiness checks key on
-    # OpenAI Agents API artifacts. Anthropic MVP doesn't carry equivalent data,
+    # OpenAI API artifacts. Anthropic MVP doesn't carry equivalent data,
     # so we filter to OpenAI tools only — otherwise a mixed manifest would
     # fire OpenAI-shaped findings against Anthropic tools that have no
     # response_formats / retry_policy / test_cases / tool_output_schemas
@@ -412,7 +412,7 @@ def _broad_free_text(parameter: ToolParameter) -> bool:
 
 
 def _api_tools(context: ScanContext) -> list[Tool]:
-    """Tools backed by an artifact-style adapter (OpenAI Agents API or
+    """Tools backed by an artifact-style adapter (OpenAI API artifacts or
     Anthropic Messages API). Used by checks that apply to both surfaces:
     function-schema strictness and prompt/tool scope mismatch.
     """
@@ -424,7 +424,7 @@ def _api_tools(context: ScanContext) -> list[Tool]:
 
 
 def _openai_api_tools(context: ScanContext) -> list[Tool]:
-    """Tools backed only by the OpenAI Agents API adapter. Used by checks
+    """Tools backed only by the OpenAI API artifact adapter. Used by checks
     that key on OpenAI-specific artifacts (response_formats, retry_policy,
     test_cases, tool_output_schemas) — these have no Anthropic equivalent
     in the v0.4 MVP and would produce false positives on Anthropic tools.

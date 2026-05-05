@@ -28,7 +28,7 @@ reviewable before production-like permissions are granted.
 An AI agent tool surface is the set of named, schemaed actions an agent can
 invoke at runtime. agents-shipgate reads tool surfaces from MCP exports,
 OpenAPI specs, OpenAI Agents SDK Python entrypoints, Anthropic Messages API
-artifacts, Google ADK, LangChain/LangGraph, CrewAI, and OpenAI Agents API
+artifacts, Google ADK, LangChain/LangGraph, CrewAI, and OpenAI API
 artifacts.
 
 ## How does agents-shipgate work?

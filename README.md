@@ -31,7 +31,7 @@ evidence around them:
 
 - MCP exports, OpenAPI specs, or local tool inventories.
 - OpenAI Agents SDK, Google ADK, LangChain/LangGraph, CrewAI, Anthropic
-  Messages API, or OpenAI Agents API tool definitions.
+  Messages API, or OpenAI API artifact tool definitions.
 - Prompts, permission scopes, approval policies, confirmation policies,
   prohibited actions, or `shipgate.yaml`.
 - GitHub Actions or CI release gates for a tool-using AI agent.
@@ -151,11 +151,13 @@ Agents Shipgate produces a deterministic answer to that question, before promoti
 The bundled support-refund fixture demonstrates the kind of release risks Agents Shipgate is designed to surface:
 
 ```text
-## Agents Shipgate
+## Release Decision
 
-Status: Release blockers detected
-Critical: 2 - High: 14 - Medium: 2
-Human review: recommended
+Decision: blocked
+Reason: 2 active findings block release.
+Blockers: 2
+Review items: 16
+Fail policy: would_fail_ci=false (exit 0)
 
 Top findings:
 1. stripe.create_refund lacks a declared approval policy
