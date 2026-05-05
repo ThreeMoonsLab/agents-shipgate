@@ -169,8 +169,13 @@ def write_report_schema() -> None:
             ]
         )
     if "ReleaseDecisionItem" in defs:
+        # Pin the full v0.8 contract documented in STABILITY.md. `id`,
+        # `fingerprint`, and `baseline_status` are nullable in the model
+        # but every emitted item carries them — requiring the key to be
+        # present (value may be null) lets agent/CI consumers rely on
+        # the documented shape without conditional key checks.
         defs["ReleaseDecisionItem"]["required"] = sorted(
-            ["check_id", "severity", "title"]
+            ["id", "fingerprint", "check_id", "severity", "title", "baseline_status"]
         )
     if "EvidenceCoverageDecision" in defs:
         defs["EvidenceCoverageDecision"]["required"] = sorted(

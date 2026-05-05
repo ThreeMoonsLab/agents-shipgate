@@ -294,6 +294,19 @@ def test_v08_schema_requires_release_decision():
         "source_warning_count",
         "low_confidence_tool_count",
     }
+    # STABILITY.md guarantees the full v0.8 contract on each item: id,
+    # fingerprint, check_id, severity, title, baseline_status. The
+    # nullable ones (id/fingerprint/baseline_status) must still appear
+    # as keys so consumers can read them without conditional checks.
+    item_required = set(schema["$defs"]["ReleaseDecisionItem"]["required"])
+    assert item_required == {
+        "id",
+        "fingerprint",
+        "check_id",
+        "severity",
+        "title",
+        "baseline_status",
+    }
 
 
 def test_v08_schema_rejects_null_release_decision(tmp_path):

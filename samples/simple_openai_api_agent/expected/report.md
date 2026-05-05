@@ -7,7 +7,7 @@ Target: production\_like
 ## Release Decision
 
 Decision: review_required
-Reason: 20 findings need review and evidence coverage is incomplete.
+Reason: 20 findings require human review before shipping.
 
 Blockers (0): none
 

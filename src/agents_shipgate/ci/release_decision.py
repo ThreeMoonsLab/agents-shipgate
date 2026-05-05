@@ -137,6 +137,15 @@ def _decision_reason(
             if item.severity == "critical" and item.baseline_status == "matched"
         )
         n_reviews = len(review_items)
+        # Gate "evidence coverage is incomplete" wording on actual
+        # measurable gaps. summary.human_review_recommended is also True
+        # for any critical/high finding (see findings.summarize_findings),
+        # so using it here would falsely claim evidence gaps for clean
+        # static scans that simply have high-severity findings.
+        has_evidence_gaps = (
+            evidence.low_confidence_tool_count > 0
+            or evidence.source_warning_count > 0
+        )
         if (
             review_items
             and matched_criticals == n_reviews
@@ -146,18 +155,23 @@ def _decision_reason(
                 "All critical findings are baseline-matched; review "
                 "accepted debt before shipping."
             )
-        if not review_items and evidence.human_review_recommended:
-            return (
-                "Static-only scan with low-confidence evidence; human "
-                "review recommended."
-            )
-        if review_items and evidence.human_review_recommended:
+        if review_items and has_evidence_gaps:
             noun = "finding" if n_reviews == 1 else "findings"
             return (
                 f"{n_reviews} {noun} need review and evidence coverage "
                 "is incomplete."
             )
-        noun = "finding" if n_reviews == 1 else "findings"
-        verb = "requires" if n_reviews == 1 else "require"
-        return f"{n_reviews} {noun} {verb} human review before shipping."
+        if review_items:
+            noun = "finding" if n_reviews == 1 else "findings"
+            verb = "requires" if n_reviews == 1 else "require"
+            return f"{n_reviews} {noun} {verb} human review before shipping."
+        if has_evidence_gaps:
+            return (
+                "Static-only scan with low-confidence evidence; human "
+                "review recommended."
+            )
+        # Defensive: review_required with no review_items and no
+        # measurable evidence gaps. summarize_findings doesn't produce
+        # this combination today, but cover the case explicitly.
+        return "Human review recommended."
     return "No active blockers and evidence coverage is full."

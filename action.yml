@@ -205,7 +205,11 @@ runs:
                 fail_policy = release_decision.get("fail_policy") or {}
 
         def clean(value: object) -> str:
-            return str(value or "").replace("\r", "").replace("\n", "")
+            # `value or ""` would emit 0 as "", which breaks workflow
+            # checks like `if: outputs.blocker_count == '0'`. Treat None
+            # as empty; stringify everything else (including 0 and False).
+            text = "" if value is None else str(value)
+            return text.replace("\r", "").replace("\n", "")
 
         values = {
             "status": summary.get("status", ""),

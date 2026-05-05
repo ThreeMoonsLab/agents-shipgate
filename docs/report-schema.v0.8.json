@@ -630,7 +630,10 @@
         }
       },
       "required": [
+        "baseline_status",
         "check_id",
+        "fingerprint",
+        "id",
         "severity",
         "title"
       ],
