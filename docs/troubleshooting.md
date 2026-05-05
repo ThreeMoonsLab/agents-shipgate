@@ -14,6 +14,19 @@ Then inspect the sources before running checks:
 agents-shipgate doctor --config shipgate.yaml
 ```
 
+## First Real Repo Decision Tree
+
+Use this before reading the full manifest schema.
+
+| Symptom | Fix |
+| --- | --- |
+| `detect --json` returns `is_agent_project: false`, but `suggested_sources` has MCP or OpenAPI files | Continue to `init --workspace . --write`; artifact-only repos are valid Shipgate targets. |
+| `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source parse warnings, and dynamic toolset warnings. |
+| SDK/framework extractor finds no tools | Add an explicit MCP export, OpenAPI spec, or local tool inventory instead of relying on dynamic code discovery. |
+| `shipgate.yaml` still has `CHANGE_ME` | Replace `agent.name` and `agent.declared_purpose` from prompt, main agent file, or README context before scanning. |
+| Install fails in an older project environment | Agents Shipgate requires Python 3.12+. Install with `pipx` or `uv` using a Python 3.12+ interpreter. |
+| Reports show up as untracked files | Add `agents-shipgate-reports/` to `.gitignore`; do not commit reports by default. |
+
 ## `doctor` Shows Zero Tools
 
 Common causes:

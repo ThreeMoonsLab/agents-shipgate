@@ -17,6 +17,9 @@ python -m agents_shipgate --help           # run from a pip install without PATH
 ```
 
 The CLI binary is `agents-shipgate`; a short alias `shipgate` is also installed.
+Agents Shipgate currently requires Python 3.12 or newer. If your project uses
+an older runtime, install the CLI with `pipx` or `uv` using a Python 3.12+
+interpreter instead of installing it into the project environment.
 
 ## First scan (60 seconds against a fixture)
 
@@ -49,6 +52,19 @@ agents-shipgate apply-patches \
 framework(s) are present. `init --write --ci` produces a schema-valid
 `shipgate.yaml` (with framework-specific `tool_sources` populated) and an
 optional GitHub Actions workflow.
+
+### If The First Real Repo Stalls
+
+Use this decision tree before reading the full manifest schema:
+
+| Symptom | Next action |
+| --- | --- |
+| `detect` says `is_agent_project: false`, but `suggested_sources` includes MCP or OpenAPI files | Proceed to `init`. MCP/OpenAPI-only repos are valid tool-surface targets even without Python framework detection. |
+| `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic ADK/MCP toolsets. |
+| Tools are created by factories, wrappers, or dynamic ADK/MCP toolsets | Provide an explicit MCP export, OpenAPI spec, or local tool inventory artifact. |
+| `init --write --json` reports `CHANGE_ME` placeholders | Replace `agent.name` and `agent.declared_purpose` from the prompt, main agent file, or repo README before scanning. |
+| Install fails in a Python 3.10/3.11 project | Install the CLI outside the project env with `pipx` or `uv` using Python 3.12+. |
+| Reports appear in `git status` | Add `agents-shipgate-reports/` to `.gitignore`; reports are local release-review artifacts. |
 
 ### Choose Your First Source
 

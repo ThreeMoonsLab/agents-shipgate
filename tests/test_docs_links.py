@@ -1,7 +1,7 @@
 """Docs link integrity tests for the v0.7 agent-facing docs surface.
 
-Per the v0.7 plan §3 verification:
-- The three agent-facing docs exist on disk.
+Per the agent-facing docs verification:
+- The agent-facing docs exist on disk.
 - Each is linked from `docs/INDEX.md` so agents walking the index can
   find them.
 - Internal links inside the agent-facing docs resolve to files that
@@ -22,8 +22,10 @@ INDEX_MD = DOCS_DIR / "INDEX.md"
 
 AGENT_FACING_DOCS = (
     "agent-recipes.md",
+    "agent-adoption-harness.md",
     "autofix-policy.md",
     "minimal-real-configs.md",
+    "target-repo-agent-snippets.md",
 )
 
 
@@ -83,6 +85,57 @@ def test_trust_model_documents_bounded_git_discovery_exception():
     assert "`rev-parse` and `ls-files`" in text
     assert "does not contact remotes" in text
     assert "run framework CLIs" in text
+
+
+def test_target_repo_snippets_pin_advisory_agent_contract():
+    text = (DOCS_DIR / "target-repo-agent-snippets.md").read_text(encoding="utf-8")
+    assert "release_decision.decision" in text
+    assert "agents-shipgate-reports/report.json" in text
+    assert "ci_mode: advisory" in text
+    assert 'pr_comment: "true"' in text
+    assert "apply-patches" in text
+    assert "--confidence high --apply" in text
+    assert "Do not auto-assert approval" in text
+    assert "confirmation" in text
+    assert "idempotency" in text
+    assert "broad-scope" in text
+    assert "prohibited-action" in text
+    assert "pure docs, tests, formatting" in text
+
+
+def test_agent_adoption_harness_is_manual_and_keeps_results_private():
+    text = (DOCS_DIR / "agent-adoption-harness.md").read_text(encoding="utf-8")
+    assert "Do not automate calls" in text
+    assert ".agents-private/adoption-sprint/" in text
+    assert "100-Point Rubric" in text
+    assert "negative-control non-agent repo" in text
+    assert "release_decision.decision" in text
+
+
+def test_golden_pr_examples_exist_and_reference_real_samples():
+    root = REPO_ROOT / "examples" / "golden-prs"
+    expected = {
+        "openai-agents-sdk-refund-agent": REPO_ROOT / "samples" / "support_refund_agent",
+        "mcp-only-tool-server": REPO_ROOT
+        / "samples"
+        / "support_refund_agent"
+        / ".agents-shipgate"
+        / "mcp-tools.json",
+        "openapi-support-agent": REPO_ROOT
+        / "samples"
+        / "support_refund_agent"
+        / "specs"
+        / "support-tools.openapi.yaml",
+    }
+    assert (root / "README.md").is_file()
+    for dirname, sample_path in expected.items():
+        readme = root / dirname / "README.md"
+        assert readme.is_file(), f"Missing golden PR README: {readme}"
+        assert sample_path.exists(), f"Golden PR sample reference is missing: {sample_path}"
+        text = readme.read_text(encoding="utf-8").lower()
+        assert "release decision" in text
+        assert "human" in text
+        assert "pr comment" in text
 
 
 def test_agent_recipes_internal_links_resolve():

@@ -29,6 +29,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 ## Examples
 
 - [`examples.md`](examples.md) — narrative tour of sample agents and CI recipes
+- [`../examples/golden-prs/`](../examples/golden-prs/) — end-to-end advisory PR examples for humans and coding agents
 - [`manifest-v0.1.example.minimal.yaml`](manifest-v0.1.example.minimal.yaml) — smallest valid manifest
 - [`manifest-v0.1.example.full.yaml`](manifest-v0.1.example.full.yaml) — every section populated
 - [`../samples/`](../samples/) — runnable fixtures
@@ -46,6 +47,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 ## For agents
 
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow (`detect → init → scan → apply-patches`)
+- [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md) — copyable `AGENTS.md`, `CLAUDE.md`, Cursor, PR template, and advisory workflow snippets for downstream repos
+- [`agent-adoption-harness.md`](agent-adoption-harness.md) — manual protocol for measuring whether coding agents discover and use Shipgate
 - [`autofix-policy.md`](autofix-policy.md) — which findings are safe to apply, which need review, and how `apply-patches --confidence` filters them
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
 - [`../AGENTS.md`](../AGENTS.md) — agent-facing instructions

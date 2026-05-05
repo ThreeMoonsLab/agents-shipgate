@@ -31,6 +31,13 @@ Useful fixtures:
 - [GitLab CI recipes](../examples/gitlab-ci/)
 - [CircleCI recipes](../examples/circleci/)
 
+## Golden PR examples
+
+- [Golden PR examples](../examples/golden-prs/) show the advisory loop a
+  reviewer or coding agent should imitate: initial risky tool surface, commands
+  run, release decision summary, top findings, safe patch boundary, and PR
+  comment shape.
+
 ## Example output
 
 The canonical fixture writes:

@@ -141,6 +141,25 @@ stop rule above, proceed anyway when `suggested_sources` is non-empty.
 `init` will populate `tool_sources` from those globs. The rest of the
 flow (steps 2-5) is identical.
 
+### First-real-repo recovery rules
+
+When the first repo scan does not produce useful tools, follow these
+rules before changing code:
+
+- If `detect --json` has MCP/OpenAPI `suggested_sources`, continue to
+  `init` even when `is_agent_project` is `false`.
+- If `doctor` shows zero tools, inspect `tool_sources[].path`, MCP
+  `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic
+  ADK/MCP warnings.
+- If tools are created by factories, wrappers, runtime imports, or
+  dynamic ADK/MCP toolsets, provide an explicit MCP export, OpenAPI
+  spec, or local tool inventory artifact.
+- Replace every `CHANGE_ME` value in `shipgate.yaml` before scanning;
+  use the prompt, main agent file, README, or owner-provided context.
+- Agents Shipgate requires Python 3.12+. If the project runtime is
+  older, install the CLI outside the project env with `pipx` or `uv`.
+- Ensure `agents-shipgate-reports/` is listed in `.gitignore`.
+
 ---
 
 ## Recipe 3 · Re-scan after editing the manifest
