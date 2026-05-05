@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-05-05
 
 - Report schema bumped to `v0.8`. New top-level required `release_decision` block:
   `{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}`.
@@ -30,6 +30,9 @@
   `review_item_count`, `ci_would_fail`. Existing outputs (`status`,
   `critical_count`, `baseline_*`, `adk_*`, `report_*`, `exit_code`)
   unchanged.
+- The release verdict path remains deterministic and LLM-free: no agent
+  execution, tool call, model call, MCP connection, network access, or
+  telemetry is added for v0.8.
 - `exit_code_for_report()` refactored to share `effective_fail_on()` and
   `baseline_filtered_active()` helpers with `build_release_decision()`,
   so the standalone exit code and `release_decision.fail_policy.exit_code`

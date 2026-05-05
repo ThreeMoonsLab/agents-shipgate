@@ -32,7 +32,7 @@ surface before production-like permissions are granted.
 - Google ADK Python and YAML config
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
-- OpenAI Agents API artifacts
+- OpenAI API artifacts
 
 ## Core references
 
@@ -40,6 +40,6 @@ surface before production-like permissions are granted.
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)
-- [Report schema v0.7](report-schema.v0.7.json)
+- [Report schema v0.8](report-schema.v0.8.json)
 - [Trust model](trust-model.md)
 - [Agent instructions](../AGENTS.md)

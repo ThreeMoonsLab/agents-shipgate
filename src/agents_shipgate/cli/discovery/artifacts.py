@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import fnmatch
+import subprocess
 from pathlib import Path
 
 OPENAPI_PATTERNS = (
@@ -30,13 +32,20 @@ ANTHROPIC_POLICY_PATTERNS = (
     "policies/anthropic-policy.yaml",
 )
 SKIP_DIRS = {
+    ".agents-private",
+    ".cache",
+    ".claude",
+    ".direnv",
     ".git",
     ".hg",
+    ".nox",
     ".svn",
     ".mypy_cache",
     ".next",
+    ".pnpm-store",
     ".pytest_cache",
     ".ruff_cache",
+    ".turbo",
     ".tox",
     ".venv",
     "__pycache__",
@@ -48,22 +57,19 @@ SKIP_DIRS = {
     "target",
     "venv",
 }
+SKIP_DIR_PREFIXES = (".venv",)
 
 
 def discover_manifest_paths(workspace: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in workspace.rglob("shipgate.yaml")
-        if not _skip(path)
-    )
+    return _candidate_files_matching(workspace, ("shipgate.yaml",))
 
 
 def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
     sources: list[dict[str, str]] = []
     seen: set[Path] = set()
     for pattern in OPENAPI_PATTERNS:
-        for path in workspace.rglob(pattern):
-            if _skip(path) or path in seen:
+        for path in _candidate_files_matching(workspace, (pattern,)):
+            if path in seen:
                 continue
             seen.add(path)
             sources.append(
@@ -74,8 +80,8 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
                 }
             )
     for pattern in MCP_PATTERNS:
-        for path in workspace.rglob(pattern):
-            if _skip(path) or path in seen:
+        for path in _candidate_files_matching(workspace, (pattern,)):
+            if path in seen:
                 continue
             seen.add(path)
             sources.append(
@@ -223,17 +229,113 @@ def discover_anthropic_artifacts(workspace: Path) -> dict[str, list[str]]:
 def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:
     found: list[str] = []
     seen: set[Path] = set()
-    for pattern in patterns:
-        for path in workspace.rglob(pattern):
-            if _skip(path) or path in seen:
-                continue
-            seen.add(path)
-            found.append(_relative(path, workspace))
+    for path in _candidate_files_matching(workspace, patterns):
+        if path in seen:
+            continue
+        seen.add(path)
+        found.append(_relative(path, workspace))
     return sorted(found)
 
 
 def _skip(path: Path) -> bool:
-    return any(part in SKIP_DIRS for part in path.parts)
+    return any(_skip_part(part) for part in path.parts)
+
+
+def _skip_part(part: str) -> bool:
+    return part in SKIP_DIRS or any(
+        part.startswith(prefix) for prefix in SKIP_DIR_PREFIXES
+    )
+
+
+def _candidate_files_matching(workspace: Path, patterns: tuple[str, ...]) -> list[Path]:
+    return sorted(
+        path
+        for path in _candidate_files(workspace)
+        if any(_matches_pattern(path, workspace, pattern) for pattern in patterns)
+    )
+
+
+def _candidate_files(workspace: Path) -> list[Path]:
+    workspace = workspace.resolve()
+    git_files = _git_candidate_files(workspace)
+    if git_files is not None:
+        return git_files
+    return _walk_candidate_files(workspace)
+
+
+def _git_candidate_files(workspace: Path) -> list[Path] | None:
+    try:
+        root_result = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if root_result.returncode != 0:
+        return None
+    git_root = Path(root_result.stdout.strip()).resolve()
+    if not git_root:
+        return None
+
+    try:
+        files_result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "ls-files",
+                "-co",
+                "--exclude-standard",
+                "--full-name",
+                "-z",
+                "--",
+                ".",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if files_result.returncode != 0:
+        return None
+
+    candidates: list[Path] = []
+    for raw_rel in files_result.stdout.split(b"\0"):
+        if not raw_rel:
+            continue
+        try:
+            rel = raw_rel.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        path = (git_root / rel).resolve()
+        try:
+            path.relative_to(workspace)
+        except ValueError:
+            continue
+        if path.is_file() and not _skip(path):
+            candidates.append(path)
+    return sorted(candidates)
+
+
+def _walk_candidate_files(workspace: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in workspace.rglob("*")
+        if path.is_file() and not _skip(path)
+    )
+
+
+def _matches_pattern(path: Path, workspace: Path, pattern: str) -> bool:
+    rel = _relative(path, workspace)
+    if fnmatch.fnmatch(rel, pattern):
+        return True
+    if "/" not in pattern:
+        return fnmatch.fnmatch(path.name, pattern)
+    return fnmatch.fnmatch(rel, f"*/{pattern}")
 
 
 def _relative(path: Path, base: Path) -> str:

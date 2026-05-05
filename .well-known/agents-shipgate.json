@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "Static release-readiness gate for AI agent tool surfaces",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -11,7 +11,7 @@
   },
   "package": {
     "pypi": "agents-shipgate",
-    "github_action": "ThreeMoonsLab/agents-shipgate@v0.7.0",
+    "github_action": "ThreeMoonsLab/agents-shipgate@v0.8.0",
     "github_repo": "ThreeMoonsLab/agents-shipgate"
   },
   "install": {
@@ -28,7 +28,7 @@
   "trust_model": "static_by_default",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
-    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.7.json",
+    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.8.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",

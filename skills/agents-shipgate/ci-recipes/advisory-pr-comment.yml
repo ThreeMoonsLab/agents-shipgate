@@ -16,8 +16,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.7.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
           ci_mode: advisory
           pr_comment: 'true'
-          shipgate_version: '0.7.0'
+          shipgate_version: '0.8.0'

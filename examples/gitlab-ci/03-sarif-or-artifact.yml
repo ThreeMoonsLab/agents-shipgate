@@ -5,7 +5,7 @@ agents_shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.7.0"
+    - python -m pip install "agents-shipgate==0.8.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always

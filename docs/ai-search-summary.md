@@ -42,7 +42,7 @@ Agents Shipgate supports these static tool-source inputs:
 - Google ADK Python and YAML config.
 - LangChain and LangGraph Python entrypoints, using static AST extraction.
 - CrewAI Python entrypoints, using static AST extraction.
-- OpenAI Agents API artifacts, including prompts, function schemas, response
+- OpenAI API artifacts, including prompts, function schemas, response
   formats, tests, and traces.
 
 ## What it is not
@@ -84,5 +84,5 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema: [`report-schema.v0.7.json`](report-schema.v0.7.json)
+- Report schema: [`report-schema.v0.8.json`](report-schema.v0.8.json)
 - Check catalog: [`checks.json`](checks.json)

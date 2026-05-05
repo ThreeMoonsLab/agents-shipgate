@@ -63,7 +63,7 @@ You are working in a repo with `shipgate.yaml` already in place and want a coord
 
 ## Verification
 
-- A fresh `report.json` exists, validates as `report_schema_version: "0.7"` (or higher), and was generated with `--suggest-patches`.
+- A fresh `report.json` exists, validates as `report_schema_version: "0.8"` (or higher), and was generated with `--suggest-patches`.
 - Each presented card cites a concrete location: `target_file` + `pointer` for non-manual patches, `instructions` verbatim for manual patches, file path + parameter name from `evidence`/`source` for bucket D.
 - If Bucket A patches were applied: re-scan shows lower active counts AND the previously-failing fingerprints are absent from the new `report.json`.
 - If only B/C/D were surfaced: counts are unchanged (expected); the user has a clear list of next actions.

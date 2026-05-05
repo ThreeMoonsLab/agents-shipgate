@@ -10,6 +10,7 @@ from agents_shipgate.core.risk_hints import (
     enrich_tools_with_risk_hints,
     has_risk_tag,
     is_effectively_read_only,
+    is_high_risk_tool,
     is_write_tool,
 )
 
@@ -68,6 +69,40 @@ def test_get_endpoint_with_infrastructure_keyword_is_effectively_read_only():
     assert is_effectively_read_only(tool), (
         "GET listing should be effectively read-only despite the infra keyword"
     )
+    assert not is_high_risk_tool(tool)
+
+
+def test_read_only_financial_endpoint_with_risky_nouns_is_not_high_risk():
+    tool = _enrich(
+        _tool(
+            id="tool:get_billing_invoices",
+            name="get_billing_invoices",
+            description="List billing invoices and payment metadata.",
+            source_type="openapi",
+            annotations={"httpMethod": "GET"},
+            auth=AuthInfo(scopes=["billing:invoices:read", "payments:read"]),
+        )
+    )
+
+    assert is_effectively_read_only(tool)
+    assert not is_write_tool(tool)
+    assert not is_high_risk_tool(tool)
+
+
+def test_mcp_read_only_hint_keeps_risky_nouns_reviewable_not_blocking():
+    tool = _enrich(
+        _tool(
+            id="tool:mcp_billing_invoices_list",
+            name="billing.invoices.list",
+            description="Read billing invoices for customer support review.",
+            source_type="mcp",
+            annotations={"readOnlyHint": True},
+        )
+    )
+
+    assert is_effectively_read_only(tool)
+    assert not is_write_tool(tool)
+    assert not is_high_risk_tool(tool)
 
 
 def test_deployments_token_does_not_match_deploy_keyword():

@@ -26,6 +26,10 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert data["author"] == "ThreeMoonsLab"
     assert data["branding"] == {"icon": "shield", "color": "blue"}
     assert {
+        "decision",
+        "blocker_count",
+        "review_item_count",
+        "ci_would_fail",
         "status",
         "critical_count",
         "high_count",
@@ -48,6 +52,17 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text
     assert "args+=(--no-plugins)" in text
+
+
+def test_action_step_summary_leads_with_release_decision():
+    text = Path("action.yml").read_text(encoding="utf-8")
+
+    assert "GITHUB_STEP_SUMMARY" in text
+    assert "## Agents Shipgate" in text
+    assert "Decision:" in text
+    assert "Blockers:" in text
+    assert "Review items:" in text
+    assert "would_fail_ci=" in text
 
 
 def test_action_pr_comment_truncates_user_controlled_text():

@@ -109,6 +109,34 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_policy_packs" in payload
 
 
+def test_markdown_release_summary_is_derived_from_json_contract(tmp_path):
+    from agents_shipgate.report.json_report import report_json_payload
+
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    payload = report_json_payload(report)
+    decision = payload["release_decision"]
+    fail_policy = decision["fail_policy"]
+    markdown = render_markdown_report(report)
+
+    assert f"Decision: {decision['decision']}" in markdown
+    assert f"Blockers ({len(decision['blockers'])}):" in markdown
+    assert f"Review items ({len(decision['review_items'])}):" in markdown
+    fail_on_text = (
+        ", ".join(fail_policy["fail_on"]) if fail_policy["fail_on"] else "none"
+    )
+    assert (
+        f"Fail policy: ci_mode={fail_policy['ci_mode']}, fail_on=[{fail_on_text}], "
+        f"new_findings_only={str(fail_policy['new_findings_only']).lower()}, "
+        f"would_fail_ci={str(fail_policy['would_fail_ci']).lower()} "
+        f"(exit {fail_policy['exit_code']})"
+    ) in markdown
+
+
 def test_report_paths_use_absolute_path_when_output_escapes_manifest_base(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE,

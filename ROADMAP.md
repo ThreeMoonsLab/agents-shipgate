@@ -2,9 +2,9 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-Agents Shipgate is currently in the `0.7.x` line. Releases `v0.2` through
+Agents Shipgate is preparing the `v0.8.0` release. Releases `v0.2` through
 `v0.7` are complete and retained here as release history. Active public
-planning starts at `v0.8.0`.
+planning starts with the v0.8 release-decision close-out.
 
 ## Completed
 
@@ -119,25 +119,27 @@ can decide what's safe to auto-fix.
 
 ## Open
 
-### v0.8.0 Cross-Platform CI Expansion
+### v0.8.0 Release Decision Engine
 
-Goal: broaden CI documentation after the v0.7 adoption activation
-work lands.
+Goal: close v0.8 around a baseline-aware release decision over agent tool
+surfaces, not broader framework or runtime surface area.
 
-- Add or harden recipes for additional CI platforms:
-  - Jenkins;
-  - Buildkite;
-  - Azure Pipelines;
-  - Bitbucket Pipelines;
-  - local pre-commit / pre-push usage;
-  - generic POSIX shell integration for unsupported CI systems.
-- Improve cross-platform release-gate documentation:
-  - reference architecture for advisory-to-strict rollout;
-  - baseline management across CI providers;
-  - recommended artifact retention;
-  - failure-mode examples for security review and platform engineering teams.
+- Make `release_decision.decision` the recommended release-gating signal for
+  JSON consumers, CLI output, Markdown, PR comments, and GitHub Action
+  outputs.
+- Preserve `summary.status` as baseline-blind compatibility for v0.7
+  consumers.
+- Keep the verdict path deterministic and static: no LLM calls, agent
+  execution, MCP connections, network access, runtime inventory, telemetry, or
+  new framework adapters in the v0.8 close-out.
+- Harden real-repo detection so local/private state, virtualenv fixture
+  installs, generated reports, and gitignored worktrees do not create false
+  framework or source signals.
+- Keep Tool-Use Readiness as the public wedge: OpenAI Agents SDK, MCP exports,
+  and OpenAPI specs are the clearest first path; other supported frameworks
+  remain documented inputs.
 
-### v0.7.x Source-Provenance Enrichment (incremental)
+### v0.8.x Source-Provenance Enrichment (incremental)
 
 Once we have origin (file path, line index for JSONL, list index for
 arrays) threaded through finding evidence, expand the patch generator
@@ -158,6 +160,13 @@ catalog beyond manifest-only. Candidate generators:
   - TypeScript/JavaScript agent frameworks where static extraction is practical;
   - additional Google ADK language surfaces after the Python adapter remains stable.
 - Optional trust-gated runtime inventory export as an explicit command, separate from default static CI.
+- Cross-platform CI expansion after v0.8 stabilizes:
+  - Jenkins;
+  - Buildkite;
+  - Azure Pipelines;
+  - Bitbucket Pipelines;
+  - local pre-commit / pre-push usage;
+  - generic POSIX shell integration for unsupported CI systems.
 - Container image distribution if the image has CI coverage, security scanning, and release signing.
 - Homebrew or other package-manager distribution if CLI usage warrants it.
 - Public versions of the private release-readiness research themes once they are shaped into concrete checks and schema changes.

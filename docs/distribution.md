@@ -5,7 +5,7 @@ These items require release infrastructure, registry credentials, domains, or Gi
 ## Package Channels
 
 - `agents-shipgate` is published on PyPI.
-- Pinned GitHub Action release tags are published, including `v0.7.0`.
+- Pinned GitHub Action release tags are published, including `v0.8.0`.
 - GitHub Releases attach the wheel, sdist, SBOM, and Sigstore bundles.
 - Evaluate a container image later only if it has an exercised build-and-test path.
 - Evaluate Homebrew once CLI usage warrants it.

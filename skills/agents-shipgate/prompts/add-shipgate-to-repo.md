@@ -107,7 +107,7 @@ Common errors and fixes:
 ## Verification before reporting success
 
 - `agents-shipgate-reports/report.json` exists and parses as JSON
-- `report.json` carries `report_schema_version: "0.7"` (or higher) and a non-empty `manifest_dir`
+- `report.json` carries `report_schema_version: "0.8"` (or higher) and a non-empty `manifest_dir`
 - `shipgate.yaml` has no `CHANGE_ME` values (comments containing the literal `CHANGE_ME` are informational and OK)
 - `.gitignore` contains `agents-shipgate-reports/` (or equivalent)
 - If `--ci` ran with `workflow.status: "written"`: `.github/workflows/agents-shipgate.yml` exists and references `ThreeMoonsLab/agents-shipgate@v…`

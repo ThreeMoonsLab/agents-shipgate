@@ -12,7 +12,7 @@
 - Publisher: Three Moons Lab
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
-- Latest public release: v0.7.0
+- Latest public release: v0.8.0
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -49,13 +49,13 @@
 - Google ADK Python and YAML config.
 - LangChain and LangGraph Python entrypoints, using static AST extraction.
 - CrewAI Python entrypoints, using static AST extraction.
-- OpenAI Agents API artifacts: prompts, function schemas, response formats, tests, and traces.
+- OpenAI API artifacts: prompts, function schemas, response formats, tests, and traces.
 
 ## Outputs
 
 - Markdown report: `agents-shipgate-reports/report.md`.
 - JSON report: `agents-shipgate-reports/report.json`.
-- JSON report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.7.json
+- JSON report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.8.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 
@@ -67,7 +67,7 @@
 - Run a zero-config fixture: `agents-shipgate fixture run support_refund_agent`.
 - Initialize a repo manifest: `agents-shipgate init --workspace . --write`.
 - Scan a repo: `agents-shipgate scan -c shipgate.yaml`.
-- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.7.0`.
+- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.8.0`.
 
 ## Source of truth
 
@@ -85,7 +85,7 @@
 - Discovery metadata: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
 - Website discovery metadata: https://threemoonslab.com/.well-known/agents-shipgate.json
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
-- Report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.7.json
+- Report schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.8.json
 
 ## Category vocabulary
 

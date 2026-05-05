@@ -17,7 +17,7 @@
 
 Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
 OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
-LangChain/LangGraph, CrewAI, and OpenAI Agents API artifacts, then writes a
+LangChain/LangGraph, CrewAI, and OpenAI API artifacts, then writes a
 deterministic **Tool-Use Readiness Report** before your agent gets
 production-like permissions.
 
@@ -84,7 +84,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 ## Use in CI
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.7.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.8.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -105,7 +105,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 | Google ADK Python and YAML config | Supported |
 | LangChain/LangGraph static Python inputs | Supported |
 | CrewAI static Python inputs | Supported |
-| OpenAI Agents API artifacts | Supported |
+| OpenAI API artifacts | Supported |
 
 ## What it produces
 
@@ -366,7 +366,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.7.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -377,7 +377,7 @@ For PR comments, add `pull-requests: write` to the job's `permissions` and set `
 
 Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
 
-Outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`.
+Outputs: `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. Prefer `decision` and `ci_would_fail` over legacy `status` for new release gates.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 

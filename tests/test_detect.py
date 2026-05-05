@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 from agents_shipgate.cli.discovery.signals import (
     DetectResult,
@@ -107,6 +111,77 @@ def test_negative_workspace_detects_nothing(tmp_path: Path) -> None:
     assert result.is_agent_project is False
     assert result.frameworks == []
     assert any(c.value == tmp_path.name for c in result.agent_name_candidates)
+
+
+def test_detect_ignores_local_private_and_virtualenv_fixtures(tmp_path: Path) -> None:
+    """Local agent state and package fixture installs must not pollute detect."""
+    claude_agent = tmp_path / ".claude" / "worktrees" / "fixture" / "agent.py"
+    claude_agent.parent.mkdir(parents=True)
+    claude_agent.write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+
+    private_agent = tmp_path / ".agents-private" / "copy" / "crew.py"
+    private_agent.parent.mkdir(parents=True)
+    private_agent.write_text(
+        "from crewai import Agent\n\nAgent(role='support', goal='help')\n",
+        encoding="utf-8",
+    )
+
+    venv_tools = (
+        tmp_path
+        / ".venv-py312"
+        / "lib"
+        / "python3.12"
+        / "site-packages"
+        / "agents_shipgate"
+        / "_fixtures"
+        / "simple_openai_api_agent"
+        / "tools"
+        / "openai-tools.json"
+    )
+    venv_tools.parent.mkdir(parents=True)
+    venv_tools.write_text("[]", encoding="utf-8")
+
+    generated_report = tmp_path / "agents-shipgate-reports" / "report.json"
+    generated_report.parent.mkdir()
+    generated_report.write_text('{"report_schema_version": "0.8"}', encoding="utf-8")
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.frameworks == []
+    assert result.suggested_sources == []
+
+
+def test_detect_respects_gitignored_nested_agent_artifacts(tmp_path: Path) -> None:
+    if not shutil.which("git"):
+        pytest.skip("git is required for git-aware discovery regression coverage")
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("ignored-agent/\n", encoding="utf-8")
+
+    ignored_agent = tmp_path / "ignored-agent" / "agent.py"
+    ignored_agent.parent.mkdir()
+    ignored_agent.write_text(
+        "from agents import Agent, function_tool\n\n"
+        "@function_tool\n"
+        "def refund_user():\n"
+        "    return None\n\n"
+        "Agent(name='ignored')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "ignored-agent" / "openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: ignored\n  version: '1.0'\npaths: {}\n",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.frameworks == []
+    assert result.suggested_sources == []
 
 
 def test_pyproject_seeds_project_name_not_agent_name(tmp_path: Path) -> None:

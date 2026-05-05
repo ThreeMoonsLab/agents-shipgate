@@ -50,6 +50,21 @@ framework(s) are present. `init --write --ci` produces a schema-valid
 `shipgate.yaml` (with framework-specific `tool_sources` populated) and an
 optional GitHub Actions workflow.
 
+### Choose Your First Source
+
+For a first real scan, point the manifest at the clearest tool boundary you
+already have:
+
+| Source | Use when | Manifest path |
+| --- | --- | --- |
+| OpenAI Agents SDK Python | Tools are defined with `@function_tool` in local Python files. | `tool_sources[].type: openai_agents_sdk` |
+| MCP export | You can export the MCP server's tool list to JSON. | `tool_sources[].type: mcp` |
+| OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
+
+Google ADK, LangChain/LangGraph, CrewAI, Anthropic Messages API artifacts, and
+simple OpenAI API artifacts are also supported inputs, but the fastest path is
+to start with the tool surface closest to the release boundary.
+
 **Replace placeholders before scanning.** `init --write --json` returns a
 `placeholders[]` array enumerating every value the template could not infer.
 On a fresh workspace the array typically contains both:
@@ -100,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.7.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
           config: shipgate.yaml
           ci_mode: advisory

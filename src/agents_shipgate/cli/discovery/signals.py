@@ -46,11 +46,11 @@ from agents_shipgate.cli.discovery.artifacts import (
     OPENAI_TOOL_PATTERNS,
     OPENAPI_PATTERNS,
     POLICY_RULE_PATTERNS,
-    SKIP_DIRS,
     TEST_CASE_PATTERNS,
+    _candidate_files,
+    _candidate_files_matching,
     _discover_patterns,
     _relative,
-    _skip,
 )
 
 # --- Framework signal vocabulary --------------------------------------------
@@ -256,8 +256,8 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
 
 def _collect_python_files(workspace: Path, *, max_files: int) -> list[Path]:
     files: list[Path] = []
-    for path in workspace.rglob("*.py"):
-        if any(part in SKIP_DIRS for part in path.parts):
+    for path in _candidate_files(workspace):
+        if path.suffix != ".py":
             continue
         files.append(path)
         if len(files) >= max_files:
@@ -567,18 +567,14 @@ def _suggested_sources(workspace: Path) -> list[dict[str, str]]:
     suggested: list[dict[str, str]] = []
     seen: set[str] = set()
     for pattern in OPENAPI_PATTERNS:
-        for path in workspace.rglob(pattern):
-            if _skip(path):
-                continue
+        for path in _candidate_files_matching(workspace, (pattern,)):
             rel = _relative(path, workspace)
             if rel in seen:
                 continue
             seen.add(rel)
             suggested.append({"type": "openapi", "path": rel})
     for pattern in MCP_PATTERNS:
-        for path in workspace.rglob(pattern):
-            if _skip(path):
-                continue
+        for path in _candidate_files_matching(workspace, (pattern,)):
             rel = _relative(path, workspace)
             if rel in seen:
                 continue

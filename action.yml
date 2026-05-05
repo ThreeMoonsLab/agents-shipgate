@@ -232,6 +232,33 @@ runs:
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():
                 output.write(f"{key}={clean(value)}\n")
+
+        step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if step_summary:
+            blocker_count = len(release_decision.get("blockers") or [])
+            review_item_count = len(release_decision.get("review_items") or [])
+            would_fail_ci = str(bool(fail_policy.get("would_fail_ci"))).lower()
+            with open(step_summary, "a", encoding="utf-8") as summary_file:
+                summary_file.write("## Agents Shipgate\n\n")
+                if release_decision:
+                    summary_file.write(
+                        f"- Decision: `{clean(release_decision.get('decision'))}`\n"
+                    )
+                    summary_file.write(f"- Blockers: {blocker_count}\n")
+                    summary_file.write(f"- Review items: {review_item_count}\n")
+                    summary_file.write(
+                        "- Fail policy: "
+                        f"would_fail_ci=`{would_fail_ci}` "
+                        f"(exit {clean(fail_policy.get('exit_code'))})\n"
+                    )
+                else:
+                    summary_file.write(f"- Status: `{clean(summary.get('status'))}`\n")
+                    summary_file.write(
+                        f"- Critical: {clean(summary.get('critical_count', 0))} · "
+                        f"High: {clean(summary.get('high_count', 0))} · "
+                        f"Medium: {clean(summary.get('medium_count', 0))}\n"
+                    )
+                summary_file.write(f"- Report JSON: `{clean(report_json)}`\n")
         PY
 
     - name: Upload Agents Shipgate report

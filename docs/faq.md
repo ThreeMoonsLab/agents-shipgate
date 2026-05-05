@@ -83,7 +83,7 @@ See [`docs/trust-model.md`](trust-model.md) for the full disclosure.
 - Google ADK Python and YAML config
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
-- OpenAI Agents API artifacts (prompts + function schemas + response formats)
+- OpenAI API artifacts (prompts + function schemas + response formats)
 
 See [`docs/manifest-v0.1.md`](manifest-v0.1.md) for the full manifest
 schema.
@@ -98,7 +98,7 @@ schema.
 
 ## Is it production-ready?
 
-v0.7.0 is the latest released version. The manifest schema is stable
+v0.8.0 is the latest released version. The manifest schema is stable
 across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 
