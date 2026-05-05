@@ -16,4 +16,9 @@ def test_github_step_summary_is_written(monkeypatch, tmp_path):
 
     summary = summary_path.read_text(encoding="utf-8")
     assert "## Agents Shipgate" in summary
-    assert "Status: `release_blockers_detected`" in summary
+    # v0.8: lead with release_decision instead of summary.status. The
+    # support_refund_agent sample has new criticals → decision=blocked.
+    assert "Decision: `blocked`" in summary
+    assert "Reason:" in summary
+    assert "Blockers:" in summary
+    assert "Fail policy:" in summary

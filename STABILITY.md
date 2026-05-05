@@ -41,6 +41,9 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 In `agents-shipgate-reports/report.json`, the following are guaranteed:
 
 - `report_schema_version` — bumps minor on additive changes, major on breaking
+- `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
+- `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
+- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status}` (reference-only — full Finding payload is in `findings[]`)
 - `summary.{critical_count, high_count, medium_count, low_count, info_count, suppressed_count, status, human_review_recommended}`
 - `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`
 - `findings[].tool_name` (string or null)
@@ -48,6 +51,17 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
+
+#### `release_decision.decision` vs `summary.status`
+
+These are **intentionally different signals**, kept apart for backwards compatibility:
+
+| Field | Baseline-aware? | Recommended for release gating? |
+|---|---|---|
+| `release_decision.decision` | yes — baseline-matched criticals appear in `review_items`, not `blockers` | **yes (v0.8+)** |
+| `summary.status` | no — any unsuppressed critical flips status to `release_blockers_detected` | preserved for v0.7 callers |
+
+Concretely: a scan with one baseline-matched critical and zero new findings produces `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"`. Both are correct under their respective contracts. New consumers should read `release_decision.decision`.
 
 ### Check IDs
 

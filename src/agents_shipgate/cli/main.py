@@ -743,25 +743,52 @@ def _safe_output_name(config_path: Path) -> str:
 
 def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = False) -> None:
     summary = report.summary
+    decision = report.release_decision
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo("")
     typer.echo(f"Project: {report.project.get('name')}")
     typer.echo(f"Agent: {report.agent.get('name')}")
     typer.echo(f"Target: {report.environment.get('target')}")
     typer.echo("")
-    typer.echo(f"Status: {summary.status}")
-    typer.echo(f"Critical: {summary.critical_count}")
-    typer.echo(f"High: {summary.high_count}")
-    typer.echo(f"Medium: {summary.medium_count}")
-    typer.echo(f"Human review: {'recommended' if summary.human_review_recommended else 'not required'}")
-    typer.echo(f"Evidence coverage: {summary.evidence_coverage}")
-    if report.baseline:
+    if decision is not None:
+        typer.echo(f"Decision: {decision.decision}")
+        typer.echo(f"Reason: {decision.reason}")
+        typer.echo(f"Blockers: {len(decision.blockers)}")
+        typer.echo(f"Review items: {len(decision.review_items)}")
+        ev = decision.evidence_coverage
+        ev_extras: list[str] = []
+        if ev.low_confidence_tool_count:
+            ev_extras.append(f"{ev.low_confidence_tool_count} low-confidence tool(s)")
+        if ev.source_warning_count:
+            ev_extras.append(f"{ev.source_warning_count} source warning(s)")
+        if ev.human_review_recommended:
+            ev_extras.append("human review recommended")
+        suffix = f" ({'; '.join(ev_extras)})" if ev_extras else ""
+        typer.echo(f"Evidence coverage: {ev.level}{suffix}")
+        bd = decision.baseline_delta
+        if bd.enabled:
+            typer.echo(
+                "Baseline delta: "
+                f"matched={bd.matched_count}, new={bd.new_count}, "
+                f"resolved={bd.resolved_count}"
+            )
+        else:
+            typer.echo("Baseline delta: not enabled")
+        fp = decision.fail_policy
+        fail_on_text = ", ".join(fp.fail_on) if fp.fail_on else "none"
         typer.echo(
-            "Baseline: "
-            f"matched={report.baseline.matched_count}, "
-            f"new={report.baseline.new_count}, "
-            f"resolved={report.baseline.resolved_count}"
+            f"Fail policy: ci_mode={fp.ci_mode}, fail_on=[{fail_on_text}], "
+            f"new_findings_only={str(fp.new_findings_only).lower()}, "
+            f"would_fail_ci={str(fp.would_fail_ci).lower()}"
         )
+    else:
+        typer.echo("Decision: (not recorded)")
+    typer.echo("")
+    typer.echo(
+        f"Counts: critical={summary.critical_count}, high={summary.high_count}, "
+        f"medium={summary.medium_count}, low={summary.low_count}, "
+        f"suppressed={summary.suppressed_count}"
+    )
     if verbose:
         typer.echo(f"Tool count: {report.tool_surface.total_tools}")
         typer.echo(f"Source warnings: {len(report.source_warnings)}")

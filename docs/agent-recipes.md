@@ -118,7 +118,10 @@ mutate files. Containment-checked: any `target_file` outside
 
 When the flow completes, summarize `report.json`:
 
-- `summary.status` (top-level outcome string).
+- `release_decision.decision` (`"blocked" | "review_required" | "passed"`)
+  — the v0.8+ release-gate signal. Prefer this over `summary.status`,
+  which stays baseline-blind for backwards compat.
+- `release_decision.reason` (one-sentence explanation).
 - Top 3 active critical/high findings with their `check_id`,
   `tool_name` (when present), and `recommendation`.
 - Whether any patches were applied (count from

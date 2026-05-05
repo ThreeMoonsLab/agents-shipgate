@@ -101,6 +101,18 @@ outputs:
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
+  decision:
+    description: Release decision (`blocked`, `review_required`, or `passed`). v0.8+.
+    value: ${{ steps.report_outputs.outputs.decision }}
+  blocker_count:
+    description: Number of blockers in release_decision (v0.8+).
+    value: ${{ steps.report_outputs.outputs.blocker_count }}
+  review_item_count:
+    description: Number of review items in release_decision (v0.8+).
+    value: ${{ steps.report_outputs.outputs.review_item_count }}
+  ci_would_fail:
+    description: Whether the active fail policy would fail CI (`true`/`false`). v0.8+.
+    value: ${{ steps.report_outputs.outputs.ci_would_fail }}
 
 runs:
   using: composite
@@ -181,12 +193,16 @@ runs:
         summary = {}
         baseline = {}
         adk_surface = {}
+        release_decision = {}
+        fail_policy = {}
         if report_json.exists():
             with report_json.open(encoding="utf-8") as handle:
                 payload = json.load(handle)
                 summary = payload.get("summary") or {}
                 baseline = payload.get("baseline") or {}
                 adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
+                release_decision = payload.get("release_decision") or {}
+                fail_policy = release_decision.get("fail_policy") or {}
 
         def clean(value: object) -> str:
             return str(value or "").replace("\r", "").replace("\n", "")
@@ -204,6 +220,10 @@ runs:
             "report_json": report_json,
             "report_markdown": report_markdown,
             "report_sarif": report_sarif,
+            "decision": release_decision.get("decision", ""),
+            "blocker_count": len(release_decision.get("blockers") or []),
+            "review_item_count": len(release_decision.get("review_items") or []),
+            "ci_would_fail": str(bool(fail_policy.get("would_fail_ci"))).lower(),
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():
@@ -235,6 +255,7 @@ runs:
           }
           const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
           const summary = report.summary || {};
+          const decision = report.release_decision || null;
           const adk = ((report.frameworks || {}).google_adk) || null;
           const escapeMarkdown = (value) =>
             String(value || "")
@@ -249,12 +270,22 @@ runs:
             .slice(0, 3)
             .map((finding, index) => `${index + 1}. ${escapeMarkdown(truncate(finding.title || finding.check_id, 240))}`)
             .join("\n");
+          const decisionLines = decision
+            ? [
+                `Decision: \`${decision.decision}\``,
+                `Reason: ${escapeMarkdown(decision.reason || "")}`,
+                `Blockers: ${(decision.blockers || []).length} · Review items: ${(decision.review_items || []).length}`,
+                `Fail policy: would_fail_ci=\`${(decision.fail_policy || {}).would_fail_ci ? "true" : "false"}\` (exit ${(decision.fail_policy || {}).exit_code ?? "?"})`,
+              ]
+            : [
+                `Status: ${summary.status || "unknown"}`,
+                `Critical: ${summary.critical_count || 0} · High: ${summary.high_count || 0} · Medium: ${summary.medium_count || 0}`,
+                `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
+              ];
           const body = truncate([
             "## Agents Shipgate",
             "",
-            `Status: ${summary.status || "unknown"}`,
-            `Critical: ${summary.critical_count || 0} · High: ${summary.high_count || 0} · Medium: ${summary.medium_count || 0}`,
-            `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
+            ...decisionLines,
             adk ? `Google ADK: ${adk.agent_count || 0} agents · ${adk.dynamic_toolset_count || 0} dynamic toolsets` : "",
             "",
             top ? `Top findings:\n${top}` : "No critical or high findings.",

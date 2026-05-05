@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 
+from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.models import (
@@ -252,6 +253,9 @@ def build_report(
     tools: list[Tool],
     findings: list[Finding],
     generated_reports: dict[str, str],
+    ci_mode: str,
+    fail_on: list[Severity] | None = None,
+    new_findings_only: bool = False,
     loaded_policy_packs: list[LoadedPolicyPack] | None = None,
     loaded_plugins: list[dict[str, object]] | None = None,
     source_warnings: list[str] | None = None,
@@ -261,7 +265,7 @@ def build_report(
     baseline: BaselineSummary | None = None,
     manifest_dir: str | None = None,
 ) -> ReadinessReport:
-    return ReadinessReport(
+    report = ReadinessReport(
         run_id=run_id,
         manifest_dir=manifest_dir,
         project=manifest.project.model_dump(exclude_none=True),
@@ -281,6 +285,14 @@ def build_report(
         tool_inventory=tool_inventory(tools),
         source_warnings=source_warnings or [],
     )
+    report.release_decision = build_release_decision(
+        report=report,
+        tools=tools,
+        ci_mode=ci_mode,
+        fail_on=fail_on,
+        new_findings_only=new_findings_only,
+    )
+    return report
 
 
 def _matching_suppression(

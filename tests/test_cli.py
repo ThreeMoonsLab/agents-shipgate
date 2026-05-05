@@ -27,7 +27,11 @@ def test_cli_advisory_exits_zero(tmp_path):
 
     assert result.exit_code == 0
     assert "Agents Shipgate 0.7.0" in result.output
-    assert "release_blockers_detected" in result.output
+    # v0.8: CLI summary leads with the release decision; the support_refund
+    # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
+    assert "Decision: blocked" in result.output
+    assert "Reason:" in result.output
+    assert "Fail policy:" in result.output
 
 
 def test_cli_strict_exits_gate_failure_code(tmp_path):
@@ -444,7 +448,7 @@ def test_cli_baseline_save_and_scan(tmp_path):
     )
 
     assert scan.exit_code == 0
-    assert "Baseline: matched=" in scan.output
+    assert "Baseline delta: matched=" in scan.output
 
 
 def test_cli_scan_missing_baseline_exits_three(tmp_path):

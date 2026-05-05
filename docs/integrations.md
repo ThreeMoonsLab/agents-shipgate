@@ -50,7 +50,11 @@ Action outputs:
 
 | Output | Meaning |
 | --- | --- |
-| `status` | Report summary status, such as `release_blockers_detected`. |
+| `decision` | Release decision (`blocked`, `review_required`, or `passed`). v0.8+. **Prefer this over `status` for gating.** |
+| `blocker_count` | Number of blockers in `release_decision.blockers`. v0.8+. |
+| `review_item_count` | Number of review items in `release_decision.review_items`. v0.8+. |
+| `ci_would_fail` | `true`/`false` — whether the active fail policy would fail CI. v0.8+. |
+| `status` | Legacy report summary status, such as `release_blockers_detected`. Baseline-blind; preserved for v0.7 compat. |
 | `critical_count` | Unsuppressed critical finding count. |
 | `high_count` | Unsuppressed high finding count. |
 | `medium_count` | Unsuppressed medium finding count. |
@@ -62,7 +66,7 @@ Action outputs:
 | `report_json` | Path to `report.json`. |
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
-| `exit_code` | Agents Shipgate CLI exit code. |
+| `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
 
 The action writes Markdown, JSON, and SARIF reports. Upload `report.sarif` to
 GitHub code scanning from your workflow if you want SARIF annotations.

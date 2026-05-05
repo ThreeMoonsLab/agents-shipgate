@@ -184,14 +184,18 @@ agents-shipgate scan -c shipgate.yaml
 
 Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fields:
 
-- `summary.{critical_count, high_count, medium_count, status}`
+- `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+) — **read this first for release gating**
+- `release_decision.fail_policy.{would_fail_ci, exit_code}` matches the process exit code
+- `summary.{critical_count, high_count, medium_count, status}` (status preserved for v0.7 compat — see note below)
 - `findings[].{id, fingerprint, check_id, severity, tool_name, evidence, recommendation, suppressed}`
 - `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url}` (v0.7+)
 - `findings[].patches[]` (v0.6+, only when scan ran with `--suggest-patches`)
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) (current; emitted reports carry `report_schema_version: "0.7"`). Older reports validate against [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) (current; emitted reports carry `report_schema_version: "0.8"`). Older reports validate against [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+
+**Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
 
 ### Task 3 · Suppress a finding with a reason
 
@@ -242,9 +246,9 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) (current).
-Older reports (`report_schema_version: "0.6"`) validate against the
-frozen [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json).
+[`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) (current).
+Older reports (`report_schema_version: "0.7"`) validate against the
+frozen [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json).
 Do not scrape Markdown when JSON is available.
 
 ### How do I add a new check?
@@ -278,7 +282,8 @@ glossary: https://threemoonslab.com/glossary/.
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
+| Report schema (current) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
+| Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |

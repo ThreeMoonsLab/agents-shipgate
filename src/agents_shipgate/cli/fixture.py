@@ -93,7 +93,13 @@ def fixture_run(
         raise typer.Exit(4) from exc
 
     typer.echo(f"Fixture: {name}")
-    typer.echo(f"Status:  {report.summary.status}")
+    decision = report.release_decision
+    if decision is not None:
+        typer.echo(f"Decision: {decision.decision}")
+        typer.echo(
+            f"Blockers: {len(decision.blockers)}  "
+            f"Review items: {len(decision.review_items)}"
+        )
     typer.echo(
         f"Counts:  critical={report.summary.critical_count} "
         f"high={report.summary.high_count} medium={report.summary.medium_count}"

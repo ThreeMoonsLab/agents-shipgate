@@ -196,6 +196,54 @@ class BaselineSummary(BaseModel):
     resolved_count: int = 0
 
 
+# v0.8: release_decision block — see docs/STABILITY.md for the
+# divergence contract with summary.status (which stays baseline-blind
+# for backwards compatibility).
+ReleaseDecisionStatus = Literal["blocked", "review_required", "passed"]
+
+
+class ReleaseDecisionItem(BaseModel):
+    id: str | None = None
+    fingerprint: str | None = None
+    check_id: str
+    severity: Severity
+    title: str
+    baseline_status: BaselineStatus | None = None
+
+
+class EvidenceCoverageDecision(BaseModel):
+    level: str
+    human_review_recommended: bool
+    source_warning_count: int
+    low_confidence_tool_count: int
+
+
+class BaselineDelta(BaseModel):
+    enabled: bool
+    path: str | None = None
+    matched_count: int = 0
+    new_count: int = 0
+    resolved_count: int = 0
+
+
+class FailPolicy(BaseModel):
+    ci_mode: str
+    fail_on: list[Severity] = Field(default_factory=list)
+    new_findings_only: bool = False
+    would_fail_ci: bool
+    exit_code: int
+
+
+class ReleaseDecision(BaseModel):
+    decision: ReleaseDecisionStatus
+    reason: str
+    blockers: list[ReleaseDecisionItem] = Field(default_factory=list)
+    review_items: list[ReleaseDecisionItem] = Field(default_factory=list)
+    evidence_coverage: EvidenceCoverageDecision
+    baseline_delta: BaselineDelta
+    fail_policy: FailPolicy
+
+
 class ApiResponseFormat(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -440,7 +488,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.7"
+    report_schema_version: str = "0.8"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -451,6 +499,10 @@ class ReadinessReport(BaseModel):
     agent: dict[str, Any]
     environment: dict[str, Any]
     summary: ReportSummary
+    # v0.8: required at JSON-schema level (see scripts/generate_schemas.py),
+    # but Python-optional so older test fixtures and SARIF-only callers
+    # can construct minimal reports. build_report() always populates it.
+    release_decision: ReleaseDecision | None = None
     tool_surface: ToolSurfaceSummary
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None

@@ -49,15 +49,22 @@ def render_markdown_report(report: ReadinessReport) -> str:
             f"Agent: {_safe_markdown_text(report.agent.get('name'))}",
             f"Target: {_safe_markdown_text(report.environment.get('target'))}",
             "",
-            _result_line(report),
-            f"Status: {_human_status(summary.status)}",
-            f"Critical: {summary.critical_count}",
-            f"High: {summary.high_count}",
-            f"Medium: {summary.medium_count}",
-            f"Low: {summary.low_count}",
-            f"Suppressed: {summary.suppressed_count}",
-            f"Evidence coverage: {summary.evidence_coverage}",
-            f"Human review: {'recommended' if summary.human_review_recommended else 'not required'}",
+        ]
+    )
+    _append_release_decision(lines, report)
+    lines.extend(
+        [
+            "## Summary",
+            "",
+            f"- Critical: {summary.critical_count}",
+            f"- High: {summary.high_count}",
+            f"- Medium: {summary.medium_count}",
+            f"- Low: {summary.low_count}",
+            f"- Suppressed: {summary.suppressed_count}",
+            (
+                f"- Status: {_human_status(summary.status)} "
+                "(legacy; see Release Decision above)"
+            ),
             "",
         ]
     )
@@ -74,6 +81,70 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_inventory(lines, report)
     lines.extend(["", "## Disclaimer", "", DISCLAIMER, ""])
     return "\n".join(lines)
+
+
+def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
+    decision = report.release_decision
+    lines.extend(["## Release Decision", ""])
+    if decision is None:
+        lines.extend(["No release decision recorded.", ""])
+        return
+    lines.append(f"Decision: {decision.decision}")
+    lines.append(f"Reason: {_safe_markdown_text(decision.reason)}")
+    lines.append("")
+    _append_decision_items(lines, "Blockers", decision.blockers)
+    _append_decision_items(lines, "Review items", decision.review_items)
+    ev = decision.evidence_coverage
+    ev_extras: list[str] = []
+    if ev.low_confidence_tool_count:
+        ev_extras.append(f"{ev.low_confidence_tool_count} low-confidence tool(s)")
+    if ev.source_warning_count:
+        ev_extras.append(f"{ev.source_warning_count} source warning(s)")
+    if ev.human_review_recommended:
+        ev_extras.append("human review recommended")
+    suffix = f" ({'; '.join(ev_extras)})" if ev_extras else ""
+    lines.append(f"Evidence coverage: {ev.level}{suffix}")
+    lines.append("")
+    bd = decision.baseline_delta
+    if bd.enabled:
+        path = _safe_markdown_text(bd.path) if bd.path else "(unknown path)"
+        lines.append(
+            f"Baseline delta: enabled ({path}) — "
+            f"{bd.matched_count} matched, {bd.new_count} new, "
+            f"{bd.resolved_count} resolved"
+        )
+    else:
+        lines.append("Baseline delta: not enabled")
+    lines.append("")
+    fp = decision.fail_policy
+    fail_on_text = ", ".join(fp.fail_on) if fp.fail_on else "none"
+    lines.append(
+        f"Fail policy: ci_mode={fp.ci_mode}, fail_on=[{fail_on_text}], "
+        f"new_findings_only={str(fp.new_findings_only).lower()}, "
+        f"would_fail_ci={str(fp.would_fail_ci).lower()} "
+        f"(exit {fp.exit_code})"
+    )
+    lines.append("")
+
+
+def _append_decision_items(
+    lines: list[str], label: str, items: list[object]
+) -> None:
+    if not items:
+        lines.append(f"{label} (0): none")
+        lines.append("")
+        return
+    lines.append(f"{label} ({len(items)}):")
+    for item in items:
+        # Items are ReleaseDecisionItem; reference attrs directly.
+        baseline_suffix = (
+            f" [{item.baseline_status}]" if item.baseline_status else ""
+        )
+        lines.append(
+            f"- {item.severity.upper()} {_safe_markdown_text(item.check_id)}"
+            f"{baseline_suffix} — {_safe_markdown_text(item.title)}"
+        )
+    lines.append("")
 
 
 def _append_top_findings(lines: list[str], findings: list[Finding]) -> None:
@@ -330,16 +401,6 @@ def _risk_confidence_summary(value: object) -> str:
     if not isinstance(value, dict):
         return ""
     return ", ".join(f"{tag}={confidence}" for tag, confidence in value.items())
-
-
-def _result_line(report: ReadinessReport) -> str:
-    active = [finding for finding in report.findings if not finding.suppressed]
-    total_tools = report.tool_surface.total_tools
-    if not active:
-        return f"Result: PASS - no static findings across {total_tools} tools."
-    if report.summary.critical_count:
-        return "Result: BLOCKED - release blockers detected."
-    return "Result: REVIEW - static findings require human review."
 
 
 def _safe_markdown_text(value: object) -> str:

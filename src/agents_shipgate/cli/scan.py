@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 
 from agents_shipgate.checks.registry import run_checks
-from agents_shipgate.ci.exit_policy import exit_code_for_report
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.baseline import apply_baseline, load_baseline
@@ -231,6 +230,9 @@ def run_scan(
             key: _relative_display_path(path, base_dir)
             for key, path in generated_paths.items()
         },
+        ci_mode=manifest.ci.mode,
+        fail_on=manifest.ci.fail_on,
+        new_findings_only=baseline_summary is not None,
         loaded_policy_packs=policy_packs.loaded,
         loaded_plugins=loaded_plugins,
         source_warnings=warnings,
@@ -241,12 +243,8 @@ def run_scan(
     )
     _write_reports(report, generated_paths, manifest.output.formats)
     write_github_step_summary(report)
-    return report, exit_code_for_report(
-        report,
-        manifest.ci.mode,
-        fail_on=manifest.ci.fail_on,
-        new_findings_only=baseline_summary is not None,
-    )
+    assert report.release_decision is not None  # build_report always populates it
+    return report, report.release_decision.fail_policy.exit_code
 
 
 def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, object]:

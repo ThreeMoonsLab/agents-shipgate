@@ -1,7 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.5",
+  "report_schema_version": "0.8",
   "run_id": "agents_shipgate_d07e1421099084ae",
+  "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -56,6 +57,193 @@
     "human_review_recommended": true,
     "evidence_coverage": "static"
   },
+  "release_decision": {
+    "decision": "review_required",
+    "reason": "20 findings need review and evidence coverage is incomplete.",
+    "blockers": [],
+    "review_items": [
+      {
+        "id": "fp_c2d773062468ceac",
+        "fingerprint": "fp_c2d773062468ceac",
+        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
+        "severity": "high",
+        "title": "create_refund.amount has no maximum bound",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_07538ba8f9532359",
+        "fingerprint": "fp_07538ba8f9532359",
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "severity": "high",
+        "title": "send_customer_email accepts broad free-form action input",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_58b3202c0a4d9793",
+        "fingerprint": "fp_58b3202c0a4d9793",
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "severity": "high",
+        "title": "create_refund lacks declared auth scopes",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_45ef3ff3ce2cf187",
+        "fingerprint": "fp_45ef3ff3ce2cf187",
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "severity": "high",
+        "title": "send_customer_email lacks declared auth scopes",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_a8a615b5a4f2597b",
+        "fingerprint": "fp_a8a615b5a4f2597b",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "severity": "high",
+        "title": "create_refund appears to overlap with a prohibited action",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_cf260ff7c72d64b7",
+        "fingerprint": "fp_cf260ff7c72d64b7",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "severity": "high",
+        "title": "send_customer_email appears to overlap with a prohibited action",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_e9d63903757dfe07",
+        "fingerprint": "fp_e9d63903757dfe07",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "severity": "high",
+        "title": "create_refund lacks idempotency evidence",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_4466eb2871434dc5",
+        "fingerprint": "fp_4466eb2871434dc5",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "severity": "high",
+        "title": "send_customer_email lacks idempotency evidence",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_9675d1799680d81d",
+        "fingerprint": "fp_9675d1799680d81d",
+        "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+        "severity": "high",
+        "title": "create_refund function schema is not strict enough",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_29e718b3bbde0e7d",
+        "fingerprint": "fp_29e718b3bbde0e7d",
+        "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+        "severity": "high",
+        "title": "send_customer_email function schema is not strict enough",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_64f825faa751b7f8",
+        "fingerprint": "fp_64f825faa751b7f8",
+        "check_id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
+        "severity": "medium",
+        "title": "Response format schemas/refund_decision.schema.json is under-specified",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_1b64e136ace3472a_dacf6678",
+        "fingerprint": "fp_1b64e136ace3472a",
+        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "severity": "high",
+        "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_1b64e136ace3472a_fe9f9e46",
+        "fingerprint": "fp_1b64e136ace3472a",
+        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "severity": "medium",
+        "title": "Prompt lacks approval/confirmation language for high-risk tools",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_28483a22a9ed40cb",
+        "fingerprint": "fp_28483a22a9ed40cb",
+        "check_id": "SHIP-API-TIMEOUT-MISSING",
+        "severity": "medium",
+        "title": "OpenAI API flow lacks timeout metadata",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_b8df99c94ef3aa60",
+        "fingerprint": "fp_b8df99c94ef3aa60",
+        "check_id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
+        "severity": "medium",
+        "title": "create_refund lacks success/failure output modeling",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_2bf957380e89863f",
+        "fingerprint": "fp_2bf957380e89863f",
+        "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+        "severity": "high",
+        "title": "create_refund may be retried without idempotency evidence",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_efb42c5b5aea7be6",
+        "fingerprint": "fp_efb42c5b5aea7be6",
+        "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+        "severity": "high",
+        "title": "send_customer_email may be retried without idempotency evidence",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_245bcdb96d8220e2",
+        "fingerprint": "fp_245bcdb96d8220e2",
+        "check_id": "SHIP-API-TRACE-APPROVAL-MISSING",
+        "severity": "medium",
+        "title": "Trace sample shows create_refund without approval",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_d9059d0c1f3540af",
+        "fingerprint": "fp_d9059d0c1f3540af",
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "severity": "high",
+        "title": "create_refund is high-risk but has no owner",
+        "baseline_status": null
+      },
+      {
+        "id": "fp_a95adeb6338f8b3e",
+        "fingerprint": "fp_a95adeb6338f8b3e",
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "severity": "high",
+        "title": "send_customer_email is high-risk but has no owner",
+        "baseline_status": null
+      }
+    ],
+    "evidence_coverage": {
+      "level": "static",
+      "human_review_recommended": true,
+      "source_warning_count": 0,
+      "low_confidence_tool_count": 0
+    },
+    "baseline_delta": {
+      "enabled": false,
+      "path": null,
+      "matched_count": 0,
+      "new_count": 0,
+      "resolved_count": 0
+    },
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    }
+  },
   "tool_surface": {
     "total_tools": 2,
     "high_risk_tools": 2,
@@ -101,7 +289,11 @@
       "recommendation": "Add a maximum bound to create_refund.amount or document an equivalent limit in the tool policy.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-missing-bounds"
     },
     {
       "id": "fp_07538ba8f9532359",
@@ -126,7 +318,11 @@
       "recommendation": "Constrain send_customer_email.message with an enum, structured schema, or narrower field-specific parameters.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text"
     },
     {
       "id": "fp_58b3202c0a4d9793",
@@ -153,7 +349,11 @@
       "recommendation": "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-missing-scope"
     },
     {
       "id": "fp_45ef3ff3ce2cf187",
@@ -181,7 +381,11 @@
       "recommendation": "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-missing-scope"
     },
     {
       "id": "fp_a8a615b5a4f2597b",
@@ -209,7 +413,11 @@
       "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present"
     },
     {
       "id": "fp_cf260ff7c72d64b7",
@@ -238,7 +446,11 @@
       "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present"
     },
     {
       "id": "fp_e9d63903757dfe07",
@@ -266,7 +478,11 @@
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing"
     },
     {
       "id": "fp_4466eb2871434dc5",
@@ -295,7 +511,11 @@
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for send_customer_email.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing"
     },
     {
       "id": "fp_9675d1799680d81d",
@@ -328,7 +548,11 @@
       "recommendation": "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-function-schema-strictness"
     },
     {
       "id": "fp_29e718b3bbde0e7d",
@@ -359,7 +583,11 @@
       "recommendation": "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-function-schema-strictness"
     },
     {
       "id": "fp_64f825faa751b7f8",
@@ -392,7 +620,11 @@
       "recommendation": "Tighten the structured output schema with enums, needs_review/refusal/error modeling, and declared critical fields.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-structured-output-readiness"
     },
     {
       "id": "fp_1b64e136ace3472a_dacf6678",
@@ -419,7 +651,11 @@
       "recommendation": "Align prompt scope with enabled tools or remove write/high-risk tools.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch"
     },
     {
       "id": "fp_1b64e136ace3472a_fe9f9e46",
@@ -446,7 +682,11 @@
       "recommendation": "Add prompt instructions requiring human approval and explicit confirmation before financial, destructive, or external customer actions.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch"
     },
     {
       "id": "fp_28483a22a9ed40cb",
@@ -473,7 +713,11 @@
       "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-timeout-missing"
     },
     {
       "id": "fp_b8df99c94ef3aa60",
@@ -499,7 +743,11 @@
       "recommendation": "Declare success_fields and failure_fields for create_refund in openai_api policy rules.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-tool-output-schema-missing"
     },
     {
       "id": "fp_2bf957380e89863f",
@@ -529,7 +777,11 @@
       "recommendation": "Add idempotency evidence for create_refund or avoid retrying this side effect.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-retry-without-idempotency"
     },
     {
       "id": "fp_efb42c5b5aea7be6",
@@ -560,7 +812,11 @@
       "recommendation": "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-retry-without-idempotency"
     },
     {
       "id": "fp_245bcdb96d8220e2",
@@ -585,7 +841,11 @@
       "recommendation": "Require approval before calling create_refund.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-trace-approval-missing"
     },
     {
       "id": "fp_d9059d0c1f3540af",
@@ -613,7 +873,11 @@
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing"
     },
     {
       "id": "fp_a95adeb6338f8b3e",
@@ -642,7 +906,11 @@
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "suppressed": false,
       "suppression_reason": null,
-      "baseline_status": null
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing"
     }
   ],
   "recommended_actions": [
@@ -656,8 +924,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpz7lss8bm/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

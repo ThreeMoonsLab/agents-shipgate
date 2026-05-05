@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+- Report schema bumped to `v0.8`. New top-level required `release_decision` block:
+  `{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}`.
+  - `decision` is one of `"blocked" | "review_required" | "passed"` and is the
+    recommended release-gate signal for v0.8+ consumers.
+  - `blockers` and `review_items` are reference-only entries
+    (`id, fingerprint, check_id, severity, title, baseline_status`) — full
+    Finding payloads stay in `findings[]`.
+  - `release_decision` is **baseline-aware**: matched criticals appear in
+    `review_items` (accepted debt), not `blockers`. Critical severity is
+    **policy-independent** — even advisory CI surfaces a new critical as a
+    blocker (with `would_fail_ci=false`).
+  - `release_decision.fail_policy.exit_code` matches the process exit code
+    one-for-one across all `ci_mode` × `fail_on` × `--baseline` combinations.
+- `summary.status` is preserved byte-for-byte for backwards compatibility
+  with v0.7 consumers. It stays baseline-blind (a baseline-matched critical
+  still flips status to `release_blockers_detected`). The intentional
+  divergence from `release_decision.decision` is documented in
+  [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus).
+- `docs/report-schema.v0.8.json` added; `v0.7.json` retained as a frozen
+  reference. JSON-schema validation catches missing `release_decision` on
+  any emitted report.
+- Markdown / GitHub Action / CLI summaries now lead with the Release
+  Decision block (Decision → Reason → Blockers → Review items → Evidence
+  coverage → Baseline delta → Fail policy). SARIF output is unchanged.
+- GitHub Action exposes four new outputs: `decision`, `blocker_count`,
+  `review_item_count`, `ci_would_fail`. Existing outputs (`status`,
+  `critical_count`, `baseline_*`, `adk_*`, `report_*`, `exit_code`)
+  unchanged.
+- `exit_code_for_report()` refactored to share `effective_fail_on()` and
+  `baseline_filtered_active()` helpers with `build_release_decision()`,
+  so the standalone exit code and `release_decision.fail_policy.exit_code`
+  cannot drift. New regression test pins this across the matrix.
+
 ## 0.7.0 - 2026-05-01
 
 Adoption activation: makes the v0.6 features visible to humans and AI

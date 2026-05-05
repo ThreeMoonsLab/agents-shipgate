@@ -4,15 +4,47 @@ Project: support-refund-agent
 Agent: refund-assistant
 Target: production\_like
 
-Result: BLOCKED - release blockers detected.
-Status: Release blockers detected
-Critical: 2
-High: 14
-Medium: 2
-Low: 0
-Suppressed: 0
-Evidence coverage: mixed
-Human review: recommended
+## Release Decision
+
+Decision: blocked
+Reason: 2 active findings block release.
+
+Blockers (2):
+- CRITICAL SHIP-POLICY-APPROVAL-MISSING — stripe.create\_refund lacks a declared approval policy
+- CRITICAL SHIP-SIDEFX-IDEMPOTENCY-MISSING — stripe.create\_refund lacks idempotency evidence
+
+Review items (16):
+- HIGH SHIP-INVENTORY-WILDCARD-TOOLS — Wildcard tool exposure declared
+- HIGH SHIP-SCHEMA-MISSING-BOUNDS — stripe.create\_refund.amount has no maximum bound
+- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — zendesk.update\_ticket accepts broad free-form action input
+- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — gmail.send\_customer\_email accepts broad free-form action input
+- MEDIUM SHIP-SCHEMA-FREEFORM-OUTPUT — send\_email\_preview returns free-form text output
+- HIGH SHIP-AUTH-MANIFEST-BROAD-SCOPE — Manifest declares broad permission scopes
+- HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — shopify.cancel\_order requires scopes not declared in the manifest
+- HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
+- HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send\_customer\_email requires scopes not declared in the manifest
+- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — stripe.create\_refund appears to overlap with a prohibited action
+- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — gmail.send\_customer\_email appears to overlap with a prohibited action
+- HIGH SHIP-POLICY-CONFIRMATION-MISSING — stripe.create\_refund lacks a declared confirmation policy
+- HIGH SHIP-POLICY-CONFIRMATION-MISSING — gmail.send\_customer\_email lacks a declared confirmation policy
+- HIGH SHIP-SIDEFX-IDEMPOTENCY-MISSING — gmail.send\_customer\_email lacks idempotency evidence
+- HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
+- MEDIUM SHIP-MANIFEST-UNUSED-SCOPE — Manifest declares unused permission scope zendesk:tickets:read
+
+Evidence coverage: mixed (1 low-confidence tool(s); 1 source warning(s); human review recommended)
+
+Baseline delta: not enabled
+
+Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fail_ci=false (exit 0)
+
+## Summary
+
+- Critical: 2
+- High: 14
+- Medium: 2
+- Low: 0
+- Suppressed: 0
+- Status: Release blockers detected (legacy; see Release Decision above)
 
 ## Top Findings
 

@@ -4,15 +4,49 @@ Project: simple-openai-api-agent
 Agent: api-refund-assistant
 Target: production\_like
 
-Result: REVIEW - static findings require human review.
-Status: Warnings detected
-Critical: 0
-High: 15
-Medium: 5
-Low: 0
-Suppressed: 0
-Evidence coverage: static
-Human review: recommended
+## Release Decision
+
+Decision: review_required
+Reason: 20 findings need review and evidence coverage is incomplete.
+
+Blockers (0): none
+
+Review items (20):
+- HIGH SHIP-SCHEMA-MISSING-BOUNDS — create\_refund.amount has no maximum bound
+- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — send\_customer\_email accepts broad free-form action input
+- HIGH SHIP-AUTH-MISSING-SCOPE — create\_refund lacks declared auth scopes
+- HIGH SHIP-AUTH-MISSING-SCOPE — send\_customer\_email lacks declared auth scopes
+- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — create\_refund appears to overlap with a prohibited action
+- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — send\_customer\_email appears to overlap with a prohibited action
+- HIGH SHIP-SIDEFX-IDEMPOTENCY-MISSING — create\_refund lacks idempotency evidence
+- HIGH SHIP-SIDEFX-IDEMPOTENCY-MISSING — send\_customer\_email lacks idempotency evidence
+- HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
+- HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — send\_customer\_email function schema is not strict enough
+- MEDIUM SHIP-API-STRUCTURED-OUTPUT-READINESS — Response format schemas/refund\_decision.schema.json is under-specified
+- HIGH SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt says read-only or advise-only while write/high-risk tools are enabled
+- MEDIUM SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt lacks approval/confirmation language for high-risk tools
+- MEDIUM SHIP-API-TIMEOUT-MISSING — OpenAI API flow lacks timeout metadata
+- MEDIUM SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING — create\_refund lacks success/failure output modeling
+- HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — create\_refund may be retried without idempotency evidence
+- HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence
+- MEDIUM SHIP-API-TRACE-APPROVAL-MISSING — Trace sample shows create\_refund without approval
+- HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — create\_refund is high-risk but has no owner
+- HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — send\_customer\_email is high-risk but has no owner
+
+Evidence coverage: static (human review recommended)
+
+Baseline delta: not enabled
+
+Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fail_ci=false (exit 0)
+
+## Summary
+
+- Critical: 0
+- High: 15
+- Medium: 5
+- Low: 0
+- Suppressed: 0
+- Status: Warnings detected (legacy; see Release Decision above)
 
 ## Top Findings
 
