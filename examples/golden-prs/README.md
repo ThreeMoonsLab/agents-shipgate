@@ -8,7 +8,7 @@ should imitate:
 3. Read `agents-shipgate-reports/report.json`.
 4. Use `release_decision.decision`.
 5. Separate safe patches from human release decisions.
-6. Post an advisory PR summary.
+6. Post a recommended coding-agent PR summary.
 
 Examples:
 

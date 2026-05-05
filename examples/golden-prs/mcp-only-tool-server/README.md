@@ -44,7 +44,7 @@ Safe patches are limited to high-confidence mechanical manifest cleanup.
 Do not auto-invent MCP scopes, approval policies, or idempotency guarantees.
 Those are release decisions that must come from the tool owner.
 
-## Advisory PR Comment Shape
+## Recommended Agent PR Summary
 
 ```md
 ## Agents Shipgate

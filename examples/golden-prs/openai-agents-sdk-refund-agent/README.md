@@ -30,10 +30,13 @@ Expected advisory summary:
 - Review items: 16
 - Fail policy: advisory mode does not fail CI
 
-## Top Findings
+## Blockers
 
 - `SHIP-POLICY-APPROVAL-MISSING` on `stripe.create_refund`
 - `SHIP-SIDEFX-IDEMPOTENCY-MISSING` on `stripe.create_refund`
+
+## Top Review Items
+
 - `SHIP-AUTH-MANIFEST-BROAD-SCOPE` on manifest scopes
 
 ## Safe Patch vs Human-Review Boundary
@@ -45,7 +48,7 @@ Do not auto-add approval, confirmation, or idempotency evidence. A human owner
 must decide whether the runtime approval gate exists, how it is enforced, and
 which evidence belongs in `shipgate.yaml`.
 
-## Advisory PR Comment Shape
+## Recommended Agent PR Summary
 
 ```md
 ## Agents Shipgate
@@ -59,6 +62,7 @@ Review items: 16
 Top findings:
 1. `SHIP-POLICY-APPROVAL-MISSING` - `stripe.create_refund` needs approval policy evidence.
 2. `SHIP-SIDEFX-IDEMPOTENCY-MISSING` - `stripe.create_refund` needs idempotency evidence.
+3. `SHIP-AUTH-MANIFEST-BROAD-SCOPE` - review manifest scopes before promotion.
 
 Autofix:
 - Applied: 0

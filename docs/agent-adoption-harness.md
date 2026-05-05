@@ -4,7 +4,8 @@ This is a manual evaluation protocol for testing whether coding agents discover
 and use Agents Shipgate in realistic target repos. Do not automate calls to
 Claude Code, Codex, Cursor, or other coding agents in this P0 work.
 
-Run results and scorecards belong in `.agents-private/adoption-sprint/`.
+Run results and scorecards belong in `.agents-private/adoption-sprint/`. Add
+`.agents-private/` to `.gitignore` before recording private runs.
 
 ## Test Repo Archetypes
 
@@ -69,7 +70,8 @@ workflow variants should score materially higher than the no-hints variant.
 
 ## Private Scorecard Template
 
-Store run notes under `.agents-private/adoption-sprint/`.
+Store run notes under `.agents-private/adoption-sprint/` after confirming
+`.agents-private/` is ignored by git.
 
 ```md
 # Agent Adoption Harness Run

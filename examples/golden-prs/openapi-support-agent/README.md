@@ -43,7 +43,7 @@ Approval, confirmation, broad-scope, prohibited-action, and idempotency
 findings are human release decisions. The agent may explain the finding and
 point to the relevant operation, but it must not assert a control exists.
 
-## Advisory PR Comment Shape
+## Recommended Agent PR Summary
 
 ```md
 ## Agents Shipgate

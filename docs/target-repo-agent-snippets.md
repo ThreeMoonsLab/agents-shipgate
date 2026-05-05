@@ -92,10 +92,13 @@ changes require human review.
 description: Run Agents Shipgate for AI agent tool-surface release readiness.
 globs:
   - "shipgate.yaml"
-  - "**/*.openapi.yaml"
-  - "**/*.openapi.yml"
-  - "**/*.openapi.json"
-  - "**/*mcp*tools*.json"
+  - "**/*openapi*.yaml"
+  - "**/*openapi*.yml"
+  - "**/*openapi*.json"
+  - "**/*swagger*.yaml"
+  - "**/*swagger*.yml"
+  - "**/*swagger*.json"
+  - "**/*mcp*.json"
   - "**/*tools*.json"
   - "**/*.py"
 alwaysApply: false

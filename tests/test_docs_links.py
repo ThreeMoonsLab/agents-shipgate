@@ -19,6 +19,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
 INDEX_MD = DOCS_DIR / "INDEX.md"
+LINK_RE = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
 
 AGENT_FACING_DOCS = (
     "agent-recipes.md",
@@ -27,6 +28,25 @@ AGENT_FACING_DOCS = (
     "minimal-real-configs.md",
     "target-repo-agent-snippets.md",
 )
+
+ADOPTION_DOCS_WITH_LINKS = (
+    DOCS_DIR / "target-repo-agent-snippets.md",
+    DOCS_DIR / "agent-adoption-harness.md",
+    REPO_ROOT / "examples" / "golden-prs" / "README.md",
+    REPO_ROOT / "examples" / "golden-prs" / "openai-agents-sdk-refund-agent" / "README.md",
+    REPO_ROOT / "examples" / "golden-prs" / "mcp-only-tool-server" / "README.md",
+    REPO_ROOT / "examples" / "golden-prs" / "openapi-support-agent" / "README.md",
+)
+
+
+def _assert_internal_links_resolve(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    for href in LINK_RE.findall(text):
+        href = href.strip()
+        if not href or href.startswith(("http://", "https://", "mailto:")):
+            continue
+        target = (path.parent / href).resolve()
+        assert target.exists(), f"{path} links to non-existent {href} (resolved to {target})."
 
 
 def test_agent_facing_docs_exist():
@@ -46,6 +66,11 @@ def test_agent_facing_docs_linked_from_index():
             f"docs/INDEX.md must link to docs/{name}; agents walking "
             "the index would otherwise miss this v0.7 surface."
         )
+
+
+def test_gitignore_keeps_private_agent_notes_out_of_commits():
+    text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert ".agents-private/" in text
 
 
 def test_index_no_longer_references_v05_schema():
@@ -103,10 +128,22 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
     assert "pure docs, tests, formatting" in text
 
 
+def test_target_repo_cursor_globs_cover_shipgate_discovery_names():
+    text = (DOCS_DIR / "target-repo-agent-snippets.md").read_text(encoding="utf-8")
+    assert '"**/*openapi*.yaml"' in text
+    assert '"**/*openapi*.yml"' in text
+    assert '"**/*openapi*.json"' in text
+    assert '"**/*swagger*.yaml"' in text
+    assert '"**/*swagger*.yml"' in text
+    assert '"**/*swagger*.json"' in text
+    assert '"**/*mcp*.json"' in text
+
+
 def test_agent_adoption_harness_is_manual_and_keeps_results_private():
     text = (DOCS_DIR / "agent-adoption-harness.md").read_text(encoding="utf-8")
     assert "Do not automate calls" in text
     assert ".agents-private/adoption-sprint/" in text
+    assert "`.agents-private/` to `.gitignore`" in text
     assert "100-Point Rubric" in text
     assert "negative-control non-agent repo" in text
     assert "release_decision.decision" in text
@@ -135,7 +172,14 @@ def test_golden_pr_examples_exist_and_reference_real_samples():
         text = readme.read_text(encoding="utf-8").lower()
         assert "release decision" in text
         assert "human" in text
-        assert "pr comment" in text
+        assert "pr summary" in text
+        assert "advisory pr comment shape" not in text
+
+
+def test_new_adoption_docs_internal_links_resolve():
+    for path in ADOPTION_DOCS_WITH_LINKS:
+        assert path.is_file(), f"Expected adoption doc to exist: {path}"
+        _assert_internal_links_resolve(path)
 
 
 def test_agent_recipes_internal_links_resolve():
@@ -143,50 +187,14 @@ def test_agent_recipes_internal_links_resolve():
     likely to grow forward references) must point at files that
     actually exist. Regression for the v0.7 PR 1 review where
     `autofix-policy.md` was linked before it shipped."""
-    text = (DOCS_DIR / "agent-recipes.md").read_text(encoding="utf-8")
-    # Match markdown links of the form [label](relative-path) where
-    # the path is local (no scheme, no anchor-only).
-    link_re = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
-    for href in link_re.findall(text):
-        href = href.strip()
-        if not href or href.startswith(("http://", "https://", "mailto:")):
-            continue
-        target = (DOCS_DIR / "agent-recipes.md").parent / href
-        target = target.resolve()
-        assert target.exists(), (
-            f"docs/agent-recipes.md links to non-existent {href} "
-            f"(resolved to {target}). Update the link or land the "
-            "missing file in the same PR."
-        )
+    _assert_internal_links_resolve(DOCS_DIR / "agent-recipes.md")
 
 
 def test_autofix_policy_internal_links_resolve():
     """Same hazard — autofix-policy.md will accumulate references over
     time. Pin them now."""
-    text = (DOCS_DIR / "autofix-policy.md").read_text(encoding="utf-8")
-    link_re = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
-    for href in link_re.findall(text):
-        href = href.strip()
-        if not href or href.startswith(("http://", "https://", "mailto:")):
-            continue
-        target = (DOCS_DIR / "autofix-policy.md").parent / href
-        target = target.resolve()
-        assert target.exists(), (
-            f"docs/autofix-policy.md links to non-existent {href} "
-            f"(resolved to {target})."
-        )
+    _assert_internal_links_resolve(DOCS_DIR / "autofix-policy.md")
 
 
 def test_minimal_real_configs_internal_links_resolve():
-    text = (DOCS_DIR / "minimal-real-configs.md").read_text(encoding="utf-8")
-    link_re = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
-    for href in link_re.findall(text):
-        href = href.strip()
-        if not href or href.startswith(("http://", "https://", "mailto:")):
-            continue
-        target = (DOCS_DIR / "minimal-real-configs.md").parent / href
-        target = target.resolve()
-        assert target.exists(), (
-            f"docs/minimal-real-configs.md links to non-existent {href} "
-            f"(resolved to {target})."
-        )
+    _assert_internal_links_resolve(DOCS_DIR / "minimal-real-configs.md")
