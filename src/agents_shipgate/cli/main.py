@@ -718,10 +718,25 @@ def _run_multi_scan(
                 logger.exception("unhandled exception while scanning %s", config_path)
             typer.echo(f"{config_path}: internal_error - {exc}", err=True)
         else:
-            typer.echo(
-                f"{config_path}: {report.summary.status} "
-                f"(critical={report.summary.critical_count}, high={report.summary.high_count})"
-            )
+            # v0.8: lead with release_decision.decision (baseline-aware,
+            # the recommended release-gate signal). Fall back to the
+            # legacy summary.status only if the report somehow lacks
+            # release_decision (older baselines loaded for diff, etc.).
+            decision = report.release_decision
+            if decision is not None:
+                typer.echo(
+                    f"{config_path}: {decision.decision} "
+                    f"(blockers={len(decision.blockers)}, "
+                    f"review_items={len(decision.review_items)}, "
+                    f"critical={report.summary.critical_count}, "
+                    f"high={report.summary.high_count})"
+                )
+            else:
+                typer.echo(
+                    f"{config_path}: {report.summary.status} "
+                    f"(critical={report.summary.critical_count}, "
+                    f"high={report.summary.high_count})"
+                )
         exit_code = max(exit_code, scan_exit_code)
     typer.echo("")
     typer.echo(f"Exit code: {exit_code}")

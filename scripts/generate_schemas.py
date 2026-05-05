@@ -117,6 +117,14 @@ def write_report_schema() -> None:
     properties = schema.setdefault("properties", {})
     properties["schema_version"] = {"const": "0.1"}
     properties["report_schema_version"] = {"const": minor}
+    # v0.8: tighten release_decision to a direct $ref. The Pydantic
+    # model declares `release_decision: ReleaseDecision | None = None`
+    # so older test fixtures and SARIF-only callers can construct
+    # minimal reports — but every emitted report has it populated.
+    # Without this override the schema would emit
+    # `anyOf: [ReleaseDecision, null]`, which would let `null` pass
+    # validation and silently violate the v0.8 contract.
+    properties["release_decision"] = {"$ref": "#/$defs/ReleaseDecision"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on

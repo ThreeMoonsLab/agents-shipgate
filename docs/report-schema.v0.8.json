@@ -1047,15 +1047,7 @@
       "type": "array"
     },
     "release_decision": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ReleaseDecision"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/ReleaseDecision"
     },
     "report_schema_version": {
       "const": "0.8"

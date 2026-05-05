@@ -301,6 +301,19 @@ def test_cli_scan_workspace_writes_separate_report_dirs(tmp_path):
     assert result.exit_code == 0
     assert "Scanning 2 manifests" in result.output
     assert len(list(tmp_path.glob("*/report.json"))) == 2
+    # v0.8: per-manifest workspace summary leads with the baseline-aware
+    # release_decision.decision, NOT the legacy baseline-blind summary.status.
+    # Regression for PR #38 reviewer feedback.
+    decision_lines = [
+        line for line in result.output.splitlines() if "shipgate.yaml:" in line
+    ]
+    assert decision_lines, "expected per-manifest summary lines in workspace output"
+    for line in decision_lines:
+        assert any(
+            f": {decision} " in line
+            for decision in ("blocked", "review_required", "passed")
+        ), f"workspace summary line should lead with decision: {line!r}"
+        assert "blockers=" in line
 
 
 def test_cli_scan_workspace_continues_after_config_error(tmp_path):
@@ -359,7 +372,9 @@ tool_sources:
     )
 
     assert result.exit_code == 2
-    assert "valid/shipgate.yaml: no_release_blockers_detected" in result.output
+    # v0.8: workspace per-manifest summaries lead with release_decision.
+    # The clean valid manifest produces decision=passed.
+    assert "valid/shipgate.yaml: passed" in result.output
     assert "invalid/shipgate.yaml: config_error" in result.output
     assert len(list((tmp_path / "reports").glob("*/report.json"))) == 1
 

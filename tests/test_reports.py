@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
@@ -259,6 +260,12 @@ def test_v08_schema_requires_release_decision():
     schema = json.loads(REPORT_SCHEMA_V08.read_text(encoding="utf-8"))
     assert "release_decision" in schema["required"]
     assert schema["properties"]["report_schema_version"] == {"const": "0.8"}
+    # The Pydantic model declares `release_decision: ReleaseDecision | None`
+    # for test-helper convenience, but the published schema must NOT allow
+    # null — every emitted v0.8 report has a populated release_decision.
+    assert schema["properties"]["release_decision"] == {
+        "$ref": "#/$defs/ReleaseDecision"
+    }
 
     decision_required = set(schema["$defs"]["ReleaseDecision"]["required"])
     assert decision_required == {
@@ -287,6 +294,32 @@ def test_v08_schema_requires_release_decision():
         "source_warning_count",
         "low_confidence_tool_count",
     }
+
+
+def test_v08_schema_rejects_null_release_decision(tmp_path):
+    """A v0.8 payload with `release_decision: null` MUST fail validation.
+    Regression for the original schema which emitted
+    `anyOf: [ReleaseDecision, null]` and silently accepted null."""
+    import jsonschema
+
+    from agents_shipgate.report.json_report import report_json_payload
+
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    schema = json.loads(REPORT_SCHEMA_V08.read_text(encoding="utf-8"))
+    payload = report_json_payload(report)
+
+    # Sanity: real payload validates.
+    validate(instance=payload, schema=schema)
+
+    # Tamper: setting release_decision to null must be rejected.
+    payload["release_decision"] = None
+    with pytest.raises(jsonschema.ValidationError):
+        validate(instance=payload, schema=schema)
 
 
 def test_json_report_omits_patches_key_when_not_suggested(tmp_path):
