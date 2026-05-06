@@ -478,6 +478,20 @@ def test_v07_schema_file_is_frozen():
     assert "release_decision" not in schema.get("required", [])
 
 
+def test_v08_schema_file_is_frozen():
+    """v0.8 schema file stays parseable and excludes v0.9 additive fields."""
+    schema = json.loads(REPORT_SCHEMA_V08.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.8"}
+    for field in (
+        "capability_facts",
+        "declared_intentions",
+        "misalignments",
+        "release_consequence",
+        "suggested_scenarios",
+    ):
+        assert field not in schema.get("required", [])
+
+
 def test_v07_schema_preserves_nested_required_lists():
     """Top-level required fields plus nested required lists for Finding,
     tool_inventory[], loaded_plugins[], LoadedPolicyPack, and per-framework
