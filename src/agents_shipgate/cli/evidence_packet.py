@@ -101,6 +101,7 @@ def evidence_packet(
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
+    pdf_gracefully_skipped = False
     if "md" in requested:
         md_path = out_dir / "packet.md"
         write_packet_markdown(packet, md_path)
@@ -118,11 +119,21 @@ def evidence_packet(
         try:
             render_packet_pdf(packet, pdf_path)
         except PdfRendererUnavailable as exc:
+            # PDF is opt-in via the [pdf] extras; missing WeasyPrint is
+            # a documented graceful-skip case, not an error. The scan
+            # path treats this the same way.
             typer.echo(f"packet.pdf skipped: {exc}", err=True)
+            pdf_gracefully_skipped = True
         else:
             written.append(pdf_path)
 
     if not written:
+        if pdf_gracefully_skipped:
+            # User requested only ``pdf`` and WeasyPrint is unavailable.
+            # The scan path stays at exit 0 in this case; mirror it here
+            # so CI artifacts pinned to ``--format pdf`` don't fail when
+            # the renderer is missing.
+            return
         typer.echo(
             "No outputs written. Pass at least one of md,json,html,pdf in --format.",
             err=True,
@@ -135,15 +146,18 @@ def evidence_packet(
 def _parse_formats(value: str) -> set[str]:
     parts = {item.strip() for item in value.split(",") if item.strip()}
     invalid = parts - _VALID_FORMATS
+    expected = ",".join(sorted(_VALID_FORMATS))
     if invalid:
         typer.echo(
             f"Unsupported --format value(s): {sorted(invalid)}; "
-            "expected a subset of md,html,pdf",
+            f"expected a subset of {expected}",
             err=True,
         )
         raise typer.Exit(2)
     if not parts:
-        typer.echo("--format must contain at least one of md,html,pdf", err=True)
+        typer.echo(
+            f"--format must contain at least one of {expected}", err=True
+        )
         raise typer.Exit(2)
     return parts
 

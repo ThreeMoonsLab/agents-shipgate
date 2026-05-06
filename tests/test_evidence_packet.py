@@ -467,6 +467,88 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     assert reloaded.packet_schema_version == "0.1"
 
 
+def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
+    tmp_path, monkeypatch
+):
+    """Regression for PR #43 review: ``--format pdf`` is the only requested
+    output and WeasyPrint is unavailable. The packet contract treats PDF
+    as a documented graceful-skip (matches the scan path), so the CLI
+    must exit 0 — not 2 — even though no file was written."""
+
+    out, _ = _scan_with_packet(tmp_path / "scan")
+    monkeypatch.setitem(sys.modules, "weasyprint", None)
+    target = tmp_path / "rebuilt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "packet.json"),
+            "--out",
+            str(target),
+            "--format",
+            "pdf",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "skipped" in (result.output + result.stderr).lower()
+    assert not (target / "packet.pdf").exists()
+
+
+def test_evidence_packet_pdf_skip_does_not_block_other_outputs(
+    tmp_path, monkeypatch
+):
+    """``--format md,pdf`` with WeasyPrint missing must still emit
+    packet.md and exit 0. The PDF skip is informational; the rest of
+    the format set is unaffected."""
+
+    out, _ = _scan_with_packet(tmp_path / "scan")
+    monkeypatch.setitem(sys.modules, "weasyprint", None)
+    target = tmp_path / "rebuilt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "packet.json"),
+            "--out",
+            str(target),
+            "--format",
+            "md,pdf",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (target / "packet.md").exists()
+    assert not (target / "packet.pdf").exists()
+
+
+def test_evidence_packet_unknown_format_error_lists_json(tmp_path):
+    """Regression for PR #43 review: ``json`` is in ``_VALID_FORMATS``
+    so the validation error must list it. Otherwise users hitting an
+    invalid format see a misleading expected-set."""
+
+    out, _ = _scan_with_packet(tmp_path / "scan")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "packet.json"),
+            "--format",
+            "bogus",
+        ],
+    )
+    assert result.exit_code == 2
+    combined = (result.output + result.stderr).lower()
+    assert "json" in combined
+    assert "html" in combined
+    assert "pdf" in combined
+    assert "md" in combined
+
+
 def test_evidence_packet_default_format_includes_json(tmp_path):
     """Default ``--format`` is now ``md,json,html``: rebuilding without
     specifying ``--format`` should produce all three artifacts."""
