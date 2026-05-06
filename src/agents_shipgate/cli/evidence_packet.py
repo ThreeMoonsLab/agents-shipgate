@@ -41,10 +41,11 @@ from agents_shipgate.packet import (
     serialize_packet_json,
 )
 from agents_shipgate.packet.html import write_packet_html
+from agents_shipgate.packet.json_packet import write_packet_json
 from agents_shipgate.packet.markdown import write_packet_markdown
 
-_DEFAULT_FORMATS = "md,html"
-_VALID_FORMATS = {"md", "html", "pdf"}
+_DEFAULT_FORMATS = "md,json,html"
+_VALID_FORMATS = {"md", "json", "html", "pdf"}
 
 
 def evidence_packet(
@@ -65,8 +66,10 @@ def evidence_packet(
         _DEFAULT_FORMATS,
         "--format",
         help=(
-            "Comma-separated render targets: md,html,pdf. "
-            "Default: md,html. JSON is the input and is not re-emitted."
+            "Comma-separated render targets: md,json,html,pdf. "
+            "Default: md,json,html. ``json`` writes packet.json — useful "
+            "when the input is report.json (rebuild) or after upgrading "
+            "the packet schema version. PDF requires the [pdf] extras."
         ),
     ),
     json_output: bool = typer.Option(
@@ -102,6 +105,10 @@ def evidence_packet(
         md_path = out_dir / "packet.md"
         write_packet_markdown(packet, md_path)
         written.append(md_path)
+    if "json" in requested:
+        json_path = out_dir / "packet.json"
+        write_packet_json(packet, json_path)
+        written.append(json_path)
     if "html" in requested:
         html_path = out_dir / "packet.html"
         write_packet_html(packet, html_path)
@@ -117,7 +124,7 @@ def evidence_packet(
 
     if not written:
         typer.echo(
-            "No outputs written. Pass at least one of md,html,pdf in --format.",
+            "No outputs written. Pass at least one of md,json,html,pdf in --format.",
             err=True,
         )
         raise typer.Exit(2)

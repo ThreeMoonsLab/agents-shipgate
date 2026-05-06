@@ -372,6 +372,123 @@ def test_evidence_packet_from_report_marks_degradation_in_json(tmp_path):
     assert payload["release_decision"]["verdict"] == "BLOCKED"
 
 
+def test_evidence_packet_from_clean_report_does_not_invent_scope_gaps(tmp_path):
+    """Regression for PR #43 review: rebuilding a packet from
+    ``samples/clean_read_only_agent``'s ``report.json`` must not invent
+    ``missing_declared`` scopes. The original scan emits §6 as covered
+    with no SHIP-AUTH-SCOPE-COVERAGE-MISSING findings; the rebuilt path
+    has a stub manifest with empty ``permissions.scopes``, so deriving
+    gaps from manifest comparison would falsely report every tool
+    scope as missing. The fix is to derive missing/unused from finding
+    evidence — authoritative regardless of whether the manifest is
+    real or stubbed."""
+
+    clean_config = Path("samples/clean_read_only_agent/shipgate.yaml")
+    scan_out = tmp_path / "scan"
+    fresh_report, _ = run_scan(
+        config_path=clean_config,
+        output_dir=scan_out,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_generated_at=GENERATED_AT,
+    )
+
+    # Sanity: the original scan does not flag any scope-coverage gaps
+    # for this fixture.
+    scope_findings = [
+        f
+        for f in fresh_report.findings
+        if f.check_id
+        in {"SHIP-AUTH-SCOPE-COVERAGE-MISSING", "SHIP-MANIFEST-UNUSED-SCOPE"}
+    ]
+    assert scope_findings == [], (
+        f"clean fixture unexpectedly produced scope findings: "
+        f"{[f.check_id for f in scope_findings]}"
+    )
+
+    # Compare the freshly-scanned packet's §6 to the rebuilt-from-report
+    # packet's §6. They must agree on missing/unused.
+    fresh_packet = load_packet_json((scan_out / "packet.json").read_text(encoding="utf-8"))
+    runner = CliRunner()
+    rebuilt_dir = tmp_path / "rebuilt"
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(scan_out / "report.json"),
+            "--out",
+            str(rebuilt_dir),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rebuilt_packet = load_packet_json(
+        (rebuilt_dir / "packet.json").read_text(encoding="utf-8")
+    )
+
+    assert fresh_packet.scope_coverage.missing_declared == []
+    assert rebuilt_packet.scope_coverage.missing_declared == []
+    assert rebuilt_packet.scope_coverage.unused_declared == []
+    # Status should not regress to "missing" just because the manifest
+    # was stubbed.
+    assert rebuilt_packet.scope_coverage.status != "missing"
+
+
+def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
+    """Regression for PR #43 review: ``--format json`` must write
+    ``packet.json`` to ``--out``. Previously ``json`` was rejected and
+    the only way to emit packet JSON was via ``--json`` (stdout only).
+    A user rebuilding from ``report.json`` could not produce the
+    standard local artifact set."""
+
+    out, _ = _scan_with_packet(tmp_path / "scan")
+    target = tmp_path / "rebuilt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "report.json"),
+            "--out",
+            str(target),
+            "--format",
+            "md,json,html",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    for name in ("packet.md", "packet.json", "packet.html"):
+        assert (target / name).exists(), f"{name} not written"
+    # The written packet.json must round-trip.
+    payload = (target / "packet.json").read_text(encoding="utf-8")
+    reloaded = load_packet_json(payload)
+    assert reloaded.packet_schema_version == "0.1"
+
+
+def test_evidence_packet_default_format_includes_json(tmp_path):
+    """Default ``--format`` is now ``md,json,html``: rebuilding without
+    specifying ``--format`` should produce all three artifacts."""
+
+    out, _ = _scan_with_packet(tmp_path / "scan")
+    target = tmp_path / "rebuilt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "report.json"),
+            "--out",
+            str(target),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    for name in ("packet.md", "packet.json", "packet.html"):
+        assert (target / name).exists(), f"{name} not written"
+
+
 def test_evidence_packet_rejects_unrecognised_json(tmp_path):
     """Inputs that are JSON but not packet.json or report.json must
     fail cleanly (exit 2) rather than producing partial output."""

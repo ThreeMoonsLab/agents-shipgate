@@ -544,20 +544,15 @@ def _build_scope_coverage(
         scopes.sort()
 
     # ``stripe:*`` covers ``stripe:refunds:write``. Match the wildcard
-    # semantics that ``checks/auth.py::_scope_covered`` uses so the
-    # packet never contradicts the SHIP-AUTH-SCOPE-COVERAGE-MISSING
-    # findings: a manifest scope is "used" iff it covers at least one
-    # tool scope, and a tool scope is "missing" iff no declared scope
-    # covers it.
+    # semantics that ``checks/auth.py::_scope_covered`` uses for the
+    # row-level "Declared" column.
     declared_set = set(declared)
     used_set = set(used_by_scope)
 
-    used_declared: set[str] = set()
     covered_used: set[str] = set()
     for declared_scope in declared:
         for used_scope in used_set:
             if _scope_covers(declared_scope, used_scope):
-                used_declared.add(declared_scope)
                 covered_used.add(used_scope)
 
     rows = [
@@ -568,10 +563,19 @@ def _build_scope_coverage(
         )
         for scope in sorted(declared_set | used_set)
     ]
-    unused_declared = sorted(scope for scope in declared if scope not in used_declared)
-    missing_declared = sorted(scope for scope in used_set if scope not in covered_used)
 
+    # Derive missing/unused from the *findings*, not from manifest
+    # comparison. The auth and manifest-scope checks are authoritative
+    # — they ran against the real manifest at scan time and recorded
+    # what's missing/unused in their evidence. ``build_packet_from_report``
+    # passes a stub manifest with empty ``permissions.scopes``; if §6
+    # derived gaps from manifest comparison, an intentionally-empty
+    # stub would invent missing-scope gaps that the original scan never
+    # flagged.
     gap_findings = _findings_with_check(findings, SCOPE_GAP_CHECKS)
+    missing_declared = sorted(_missing_scopes_from_findings(findings))
+    unused_declared = sorted(_unused_scopes_from_findings(findings))
+
     if gap_findings or missing_declared:
         status: SectionStatus = "missing"
     elif declared and not unused_declared:
@@ -579,6 +583,11 @@ def _build_scope_coverage(
     elif declared and unused_declared:
         status = "partial"
     elif not declared and not used_by_scope:
+        status = "informational"
+    elif not declared and used_by_scope:
+        # No manifest scopes (genuine or stubbed) and no findings either;
+        # there's nothing actionable to report — the auth check would
+        # have fired if anything were missing.
         status = "informational"
     else:
         status = "not_declared"
@@ -591,6 +600,44 @@ def _build_scope_coverage(
         missing_declared=missing_declared,
         gap_findings=_to_decision_items(gap_findings),
     )
+
+
+def _missing_scopes_from_findings(findings: list[Finding]) -> set[str]:
+    """Pull the scope names flagged by SHIP-AUTH-SCOPE-COVERAGE-MISSING.
+
+    The check records ``evidence.missing_scopes`` for every tool whose
+    auth scopes are not covered by the manifest. Trusting this list
+    over re-deriving it from the manifest is what lets the rebuilt-
+    from-report path stay accurate when the stub manifest has empty
+    ``permissions.scopes``.
+    """
+
+    out: set[str] = set()
+    for finding in findings:
+        if finding.check_id != "SHIP-AUTH-SCOPE-COVERAGE-MISSING":
+            continue
+        scopes = finding.evidence.get("missing_scopes")
+        if isinstance(scopes, list):
+            out.update(s for s in scopes if isinstance(s, str))
+    return out
+
+
+def _unused_scopes_from_findings(findings: list[Finding]) -> set[str]:
+    """Pull scope names flagged by SHIP-MANIFEST-UNUSED-SCOPE.
+
+    Each finding records the scope in ``evidence.scope``. Same
+    rationale as ``_missing_scopes_from_findings``: trust the check
+    over manifest re-derivation.
+    """
+
+    out: set[str] = set()
+    for finding in findings:
+        if finding.check_id != "SHIP-MANIFEST-UNUSED-SCOPE":
+            continue
+        scope = finding.evidence.get("scope")
+        if isinstance(scope, str):
+            out.add(scope)
+    return out
 
 
 def _scope_covers(declared_scope: str, required_scope: str) -> bool:
