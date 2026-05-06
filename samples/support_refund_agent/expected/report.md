@@ -72,10 +72,12 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 Agent intent:
 
+- prohibited\_action: issue refund without approval (tags: financial\_action, write)
+- prohibited\_action: cancel order without explicit confirmation (tags: destructive)
+- prohibited\_action: send external email without preview (tags: external\_write, customer\_communication, write)
 - declared\_purpose: prepare refund requests for human review (tags: financial\_action)
 - declared\_purpose: update support ticket notes (tags: write)
 - declared\_purpose: answer refund policy questions (tags: financial\_action, read\_only)
-- 3 more in report.json
 
 Actual capabilities:
 
@@ -94,12 +96,12 @@ Policy/control gaps:
 - CRITICAL policy\_gap \[stripe.create\_refund\]: stripe.create\_refund lacks a declared approval policy.
   Requires: High-risk tools must have a declared approval policy.
   Release implication: Release is blocked until approval is declared or the tool is removed.
-- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks idempotency evidence.
-  Requires: Risky write tools need idempotency evidence before retryable release.
-  Release implication: Retries could duplicate financial, destructive, or external effects.
 - HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email accepts broad free-form action input.
   Requires: Action-like tool inputs must constrain high-blast-radius fields.
   Release implication: Release reviewers cannot bound the operation payload safely.
+- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks idempotency evidence.
+  Requires: Risky write tools need idempotency evidence before retryable release.
+  Release implication: Retries could duplicate financial, destructive, or external effects.
 - HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner.
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.

@@ -76,9 +76,7 @@ Agent intent:
 
 - prohibited\_action: send customer email without confirmation (tags: external\_write, customer\_communication, write)
 - prohibited\_action: issue refund without approval (tags: financial\_action, write)
-- instruction\_preview: You are a support refund assistant.
-
-You should only advise the support representative and prepare a draft response. Do not take action on the customer's account. (tags: financial\_action)
+- instruction\_preview: You are a support refund assistant. You should only advise the support representative and prepare a draft response. Do not take action on the customer's account. (tags: financial\_action)
 
 Actual capabilities:
 

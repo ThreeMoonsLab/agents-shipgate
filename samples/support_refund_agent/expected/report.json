@@ -439,21 +439,20 @@
       ]
     },
     {
-      "id": "int_b4b5365de66c0cdb",
+      "id": "int_fa00e1ae7db0cd81",
       "kind": "prohibited_action",
       "text": "send external email without preview",
       "source": "agent.prohibited_actions",
       "intent_tags": [
         "external_write",
         "customer_communication",
-        "write",
-        "read_only"
+        "write"
       ]
     }
   ],
   "misalignments": [
     {
-      "id": "mis_9fa35b2cab89e30f",
+      "id": "mis_b20759bc15584fb6",
       "kind": "control_missing",
       "severity": "critical",
       "tool_name": "stripe.create_refund",
@@ -465,7 +464,7 @@
         "int_0f762dcf27664a26",
         "int_5f0f3ef33e71dbf1",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_dac8011e14c53777"
@@ -475,7 +474,7 @@
       "release_implication": "Retries could duplicate financial, destructive, or external effects."
     },
     {
-      "id": "mis_ac6ac0b6a14cdc65",
+      "id": "mis_d385027b6bbe4d9a",
       "kind": "policy_gap",
       "severity": "critical",
       "tool_name": "stripe.create_refund",
@@ -487,7 +486,7 @@
         "int_0f762dcf27664a26",
         "int_5f0f3ef33e71dbf1",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_f092940f62fbb012"
@@ -497,7 +496,7 @@
       "release_implication": "Release is blocked until approval is declared or the tool is removed."
     },
     {
-      "id": "mis_b2cf0b98eed048b7",
+      "id": "mis_886dfe311fe202c0",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "gmail.send_customer_email",
@@ -505,25 +504,7 @@
         "cap_3250ca3c56d98471"
       ],
       "intention_refs": [
-        "int_b4b5365de66c0cdb"
-      ],
-      "finding_refs": [
-        "fp_0f8aaa912d589cf0"
-      ],
-      "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
-      "gap": "gmail.send_customer_email lacks idempotency evidence.",
-      "release_implication": "Retries could duplicate financial, destructive, or external effects."
-    },
-    {
-      "id": "mis_fe4dade5b3f7ccf4",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "gmail.send_customer_email",
-      "capability_refs": [
-        "cap_3250ca3c56d98471"
-      ],
-      "intention_refs": [
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_acd63b899d49aa1c"
@@ -533,7 +514,25 @@
       "release_implication": "Release reviewers cannot bound the operation payload safely."
     },
     {
-      "id": "mis_be87ecd392dd016f",
+      "id": "mis_dd1098035b357dae",
+      "kind": "control_missing",
+      "severity": "high",
+      "tool_name": "gmail.send_customer_email",
+      "capability_refs": [
+        "cap_3250ca3c56d98471"
+      ],
+      "intention_refs": [
+        "int_fa00e1ae7db0cd81"
+      ],
+      "finding_refs": [
+        "fp_0f8aaa912d589cf0"
+      ],
+      "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
+      "gap": "gmail.send_customer_email lacks idempotency evidence.",
+      "release_implication": "Retries could duplicate financial, destructive, or external effects."
+    },
+    {
+      "id": "mis_bc0ad7ca831c38c4",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "shopify.cancel_order",
@@ -544,7 +543,7 @@
         "int_0f762dcf27664a26",
         "int_8e0b56f5f01971bd",
         "int_9dd078e191c7bd70",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_fd2577850cef1f87"
@@ -554,7 +553,7 @@
       "release_implication": "Release review metadata is incomplete or stale."
     },
     {
-      "id": "mis_09c4cc31880f873b",
+      "id": "mis_317928709e9f8f80",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "stripe.create_refund",
@@ -566,7 +565,7 @@
         "int_0f762dcf27664a26",
         "int_5f0f3ef33e71dbf1",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_ab60b01cb53cfcbe"
@@ -592,7 +591,7 @@
       "release_implication": "Release review cannot bound which tools may be available at runtime."
     },
     {
-      "id": "mis_45e6daee64343336",
+      "id": "mis_7138f222cf9818e8",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "zendesk.update_ticket",
@@ -602,7 +601,7 @@
       "intention_refs": [
         "int_0f762dcf27664a26",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_ff2f028953d1c220"
@@ -612,7 +611,7 @@
       "release_implication": "Release reviewers cannot bound the operation payload safely."
     },
     {
-      "id": "mis_0a33eb45f2377400",
+      "id": "mis_36b88ddad41620e0",
       "kind": "policy_gap",
       "severity": "high",
       "tool_name": "gmail.send_customer_email",
@@ -620,7 +619,7 @@
         "cap_3250ca3c56d98471"
       ],
       "intention_refs": [
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_8e08a4fe6b0917f6"
@@ -630,7 +629,7 @@
       "release_implication": "Release review must verify explicit user confirmation before shipping."
     },
     {
-      "id": "mis_0ebffddee4be5876",
+      "id": "mis_ba2b15a6d70dfa9c",
       "kind": "policy_gap",
       "severity": "high",
       "tool_name": "stripe.create_refund",
@@ -642,7 +641,7 @@
         "int_0f762dcf27664a26",
         "int_5f0f3ef33e71dbf1",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_a62ca2fd9a68a1d1"
@@ -652,7 +651,7 @@
       "release_implication": "Release review must verify explicit user confirmation before shipping."
     },
     {
-      "id": "mis_81e8fc6e86aea18d",
+      "id": "mis_cdb0dc4994f27ecc",
       "kind": "prohibited_action_present",
       "severity": "high",
       "tool_name": "gmail.send_customer_email",
@@ -660,7 +659,7 @@
         "cap_3250ca3c56d98471"
       ],
       "intention_refs": [
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_e090c62e390e70ab"
@@ -670,7 +669,7 @@
       "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
     },
     {
-      "id": "mis_ce098e4c494919ad",
+      "id": "mis_76ba17f3e2dd6921",
       "kind": "prohibited_action_present",
       "severity": "high",
       "tool_name": "stripe.create_refund",
@@ -682,7 +681,7 @@
         "int_0f762dcf27664a26",
         "int_5f0f3ef33e71dbf1",
         "int_8e0b56f5f01971bd",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_12985c36a06026de"
@@ -706,7 +705,7 @@
       "release_implication": "Release may grant broader access than the reviewed capability needs."
     },
     {
-      "id": "mis_2a5e7e414da3b1f5",
+      "id": "mis_dc6502ac3516c43f",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "gmail.send_customer_email",
@@ -714,7 +713,7 @@
         "cap_3250ca3c56d98471"
       ],
       "intention_refs": [
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_1f6cfd6b7daa9b7c"
@@ -724,7 +723,7 @@
       "release_implication": "The manifest does not describe the actual permissions needed."
     },
     {
-      "id": "mis_85082ea6795f0f33",
+      "id": "mis_2e65d10ba6180158",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "shopify.cancel_order",
@@ -735,7 +734,7 @@
         "int_0f762dcf27664a26",
         "int_8e0b56f5f01971bd",
         "int_9dd078e191c7bd70",
-        "int_b4b5365de66c0cdb"
+        "int_fa00e1ae7db0cd81"
       ],
       "finding_refs": [
         "fp_83852fbd6b440524"
@@ -745,7 +744,7 @@
       "release_implication": "The manifest does not describe the actual permissions needed."
     },
     {
-      "id": "mis_66535e6f15386e0c",
+      "id": "mis_b59536c79ea4fb8c",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "support.search_kb",
@@ -753,8 +752,7 @@
         "cap_6b87864148184ced"
       ],
       "intention_refs": [
-        "int_5f0f3ef33e71dbf1",
-        "int_b4b5365de66c0cdb"
+        "int_5f0f3ef33e71dbf1"
       ],
       "finding_refs": [
         "fp_d8e6d1865dae97cc"
@@ -764,21 +762,7 @@
       "release_implication": "The manifest does not describe the actual permissions needed."
     },
     {
-      "id": "mis_78f87b7a9d5cc744",
-      "kind": "control_missing",
-      "severity": "medium",
-      "tool_name": null,
-      "capability_refs": [],
-      "intention_refs": [],
-      "finding_refs": [
-        "fp_39b9ae878f343d1b"
-      ],
-      "policy_requirement": "Manifest metadata must match the active release surface.",
-      "gap": "Manifest declares unused permission scope zendesk:tickets:read.",
-      "release_implication": "Release review metadata is incomplete or stale."
-    },
-    {
-      "id": "mis_6dc5740924c5f2f0",
+      "id": "mis_ffc5c8dedf96a397",
       "kind": "control_missing",
       "severity": "medium",
       "tool_name": "send_email_preview",
@@ -786,8 +770,7 @@
         "cap_749e8c123fc42753"
       ],
       "intention_refs": [
-        "int_5f0f3ef33e71dbf1",
-        "int_b4b5365de66c0cdb"
+        "int_5f0f3ef33e71dbf1"
       ],
       "finding_refs": [
         "fp_85f8513ad72cd9ea"
@@ -795,6 +778,20 @@
       "policy_requirement": "Model-consumed tool outputs should be structured.",
       "gap": "send_email_preview returns free-form text output.",
       "release_implication": "Downstream model behavior may depend on unstructured tool output."
+    },
+    {
+      "id": "mis_ed9ce79c45da4d6e",
+      "kind": "scope_drift",
+      "severity": "medium",
+      "tool_name": null,
+      "capability_refs": [],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_39b9ae878f343d1b"
+      ],
+      "policy_requirement": "Manifest permissions should only include scopes used by loaded tools.",
+      "gap": "Manifest declares unused permission scope zendesk:tickets:read.",
+      "release_implication": "Release may include stale or unnecessary permission grants."
     }
   ],
   "release_consequence": {
@@ -812,14 +809,14 @@
   },
   "suggested_scenarios": [
     {
-      "id": "scn_1d6fb6c4313807a9",
+      "id": "scn_bed3c1eb23ee8d97",
       "scenario_type": "idempotency_retry",
       "title": "Retry behavior for risky write",
       "given": "Exercise the release path for gmail.send_customer_email, stripe.create_refund.",
       "expected_control": "Retries use idempotency evidence or the side effect is not retried.",
       "source_misalignments": [
-        "mis_9fa35b2cab89e30f",
-        "mis_b2cf0b98eed048b7"
+        "mis_b20759bc15584fb6",
+        "mis_dd1098035b357dae"
       ],
       "source_findings": [
         "fp_0f8aaa912d589cf0",
@@ -827,29 +824,29 @@
       ]
     },
     {
-      "id": "scn_da30e0b0b7fefcbe",
+      "id": "scn_b2e6f4667917e2f6",
       "scenario_type": "approval",
       "title": "Approval gate for high-risk action",
       "given": "Exercise the release path for stripe.create_refund.",
       "expected_control": "The run records human approval before the tool call and denies calls without approval.",
       "source_misalignments": [
-        "mis_ac6ac0b6a14cdc65"
+        "mis_d385027b6bbe4d9a"
       ],
       "source_findings": [
         "fp_f092940f62fbb012"
       ]
     },
     {
-      "id": "scn_c6c3dbc5a98636af",
+      "id": "scn_e1bfcac8b42a8a90",
       "scenario_type": "schema_boundary",
       "title": "Tool schema boundary check",
       "given": "Exercise the release path for gmail.send_customer_email, send_email_preview, stripe.create_refund, and 1 more tool(s).",
       "expected_control": "The tool accepts bounded structured inputs and returns structured outputs where needed.",
       "source_misalignments": [
-        "mis_09c4cc31880f873b",
-        "mis_45e6daee64343336",
-        "mis_6dc5740924c5f2f0",
-        "mis_fe4dade5b3f7ccf4"
+        "mis_317928709e9f8f80",
+        "mis_7138f222cf9818e8",
+        "mis_886dfe311fe202c0",
+        "mis_ffc5c8dedf96a397"
       ],
       "source_findings": [
         "fp_85f8513ad72cd9ea",
@@ -859,17 +856,15 @@
       ]
     },
     {
-      "id": "scn_01bcaaa9f688b408",
+      "id": "scn_5ea8402dd61e62e7",
       "scenario_type": "test_case_coverage",
       "title": "High-risk tool validation case",
       "given": "Exercise the release path for shopify.cancel_order.",
       "expected_control": "A declared test or review scenario covers the high-risk tool path.",
       "source_misalignments": [
-        "mis_78f87b7a9d5cc744",
-        "mis_be87ecd392dd016f"
+        "mis_bc0ad7ca831c38c4"
       ],
       "source_findings": [
-        "fp_39b9ae878f343d1b",
         "fp_fd2577850cef1f87"
       ]
     },
@@ -887,14 +882,14 @@
       ]
     },
     {
-      "id": "scn_3154e6988f94994a",
+      "id": "scn_7582ad2eedae8dee",
       "scenario_type": "confirmation",
       "title": "Confirmation gate for external or destructive action",
       "given": "Exercise the release path for gmail.send_customer_email, stripe.create_refund.",
       "expected_control": "The run records explicit confirmation before the side effect occurs.",
       "source_misalignments": [
-        "mis_0a33eb45f2377400",
-        "mis_0ebffddee4be5876"
+        "mis_36b88ddad41620e0",
+        "mis_ba2b15a6d70dfa9c"
       ],
       "source_findings": [
         "fp_8e08a4fe6b0917f6",
@@ -902,14 +897,14 @@
       ]
     },
     {
-      "id": "scn_f7283a9f3b88aa44",
+      "id": "scn_b8c7df78d58bed64",
       "scenario_type": "prohibited_action",
       "title": "Prohibited-action guard",
       "given": "Exercise the release path for gmail.send_customer_email, stripe.create_refund.",
       "expected_control": "The prohibited action is blocked, removed, or covered by the stated control.",
       "source_misalignments": [
-        "mis_81e8fc6e86aea18d",
-        "mis_ce098e4c494919ad"
+        "mis_76ba17f3e2dd6921",
+        "mis_cdb0dc4994f27ecc"
       ],
       "source_findings": [
         "fp_12985c36a06026de",
@@ -917,19 +912,21 @@
       ]
     },
     {
-      "id": "scn_379fcdc7a1a67c63",
+      "id": "scn_8854d797a2416c6a",
       "scenario_type": "least_privilege_scope",
       "title": "Least-privilege scope review",
       "given": "Exercise the release path for gmail.send_customer_email, shopify.cancel_order, support.search_kb.",
       "expected_control": "Manifest and tool scopes match the narrow permissions needed for the release.",
       "source_misalignments": [
-        "mis_2a5e7e414da3b1f5",
-        "mis_66535e6f15386e0c",
-        "mis_85082ea6795f0f33",
-        "mis_a9b10d037a91d1ef"
+        "mis_2e65d10ba6180158",
+        "mis_a9b10d037a91d1ef",
+        "mis_b59536c79ea4fb8c",
+        "mis_dc6502ac3516c43f",
+        "mis_ed9ce79c45da4d6e"
       ],
       "source_findings": [
         "fp_1f6cfd6b7daa9b7c",
+        "fp_39b9ae878f343d1b",
         "fp_83852fbd6b440524",
         "fp_d27325cbdbbf5483",
         "fp_d8e6d1865dae97cc"

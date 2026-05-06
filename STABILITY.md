@@ -127,6 +127,7 @@ The body content of these files may change to reflect new prompts; the entry-poi
 These are not stable — assume they may grow but not shrink:
 
 - **Risk-tag taxonomy.** New tags may appear (e.g. `infrastructure_change`, `code_execution`). Existing tags' meanings will not change.
+- **`capability_facts[].capability` vocabulary.** Values are an open vocabulary seeded from risk tags plus review sentinels such as `wildcard_tool_surface` and `unknown`.
 - **Report `frameworks.{name}` blocks.** New framework summaries (e.g. `frameworks.langchain`) may appear.
 - **Manifest fields.** New optional fields under existing sections.
 - **Check default severities.** May tighten over time. To pin a severity for your repo, use `checks.severity_overrides`.

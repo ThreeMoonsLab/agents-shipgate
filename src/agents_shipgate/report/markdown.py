@@ -5,7 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from agents_shipgate.core.findings import SEVERITY_ORDER
-from agents_shipgate.core.models import Finding, ReadinessReport
+from agents_shipgate.core.models import DeclaredIntention, Finding, ReadinessReport
 
 DISCLAIMER = (
     "Agents Shipgate is an advisory release-readiness scanner. It does not certify "
@@ -190,18 +190,18 @@ def _append_capability_intent_diff(
 
     lines.extend(["Agent intent:", ""])
     if report.declared_intentions:
-        for intention in report.declared_intentions[: CAPABILITY_DIFF_MARKDOWN_LIMITS["intentions"]]:
+        visible_intentions, hidden_intention_count = _capability_diff_intentions(
+            report.declared_intentions
+        )
+        for intention in visible_intentions:
             tags = ", ".join(intention.intent_tags) if intention.intent_tags else "none"
             lines.append(
                 f"- {_safe_markdown_text(intention.kind)}: "
                 f"{_safe_markdown_text(_truncate_text(intention.text))} "
                 f"(tags: {_safe_markdown_text(tags)})"
             )
-        _append_more_line(
-            lines,
-            len(report.declared_intentions),
-            CAPABILITY_DIFF_MARKDOWN_LIMITS["intentions"],
-        )
+        if hidden_intention_count:
+            lines.append(f"- {hidden_intention_count} more in report.json")
     else:
         lines.append("- No declared intentions captured.")
     lines.append("")
@@ -276,6 +276,18 @@ def _append_capability_intent_diff(
 def _append_more_line(lines: list[str], total: int, limit: int) -> None:
     if total > limit:
         lines.append(f"- {total - limit} more in report.json")
+
+
+def _capability_diff_intentions(
+    intentions: list[DeclaredIntention],
+) -> tuple[list[DeclaredIntention], int]:
+    prohibited = [item for item in intentions if item.kind == "prohibited_action"]
+    instruction_preview = [item for item in intentions if item.kind == "instruction_preview"]
+    declared = [item for item in intentions if item.kind == "declared_purpose"]
+    declared_limit = CAPABILITY_DIFF_MARKDOWN_LIMITS["intentions"]
+    visible = prohibited + declared[:declared_limit] + instruction_preview
+    hidden = max(0, len(declared) - declared_limit)
+    return visible, hidden
 
 
 def _append_recommended_actions(lines: list[str], actions: list[str]) -> None:
@@ -524,6 +536,7 @@ def _safe_markdown_text(value: object) -> str:
 
 
 def _truncate_text(value: str, limit: int = 220) -> str:
+    value = " ".join(value.split())
     if len(value) <= limit:
         return value
     return f"{value[: limit - 3]}..."

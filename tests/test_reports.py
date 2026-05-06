@@ -190,6 +190,11 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
         if finding["check_id"] == "SHIP-SIDEFX-IDEMPOTENCY-MISSING"
         and finding["tool_name"] == "stripe.create_refund"
     )
+    unused_scope_finding = next(
+        finding
+        for finding in payload["findings"]
+        if finding["check_id"] == "SHIP-MANIFEST-UNUSED-SCOPE"
+    )
     assert approval_finding["fingerprint"] == "fp_f092940f62fbb012"
     assert idempotency_finding["fingerprint"] == "fp_dac8011e14c53777"
 
@@ -203,8 +208,100 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
         and idempotency_finding["id"] in item["finding_refs"]
         for item in payload["misalignments"]
     )
+    assert any(
+        item["kind"] == "scope_drift"
+        and unused_scope_finding["id"] in item["finding_refs"]
+        for item in payload["misalignments"]
+    )
     scenario_types = {item["scenario_type"] for item in payload["suggested_scenarios"]}
     assert {"approval", "idempotency_retry"} <= scenario_types
+    least_privilege = next(
+        item
+        for item in payload["suggested_scenarios"]
+        if item["scenario_type"] == "least_privilege_scope"
+    )
+    assert unused_scope_finding["id"] in least_privilege["source_findings"]
+
+
+def test_capability_intent_markdown_pins_prohibited_actions(tmp_path):
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    markdown = render_markdown_report(report)
+
+    assert "- prohibited\\_action: issue refund without approval" in markdown
+    assert "- prohibited\\_action: send external email without preview" in markdown
+    assert (
+        "- prohibited\\_action: cancel order without explicit confirmation"
+        in markdown
+    )
+
+
+def test_capability_intent_markdown_collapses_multiline_instruction_preview(tmp_path):
+    report, _ = run_scan(
+        config_path=OPENAI_API_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    markdown = render_markdown_report(report)
+
+    assert "assistant.\n\nYou should only advise" not in markdown
+    assert (
+        "- instruction\\_preview: You are a support refund assistant. "
+        "You should only advise the support representative"
+    ) in markdown
+
+
+def test_capability_diff_intent_tags_are_alias_based_and_negation_aware():
+    from agents_shipgate.report.capability_diff import _intent_tags
+
+    tags = _intent_tags("send external email without preview")
+
+    assert {"external_write", "customer_communication", "write"} <= set(tags)
+    assert "read_only" not in tags
+    assert "financial_action" in _intent_tags("process reimbursements")
+
+
+def test_capability_diff_includes_framework_release_blocker_categories():
+    from agents_shipgate.core.models import (
+        Finding,
+        ReadinessReport,
+        ReportSummary,
+        ToolSurfaceSummary,
+    )
+    from agents_shipgate.report.capability_diff import apply_capability_diff
+
+    report = ReadinessReport(
+        run_id="test",
+        project={"name": "framework-test"},
+        agent={"name": "framework-agent", "declared_purpose": ["use framework tools"]},
+        environment={"target": "test"},
+        summary=ReportSummary(status="release_review_required", high_count=1),
+        tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+        findings=[
+            Finding(
+                id="finding-langchain-dynamic",
+                fingerprint="fp_langchain_dynamic",
+                check_id="SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+                title="LangChain tool surface cannot be statically enumerated",
+                severity="high",
+                category="langchain",
+                confidence="medium",
+                recommendation="Provide explicit inventory metadata.",
+            )
+        ],
+    )
+
+    apply_capability_diff(report, [])
+
+    assert report.misalignments
+    assert report.misalignments[0].kind == "control_missing"
+    assert report.misalignments[0].finding_refs == ["finding-langchain-dynamic"]
+    assert report.suggested_scenarios[0].scenario_type == "wildcard_inventory"
 
 
 def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):

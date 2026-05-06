@@ -1,3 +1,5 @@
+"""Build deterministic capability/intent diff facts for report output."""
+
 from __future__ import annotations
 
 import hashlib
@@ -33,6 +35,9 @@ RISK_TAG_PRIORITY = (
     "read_only",
 )
 
+# P0.1 intentionally covers the common release-review vocabulary first.
+# Additional aliases for infrastructure/code-exec/data-access intents can
+# be added without changing the report contract.
 INTENT_TAG_ALIASES: dict[str, tuple[str, ...]] = {
     "answer": ("read_only",),
     "billing": ("financial_action",),
@@ -63,11 +68,16 @@ INTENT_TAG_ALIASES: dict[str, tuple[str, ...]] = {
     "view": ("read_only",),
     "write": ("write",),
 }
+NEGATION_TOKENS = {"without", "no", "not", "never", "non"}
 
 RELEASE_RELEVANT_CATEGORIES = {
+    "adk",
     "api",
     "auth",
+    "crewai",
+    "documentation",
     "inventory",
+    "langchain",
     "manifest",
     "policy",
     "schema",
@@ -108,7 +118,6 @@ MISSING_CONTROL_CHECKS = {
 class DiffSpec:
     kind: MisalignmentKind
     policy_requirement: str
-    gap: str
     release_implication: str
     scenario_type: SuggestedScenarioType | None
 
@@ -123,147 +132,181 @@ CHECK_DIFF_MAP: dict[str, DiffSpec] = {
     "SHIP-INVENTORY-NOT-ENUMERABLE": DiffSpec(
         kind="control_missing",
         policy_requirement="Tool surface must be statically enumerable before release review.",
-        gap="{title}.",
         release_implication="Release review cannot verify the agent's actual tool surface.",
         scenario_type="wildcard_inventory",
     ),
     "SHIP-INVENTORY-WILDCARD-TOOLS": DiffSpec(
         kind="control_missing",
         policy_requirement="Tool exposure must use an explicit reviewed allowlist.",
-        gap="{title}.",
         release_implication="Release review cannot bound which tools may be available at runtime.",
+        scenario_type="wildcard_inventory",
+    ),
+    "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Framework toolsets must be statically enumerable before release review.",
+        release_implication="Release review cannot verify the Google ADK toolset surface.",
+        scenario_type="wildcard_inventory",
+    ),
+    "SHIP-ADK-MCP-TOOLSET-UNFILTERED": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Framework MCP toolsets must use static tool filters or explicit inventory.",
+        release_implication="Release review cannot bound the Google ADK MCP toolset surface.",
+        scenario_type="wildcard_inventory",
+    ),
+    "SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Framework function tools must expose static metadata for review.",
+        release_implication="Release reviewers cannot verify the ADK function tool boundary.",
+        scenario_type="schema_boundary",
+    ),
+    "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Long-running framework tools need operation status and progress contracts.",
+        release_implication="Release review cannot verify continuation and retry behavior.",
+        scenario_type="schema_boundary",
+    ),
+    "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="High-risk framework tools must include static guardrail evidence.",
+        release_implication="Release lacks deterministic evidence for high-risk framework controls.",
+        scenario_type="test_case_coverage",
+    ),
+    "SHIP-ADK-EVAL-COVERAGE-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Production-like framework releases should declare eval coverage.",
+        release_implication="Release lacks validation evidence for production-like ADK behavior.",
+        scenario_type="test_case_coverage",
+    ),
+    "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Framework tool surfaces must be statically enumerable before release review.",
+        release_implication="Release review cannot verify the LangChain tool surface.",
+        scenario_type="wildcard_inventory",
+    ),
+    "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Framework tool surfaces must be statically enumerable before release review.",
+        release_implication="Release review cannot verify the CrewAI tool surface.",
         scenario_type="wildcard_inventory",
     ),
     "SHIP-SCHEMA-BROAD-FREE-TEXT": DiffSpec(
         kind="control_missing",
         policy_requirement="Action-like tool inputs must constrain high-blast-radius fields.",
-        gap="{title}.",
         release_implication="Release reviewers cannot bound the operation payload safely.",
         scenario_type="schema_boundary",
     ),
     "SHIP-SCHEMA-MISSING-BOUNDS": DiffSpec(
         kind="control_missing",
         policy_requirement="Risky numeric parameters must declare a maximum or equivalent limit.",
-        gap="{title}.",
         release_implication="Release reviewers cannot verify blast-radius limits.",
         scenario_type="schema_boundary",
     ),
     "SHIP-SCHEMA-FREEFORM-OUTPUT": DiffSpec(
         kind="control_missing",
         policy_requirement="Model-consumed tool outputs should be structured.",
-        gap="{title}.",
         release_implication="Downstream model behavior may depend on unstructured tool output.",
         scenario_type="schema_boundary",
     ),
     "SHIP-AUTH-MISSING-SCOPE": DiffSpec(
         kind="scope_drift",
         policy_requirement="Scope-requiring tools must declare operation-specific auth scopes.",
-        gap="{title}.",
         release_implication="Release reviewers cannot assess least privilege.",
         scenario_type="least_privilege_scope",
     ),
     "SHIP-AUTH-MANIFEST-BROAD-SCOPE": DiffSpec(
         kind="scope_drift",
         policy_requirement="Manifest permissions should declare narrow release scopes.",
-        gap="{title}.",
         release_implication="Release may grant broader access than the reviewed capability needs.",
         scenario_type="least_privilege_scope",
     ),
     "SHIP-AUTH-TOOL-BROAD-SCOPE": DiffSpec(
         kind="scope_drift",
         policy_requirement="Tool auth metadata should use narrow operation-specific scopes.",
-        gap="{title}.",
         release_implication="The tool may require broader credentials than review can justify.",
         scenario_type="least_privilege_scope",
     ),
     "SHIP-AUTH-SCOPE-COVERAGE-MISSING": DiffSpec(
         kind="scope_drift",
         policy_requirement="Manifest permissions must cover tool-required scopes.",
-        gap="{title}.",
         release_implication="The manifest does not describe the actual permissions needed.",
+        scenario_type="least_privilege_scope",
+    ),
+    "SHIP-MANIFEST-UNUSED-SCOPE": DiffSpec(
+        kind="scope_drift",
+        policy_requirement="Manifest permissions should only include scopes used by loaded tools.",
+        release_implication="Release may include stale or unnecessary permission grants.",
         scenario_type="least_privilege_scope",
     ),
     "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE": DiffSpec(
         kind="intent_mismatch",
         policy_requirement="Declared purpose must match the attached tool surface.",
-        gap="{title}.",
         release_implication="The release scope is broader than the declared agent intent.",
         scenario_type="prompt_scope_alignment",
     ),
     "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": DiffSpec(
         kind="prohibited_action_present",
         policy_requirement="Prohibited actions must not be contradicted by enabled capabilities.",
-        gap="{title}.",
         release_implication="The tool surface appears to enable behavior the manifest prohibits.",
         scenario_type="prohibited_action",
     ),
     "SHIP-POLICY-APPROVAL-MISSING": DiffSpec(
         kind="policy_gap",
         policy_requirement="High-risk tools must have a declared approval policy.",
-        gap="{title}.",
         release_implication="Release is blocked until approval is declared or the tool is removed.",
         scenario_type="approval",
     ),
     "SHIP-POLICY-CONFIRMATION-MISSING": DiffSpec(
         kind="policy_gap",
         policy_requirement="Destructive, external, or customer actions require confirmation.",
-        gap="{title}.",
         release_implication="Release review must verify explicit user confirmation before shipping.",
         scenario_type="confirmation",
     ),
     "SHIP-SIDEFX-IDEMPOTENCY-MISSING": DiffSpec(
         kind="control_missing",
         policy_requirement="Risky write tools need idempotency evidence before retryable release.",
-        gap="{title}.",
         release_implication="Retries could duplicate financial, destructive, or external effects.",
         scenario_type="idempotency_retry",
     ),
     "SHIP-API-FUNCTION-SCHEMA-STRICTNESS": DiffSpec(
         kind="control_missing",
         policy_requirement="API function schemas must be strict enough for reliable tool calls.",
-        gap="{title}.",
         release_implication="The model may send ambiguous or overbroad tool arguments.",
         scenario_type="schema_boundary",
     ),
     "SHIP-API-STRUCTURED-OUTPUT-READINESS": DiffSpec(
         kind="control_missing",
         policy_requirement="API outputs need structured success, failure, and review states.",
-        gap="{title}.",
         release_implication="Downstream release behavior may depend on under-specified output.",
         scenario_type="schema_boundary",
     ),
     "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH": DiffSpec(
         kind="intent_mismatch",
         policy_requirement="Prompt scope must align with enabled high-risk tools.",
-        gap="{title}.",
         release_implication="The agent instructions and actual tool surface disagree.",
         scenario_type="prompt_scope_alignment",
     ),
     "SHIP-API-TEST-CASES-MISSING": DiffSpec(
         kind="control_missing",
         policy_requirement="High-risk API tool-call flows should include declared test cases.",
-        gap="{title}.",
         release_implication="Release lacks validation evidence for high-risk tool paths.",
         scenario_type="test_case_coverage",
     ),
     "SHIP-API-TRACE-APPROVAL-MISSING": DiffSpec(
         kind="policy_gap",
         policy_requirement="Trace evidence for approval-controlled tools must show approval.",
-        gap="{title}.",
         release_implication="Observed sample evidence contradicts the approval expectation.",
         scenario_type="approval",
     ),
     "SHIP-API-TRACE-CONFIRMATION-MISSING": DiffSpec(
         kind="policy_gap",
         policy_requirement="Trace evidence for confirmation-controlled tools must show confirmation.",
-        gap="{title}.",
         release_implication="Observed sample evidence contradicts the confirmation expectation.",
         scenario_type="confirmation",
     ),
 }
 
 
-def apply_capability_diff(report: ReadinessReport, tools: list[Tool]) -> ReadinessReport:
+def apply_capability_diff(report: ReadinessReport, tools: list[Tool]) -> None:
     capability_facts, declared_intentions, records = _build_diff_records(report, tools)
     misalignments = [record.misalignment for record in records]
     report.capability_facts = capability_facts
@@ -271,7 +314,6 @@ def apply_capability_diff(report: ReadinessReport, tools: list[Tool]) -> Readine
     report.misalignments = misalignments
     report.suggested_scenarios = _suggested_scenarios(records)
     report.release_consequence = _release_consequence(report, misalignments)
-    return report
 
 
 def _build_diff_records(
@@ -432,7 +474,10 @@ def _intention(kind: str, text: str, source: str) -> DeclaredIntention:
 
 def _intent_tags(text: str) -> list[str]:
     tags: set[str] = set()
-    for token in _tokens(text):
+    tokens = _ordered_tokens(text)
+    for index, token in enumerate(tokens):
+        if index > 0 and tokens[index - 1] in NEGATION_TOKENS:
+            continue
         tags.update(INTENT_TAG_ALIASES.get(token, ()))
     return sorted(tags, key=lambda tag: RISK_TAG_PRIORITY.index(tag) if tag in RISK_TAG_PRIORITY else 99)
 
@@ -468,9 +513,9 @@ def _misalignment_records(
                 capability_refs=sorted(capability_refs),
                 intention_refs=sorted(intention_refs),
                 finding_refs=sorted(finding_refs),
-                policy_requirement=_render_template(spec.policy_requirement, finding, tool_name),
-                gap=_render_template(spec.gap, finding, tool_name),
-                release_implication=_render_template(spec.release_implication, finding, tool_name),
+                policy_requirement=spec.policy_requirement,
+                gap=f"{finding.title}.",
+                release_implication=spec.release_implication,
             )
             records.append(MisalignmentRecord(misalignment, spec.scenario_type))
     return records
@@ -483,7 +528,6 @@ def _diff_spec(finding: Finding) -> DiffSpec:
         return DiffSpec(
             kind="policy_gap",
             policy_requirement="Policy-controlled tools must declare matching controls.",
-            gap="{title}.",
             release_implication="Release review must resolve the missing policy evidence.",
             scenario_type="approval",
         )
@@ -491,7 +535,6 @@ def _diff_spec(finding: Finding) -> DiffSpec:
         return DiffSpec(
             kind="scope_drift",
             policy_requirement="Auth scopes must match the reviewed release surface.",
-            gap="{title}.",
             release_implication="Least-privilege review is incomplete.",
             scenario_type="least_privilege_scope",
         )
@@ -499,7 +542,6 @@ def _diff_spec(finding: Finding) -> DiffSpec:
         return DiffSpec(
             kind="intent_mismatch",
             policy_requirement="Declared intent must align with tool capabilities.",
-            gap="{title}.",
             release_implication="The reviewed purpose does not fully cover the tool surface.",
             scenario_type="prompt_scope_alignment",
         )
@@ -507,7 +549,6 @@ def _diff_spec(finding: Finding) -> DiffSpec:
         return DiffSpec(
             kind="control_missing",
             policy_requirement="Tool schemas and metadata must constrain unsafe inputs or outputs.",
-            gap="{title}.",
             release_implication="The release has unresolved tool-boundary risk.",
             scenario_type="schema_boundary",
         )
@@ -515,14 +556,26 @@ def _diff_spec(finding: Finding) -> DiffSpec:
         return DiffSpec(
             kind="control_missing",
             policy_requirement="Manifest metadata must match the active release surface.",
-            gap="{title}.",
             release_implication="Release review metadata is incomplete or stale.",
             scenario_type="test_case_coverage",
+        )
+    if finding.category in {"adk", "langchain", "crewai"}:
+        return DiffSpec(
+            kind="control_missing",
+            policy_requirement="Framework tool surfaces and controls must be statically reviewable.",
+            release_implication="Release review cannot fully verify framework-specific tool behavior.",
+            scenario_type="wildcard_inventory",
+        )
+    if finding.category == "documentation":
+        return DiffSpec(
+            kind="control_missing",
+            policy_requirement="Tool documentation must include enough static metadata for review.",
+            release_implication="Release reviewers lack the static description needed to assess behavior.",
+            scenario_type="schema_boundary",
         )
     return DiffSpec(
         kind="undetected_gap",
         policy_requirement="Static review requires deterministic evidence for release gaps.",
-        gap="{title}.",
         release_implication="Human review is required to interpret this finding.",
         scenario_type=None,
     )
@@ -695,6 +748,8 @@ def _release_summary(decision: str, blocker_count: int, review_count: int) -> st
 def _decision_ref(item: object) -> str | None:
     item_id = getattr(item, "id", None)
     fingerprint = getattr(item, "fingerprint", None)
+    # v0.8 items currently set id == fingerprint; the fingerprint fallback
+    # keeps older test fixtures and hand-built reports defensive.
     return item_id or fingerprint
 
 
@@ -724,16 +779,8 @@ def _evidence_tags(finding: Finding) -> list[str]:
     return [tag for tag in tags if isinstance(tag, str)]
 
 
-def _render_template(template: str, finding: Finding, tool_name: str | None) -> str:
-    return template.format(
-        check_id=finding.check_id,
-        title=finding.title,
-        tool=tool_name or finding.tool_name or "agent",
-    )
-
-
-def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z]+", text.lower()))
+def _ordered_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z]+", text.lower())
 
 
 def _string_list(value: object) -> list[str]:
