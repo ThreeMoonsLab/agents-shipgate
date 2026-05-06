@@ -305,24 +305,22 @@
   ],
   "declared_intentions": [
     {
-      "id": "int_495832988b7014f6",
+      "id": "int_07ec701205b21b96",
+      "kind": "prohibited_action",
+      "text": "issue refund without approval",
+      "source": "agent.prohibited_actions",
+      "intent_tags": [
+        "financial_action"
+      ]
+    },
+    {
+      "id": "int_bf9d4ad9100fcc59",
       "kind": "prohibited_action",
       "text": "send customer email without confirmation",
       "source": "agent.prohibited_actions",
       "intent_tags": [
         "external_write",
-        "customer_communication",
-        "write"
-      ]
-    },
-    {
-      "id": "int_8e0b56f5f01971bd",
-      "kind": "prohibited_action",
-      "text": "issue refund without approval",
-      "source": "agent.prohibited_actions",
-      "intent_tags": [
-        "financial_action",
-        "write"
+        "customer_communication"
       ]
     },
     {
@@ -337,7 +335,7 @@
   ],
   "misalignments": [
     {
-      "id": "mis_0994ddaf63489d62",
+      "id": "mis_0d313eb8b061d7b1",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "create_refund",
@@ -345,49 +343,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
-      ],
-      "finding_refs": [
-        "fp_e9d63903757dfe07"
-      ],
-      "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
-      "gap": "create_refund lacks idempotency evidence.",
-      "release_implication": "Retries could duplicate financial, destructive, or external effects."
-    },
-    {
-      "id": "mis_4e9c8774ba1dae34",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
-      ],
-      "finding_refs": [
-        "fp_d9059d0c1f3540af"
-      ],
-      "policy_requirement": "Manifest metadata must match the active release surface.",
-      "gap": "create_refund is high-risk but has no owner.",
-      "release_implication": "Release review metadata is incomplete or stale."
-    },
-    {
-      "id": "mis_6108cd9658bdc665",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_c2d773062468ceac"
@@ -397,7 +354,7 @@
       "release_implication": "Release reviewers cannot verify blast-radius limits."
     },
     {
-      "id": "mis_7a5ca93c06205292",
+      "id": "mis_3b646ab11162db0e",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "create_refund",
@@ -405,9 +362,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_9675d1799680d81d"
@@ -417,7 +373,45 @@
       "release_implication": "The model may send ambiguous or overbroad tool arguments."
     },
     {
-      "id": "mis_3ea7f33003a90845",
+      "id": "mis_926591b01818cf0b",
+      "kind": "control_missing",
+      "severity": "high",
+      "tool_name": "create_refund",
+      "capability_refs": [
+        "cap_1936b581aee1c411"
+      ],
+      "intention_refs": [
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
+      ],
+      "finding_refs": [
+        "fp_d9059d0c1f3540af"
+      ],
+      "policy_requirement": "Manifest metadata must match the active release surface.",
+      "gap": "create_refund is high-risk but has no owner.",
+      "release_implication": "Release review metadata is incomplete or stale."
+    },
+    {
+      "id": "mis_a9df78c48e082dd0",
+      "kind": "control_missing",
+      "severity": "high",
+      "tool_name": "create_refund",
+      "capability_refs": [
+        "cap_1936b581aee1c411"
+      ],
+      "intention_refs": [
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
+      ],
+      "finding_refs": [
+        "fp_e9d63903757dfe07"
+      ],
+      "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
+      "gap": "create_refund lacks idempotency evidence.",
+      "release_implication": "Retries could duplicate financial, destructive, or external effects."
+    },
+    {
+      "id": "mis_0170081d6e670785",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -425,8 +419,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_4466eb2871434dc5"
@@ -436,7 +429,7 @@
       "release_implication": "Retries could duplicate financial, destructive, or external effects."
     },
     {
-      "id": "mis_49c9adfcf549bc49",
+      "id": "mis_5b012d4c2ded8ff1",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -444,8 +437,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_29e718b3bbde0e7d"
@@ -455,7 +447,7 @@
       "release_implication": "The model may send ambiguous or overbroad tool arguments."
     },
     {
-      "id": "mis_4f14842e2bbd75d5",
+      "id": "mis_8b69d68758b8cc07",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -463,8 +455,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_07538ba8f9532359"
@@ -474,7 +465,7 @@
       "release_implication": "Release reviewers cannot bound the operation payload safely."
     },
     {
-      "id": "mis_e4d84cc22a57dce6",
+      "id": "mis_ae5603b18a7422ad",
       "kind": "control_missing",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -482,8 +473,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_a95adeb6338f8b3e"
@@ -493,7 +483,7 @@
       "release_implication": "Release review metadata is incomplete or stale."
     },
     {
-      "id": "mis_73452c83242300c0",
+      "id": "mis_d6c4843e01a26cda",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "create_refund",
@@ -501,9 +491,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_1b64e136ace3472a_dacf6678"
@@ -513,7 +502,7 @@
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_1dd6581e7b2546d8",
+      "id": "mis_b3af478e081484dc",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -521,9 +510,8 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
         "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_1b64e136ace3472a_dacf6678"
@@ -533,7 +521,7 @@
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_74f922df9418d364",
+      "id": "mis_e9e215dcce120491",
       "kind": "prohibited_action_present",
       "severity": "high",
       "tool_name": "create_refund",
@@ -541,9 +529,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_a8a615b5a4f2597b"
@@ -553,7 +540,7 @@
       "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
     },
     {
-      "id": "mis_6d584cf0a0f075ce",
+      "id": "mis_135a15d086cc3e33",
       "kind": "prohibited_action_present",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -561,8 +548,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_cf260ff7c72d64b7"
@@ -572,7 +558,7 @@
       "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
     },
     {
-      "id": "mis_2192a08ed2c08bea",
+      "id": "mis_eaf7fd17e78431d3",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "create_refund",
@@ -580,9 +566,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_58b3202c0a4d9793"
@@ -592,7 +577,7 @@
       "release_implication": "Release reviewers cannot assess least privilege."
     },
     {
-      "id": "mis_741fc769ae988e35",
+      "id": "mis_1dd16feaf65a0e12",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -600,8 +585,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_45ef3ff3ce2cf187"
@@ -611,7 +595,7 @@
       "release_implication": "Release reviewers cannot assess least privilege."
     },
     {
-      "id": "mis_9652290d30cdb3fb",
+      "id": "mis_7e22046a22ee3b36",
       "kind": "undetected_gap",
       "severity": "high",
       "tool_name": "create_refund",
@@ -619,9 +603,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_2bf957380e89863f"
@@ -631,7 +614,7 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_22127d9fe6367d9d",
+      "id": "mis_814ae81d339e1ea1",
       "kind": "undetected_gap",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -639,8 +622,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_efb42c5b5aea7be6"
@@ -664,7 +646,7 @@
       "release_implication": "Downstream release behavior may depend on under-specified output."
     },
     {
-      "id": "mis_d23fb0977a8cd94a",
+      "id": "mis_8e1d935b9d84c71d",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -672,9 +654,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_1b64e136ace3472a_fe9f9e46"
@@ -684,7 +665,7 @@
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_5d0ae076f7a65618",
+      "id": "mis_227dcda26ec582d2",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "send_customer_email",
@@ -692,9 +673,8 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
         "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_1b64e136ace3472a_fe9f9e46"
@@ -704,7 +684,7 @@
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_5d71f57a15363df7",
+      "id": "mis_6e98108a40acf1c8",
       "kind": "policy_gap",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -712,9 +692,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_245bcdb96d8220e2"
@@ -724,7 +703,7 @@
       "release_implication": "Observed sample evidence contradicts the approval expectation."
     },
     {
-      "id": "mis_322585ba77d6cf95",
+      "id": "mis_01005def6d0a6158",
       "kind": "undetected_gap",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -732,9 +711,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_28483a22a9ed40cb"
@@ -744,7 +722,7 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_887c0d751a12ef7c",
+      "id": "mis_3941e4d6a12739eb",
       "kind": "undetected_gap",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -752,9 +730,8 @@
         "cap_1936b581aee1c411"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_788db5032dd9f920",
-        "int_8e0b56f5f01971bd"
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
       ],
       "finding_refs": [
         "fp_b8df99c94ef3aa60"
@@ -764,7 +741,7 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_99eccae7e433cb30",
+      "id": "mis_91bedd6c6ac4d4b8",
       "kind": "undetected_gap",
       "severity": "medium",
       "tool_name": "send_customer_email",
@@ -772,8 +749,7 @@
         "cap_e809417ee4da1160"
       ],
       "intention_refs": [
-        "int_495832988b7014f6",
-        "int_8e0b56f5f01971bd"
+        "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
         "fp_28483a22a9ed40cb"
@@ -785,9 +761,9 @@
   ],
   "release_consequence": {
     "decision": "review_required",
-    "summary": "23 capability/intent misalignment(s) require release review before shipping.",
+    "summary": "20 capability/intent misalignment(s) require release review before shipping.",
     "blocker_misalignment_count": 0,
-    "review_misalignment_count": 23,
+    "review_misalignment_count": 20,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -798,46 +774,16 @@
   },
   "suggested_scenarios": [
     {
-      "id": "scn_9a21ba1e80b17d64",
-      "scenario_type": "idempotency_retry",
-      "title": "Retry behavior for risky write",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
-      "expected_control": "Retries use idempotency evidence or the side effect is not retried.",
-      "source_misalignments": [
-        "mis_0994ddaf63489d62",
-        "mis_3ea7f33003a90845"
-      ],
-      "source_findings": [
-        "fp_4466eb2871434dc5",
-        "fp_e9d63903757dfe07"
-      ]
-    },
-    {
-      "id": "scn_b290aca1d5e64f2e",
-      "scenario_type": "test_case_coverage",
-      "title": "High-risk tool validation case",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
-      "expected_control": "A declared test or review scenario covers the high-risk tool path.",
-      "source_misalignments": [
-        "mis_4e9c8774ba1dae34",
-        "mis_e4d84cc22a57dce6"
-      ],
-      "source_findings": [
-        "fp_a95adeb6338f8b3e",
-        "fp_d9059d0c1f3540af"
-      ]
-    },
-    {
-      "id": "scn_ae2f0094a6876c0b",
+      "id": "scn_157a93e2ab45d326",
       "scenario_type": "schema_boundary",
       "title": "Tool schema boundary check",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "The tool accepts bounded structured inputs and returns structured outputs where needed.",
       "source_misalignments": [
-        "mis_49c9adfcf549bc49",
-        "mis_4f14842e2bbd75d5",
-        "mis_6108cd9658bdc665",
-        "mis_7a5ca93c06205292",
+        "mis_0d313eb8b061d7b1",
+        "mis_3b646ab11162db0e",
+        "mis_5b012d4c2ded8ff1",
+        "mis_8b69d68758b8cc07",
         "mis_d797188d34fd667d"
       ],
       "source_findings": [
@@ -849,16 +795,46 @@
       ]
     },
     {
-      "id": "scn_cedd66e060123bf7",
+      "id": "scn_fac44131d345d64d",
+      "scenario_type": "test_case_coverage",
+      "title": "High-risk tool validation case",
+      "given": "Exercise the release path for create_refund, send_customer_email.",
+      "expected_control": "A declared test or review scenario covers the high-risk tool path.",
+      "source_misalignments": [
+        "mis_926591b01818cf0b",
+        "mis_ae5603b18a7422ad"
+      ],
+      "source_findings": [
+        "fp_a95adeb6338f8b3e",
+        "fp_d9059d0c1f3540af"
+      ]
+    },
+    {
+      "id": "scn_2271827c06f0eb07",
+      "scenario_type": "idempotency_retry",
+      "title": "Retry behavior for risky write",
+      "given": "Exercise the release path for create_refund, send_customer_email.",
+      "expected_control": "Retries use idempotency evidence or the side effect is not retried.",
+      "source_misalignments": [
+        "mis_0170081d6e670785",
+        "mis_a9df78c48e082dd0"
+      ],
+      "source_findings": [
+        "fp_4466eb2871434dc5",
+        "fp_e9d63903757dfe07"
+      ]
+    },
+    {
+      "id": "scn_291536635b1248f1",
       "scenario_type": "prompt_scope_alignment",
       "title": "Prompt and tool-surface alignment",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "The agent instructions match the enabled write and high-risk capabilities.",
       "source_misalignments": [
-        "mis_1dd6581e7b2546d8",
-        "mis_5d0ae076f7a65618",
-        "mis_73452c83242300c0",
-        "mis_d23fb0977a8cd94a"
+        "mis_227dcda26ec582d2",
+        "mis_8e1d935b9d84c71d",
+        "mis_b3af478e081484dc",
+        "mis_d6c4843e01a26cda"
       ],
       "source_findings": [
         "fp_1b64e136ace3472a_dacf6678",
@@ -866,14 +842,14 @@
       ]
     },
     {
-      "id": "scn_f51388bf48a8db83",
+      "id": "scn_4e2075de0c05e4a2",
       "scenario_type": "prohibited_action",
       "title": "Prohibited-action guard",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "The prohibited action is blocked, removed, or covered by the stated control.",
       "source_misalignments": [
-        "mis_6d584cf0a0f075ce",
-        "mis_74f922df9418d364"
+        "mis_135a15d086cc3e33",
+        "mis_e9e215dcce120491"
       ],
       "source_findings": [
         "fp_a8a615b5a4f2597b",
@@ -881,14 +857,14 @@
       ]
     },
     {
-      "id": "scn_3de18f6e85c5cbd0",
+      "id": "scn_a9e280a472723af2",
       "scenario_type": "least_privilege_scope",
       "title": "Least-privilege scope review",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "Manifest and tool scopes match the narrow permissions needed for the release.",
       "source_misalignments": [
-        "mis_2192a08ed2c08bea",
-        "mis_741fc769ae988e35"
+        "mis_1dd16feaf65a0e12",
+        "mis_eaf7fd17e78431d3"
       ],
       "source_findings": [
         "fp_45ef3ff3ce2cf187",
@@ -896,13 +872,13 @@
       ]
     },
     {
-      "id": "scn_97e388d166e8e921",
+      "id": "scn_1afe05dae5bd9459",
       "scenario_type": "approval",
       "title": "Approval gate for high-risk action",
       "given": "Exercise the release path for create_refund.",
       "expected_control": "The run records human approval before the tool call and denies calls without approval.",
       "source_misalignments": [
-        "mis_5d71f57a15363df7"
+        "mis_6e98108a40acf1c8"
       ],
       "source_findings": [
         "fp_245bcdb96d8220e2"

@@ -72,12 +72,12 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 Agent intent:
 
-- prohibited\_action: issue refund without approval (tags: financial\_action, write)
+- prohibited\_action: issue refund without approval (tags: financial\_action)
+- prohibited\_action: send external email without preview (tags: external\_write, customer\_communication)
 - prohibited\_action: cancel order without explicit confirmation (tags: destructive)
-- prohibited\_action: send external email without preview (tags: external\_write, customer\_communication, write)
 - declared\_purpose: prepare refund requests for human review (tags: financial\_action)
-- declared\_purpose: update support ticket notes (tags: write)
-- declared\_purpose: answer refund policy questions (tags: financial\_action, read\_only)
+- declared\_purpose: update support ticket notes (tags: none)
+- declared\_purpose: answer refund policy questions (tags: financial\_action)
 
 Actual capabilities:
 

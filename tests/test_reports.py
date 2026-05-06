@@ -177,6 +177,11 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
     ]
     assert refund_intentions
     assert any("financial_action" in item["intent_tags"] for item in refund_intentions)
+    update_ticket_intention = next(
+        intention
+        for intention in payload["declared_intentions"]
+        if intention["text"] == "update support ticket notes"
+    )
 
     approval_finding = next(
         finding
@@ -202,6 +207,11 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
         item["kind"] == "policy_gap"
         and approval_finding["id"] in item["finding_refs"]
         for item in payload["misalignments"]
+    )
+    assert all(
+        update_ticket_intention["id"] not in item["intention_refs"]
+        for item in payload["misalignments"]
+        if item["tool_name"] == "stripe.create_refund"
     )
     assert any(
         item["kind"] == "control_missing"
@@ -261,8 +271,13 @@ def test_capability_diff_intent_tags_are_alias_based_and_negation_aware():
 
     tags = _intent_tags("send external email without preview")
 
-    assert {"external_write", "customer_communication", "write"} <= set(tags)
+    assert {"external_write", "customer_communication"} <= set(tags)
+    assert "write" not in tags
     assert "read_only" not in tags
+    assert "financial_action" not in _intent_tags("do not refund customer")
+    assert "destructive" not in _intent_tags("never delete records")
+    assert _intent_tags("update support ticket notes") == []
+    assert _intent_tags("answer ticket status") == []
     assert "financial_action" in _intent_tags("process reimbursements")
 
 
@@ -339,6 +354,26 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
             "baseline_status": None,
         },
     ]
+
+
+def test_release_consequence_counts_distinct_release_decision_findings(tmp_path):
+    from agents_shipgate.report.json_report import report_json_payload
+
+    report, _ = run_scan(
+        config_path=OPENAI_API_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    payload = report_json_payload(report)
+
+    assert len(payload["misalignments"]) > len(payload["release_decision"]["review_items"])
+    assert payload["release_consequence"]["blocker_misalignment_count"] == len(
+        payload["release_decision"]["blockers"]
+    )
+    assert payload["release_consequence"]["review_misalignment_count"] == len(
+        payload["release_decision"]["review_items"]
+    )
 
 
 def test_capability_diff_blocks_are_reproducible(tmp_path):

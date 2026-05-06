@@ -85,13 +85,11 @@
   "capability_facts": [],
   "declared_intentions": [
     {
-      "id": "int_22f9d1520e437d19",
+      "id": "int_1e66352dfe9cac9f",
       "kind": "declared_purpose",
       "text": "look up and summarize read-only support case metadata",
       "source": "agent.declared_purpose",
-      "intent_tags": [
-        "read_only"
-      ]
+      "intent_tags": []
     }
   ],
   "misalignments": [],

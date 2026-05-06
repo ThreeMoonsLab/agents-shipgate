@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 
 from jsonschema import validate
 
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.models import (
     Finding,
     ReadinessReport,
@@ -32,6 +34,7 @@ MINIMAL_SARIF_SCHEMA = {
         },
     },
 }
+SUPPORT_REFUND_SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
 
 def test_sarif_uses_canonical_rule_metadata_and_help_uri():
@@ -96,6 +99,23 @@ def test_sarif_output_matches_minimal_sarif_shape():
     )
 
     validate(instance=render_sarif_report(report), schema=MINIMAL_SARIF_SCHEMA)
+
+
+def test_sarif_output_stays_findings_only_for_capability_diff_reports(tmp_path):
+    run_scan(
+        config_path=SUPPORT_REFUND_SAMPLE,
+        output_dir=tmp_path,
+        formats=["sarif"],
+        ci_mode="advisory",
+    )
+
+    sarif_text = (tmp_path / "report.sarif").read_text(encoding="utf-8")
+
+    assert "capability_facts" not in sarif_text
+    assert "declared_intentions" not in sarif_text
+    assert "misalignments" not in sarif_text
+    assert "release_consequence" not in sarif_text
+    assert "suggested_scenarios" not in sarif_text
 
 
 def _report_with_findings(findings: list[Finding]) -> ReadinessReport:

@@ -3,7 +3,7 @@
 Per the v0.7 plan §3 final-polish verification: agents reading
 ``agents-shipgate list-checks --json`` and ``report.json`` should both
 get populated remediation metadata for every check, and the JSON
-   contracts on both endpoints should validate against the current schema.
+contracts on both endpoints should validate against the current schema.
 
 Specifically:
 

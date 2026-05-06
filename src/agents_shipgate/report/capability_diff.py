@@ -11,6 +11,7 @@ from agents_shipgate.core.models import (
     CapabilityFact,
     CapabilityIncludedReason,
     DeclaredIntention,
+    DeclaredIntentionKind,
     FailPolicy,
     Finding,
     Misalignment,
@@ -39,34 +40,22 @@ RISK_TAG_PRIORITY = (
 # Additional aliases for infrastructure/code-exec/data-access intents can
 # be added without changing the report contract.
 INTENT_TAG_ALIASES: dict[str, tuple[str, ...]] = {
-    "answer": ("read_only",),
     "billing": ("financial_action",),
     "cancel": ("destructive",),
-    "create": ("write",),
     "delete": ("destructive",),
     "email": ("external_write", "customer_communication"),
     "external": ("external_write", "customer_communication"),
-    "issue": ("write",),
-    "lookup": ("read_only",),
     "message": ("external_write", "customer_communication"),
     "messages": ("external_write", "customer_communication"),
-    "modify": ("write",),
     "payment": ("financial_action",),
     "payments": ("financial_action",),
-    "preview": ("read_only",),
-    "read": ("read_only",),
     "refund": ("financial_action",),
     "refunds": ("financial_action",),
     "reimbursement": ("financial_action",),
     "reimbursements": ("financial_action",),
     "remove": ("destructive",),
-    "search": ("read_only",),
-    "send": ("external_write", "customer_communication", "write"),
+    "send": ("external_write", "customer_communication"),
     "sms": ("external_write", "customer_communication"),
-    "status": ("read_only",),
-    "update": ("write",),
-    "view": ("read_only",),
-    "write": ("write",),
 }
 NEGATION_TOKENS = {"without", "no", "not", "never", "non"}
 
@@ -94,23 +83,13 @@ INTENTION_KIND_ORDER = {
 SEVERITY_SORT = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 MISSING_CONTROL_CHECKS = {
-    "SHIP-ADK-EVAL-COVERAGE-MISSING",
-    "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING",
-    "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING",
-    "SHIP-API-RETRY-POLICY-MISSING",
+    "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
+    "SHIP-ADK-MCP-TOOLSET-UNFILTERED",
     "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
-    "SHIP-API-TEST-CASES-MISSING",
-    "SHIP-API-TIMEOUT-MISSING",
-    "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
-    "SHIP-AUTH-MISSING-SCOPE",
-    "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
     "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
     "SHIP-INVENTORY-NOT-ENUMERABLE",
+    "SHIP-INVENTORY-WILDCARD-TOOLS",
     "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
-    "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
-    "SHIP-POLICY-APPROVAL-MISSING",
-    "SHIP-POLICY-CONFIRMATION-MISSING",
-    "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
 }
 
 
@@ -461,11 +440,11 @@ def _declared_intentions(report: ReadinessReport) -> list[DeclaredIntention]:
     return intentions
 
 
-def _intention(kind: str, text: str, source: str) -> DeclaredIntention:
+def _intention(kind: DeclaredIntentionKind, text: str, source: str) -> DeclaredIntention:
     tags = _intent_tags(text)
     return DeclaredIntention(
         id=_hash_id("int", kind, source, text, sorted(tags)),
-        kind=kind,  # type: ignore[arg-type]
+        kind=kind,
         text=text,
         source=source,
         intent_tags=tags,
@@ -711,22 +690,33 @@ def _release_consequence(
     decision = report.release_decision
     if decision is None:
         return None
-    blocker_refs = {_decision_ref(item) for item in decision.blockers}
-    review_refs = {_decision_ref(item) for item in decision.review_items}
-    blocker_count = sum(
-        1 for item in misalignments if blocker_refs.intersection(item.finding_refs)
-    )
-    review_count = sum(
-        1
+    blocker_refs = {
+        ref for item in decision.blockers if (ref := _decision_ref(item)) is not None
+    }
+    review_refs = {
+        ref for item in decision.review_items if (ref := _decision_ref(item)) is not None
+    }
+    blocker_finding_refs = {
+        ref
         for item in misalignments
-        if not blocker_refs.intersection(item.finding_refs)
-        and review_refs.intersection(item.finding_refs)
-    )
+        for ref in item.finding_refs
+        if ref in blocker_refs
+    }
+    review_finding_refs = {
+        ref
+        for item in misalignments
+        for ref in item.finding_refs
+        if ref in review_refs and ref not in blocker_refs
+    }
     return ReleaseConsequence(
         decision=decision.decision,
-        summary=_release_summary(decision.decision, blocker_count, review_count),
-        blocker_misalignment_count=blocker_count,
-        review_misalignment_count=review_count,
+        summary=_release_summary(
+            decision.decision,
+            len(blocker_finding_refs),
+            len(review_finding_refs),
+        ),
+        blocker_misalignment_count=len(blocker_finding_refs),
+        review_misalignment_count=len(review_finding_refs),
         fail_policy=FailPolicy.model_validate(decision.fail_policy.model_dump()),
     )
 
