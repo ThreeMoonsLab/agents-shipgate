@@ -117,15 +117,17 @@ def _render_header(packet: EvidencePacket) -> str:
     agent = escape(packet.agent.get("name") or "(unnamed agent)")
     target = escape(packet.environment.get("target") or "(unspecified)")
     run_id = escape(packet.run_id)
-    generated_at = escape(packet.generated_at)
     schema = escape(packet.packet_schema_version)
+    timestamp_part = ""
+    if packet.generated_at is not None:
+        timestamp_part = f"Generated at: {escape(packet.generated_at)} · "
     return (
         "<p class=\"meta\">"
         f"Project: <strong>{project}</strong> · "
         f"Agent: <strong>{agent}</strong> · "
         f"Environment: <strong>{target}</strong><br>"
         f"Run id: <code>{run_id}</code> · "
-        f"Generated at: {generated_at} · "
+        f"{timestamp_part}"
         f"Packet schema: {schema}"
         "</p>"
         "<p>This packet is a reviewer-shaped synthesis of a static "

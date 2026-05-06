@@ -153,12 +153,13 @@ def scan(
             "apply them; the report stays read-only."
         ),
     ),
-    packet: bool = typer.Option(
-        True,
+    packet: bool | None = typer.Option(
+        None,
         "--packet/--no-packet",
         help=(
             "Emit the Release Evidence Packet alongside report.{md,json}. "
-            "Default: on. Use --no-packet to skip."
+            "Defaults to manifest output.packet.enabled (true unless the "
+            "manifest disables it). Use --no-packet to override."
         ),
     ),
     packet_format: str | None = typer.Option(

@@ -879,8 +879,16 @@
       "type": "object"
     },
     "generated_at": {
-      "title": "Generated At",
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
     },
     "high_risk_surface": {
       "$ref": "#/$defs/HighRiskSurfaceSection"
@@ -920,7 +928,6 @@
     }
   },
   "required": [
-    "generated_at",
     "run_id",
     "release_decision",
     "capability_intent",

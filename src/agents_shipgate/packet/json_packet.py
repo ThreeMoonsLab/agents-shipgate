@@ -19,9 +19,20 @@ class PacketSchemaError(ValueError):
 
 def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     """Return the packet as a JSON-ready dict (compatible with
-    ``json.dumps``)."""
+    ``json.dumps``).
 
-    return packet.model_dump(mode="json")
+    ``generated_at`` is excluded when ``None`` so the default scan
+    flow produces byte-identical ``packet.json`` for byte-identical
+    inputs (matching the ``run_id`` reproducibility guarantee on the
+    main report). Callers that want a timestamp pass it explicitly.
+    Other ``None`` fields (e.g. ``ApprovalCoverageRow.source``) stay
+    in the JSON so the contract shape is stable.
+    """
+
+    payload = packet.model_dump(mode="json")
+    if payload.get("generated_at") is None:
+        payload.pop("generated_at", None)
+    return payload
 
 
 def write_packet_json(packet: EvidencePacket, path: Path) -> None:

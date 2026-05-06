@@ -232,7 +232,7 @@ class EvidencePacket(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     packet_schema_version: Literal["0.1"] = "0.1"
-    generated_at: str
+    generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)
     agent: dict[str, Any] = Field(default_factory=dict)

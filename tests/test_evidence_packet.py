@@ -456,3 +456,202 @@ def test_build_packet_round_trips_via_serialize_and_load(tmp_path):
     payload = serialize_packet_json(packet)
     reloaded = load_packet_json(json.dumps(payload))
     assert reloaded == packet
+
+
+def test_manifest_packet_disabled_is_honored(tmp_path):
+    """Regression for PR #43 review: when ``shipgate.yaml`` sets
+    ``output.packet.enabled: false`` and the CLI does not pass
+    ``--packet``/``--no-packet``, the packet must not be written. The
+    bug was that the CLI flag's ``True`` default overwrote the
+    manifest setting via ``run_scan``."""
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "docs.lookup",
+                        "description": "Read internal docs.",
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: opt-out
+agent:
+  name: opt-out-agent
+  declared_purpose:
+    - look up documentation
+environment:
+  target: local
+tool_sources:
+  - id: docs
+    type: mcp
+    path: tools.json
+output:
+  packet:
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "reports"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # report.* should be present, packet.* should NOT.
+    assert (out_dir / "report.md").exists()
+    for name in ("packet.md", "packet.json", "packet.html", "packet.pdf"):
+        assert not (out_dir / name).exists(), (
+            f"manifest disabled the packet, but {name} was emitted"
+        )
+
+
+def test_cli_packet_flag_overrides_manifest_disabled(tmp_path):
+    """When the manifest sets ``output.packet.enabled: false`` but the
+    user passes ``--packet`` on the command line, the explicit CLI flag
+    wins (tri-state: ``None`` defers to manifest, ``True``/``False``
+    override it)."""
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "docs.lookup",
+                        "description": "Read internal docs.",
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: opt-out
+agent:
+  name: opt-out-agent
+  declared_purpose:
+    - look up documentation
+environment:
+  target: local
+tool_sources:
+  - id: docs
+    type: mcp
+    path: tools.json
+output:
+  packet:
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "reports"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--out",
+            str(out_dir),
+            "--packet",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (out_dir / "packet.md").exists()
+
+
+def test_scope_coverage_honors_wildcard_declarations(tmp_path):
+    """Regression for PR #43 review: a manifest scope of ``stripe:*`` must
+    cover ``stripe:refunds:write`` so the packet does not contradict the
+    SHIP-AUTH-SCOPE-COVERAGE-MISSING auth checks (which already treat
+    wildcards as coverage)."""
+
+    _, packet = _scan_with_packet(tmp_path)
+    section = packet.scope_coverage
+    # stripe:* in manifest covers stripe.create_refund's stripe:refunds:write,
+    # so neither should appear as a gap.
+    assert "stripe:*" not in section.unused_declared
+    assert "stripe:refunds:write" not in section.missing_declared
+    # The row for stripe:refunds:write should be marked declared via the
+    # wildcard match.
+    by_scope = {row.scope: row for row in section.rows}
+    assert by_scope["stripe:refunds:write"].declared is True
+
+
+def test_approval_coverage_skips_unflagged_high_risk_tools(tmp_path):
+    """Regression for PR #43 review: gmail.send_customer_email is
+    high-risk on the support_refund_agent fixture but Shipgate does not
+    flag it as missing approval (only confirmation). It must not appear
+    as an approval gap row."""
+
+    _, packet = _scan_with_packet(tmp_path)
+    by_tool = {row.tool: row for row in packet.approval_coverage.rows}
+    assert "gmail.send_customer_email" not in by_tool, (
+        "approval-coverage row emitted for tool with no SHIP-POLICY-APPROVAL-MISSING finding"
+    )
+    # The tool that IS flagged must still surface.
+    assert "stripe.create_refund" in by_tool
+
+
+def test_packet_json_is_byte_reproducible_for_identical_inputs(tmp_path):
+    """Two scans of the same workspace must produce byte-identical
+    ``packet.json``. ``generated_at`` is intentionally not auto-filled
+    by ``build_packet`` to preserve this contract."""
+
+    out_a = tmp_path / "a"
+    out_b = tmp_path / "b"
+    out_a.mkdir()
+    out_b.mkdir()
+    for out in (out_a, out_b):
+        run_scan(
+            config_path=SAMPLE_CONFIG,
+            output_dir=out,
+            formats=["json"],
+            ci_mode="advisory",
+        )
+    a = (out_a / "packet.json").read_text(encoding="utf-8")
+    b = (out_b / "packet.json").read_text(encoding="utf-8")
+    assert a == b
+
+
+def test_packet_omits_generated_at_when_unset(tmp_path):
+    """When ``packet_generated_at`` is not supplied, ``packet.json`` must
+    not include a ``generated_at`` key. Sub-section optional fields stay
+    in the JSON so the contract shape is otherwise stable."""
+
+    run_scan(
+        config_path=SAMPLE_CONFIG,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    payload = json.loads((tmp_path / "packet.json").read_text(encoding="utf-8"))
+    assert "generated_at" not in payload
+    # Sanity: optional sub-fields are still present (e.g. ApprovalCoverageRow.source
+    # may be null) so consumers can rely on a stable shape.
+    assert "approval_coverage" in payload

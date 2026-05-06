@@ -86,7 +86,6 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 | Tool | Declared | Source | Gap finding(s) |
 |---|---|---|---|
-| `gmail.send_customer_email` | no | — | — |
 | `shopify.cancel_order` | yes | policies | — |
 | `stripe.create_refund` | no | — | fp_f092940f62fbb012 |
 
@@ -122,21 +121,19 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | `gmail:send` | no | `gmail.send_customer_email` |
 | `shopify:orders:write` | no | `shopify.cancel_order` |
 | `stripe:*` | yes | — |
-| `stripe:refunds:write` | no | `stripe.create_refund` |
+| `stripe:refunds:write` | yes | `stripe.create_refund` |
 | `support:kb:read` | no | `support.search_kb` |
 | `zendesk:tickets:read` | yes | — |
 | `zendesk:tickets:write` | yes | `zendesk.update_ticket` |
 
 ### Unused declared scopes
 
-- `stripe:*`
 - `zendesk:tickets:read`
 
 ### Used by tools but not declared
 
 - `gmail:send`
 - `shopify:orders:write`
-- `stripe:refunds:write`
 - `support:kb:read`
 
 ### Gap findings

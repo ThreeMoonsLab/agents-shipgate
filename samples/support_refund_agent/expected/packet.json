@@ -64,12 +64,6 @@
     ],
     "rows": [
       {
-        "declared": false,
-        "gap_finding_ids": [],
-        "source": null,
-        "tool": "gmail.send_customer_email"
-      },
-      {
         "declared": true,
         "gap_finding_ids": [],
         "source": "policies",
@@ -628,7 +622,6 @@
     "missing_declared": [
       "gmail:send",
       "shopify:orders:write",
-      "stripe:refunds:write",
       "support:kb:read"
     ],
     "rows": [
@@ -652,7 +645,7 @@
         "used_by_tools": []
       },
       {
-        "declared": false,
+        "declared": true,
         "scope": "stripe:refunds:write",
         "used_by_tools": [
           "stripe.create_refund"
@@ -680,7 +673,6 @@
     ],
     "status": "missing",
     "unused_declared": [
-      "stripe:*",
       "zendesk:tickets:read"
     ]
   }

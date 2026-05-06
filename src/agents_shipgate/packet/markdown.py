@@ -68,7 +68,12 @@ def _append_header(lines: list[str], packet: EvidencePacket) -> None:
             f"- Agent: {agent_name}",
             f"- Environment: {target}",
             f"- Run id: {packet.run_id}",
-            f"- Generated at: {packet.generated_at}",
+        ]
+    )
+    if packet.generated_at is not None:
+        lines.append(f"- Generated at: {packet.generated_at}")
+    lines.extend(
+        [
             f"- Packet schema: {packet.packet_schema_version}",
             "",
             (

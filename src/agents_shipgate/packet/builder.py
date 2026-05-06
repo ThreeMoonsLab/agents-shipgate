@@ -14,8 +14,6 @@ findings are excluded from §1–§9 (only §10 surfaces them).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.models import (
     AnthropicArtifacts,
@@ -99,9 +97,12 @@ def build_packet(
 ) -> EvidencePacket:
     """Build an ``EvidencePacket`` from in-memory scan data.
 
-    Pure function. Caller (``run_scan``) supplies ``generated_at`` for
-    reproducible test fixtures; otherwise the current UTC timestamp is
-    used.
+    Pure function. ``generated_at`` is intentionally NOT auto-filled:
+    the packet's deterministic-artifact contract requires byte-equal
+    output for byte-equal scan inputs. Callers that want a timestamp
+    in the packet pass it explicitly (e.g. archival workflows); the
+    default scan flow leaves it ``None`` so two scans of the same
+    workspace produce identical ``packet.json`` files.
     """
 
     active = [f for f in findings if not f.suppressed]
@@ -111,7 +112,7 @@ def build_packet(
     )
 
     return EvidencePacket(
-        generated_at=generated_at or datetime.now(UTC).isoformat(timespec="seconds"),
+        generated_at=generated_at,
         run_id=run_id,
         project=project,
         agent=agent,
@@ -261,10 +262,17 @@ def _build_approval_coverage(
         if finding.tool_name and finding.id:
             gap_by_tool.setdefault(finding.tool_name, []).append(finding.id)
 
+    # Per the §4 contract: only include rows for tools where Shipgate has
+    # actual evidence of approval relevance — either the manifest declares
+    # the tool requires approval, or a SHIP-POLICY-APPROVAL-MISSING /
+    # SHIP-API-TRACE-APPROVAL-MISSING finding fired. High-risk tools that
+    # need only confirmation (or no policy at all) are not approval gaps
+    # and must not be reported as such.
+    relevant_names = set(declared_by_source) | set(gap_by_tool)
     rows: list[ApprovalCoverageRow] = []
     seen: set[str] = set()
     for tool in sorted(tools, key=lambda t: t.name):
-        if not is_high_risk_tool(tool) and tool.name not in declared_by_source:
+        if tool.name not in relevant_names:
             continue
         seen.add(tool.name)
         rows.append(
@@ -275,8 +283,6 @@ def _build_approval_coverage(
                 gap_finding_ids=sorted(gap_by_tool.get(tool.name, [])),
             )
         )
-    # Tools called out by findings but not in the tool inventory (rare;
-    # belt-and-braces) still surface as rows.
     for tool_name, ids in gap_by_tool.items():
         if tool_name in seen:
             continue
@@ -322,10 +328,14 @@ def _build_idempotency_risk(
         if finding.tool_name and finding.id:
             gap_by_tool.setdefault(finding.tool_name, []).append(finding.id)
 
+    # Same rule as §4: only include rows where Shipgate has actual
+    # idempotency evidence — declared or flagged. High-risk read-class
+    # tools that don't need idempotency must not appear as gaps.
+    relevant_names = set(declared_by_source) | set(gap_by_tool)
     rows: list[IdempotencyRow] = []
     seen: set[str] = set()
     for tool in sorted(tools, key=lambda t: t.name):
-        if not is_high_risk_tool(tool) and tool.name not in declared_by_source:
+        if tool.name not in relevant_names:
             continue
         seen.add(tool.name)
         rows.append(
@@ -371,18 +381,33 @@ def _build_scope_coverage(
     for scopes in used_by_scope.values():
         scopes.sort()
 
+    # ``stripe:*`` covers ``stripe:refunds:write``. Match the wildcard
+    # semantics that ``checks/auth.py::_scope_covered`` uses so the
+    # packet never contradicts the SHIP-AUTH-SCOPE-COVERAGE-MISSING
+    # findings: a manifest scope is "used" iff it covers at least one
+    # tool scope, and a tool scope is "missing" iff no declared scope
+    # covers it.
+    declared_set = set(declared)
+    used_set = set(used_by_scope)
+
+    used_declared: set[str] = set()
+    covered_used: set[str] = set()
+    for declared_scope in declared:
+        for used_scope in used_set:
+            if _scope_covers(declared_scope, used_scope):
+                used_declared.add(declared_scope)
+                covered_used.add(used_scope)
+
     rows = [
         ScopeCoverageRow(
             scope=scope,
-            declared=scope in declared,
+            declared=scope in declared_set or scope in covered_used,
             used_by_tools=sorted(used_by_scope.get(scope, [])),
         )
-        for scope in sorted(set(declared) | set(used_by_scope))
+        for scope in sorted(declared_set | used_set)
     ]
-    unused_declared = sorted(scope for scope in declared if scope not in used_by_scope)
-    missing_declared = sorted(
-        scope for scope in used_by_scope if scope not in set(declared)
-    )
+    unused_declared = sorted(scope for scope in declared if scope not in used_declared)
+    missing_declared = sorted(scope for scope in used_set if scope not in covered_used)
 
     gap_findings = _findings_with_check(findings, SCOPE_GAP_CHECKS)
     if gap_findings or missing_declared:
@@ -404,6 +429,21 @@ def _build_scope_coverage(
         missing_declared=missing_declared,
         gap_findings=_to_decision_items(gap_findings),
     )
+
+
+def _scope_covers(declared_scope: str, required_scope: str) -> bool:
+    """Mirror ``checks/auth.py::_scope_covered``: ``"*"`` covers
+    everything; ``"prefix:*"`` covers any scope starting with
+    ``"prefix:"``; otherwise an exact (case-insensitive) match is
+    required."""
+
+    declared = declared_scope.lower()
+    required = required_scope.lower()
+    if declared == "*" or declared == required:
+        return True
+    if declared.endswith(":*") and required.startswith(declared[:-1]):
+        return True
+    return False
 
 
 def _build_human_in_the_loop(
