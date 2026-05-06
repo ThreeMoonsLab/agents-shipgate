@@ -30,6 +30,7 @@ def test_sample_markdown_report_matches_golden(tmp_path):
         output_dir=tmp_path,
         formats=["markdown", "json"],
         ci_mode="advisory",
+        packet_enabled=False,
     )
 
     actual = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -45,6 +46,7 @@ def test_openai_api_markdown_report_matches_golden(tmp_path):
         output_dir=tmp_path,
         formats=["markdown", "json"],
         ci_mode="advisory",
+        packet_enabled=False,
     )
 
     actual = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -59,6 +61,7 @@ def test_langchain_markdown_report_matches_golden(tmp_path):
         output_dir=tmp_path,
         formats=["markdown", "json"],
         ci_mode="advisory",
+        packet_enabled=False,
     )
 
     actual = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -73,6 +76,7 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
         output_dir=tmp_path,
         formats=["markdown", "json"],
         ci_mode="advisory",
+        packet_enabled=False,
     )
 
     actual = (tmp_path / "report.md").read_text(encoding="utf-8")

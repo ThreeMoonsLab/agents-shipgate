@@ -96,6 +96,37 @@ See [`trust-model.md`](trust-model.md). Headlines:
 - Files larger than 10 MB are rejected.
 - Plugins off by default.
 
+## Release Evidence Packet
+
+`scan` emits a reviewer-shaped artifact alongside `report.{md,json}` whenever
+`output.packet.enabled` is true (the default). The packet has its own JSON
+contract ([`packet-schema.v0.1.json`](packet-schema.v0.1.json)) so the report
+schema stays minimal.
+
+The packet is derived from the in-memory scan (manifest, tools, findings,
+release decision, per-source policy artifacts) and persisted as
+`packet.{md,json,html}`. PDF (`packet.pdf`) is opt-in via the `[pdf]` extras.
+The standalone command `agents-shipgate evidence-packet --from packet.json`
+re-renders an existing packet into other formats — it does **not** rebuild
+from `report.json`, which avoids requiring report-schema additions for
+manifest-only data such as `policy_rules` or declared scopes.
+
+Four rules govern the packet contract:
+
+1. **Derived from JSON.** The packet is a deterministic function of the
+   scan; nothing dynamic is invoked at packet-build time.
+2. **Local artifact.** Output is files in `agents-shipgate-reports/`. No
+   hosted UI, no SaaS, no telemetry.
+3. **Explicit non-proofs.** §10 lists, on every emitted packet, the four
+   things the packet does not prove: prompt robustness, runtime behavior,
+   model correctness, adversarial resistance.
+4. **Reviewer-readable.** All ten sections are always present so a reviewer
+   can read top-to-bottom and reach a decision without consulting other
+   files.
+
+The builder lives in `agents_shipgate/packet/builder.py`; renderers under the
+same package keep the JSON model and the rendered formats independent.
+
 ## Stability contract
 
 See [`../STABILITY.md`](../STABILITY.md). Headlines:

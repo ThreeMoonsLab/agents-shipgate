@@ -375,11 +375,41 @@ def write_checks_catalog() -> None:
     print(f"Wrote {target.relative_to(REPO_ROOT)}")
 
 
+def write_packet_schema() -> None:
+    """Generate docs/packet-schema.v0.<minor>.json from EvidencePacket.
+
+    Versioned independently from the report schema; bumping requires a
+    single change to ``EvidencePacket.packet_schema_version`` and a
+    rerun of this script. CI's clean-tree assertion catches drift.
+    """
+
+    from agents_shipgate.packet.models import EvidencePacket
+
+    schema = EvidencePacket.model_json_schema()
+    minor = "0.1"
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/packet-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Release Evidence Packet v{minor}"
+    schema["description"] = (
+        "JSON Schema for packet.json. Generated from "
+        "agents_shipgate.packet.models.EvidencePacket. Do not edit by hand."
+    )
+    target = DOCS / f"packet-schema.v{minor}.json"
+    target.write_text(
+        json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {target.relative_to(REPO_ROOT)}")
+
+
 def main() -> int:
     DOCS.mkdir(parents=True, exist_ok=True)
     write_manifest_schema()
     write_checks_catalog()
     write_report_schema()
+    write_packet_schema()
     return 0
 
 

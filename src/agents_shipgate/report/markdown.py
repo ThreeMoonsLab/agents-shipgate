@@ -57,6 +57,13 @@ def render_markdown_report(report: ReadinessReport) -> str:
             "",
         ]
     )
+    if "packet_md" in report.generated_reports:
+        lines.extend(
+            [
+                "See `packet.md` for the reviewer-shaped Release Evidence Packet.",
+                "",
+            ]
+        )
     _append_release_decision(lines, report)
     lines.extend(
         [

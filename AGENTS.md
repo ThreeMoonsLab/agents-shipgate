@@ -287,6 +287,7 @@ glossary: https://threemoonslab.com/glossary/.
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
+| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.1.json`](docs/packet-schema.v0.1.json) | `0.1` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -305,7 +306,8 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
@@ -313,6 +315,26 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
+
+### Release Evidence Packet (v0.1)
+
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with ten fixed sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed).
+
+```bash
+pipx install agents-shipgate                  # md, json, html packet outputs
+pipx install 'agents-shipgate[pdf]'           # adds packet.pdf via weasyprint
+agents-shipgate scan -c shipgate.yaml         # default: emit packet
+agents-shipgate scan -c shipgate.yaml --no-packet                    # skip
+agents-shipgate scan -c shipgate.yaml --packet-format md,json,html,pdf
+agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json --format html,pdf
+```
+
+Rules of the packet contract (do not break in 0.x):
+- The packet is **derived from JSON** (the in-memory scan) and is a **local artifact only** — no hosted/SaaS view.
+- §10 ("What this packet did NOT prove") **always** lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance — regardless of run state.
+- All ten sections are **always present** in `packet.json`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
+- §1 verdict (`PASSED` / `REVIEW REQUIRED` / `BLOCKED`) derives from `release_decision.decision` only. CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
+- v0.1 does **not** model `agent.memory` in the manifest schema. §7 always renders "not declared, see §10" until a future schema bump adds the field.
 
 Exit codes (stable):
 

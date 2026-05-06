@@ -401,6 +401,24 @@ class CiConfig(BaseModel):
     upload_artifact: bool = True
 
 
+class PacketOutputConfig(BaseModel):
+    """Optional ``output.packet`` block for ``shipgate.yaml``.
+
+    Controls whether ``scan`` emits the Release Evidence Packet
+    alongside ``report.{md,json}``. Independent of ``output.formats``
+    so the existing ``--format`` contract is unchanged. ``pdf`` is
+    accepted but only written when the optional ``[pdf]`` extras
+    (``weasyprint``) are installed.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    enabled: bool = True
+    formats: list[Literal["md", "json", "html", "pdf"]] = Field(
+        default_factory=lambda: ["md", "json", "html"]
+    )
+
+
 class OutputConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -408,6 +426,7 @@ class OutputConfig(BaseModel):
     formats: list[Literal["markdown", "json", "sarif"]] = Field(
         default_factory=lambda: ["markdown", "json"]
     )
+    packet: PacketOutputConfig = Field(default_factory=PacketOutputConfig)
 
 
 class AgentsShipgateManifest(BaseModel):

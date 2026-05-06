@@ -1,0 +1,687 @@
+{
+  "agent": {
+    "declared_purpose": [
+      "answer refund policy questions",
+      "prepare refund requests for human review",
+      "update support ticket notes"
+    ],
+    "extraction": {
+      "confidence": "medium",
+      "dynamic_fields": [],
+      "method": "config_assisted",
+      "missing_fields": [
+        "runtime_traces"
+      ]
+    },
+    "guardrails": {
+      "input": "unknown",
+      "output": "unknown",
+      "source": "unknown",
+      "tool": "unknown"
+    },
+    "handoffs": [],
+    "id": "agent:support-refund-agent/refund-assistant",
+    "instructions": {
+      "confidence": "medium",
+      "source": "dynamic_unknown",
+      "value_preview": null
+    },
+    "name": "refund-assistant",
+    "prohibited_actions": [
+      "issue refund without approval",
+      "cancel order without explicit confirmation",
+      "send external email without preview"
+    ],
+    "source": {
+      "deep_import": false,
+      "entrypoint": "agents/refund_agent.py",
+      "language": "python",
+      "object": "refund_agent",
+      "static_extract": true,
+      "type": "openai-agents"
+    },
+    "tools": [
+      "refund_status_lookup",
+      "stripe.create_refund",
+      "shopify.cancel_order",
+      "zendesk.update_ticket",
+      "support.search_kb",
+      "gmail.send_customer_email",
+      "wildcard_mcp_tools.*",
+      "send_email_preview"
+    ]
+  },
+  "approval_coverage": {
+    "gap_findings": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+        "fingerprint": "fp_f092940f62fbb012",
+        "id": "fp_f092940f62fbb012",
+        "severity": "critical",
+        "title": "stripe.create_refund lacks a declared approval policy"
+      }
+    ],
+    "rows": [
+      {
+        "declared": false,
+        "gap_finding_ids": [],
+        "source": null,
+        "tool": "gmail.send_customer_email"
+      },
+      {
+        "declared": true,
+        "gap_finding_ids": [],
+        "source": "policies",
+        "tool": "shopify.cancel_order"
+      },
+      {
+        "declared": false,
+        "gap_finding_ids": [
+          "fp_f092940f62fbb012"
+        ],
+        "source": null,
+        "tool": "stripe.create_refund"
+      }
+    ],
+    "status": "partial"
+  },
+  "capability_intent": {
+    "declared_purpose": [
+      "answer refund policy questions",
+      "prepare refund requests for human review",
+      "update support ticket notes"
+    ],
+    "divergence_findings": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "fingerprint": "fp_12985c36a06026de",
+        "id": "fp_12985c36a06026de",
+        "severity": "high",
+        "title": "stripe.create_refund appears to overlap with a prohibited action"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "fingerprint": "fp_e090c62e390e70ab",
+        "id": "fp_e090c62e390e70ab",
+        "severity": "high",
+        "title": "gmail.send_customer_email appears to overlap with a prohibited action"
+      }
+    ],
+    "observed_tools": [
+      "gmail.send_customer_email",
+      "refund_status_lookup",
+      "send_email_preview",
+      "shopify.cancel_order",
+      "stripe.create_refund",
+      "support.search_kb",
+      "wildcard_mcp_tools.*",
+      "zendesk.update_ticket"
+    ],
+    "prohibited_actions": [
+      "issue refund without approval",
+      "cancel order without explicit confirmation",
+      "send external email without preview"
+    ],
+    "rows": [
+      {
+        "declared": [
+          "answer refund policy questions",
+          "prepare refund requests for human review",
+          "update support ticket notes"
+        ],
+        "divergent": [
+          "gmail.send_customer_email",
+          "stripe.create_refund"
+        ],
+        "label": "Declared purpose",
+        "observed": [
+          "gmail.send_customer_email",
+          "refund_status_lookup",
+          "send_email_preview",
+          "shopify.cancel_order",
+          "stripe.create_refund",
+          "support.search_kb",
+          "wildcard_mcp_tools.*",
+          "zendesk.update_ticket"
+        ]
+      },
+      {
+        "declared": [
+          "issue refund without approval",
+          "cancel order without explicit confirmation",
+          "send external email without preview"
+        ],
+        "divergent": [
+          "gmail.send_customer_email",
+          "stripe.create_refund"
+        ],
+        "label": "Prohibited actions",
+        "observed": []
+      }
+    ],
+    "status": "missing"
+  },
+  "dynamic_scenarios": {
+    "scenarios": [
+      {
+        "finding_ids": [
+          "fp_d27325cbdbbf5483"
+        ],
+        "scenario": "Manual review for SHIP-AUTH-MANIFEST-BROAD-SCOPE",
+        "why": "Replace broad manifest permission scopes with the narrowest scopes needed for this release."
+      },
+      {
+        "finding_ids": [
+          "fp_1f6cfd6b7daa9b7c",
+          "fp_83852fbd6b440524",
+          "fp_d8e6d1865dae97cc"
+        ],
+        "scenario": "Manual review for SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "why": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements."
+      },
+      {
+        "finding_ids": [
+          "fp_fc02d8ecd30f2578"
+        ],
+        "scenario": "Manual review for SHIP-INVENTORY-WILDCARD-TOOLS",
+        "why": "Replace wildcard tool exposure with an explicit tool allowlist before release review."
+      },
+      {
+        "finding_ids": [
+          "fp_fd2577850cef1f87"
+        ],
+        "scenario": "Manual review for SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "why": "Declare an owner for each high-risk production tool in risk_overrides.tools."
+      },
+      {
+        "finding_ids": [
+          "fp_39b9ae878f343d1b"
+        ],
+        "scenario": "Manual review for SHIP-MANIFEST-UNUSED-SCOPE",
+        "why": "Remove unused manifest scopes or add tool metadata showing why they are required."
+      },
+      {
+        "finding_ids": [
+          "fp_f092940f62fbb012"
+        ],
+        "scenario": "Manual review for SHIP-POLICY-APPROVAL-MISSING",
+        "why": "Declare an approval policy for stripe.create_refund or remove this tool from the release."
+      },
+      {
+        "finding_ids": [
+          "fp_8e08a4fe6b0917f6",
+          "fp_a62ca2fd9a68a1d1"
+        ],
+        "scenario": "Manual review for SHIP-POLICY-CONFIRMATION-MISSING",
+        "why": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release."
+      },
+      {
+        "finding_ids": [
+          "fp_acd63b899d49aa1c",
+          "fp_ff2f028953d1c220"
+        ],
+        "scenario": "Manual review for SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "why": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters."
+      },
+      {
+        "finding_ids": [
+          "fp_85f8513ad72cd9ea"
+        ],
+        "scenario": "Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "why": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context."
+      },
+      {
+        "finding_ids": [
+          "fp_ab60b01cb53cfcbe"
+        ],
+        "scenario": "Manual review for SHIP-SCHEMA-MISSING-BOUNDS",
+        "why": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy."
+      },
+      {
+        "finding_ids": [
+          "fp_12985c36a06026de",
+          "fp_e090c62e390e70ab"
+        ],
+        "scenario": "Manual review for SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "why": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other."
+      },
+      {
+        "finding_ids": [
+          "fp_0f8aaa912d589cf0",
+          "fp_dac8011e14c53777"
+        ],
+        "scenario": "Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "why": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund."
+      },
+      {
+        "finding_ids": [],
+        "scenario": "Re-run scan after resolving source warnings",
+        "why": "Source loaders emitted warnings; some tool surfaces may have been parsed with reduced confidence."
+      },
+      {
+        "finding_ids": [],
+        "scenario": "Verify low-confidence tool extractions",
+        "why": "One or more tools were extracted with low confidence; confirm against the upstream source before release."
+      }
+    ],
+    "status": "partial"
+  },
+  "environment": {
+    "promotion_from": "staging",
+    "promotion_to": "production_like",
+    "target": "production_like"
+  },
+  "generated_at": "2026-01-01T00:00:00+00:00",
+  "high_risk_surface": {
+    "high_risk_count": 3,
+    "status": "partial",
+    "tools": [
+      {
+        "has_approval_policy": false,
+        "has_idempotency_policy": false,
+        "name": "gmail.send_customer_email",
+        "risk_tags": [
+          "customer_communication",
+          "external_write"
+        ],
+        "source_type": "mcp"
+      },
+      {
+        "has_approval_policy": true,
+        "has_idempotency_policy": true,
+        "name": "shopify.cancel_order",
+        "risk_tags": [
+          "destructive",
+          "write"
+        ],
+        "source_type": "openapi"
+      },
+      {
+        "has_approval_policy": false,
+        "has_idempotency_policy": false,
+        "name": "stripe.create_refund",
+        "risk_tags": [
+          "external_write",
+          "financial_action",
+          "write"
+        ],
+        "source_type": "openapi"
+      }
+    ],
+    "total_tools": 8
+  },
+  "human_in_the_loop": {
+    "approval_required_tools": [
+      "shopify.cancel_order"
+    ],
+    "confirmation_required_tools": [
+      "shopify.cancel_order"
+    ],
+    "human_review_recommended": true,
+    "is_configured": true,
+    "status": "covered",
+    "trace_findings": []
+  },
+  "idempotency_risk": {
+    "gap_findings": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "fingerprint": "fp_dac8011e14c53777",
+        "id": "fp_dac8011e14c53777",
+        "severity": "critical",
+        "title": "stripe.create_refund lacks idempotency evidence"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "fingerprint": "fp_0f8aaa912d589cf0",
+        "id": "fp_0f8aaa912d589cf0",
+        "severity": "high",
+        "title": "gmail.send_customer_email lacks idempotency evidence"
+      }
+    ],
+    "retry_policy_declared": false,
+    "rows": [
+      {
+        "declared": false,
+        "gap_finding_ids": [
+          "fp_0f8aaa912d589cf0"
+        ],
+        "source": null,
+        "tool": "gmail.send_customer_email"
+      },
+      {
+        "declared": true,
+        "gap_finding_ids": [],
+        "source": "policies",
+        "tool": "shopify.cancel_order"
+      },
+      {
+        "declared": false,
+        "gap_finding_ids": [
+          "fp_dac8011e14c53777"
+        ],
+        "source": null,
+        "tool": "stripe.create_refund"
+      }
+    ],
+    "status": "partial"
+  },
+  "memory_isolation": {
+    "is_declared": false,
+    "notes": "Manifest does not declare a memory isolation policy. The current manifest schema (v0.1) has no agent.memory field. See \u00a710 for the residual review item.",
+    "status": "not_declared"
+  },
+  "not_proven": {
+    "additional_residuals": [
+      "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available."
+    ],
+    "headline": "Agents Shipgate is a static release-readiness scanner. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
+    "low_confidence_tools": [],
+    "source_warnings": [
+      "MCP source declares wildcard tool exposure"
+    ],
+    "suppressed_finding_ids": [],
+    "unconditional": [
+      {
+        "body": "Whether the agent's prompt holds up under jailbreaks, persona drift, indirect prompt injection, or adversarial inputs.",
+        "label": "Prompt robustness"
+      },
+      {
+        "body": "Whether the agent actually invokes only the declared tools, respects approval gates at runtime, or follows policy under load. Static config is not runtime evidence.",
+        "label": "Runtime behavior"
+      },
+      {
+        "body": "Whether the underlying model produces correct outputs, calls the right tools, or stays within the declared scope. The packet does not benchmark the model.",
+        "label": "Model correctness"
+      },
+      {
+        "body": "Whether the agent withstands red-team or penetration testing. The packet does not run scenarios; it organizes evidence.",
+        "label": "Adversarial resistance"
+      }
+    ]
+  },
+  "packet_schema_version": "0.1",
+  "project": {
+    "name": "support-refund-agent",
+    "owner": "support-platform",
+    "repo": "github.com/acme/support-refund-agent"
+  },
+  "release_decision": {
+    "baseline_delta": {
+      "enabled": false,
+      "matched_count": 0,
+      "new_count": 0,
+      "path": null,
+      "resolved_count": 0
+    },
+    "blockers": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+        "fingerprint": "fp_f092940f62fbb012",
+        "id": "fp_f092940f62fbb012",
+        "severity": "critical",
+        "title": "stripe.create_refund lacks a declared approval policy"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "fingerprint": "fp_dac8011e14c53777",
+        "id": "fp_dac8011e14c53777",
+        "severity": "critical",
+        "title": "stripe.create_refund lacks idempotency evidence"
+      }
+    ],
+    "decision": "blocked",
+    "evidence_coverage": {
+      "human_review_recommended": true,
+      "level": "mixed",
+      "low_confidence_tool_count": 1,
+      "source_warning_count": 1
+    },
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "exit_code": 0,
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false
+    },
+    "reason": "2 active findings block release.",
+    "review_items": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
+        "fingerprint": "fp_fc02d8ecd30f2578",
+        "id": "fp_fc02d8ecd30f2578",
+        "severity": "high",
+        "title": "Wildcard tool exposure declared"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
+        "fingerprint": "fp_ab60b01cb53cfcbe",
+        "id": "fp_ab60b01cb53cfcbe",
+        "severity": "high",
+        "title": "stripe.create_refund.amount has no maximum bound"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "fingerprint": "fp_ff2f028953d1c220",
+        "id": "fp_ff2f028953d1c220",
+        "severity": "high",
+        "title": "zendesk.update_ticket accepts broad free-form action input"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "fingerprint": "fp_acd63b899d49aa1c",
+        "id": "fp_acd63b899d49aa1c",
+        "severity": "high",
+        "title": "gmail.send_customer_email accepts broad free-form action input"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "fingerprint": "fp_85f8513ad72cd9ea",
+        "id": "fp_85f8513ad72cd9ea",
+        "severity": "medium",
+        "title": "send_email_preview returns free-form text output"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
+        "fingerprint": "fp_d27325cbdbbf5483",
+        "id": "fp_d27325cbdbbf5483",
+        "severity": "high",
+        "title": "Manifest declares broad permission scopes"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_83852fbd6b440524",
+        "id": "fp_83852fbd6b440524",
+        "severity": "high",
+        "title": "shopify.cancel_order requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_d8e6d1865dae97cc",
+        "id": "fp_d8e6d1865dae97cc",
+        "severity": "high",
+        "title": "support.search_kb requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_1f6cfd6b7daa9b7c",
+        "id": "fp_1f6cfd6b7daa9b7c",
+        "severity": "high",
+        "title": "gmail.send_customer_email requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "fingerprint": "fp_12985c36a06026de",
+        "id": "fp_12985c36a06026de",
+        "severity": "high",
+        "title": "stripe.create_refund appears to overlap with a prohibited action"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "fingerprint": "fp_e090c62e390e70ab",
+        "id": "fp_e090c62e390e70ab",
+        "severity": "high",
+        "title": "gmail.send_customer_email appears to overlap with a prohibited action"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+        "fingerprint": "fp_a62ca2fd9a68a1d1",
+        "id": "fp_a62ca2fd9a68a1d1",
+        "severity": "high",
+        "title": "stripe.create_refund lacks a declared confirmation policy"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+        "fingerprint": "fp_8e08a4fe6b0917f6",
+        "id": "fp_8e08a4fe6b0917f6",
+        "severity": "high",
+        "title": "gmail.send_customer_email lacks a declared confirmation policy"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "fingerprint": "fp_0f8aaa912d589cf0",
+        "id": "fp_0f8aaa912d589cf0",
+        "severity": "high",
+        "title": "gmail.send_customer_email lacks idempotency evidence"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "fingerprint": "fp_fd2577850cef1f87",
+        "id": "fp_fd2577850cef1f87",
+        "severity": "high",
+        "title": "shopify.cancel_order is high-risk but has no owner"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
+        "fingerprint": "fp_39b9ae878f343d1b",
+        "id": "fp_39b9ae878f343d1b",
+        "severity": "medium",
+        "title": "Manifest declares unused permission scope zendesk:tickets:read"
+      }
+    ],
+    "verdict": "BLOCKED"
+  },
+  "run_id": "agents_shipgate_3716da0eb0ec2fad",
+  "scope_coverage": {
+    "declared_scopes": [
+      "zendesk:tickets:read",
+      "zendesk:tickets:write",
+      "stripe:*"
+    ],
+    "gap_findings": [
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_83852fbd6b440524",
+        "id": "fp_83852fbd6b440524",
+        "severity": "high",
+        "title": "shopify.cancel_order requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_d8e6d1865dae97cc",
+        "id": "fp_d8e6d1865dae97cc",
+        "severity": "high",
+        "title": "support.search_kb requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "fingerprint": "fp_1f6cfd6b7daa9b7c",
+        "id": "fp_1f6cfd6b7daa9b7c",
+        "severity": "high",
+        "title": "gmail.send_customer_email requires scopes not declared in the manifest"
+      },
+      {
+        "baseline_status": null,
+        "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
+        "fingerprint": "fp_39b9ae878f343d1b",
+        "id": "fp_39b9ae878f343d1b",
+        "severity": "medium",
+        "title": "Manifest declares unused permission scope zendesk:tickets:read"
+      }
+    ],
+    "missing_declared": [
+      "gmail:send",
+      "shopify:orders:write",
+      "stripe:refunds:write",
+      "support:kb:read"
+    ],
+    "rows": [
+      {
+        "declared": false,
+        "scope": "gmail:send",
+        "used_by_tools": [
+          "gmail.send_customer_email"
+        ]
+      },
+      {
+        "declared": false,
+        "scope": "shopify:orders:write",
+        "used_by_tools": [
+          "shopify.cancel_order"
+        ]
+      },
+      {
+        "declared": true,
+        "scope": "stripe:*",
+        "used_by_tools": []
+      },
+      {
+        "declared": false,
+        "scope": "stripe:refunds:write",
+        "used_by_tools": [
+          "stripe.create_refund"
+        ]
+      },
+      {
+        "declared": false,
+        "scope": "support:kb:read",
+        "used_by_tools": [
+          "support.search_kb"
+        ]
+      },
+      {
+        "declared": true,
+        "scope": "zendesk:tickets:read",
+        "used_by_tools": []
+      },
+      {
+        "declared": true,
+        "scope": "zendesk:tickets:write",
+        "used_by_tools": [
+          "zendesk.update_ticket"
+        ]
+      }
+    ],
+    "status": "missing",
+    "unused_declared": [
+      "stripe:*",
+      "zendesk:tickets:read"
+    ]
+  }
+}

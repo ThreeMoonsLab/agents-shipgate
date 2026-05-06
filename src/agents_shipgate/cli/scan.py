@@ -40,10 +40,22 @@ from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.packet.builder import build_packet
+from agents_shipgate.packet.html import write_packet_html
+from agents_shipgate.packet.json_packet import write_packet_json
+from agents_shipgate.packet.markdown import write_packet_markdown
+from agents_shipgate.packet.pdf import (
+    PdfRendererUnavailable,
+    is_pdf_available,
+    render_packet_pdf,
+)
 from agents_shipgate.report.capability_diff import apply_capability_diff
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
+
+PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
+"""Allowed values for ``--packet-format`` and ``output.packet.formats``."""
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +74,9 @@ def run_scan(
     plugins_enabled: bool | None = None,
     verbose: bool = False,
     suggest_patches: bool = False,
+    packet_enabled: bool | None = None,
+    packet_formats: list[str] | None = None,
+    packet_generated_at: str | None = None,
 ) -> tuple[ReadinessReport, int]:
     if deep_import:
         raise ConfigError("Deep import is intentionally deferred and is not supported.")
@@ -75,6 +90,16 @@ def run_scan(
         manifest.output.directory = str(output_dir)
     if formats:
         manifest.output.formats = formats
+    if packet_enabled is not None:
+        manifest.output.packet.enabled = packet_enabled
+    if packet_formats is not None:
+        invalid = [f for f in packet_formats if f not in PACKET_FORMAT_NAMES]
+        if invalid:
+            raise ConfigError(
+                "--packet-format values must be one of "
+                f"{sorted(PACKET_FORMAT_NAMES)}; got {invalid}"
+            )
+        manifest.output.packet.formats = packet_formats
     if baseline_mode != "new-findings":
         raise ConfigError("--baseline-mode supports only new-findings")
 
@@ -203,7 +228,20 @@ def run_scan(
     )
 
     out_dir = (base_dir / manifest.output.directory).resolve()
-    generated_paths = _planned_generated_paths(out_dir, manifest.output.formats)
+    packet_cfg = manifest.output.packet
+    packet_format_set, packet_pdf_skipped = _resolve_packet_format_set(packet_cfg)
+    if packet_pdf_skipped:
+        warnings.append(
+            "packet.pdf requested but weasyprint is not installed; "
+            "install with `pipx install 'agents-shipgate[pdf]'` to enable. "
+            "Skipping PDF for this run."
+        )
+    generated_paths = _planned_generated_paths(
+        out_dir,
+        manifest.output.formats,
+        packet_enabled=packet_cfg.enabled,
+        packet_formats=packet_format_set,
+    )
     anthropic_surface = (
         anthropic_artifacts.surface_summary() if anthropic_artifacts else None
     )
@@ -244,6 +282,23 @@ def run_scan(
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
+    if packet_cfg.enabled and packet_format_set:
+        assert report.release_decision is not None
+        packet = build_packet(
+            manifest=manifest,
+            agent=report.agent,
+            project=report.project,
+            environment=report.environment,
+            run_id=report.run_id,
+            tools=tools,
+            findings=findings,
+            release_decision=report.release_decision,
+            api_artifacts=api_artifacts,
+            anthropic_artifacts=anthropic_artifacts,
+            source_warnings=warnings,
+            generated_at=packet_generated_at,
+        )
+        _write_packet(packet, generated_paths, packet_format_set)
     write_github_step_summary(report)
     assert report.release_decision is not None  # build_report always populates it
     return report, report.release_decision.fail_policy.exit_code
@@ -490,7 +545,13 @@ def _first_adk_instruction_preview(adk_artifacts: GoogleAdkArtifacts) -> str | N
     return None
 
 
-def _planned_generated_paths(out_dir: Path, formats: list[str]) -> dict[str, Path]:
+def _planned_generated_paths(
+    out_dir: Path,
+    formats: list[str],
+    *,
+    packet_enabled: bool = False,
+    packet_formats: set[str] | None = None,
+) -> dict[str, Path]:
     paths: dict[str, Path] = {}
     if "markdown" in formats:
         paths["markdown"] = out_dir / "report.md"
@@ -498,6 +559,15 @@ def _planned_generated_paths(out_dir: Path, formats: list[str]) -> dict[str, Pat
         paths["json"] = out_dir / "report.json"
     if "sarif" in formats:
         paths["sarif"] = out_dir / "report.sarif"
+    if packet_enabled and packet_formats:
+        if "md" in packet_formats:
+            paths["packet_md"] = out_dir / "packet.md"
+        if "json" in packet_formats:
+            paths["packet_json"] = out_dir / "packet.json"
+        if "html" in packet_formats:
+            paths["packet_html"] = out_dir / "packet.html"
+        if "pdf" in packet_formats:
+            paths["packet_pdf"] = out_dir / "packet.pdf"
     return paths
 
 
@@ -510,6 +580,37 @@ def _write_reports(
         write_json_report(report, paths["json"])
     if "sarif" in formats and "sarif" in paths:
         write_sarif_report(report, paths["sarif"])
+
+
+def _write_packet(packet, paths: dict[str, Path], packet_formats: set[str]) -> None:
+    if "md" in packet_formats and "packet_md" in paths:
+        write_packet_markdown(packet, paths["packet_md"])
+    if "json" in packet_formats and "packet_json" in paths:
+        write_packet_json(packet, paths["packet_json"])
+    if "html" in packet_formats and "packet_html" in paths:
+        write_packet_html(packet, paths["packet_html"])
+    if "pdf" in packet_formats and "packet_pdf" in paths:
+        try:
+            render_packet_pdf(packet, paths["packet_pdf"])
+        except PdfRendererUnavailable as exc:
+            logger.warning("packet.pdf skipped: %s", exc)
+
+
+def _resolve_packet_format_set(packet_cfg) -> tuple[set[str], bool]:
+    """Resolve the writeable packet formats after probing weasyprint.
+
+    Returns ``(formats, pdf_skipped)``: ``formats`` is the set of
+    format names that should actually be emitted; ``pdf_skipped`` is
+    ``True`` iff the user requested PDF but weasyprint is unavailable
+    on this install (so the caller can record a single warning).
+    """
+
+    requested = {fmt for fmt in packet_cfg.formats if fmt in PACKET_FORMAT_NAMES}
+    if not packet_cfg.enabled:
+        return set(), False
+    if "pdf" in requested and not is_pdf_available():
+        return requested - {"pdf"}, True
+    return requested, False
 
 
 def _relative_display_path(path: Path, base_dir: Path) -> str:

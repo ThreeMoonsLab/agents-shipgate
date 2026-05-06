@@ -14,7 +14,8 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--workspace` |
+| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
@@ -104,6 +105,16 @@ Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; 
 ### Manifest schema
 
 The manifest schema version (`version: "0.1"`) is independent of the CLI version. Manifest schema changes follow their own deprecation cycle. A `0.1`-shaped manifest will load correctly across all `0.x.y` CLI releases.
+
+### Release Evidence Packet (v0.1)
+
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.1.json`](docs/packet-schema.v0.1.json). Within `0.x`:
+
+- `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
+- All ten sections (release_decision, capability_intent, high_risk_surface, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
+- `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
+- `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
+- The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.
 
 ### Fixture names
 

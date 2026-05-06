@@ -22,6 +22,7 @@ from agents_shipgate.cli.discovery import (
     render_manifest_template,
     write_ci_workflow,
 )
+from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.cli.self_check import self_check
@@ -65,6 +66,13 @@ app.command(
         "manifest_dir."
     ),
 )(_apply_patches_command)
+app.command(
+    "evidence-packet",
+    help=(
+        "Re-render a Release Evidence Packet from an existing packet.json "
+        "into md, html, and/or pdf."
+    ),
+)(_evidence_packet_command)
 logger = logging.getLogger(__name__)
 
 
@@ -145,12 +153,30 @@ def scan(
             "apply them; the report stays read-only."
         ),
     ),
+    packet: bool = typer.Option(
+        True,
+        "--packet/--no-packet",
+        help=(
+            "Emit the Release Evidence Packet alongside report.{md,json}. "
+            "Default: on. Use --no-packet to skip."
+        ),
+    ),
+    packet_format: str | None = typer.Option(
+        None,
+        "--packet-format",
+        help=(
+            "Comma-separated packet formats: md,json,html,pdf. "
+            "Default from manifest output.packet.formats (md,json,html). "
+            "PDF requires the [pdf] extras."
+        ),
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
 ) -> None:
     """Run a static release-readiness scan."""
     try:
         configure_logging(verbose=verbose)
         parsed_formats = _parse_formats(formats)
+        parsed_packet_formats = _parse_packet_formats(packet_format)
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
@@ -169,6 +195,8 @@ def scan(
                 plugins_enabled=False if no_plugins else None,
                 verbose=verbose,
                 suggest_patches=suggest_patches,
+                packet_enabled=packet,
+                packet_formats=parsed_packet_formats,
             )
             _print_cli_summary(report, ci_mode or "advisory", exit_code, verbose=verbose)
             raise typer.Exit(exit_code)
@@ -185,6 +213,8 @@ def scan(
             plugins_enabled=False if no_plugins else None,
             verbose=verbose,
             suggest_patches=suggest_patches,
+            packet_enabled=packet,
+            packet_formats=parsed_packet_formats,
         )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
@@ -639,6 +669,23 @@ def _parse_formats(value: str) -> list[str]:
     return formats
 
 
+def _parse_packet_formats(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    parts = [item.strip() for item in value.split(",") if item.strip()]
+    invalid = [item for item in parts if item not in {"md", "json", "html", "pdf"}]
+    if invalid:
+        raise ConfigError(
+            f"Unsupported packet format(s): {', '.join(invalid)}; "
+            "expected a subset of md,json,html,pdf"
+        )
+    if not parts:
+        raise ConfigError(
+            "--packet-format must contain at least one of md,json,html,pdf"
+        )
+    return parts
+
+
 def _parse_fail_on(value: str | None) -> list[str] | None:
     if value is None:
         return None
@@ -679,6 +726,8 @@ def _run_multi_scan(
     plugins_enabled: bool | None,
     verbose: bool,
     suggest_patches: bool = False,
+    packet_enabled: bool | None = None,
+    packet_formats: list[str] | None = None,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo(f"Scanning {len(config_paths)} manifests")
@@ -702,6 +751,8 @@ def _run_multi_scan(
                 plugins_enabled=plugins_enabled,
                 verbose=verbose,
                 suggest_patches=suggest_patches,
+                packet_enabled=packet_enabled,
+                packet_formats=packet_formats,
             )
         except ConfigError as exc:
             scan_exit_code = 2

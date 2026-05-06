@@ -61,6 +61,12 @@ Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELO
 "Stability Contract" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md"
 
 [project.optional-dependencies]
+pdf = [
+  # Optional dependency for `agents-shipgate scan --packet-format ...,pdf`
+  # and `agents-shipgate evidence-packet --format pdf`. Skipped with a
+  # warning if not installed; the rest of the packet still renders.
+  "weasyprint>=62,<70",
+]
 dev = [
   "build>=1.5.0,<2",
   "cyclonedx-bom>=5,<7",

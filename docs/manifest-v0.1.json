@@ -503,9 +503,38 @@
           },
           "title": "Formats",
           "type": "array"
+        },
+        "packet": {
+          "$ref": "#/$defs/PacketOutputConfig"
         }
       },
       "title": "OutputConfig",
+      "type": "object"
+    },
+    "PacketOutputConfig": {
+      "additionalProperties": false,
+      "description": "Optional ``output.packet`` block for ``shipgate.yaml``.\n\nControls whether ``scan`` emits the Release Evidence Packet\nalongside ``report.{md,json}``. Independent of ``output.formats``\nso the existing ``--format`` contract is unchanged. ``pdf`` is\naccepted but only written when the optional ``[pdf]`` extras\n(``weasyprint``) are installed.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "formats": {
+          "items": {
+            "enum": [
+              "md",
+              "json",
+              "html",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "title": "Formats",
+          "type": "array"
+        }
+      },
+      "title": "PacketOutputConfig",
       "type": "object"
     },
     "PermissionsConfig": {
