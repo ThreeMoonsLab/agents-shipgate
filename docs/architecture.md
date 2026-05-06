@@ -106,10 +106,12 @@ schema stays minimal.
 The packet is derived from the in-memory scan (manifest, tools, findings,
 release decision, per-source policy artifacts) and persisted as
 `packet.{md,json,html}`. PDF (`packet.pdf`) is opt-in via the `[pdf]` extras.
-The standalone command `agents-shipgate evidence-packet --from packet.json`
-re-renders an existing packet into other formats — it does **not** rebuild
-from `report.json`, which avoids requiring report-schema additions for
-manifest-only data such as `policy_rules` or declared scopes.
+The standalone command `agents-shipgate evidence-packet --from <input>`
+accepts either form: `packet.json` re-renders the original full-fidelity
+packet, while `report.json` rebuilds a degraded packet without the manifest's
+declared coverage (per-source `policy_rules`, `permissions.scopes`). §10
+of every rebuilt packet carries an explicit note about the degradation so
+reviewers are not misled into thinking declared coverage is complete.
 
 Four rules govern the packet contract:
 

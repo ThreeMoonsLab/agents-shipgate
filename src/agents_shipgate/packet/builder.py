@@ -14,14 +14,28 @@ findings are excluded from §1–§9 (only §10 surfaces them).
 
 from __future__ import annotations
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
+from agents_shipgate.config.schema import (
+    AgentConfig,
+    AgentsShipgateManifest,
+    ChecksConfig,
+    CiConfig,
+    EnvironmentConfig,
+    OutputConfig,
+    PermissionsConfig,
+    PoliciesConfig,
+    ProjectConfig,
+    RiskOverridesConfig,
+)
 from agents_shipgate.core.models import (
     AnthropicArtifacts,
+    AuthInfo,
     Finding,
     OpenAIApiArtifacts,
+    ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
     Tool,
+    ToolRiskHint,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.packet.disclaimer import (
@@ -136,6 +150,154 @@ def build_packet(
         dynamic_scenarios=_build_dynamic_scenarios(release_decision, active),
         not_proven=_build_not_proven(findings, source_warnings, tools),
     )
+
+
+_REBUILT_FROM_REPORT_NOTE = (
+    "This packet was rebuilt from report.json without the source manifest. "
+    "Declared approval, idempotency, scope, and human-in-the-loop coverage "
+    "in §4/§5/§6/§8 reflect only the gap findings; the manifest's declared "
+    "policy is not preserved in report.json. Re-run "
+    "`agents-shipgate scan` with the source workspace for a full-fidelity "
+    "packet."
+)
+
+
+def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
+    """Build a (degraded) ``EvidencePacket`` from a serialized
+    ``ReadinessReport``.
+
+    Used by ``agents-shipgate evidence-packet --from report.json`` so a
+    reviewer with only a CI-archived report can still produce
+    ``packet.{md,html,pdf}`` without re-running the full scan.
+
+    The resulting packet has reduced fidelity in §4/§5/§6/§8 because
+    ``report.json`` does not preserve the manifest's per-source policy
+    rules (``approval_required``, ``idempotency_required``,
+    ``permissions.scopes``, etc.). §10 carries an explicit note about
+    the degradation so reviewers are not misled.
+
+    The full-fidelity path is ``agents-shipgate scan``, which calls
+    ``build_packet`` directly with in-memory manifest + artifacts.
+    """
+
+    if report.release_decision is None:
+        raise ValueError(
+            "report.json has no release_decision (only v0.8+ reports "
+            "carry the release_decision block); cannot build a packet."
+        )
+
+    manifest = _stub_manifest_from_report(report)
+    tools = _tools_from_inventory(report.tool_inventory)
+
+    packet = build_packet(
+        manifest=manifest,
+        agent=report.agent,
+        project=report.project,
+        environment=report.environment,
+        run_id=report.run_id,
+        tools=tools,
+        findings=report.findings,
+        release_decision=report.release_decision,
+        api_artifacts=None,
+        anthropic_artifacts=None,
+        source_warnings=list(report.source_warnings),
+    )
+    packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)
+    return packet
+
+
+def _stub_manifest_from_report(report: ReadinessReport) -> AgentsShipgateManifest:
+    """Construct a minimal ``AgentsShipgateManifest`` from a serialized
+    report. Uses ``model_construct`` to skip Pydantic validation —
+    we deliberately do not have a tool source list so the normal
+    constructor would reject this manifest, but the fields the packet
+    builder reads (``agent.declared_purpose`` / ``prohibited_actions``,
+    empty ``policies`` / ``permissions``) are all populated correctly.
+    """
+
+    project_name = report.project.get("name") or "rebuilt-from-report"
+    agent_dict = report.agent
+    target = report.environment.get("target") or "local"
+    return AgentsShipgateManifest.model_construct(
+        version="0.1",
+        project=ProjectConfig.model_construct(name=project_name),
+        agent=AgentConfig.model_construct(
+            name=agent_dict.get("name") or "unknown",
+            declared_purpose=list(agent_dict.get("declared_purpose") or []),
+            prohibited_actions=list(agent_dict.get("prohibited_actions") or []),
+        ),
+        environment=EnvironmentConfig.model_construct(target=target),
+        tool_sources=[],
+        policies=PoliciesConfig.model_construct(),
+        permissions=PermissionsConfig.model_construct(scopes=[]),
+        risk_overrides=RiskOverridesConfig.model_construct(tools={}),
+        checks=ChecksConfig.model_construct(),
+        ci=CiConfig.model_construct(),
+        output=OutputConfig.model_construct(),
+    )
+
+
+def _tools_from_inventory(inventory: list[dict]) -> list[Tool]:
+    """Reconstruct minimal ``Tool`` objects from the ``tool_inventory``
+    dicts in ``report.json``.
+
+    The inventory carries enough for §3 / §6 to function:
+    ``name``, ``source_type``, ``risk_tags`` (with per-tag
+    ``risk_tag_confidence``), and ``auth_scopes``. The reconstructed
+    tools are not full-fidelity (no input/output schemas, no
+    annotations) but ``is_high_risk_tool`` / ``risk_tags`` /
+    ``tool.auth.scopes`` all work correctly.
+    """
+
+    tools: list[Tool] = []
+    for item in inventory:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or ""
+        if not name:
+            continue
+        scopes = list(item.get("auth_scopes") or [])
+        tag_names = list(item.get("risk_tags") or [])
+        per_tag_confidence = item.get("risk_tag_confidence") or {}
+        default_confidence = item.get("confidence") or "medium"
+        risk_hints = [
+            ToolRiskHint.model_construct(
+                tag=tag,
+                source="report_inventory",
+                confidence=per_tag_confidence.get(tag, default_confidence)
+                if isinstance(per_tag_confidence, dict)
+                else default_confidence,
+                evidence={},
+            )
+            for tag in tag_names
+        ]
+        tools.append(
+            Tool.model_construct(
+                id=item.get("id") or name,
+                name=name,
+                source_type=item.get("source_type") or "unknown",
+                description=None,
+                source_id=None,
+                source_ref=item.get("source_ref"),
+                source_location=None,
+                input_schema={},
+                output_schema={},
+                parameters=[],
+                function_signature=None,
+                annotations={},
+                auth=AuthInfo.model_construct(
+                    type=None,
+                    scopes=scopes,
+                    credential_mode=None,
+                    source=None,
+                ),
+                risk_hints=risk_hints,
+                owner=item.get("owner"),
+                extraction_confidence=default_confidence,
+                extraction={},
+            )
+        )
+    return tools
 
 
 def _build_release_decision(decision: ReleaseDecision) -> ReleaseDecisionSection:

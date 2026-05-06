@@ -1,18 +1,24 @@
-"""``agents-shipgate evidence-packet`` — re-render a packet from a
-previously-built ``packet.json`` into additional formats.
+"""``agents-shipgate evidence-packet`` — render a packet from an
+existing scan artifact (``packet.json`` or ``report.json``).
 
-Does **not** rebuild the packet from a scan report. The packet is
-authored during ``scan`` (where the in-memory manifest and per-source
-artifacts are available); this command's job is purely to re-emit the
-already-built JSON in markdown, html, or pdf form. Useful for:
+Two input modes:
 
-- regenerating ``packet.pdf`` after installing the ``[pdf]`` extras
-- rendering a CI-archived ``packet.json`` outside the source workspace
+- **``packet.json``** (preferred): re-renders the existing packet into
+  md/html/pdf. The full-fidelity path — preserves §4/§5/§6/§8 declared
+  coverage from the original scan.
+- **``report.json``**: rebuilds a degraded packet from the report.
+  Useful when only the CI-archived report is on hand (the manifest is
+  no longer available). §10 carries an explicit note that declared
+  coverage is incomplete; reviewers are pointed at re-running scan for
+  full fidelity.
+
+Either way, this command does not invoke checks, scan code, or call
+out to a model. Pure JSON in, files out.
 
 Exit codes:
 
 - 0 — render(s) completed successfully.
-- 2 — ``--from`` payload missing, malformed, or wrong schema version.
+- 2 — ``--from`` payload missing, malformed, or unrecognised schema.
 - 4 — internal error.
 """
 
@@ -22,11 +28,14 @@ import json
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 
+from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
     PdfRendererUnavailable,
+    build_packet_from_report,
     load_packet_json,
     render_packet_pdf,
     serialize_packet_json,
@@ -42,7 +51,10 @@ def evidence_packet(
     from_path: Path = typer.Option(
         ...,
         "--from",
-        help="Path to an existing packet.json (built by `agents-shipgate scan`).",
+        help=(
+            "Path to packet.json (preferred) or report.json. report.json "
+            "produces a degraded packet — see §10 of the output."
+        ),
     ),
     out: Path | None = typer.Option(
         None,
@@ -60,21 +72,21 @@ def evidence_packet(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Echo the loaded packet.json content to stdout.",
+        help="Echo the resolved packet.json content to stdout.",
     ),
 ) -> None:
-    """Re-render a packet from packet.json."""
+    """Render a packet from packet.json or report.json."""
 
     try:
         payload = from_path.read_text(encoding="utf-8")
     except OSError as exc:
-        typer.echo(f"Cannot read packet at {from_path}: {exc}", err=True)
+        typer.echo(f"Cannot read input at {from_path}: {exc}", err=True)
         raise typer.Exit(2) from exc
 
     try:
-        packet = load_packet_json(payload)
+        packet = _load_packet_or_report(payload)
     except PacketSchemaError as exc:
-        typer.echo(f"Invalid packet.json: {exc}", err=True)
+        typer.echo(f"Invalid input: {exc}", err=True)
         raise typer.Exit(2) from exc
 
     if json_output:
@@ -127,6 +139,45 @@ def _parse_formats(value: str) -> set[str]:
         typer.echo("--format must contain at least one of md,html,pdf", err=True)
         raise typer.Exit(2)
     return parts
+
+
+def _load_packet_or_report(payload: str) -> EvidencePacket:
+    """Detect whether ``payload`` is a ``packet.json`` or a
+    ``report.json`` and dispatch to the matching loader.
+
+    Raises ``PacketSchemaError`` for unrecognised payloads so the CLI
+    surfaces a single consistent exit code (2) regardless of which
+    branch failed.
+    """
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise PacketSchemaError(f"input is not valid JSON: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise PacketSchemaError("input must be a JSON object")
+
+    if "packet_schema_version" in parsed:
+        return load_packet_json(parsed)
+
+    if "report_schema_version" in parsed:
+        try:
+            report = ReadinessReport.model_validate(parsed)
+        except ValidationError as exc:
+            raise PacketSchemaError(
+                f"report.json failed schema validation: {exc}"
+            ) from exc
+        try:
+            return build_packet_from_report(report)
+        except ValueError as exc:
+            raise PacketSchemaError(str(exc)) from exc
+
+    raise PacketSchemaError(
+        "input does not look like packet.json or report.json — expected a "
+        "JSON object with either 'packet_schema_version' or "
+        "'report_schema_version' at the top level"
+    )
 
 
 __all__ = ["evidence_packet", "EvidencePacket"]

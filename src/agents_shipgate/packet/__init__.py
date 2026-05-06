@@ -20,7 +20,7 @@ packet for the verbatim disclaimers.
 
 from __future__ import annotations
 
-from agents_shipgate.packet.builder import build_packet
+from agents_shipgate.packet.builder import build_packet, build_packet_from_report
 from agents_shipgate.packet.html import render_packet_html
 from agents_shipgate.packet.json_packet import (
     PacketSchemaError,
@@ -36,6 +36,7 @@ __all__ = [
     "PacketSchemaError",
     "PdfRendererUnavailable",
     "build_packet",
+    "build_packet_from_report",
     "load_packet_json",
     "render_packet_html",
     "render_packet_markdown",

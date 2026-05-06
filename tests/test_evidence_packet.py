@@ -315,6 +315,78 @@ def test_load_packet_json_rejects_invalid_json():
         load_packet_json("not-json")
 
 
+def test_evidence_packet_cli_accepts_report_json(tmp_path):
+    """Regression for PR #43 review: a CI-archived ``report.json`` must
+    produce a (degraded) packet via ``evidence-packet --from``. The
+    primary use case is regenerating the packet when only the report is
+    on hand and the source workspace is no longer available."""
+
+    out, _ = _scan_with_packet(tmp_path)
+    target = tmp_path / "rebuilt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "report.json"),
+            "--out",
+            str(target),
+            "--format",
+            "md,html",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rebuilt_md = (target / "packet.md").read_text(encoding="utf-8")
+    # Same sections render with the same verdict source.
+    assert "## §1 Release decision — BLOCKED" in rebuilt_md
+    # And the rebuilt-from-report note shows up in §10 so reviewers know
+    # the declared coverage is incomplete.
+    assert "rebuilt from report.json" in rebuilt_md.lower()
+
+
+def test_evidence_packet_from_report_marks_degradation_in_json(tmp_path):
+    """The degraded path must surface a residual in
+    ``packet.json.not_proven.additional_residuals`` so machine consumers
+    (CI bots, dashboards) can detect the reduced fidelity without
+    parsing prose."""
+
+    out, _ = _scan_with_packet(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "report.json"),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    residuals = payload["not_proven"]["additional_residuals"]
+    assert any("rebuilt from report.json" in note.lower() for note in residuals)
+    # Verdict must still come from release_decision.decision (the
+    # degradation does not affect §1).
+    assert payload["release_decision"]["decision"] == "blocked"
+    assert payload["release_decision"]["verdict"] == "BLOCKED"
+
+
+def test_evidence_packet_rejects_unrecognised_json(tmp_path):
+    """Inputs that are JSON but not packet.json or report.json must
+    fail cleanly (exit 2) rather than producing partial output."""
+
+    bogus = tmp_path / "bogus.json"
+    bogus.write_text(json.dumps({"hello": "world"}), encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["evidence-packet", "--from", str(bogus)],
+    )
+    assert result.exit_code == 2
+    assert "packet.json or report.json" in (result.output + result.stderr).lower()
+
+
 def test_evidence_packet_cli_round_trips(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     runner = CliRunner()

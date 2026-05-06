@@ -326,7 +326,10 @@ pipx install 'agents-shipgate[pdf]'           # adds packet.pdf via weasyprint
 agents-shipgate scan -c shipgate.yaml         # default: emit packet
 agents-shipgate scan -c shipgate.yaml --no-packet                    # skip
 agents-shipgate scan -c shipgate.yaml --packet-format md,json,html,pdf
+# Re-render from the existing packet (full fidelity):
 agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json --format html,pdf
+# Or rebuild from a CI-archived report.json (degraded — see §10 of the output):
+agents-shipgate evidence-packet --from agents-shipgate-reports/report.json --format md,html
 ```
 
 Rules of the packet contract (do not break in 0.x):
