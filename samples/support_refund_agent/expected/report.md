@@ -110,7 +110,7 @@ Policy/control gaps:
 Release implication:
 
 - Decision: blocked
-- 2 capability/intent misalignment\(s\) map to active release blockers; resolve required controls or remove the capability.
+- 2 release-relevant finding\(s\) map to active release blockers; resolve required controls or remove the capability.
 
 Next validation:
 

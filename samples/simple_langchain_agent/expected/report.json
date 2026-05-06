@@ -94,7 +94,7 @@
   "misalignments": [],
   "release_consequence": {
     "decision": "review_required",
-    "summary": "0 capability/intent misalignment(s) require release review before shipping.",
+    "summary": "0 release-relevant finding(s) require release review before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 0,
     "fail_policy": {

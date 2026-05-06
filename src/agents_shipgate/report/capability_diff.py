@@ -455,6 +455,8 @@ def _intent_tags(text: str) -> list[str]:
     tags: set[str] = set()
     tokens = _ordered_tokens(text)
     for index, token in enumerate(tokens):
+        # Adjacent-token negation covers common manifest phrasing such as
+        # "without approval", "do not refund", and "never delete".
         if index > 0 and tokens[index - 1] in NEGATION_TOKENS:
             continue
         tags.update(INTENT_TAG_ALIASES.get(token, ()))
@@ -724,12 +726,12 @@ def _release_consequence(
 def _release_summary(decision: str, blocker_count: int, review_count: int) -> str:
     if decision == "blocked":
         return (
-            f"{blocker_count} capability/intent misalignment(s) map to active "
+            f"{blocker_count} release-relevant finding(s) map to active "
             "release blockers; resolve required controls or remove the capability."
         )
     if decision == "review_required":
         return (
-            f"{review_count} capability/intent misalignment(s) require release review "
+            f"{review_count} release-relevant finding(s) require release review "
             "before shipping."
         )
     return "No capability/intent misalignments require release action from static evidence."

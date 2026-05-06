@@ -772,7 +772,7 @@
   ],
   "release_consequence": {
     "decision": "blocked",
-    "summary": "2 capability/intent misalignment(s) map to active release blockers; resolve required controls or remove the capability.",
+    "summary": "2 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
     "blocker_misalignment_count": 2,
     "review_misalignment_count": 16,
     "fail_policy": {

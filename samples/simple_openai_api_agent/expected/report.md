@@ -105,7 +105,7 @@ Policy/control gaps:
 Release implication:
 
 - Decision: review\_required
-- 20 capability/intent misalignment\(s\) require release review before shipping.
+- 20 release-relevant finding\(s\) require release review before shipping.
 
 Next validation:
 
