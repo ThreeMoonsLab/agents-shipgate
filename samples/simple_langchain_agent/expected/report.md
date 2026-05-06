@@ -32,6 +32,10 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 No critical or high findings.
 
+## Capability <-> Intent Diff
+
+No capability/intent misalignments detected from static evidence.
+
 ## Recommended Next Actions
 
 No action required from static findings.

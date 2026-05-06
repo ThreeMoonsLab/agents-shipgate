@@ -40,6 +40,7 @@ from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.report.capability_diff import apply_capability_diff
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
@@ -241,6 +242,7 @@ def run_scan(
         frameworks=frameworks_surface,
         baseline=baseline_summary,
     )
+    apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
     write_github_step_summary(report)
     assert report.release_decision is not None  # build_report always populates it

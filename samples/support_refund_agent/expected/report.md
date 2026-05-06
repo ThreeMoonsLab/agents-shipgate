@@ -68,6 +68,57 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
    Evidence: tool\_scopes=\['support:kb:read'\]; manifest\_scopes=\['zendesk:tickets:read', 'zendesk:tickets:write', 'stripe:\*'\]; missing\_scopes=\['support:kb:read'\]
    Recommendation: Add the required scopes for support.search\_kb to permissions.scopes or narrow the tool's declared auth requirements.
 
+## Capability <-> Intent Diff
+
+Agent intent:
+
+- declared\_purpose: prepare refund requests for human review (tags: financial\_action)
+- declared\_purpose: update support ticket notes (tags: write)
+- declared\_purpose: answer refund policy questions (tags: financial\_action, read\_only)
+- 3 more in report.json
+
+Actual capabilities:
+
+- gmail.send\_customer\_email: capability=external\_write, risk=customer\_communication, external\_write, control=missing
+- send\_email\_preview: capability=read\_only, risk=read\_only, control=partial
+- shopify.cancel\_order: capability=destructive, risk=destructive, write, control=missing
+- stripe.create\_refund: capability=financial\_action, risk=external\_write, financial\_action, write, control=missing
+- support.search\_kb: capability=read\_only, risk=read\_only, control=missing
+- 2 more in report.json
+
+Policy/control gaps:
+
+- CRITICAL control\_missing \[stripe.create\_refund\]: stripe.create\_refund lacks idempotency evidence.
+  Requires: Risky write tools need idempotency evidence before retryable release.
+  Release implication: Retries could duplicate financial, destructive, or external effects.
+- CRITICAL policy\_gap \[stripe.create\_refund\]: stripe.create\_refund lacks a declared approval policy.
+  Requires: High-risk tools must have a declared approval policy.
+  Release implication: Release is blocked until approval is declared or the tool is removed.
+- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks idempotency evidence.
+  Requires: Risky write tools need idempotency evidence before retryable release.
+  Release implication: Retries could duplicate financial, destructive, or external effects.
+- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email accepts broad free-form action input.
+  Requires: Action-like tool inputs must constrain high-blast-radius fields.
+  Release implication: Release reviewers cannot bound the operation payload safely.
+- HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner.
+  Requires: Manifest metadata must match the active release surface.
+  Release implication: Release review metadata is incomplete or stale.
+- 13 more in report.json
+
+Release implication:
+
+- Decision: blocked
+- 2 capability/intent misalignment\(s\) map to active release blockers; resolve required controls or remove the capability.
+
+Next validation:
+
+- Retry behavior for risky write: Retries use idempotency evidence or the side effect is not retried.
+- Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
+- Tool schema boundary check: The tool accepts bounded structured inputs and returns structured outputs where needed.
+- High-risk tool validation case: A declared test or review scenario covers the high-risk tool path.
+- Explicit tool inventory review: The release exposes a static allowlist instead of wildcard or unbounded tools.
+- 3 more in report.json
+
 ## Recommended Next Actions
 
 - Declare an approval policy for stripe.create\_refund or remove this tool from the release.

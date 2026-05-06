@@ -40,6 +40,6 @@ surface before production-like permissions are granted.
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)
-- [Report schema v0.8](report-schema.v0.8.json)
+- [Report schema v0.9](report-schema.v0.9.json)
 - [Trust model](trust-model.md)
 - [Agent instructions](../AGENTS.md)

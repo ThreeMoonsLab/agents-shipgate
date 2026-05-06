@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.8",
+  "report_schema_version": "0.9",
   "run_id": "agents_shipgate_1c4577c21998a147",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
@@ -82,6 +82,33 @@
       "exit_code": 0
     }
   },
+  "capability_facts": [],
+  "declared_intentions": [
+    {
+      "id": "int_22f9d1520e437d19",
+      "kind": "declared_purpose",
+      "text": "look up and summarize read-only support case metadata",
+      "source": "agent.declared_purpose",
+      "intent_tags": [
+        "read_only"
+      ]
+    }
+  ],
+  "misalignments": [],
+  "release_consequence": {
+    "decision": "review_required",
+    "summary": "0 capability/intent misalignment(s) require release review before shipping.",
+    "blocker_misalignment_count": 0,
+    "review_misalignment_count": 0,
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    }
+  },
+  "suggested_scenarios": [],
   "tool_surface": {
     "total_tools": 3,
     "high_risk_tools": 0,
@@ -114,7 +141,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpca_apmad/report.json"
+    "markdown": "<TMP>/report.md",
+    "json": "<TMP>/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

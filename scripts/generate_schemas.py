@@ -84,12 +84,12 @@ def write_report_schema() -> None:
         "post-processing to preserve the v0.5 public contract. "
         "Do not edit by hand."
     )
-    # Preserve v0.5's stable required list, plus v0.8 additions.
+    # Preserve v0.5's stable required list, plus v0.8/v0.9 additions.
     # Optional intermediate additions (manifest_dir, per-finding patches)
     # are not added here, so they stay optional for additive consumers.
-    # `release_decision` is required at v0.8: every emitted report has it
-    # (build_report always populates it). Marking it required at the
-    # schema level catches drift early.
+    # `release_decision` is required at v0.8, and the v0.9 capability diff
+    # fields are required for every emitted report. Marking them required
+    # at the schema level catches drift early.
     schema["required"] = sorted(
         [
             "schema_version",
@@ -100,6 +100,11 @@ def write_report_schema() -> None:
             "environment",
             "summary",
             "release_decision",
+            "capability_facts",
+            "declared_intentions",
+            "misalignments",
+            "release_consequence",
+            "suggested_scenarios",
             "tool_surface",
             "frameworks",
             "findings",
@@ -125,6 +130,7 @@ def write_report_schema() -> None:
     # `anyOf: [ReleaseDecision, null]`, which would let `null` pass
     # validation and silently violate the v0.8 contract.
     properties["release_decision"] = {"$ref": "#/$defs/ReleaseDecision"}
+    properties["release_consequence"] = {"$ref": "#/$defs/ReleaseConsequence"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
@@ -198,6 +204,63 @@ def write_report_schema() -> None:
                 "new_findings_only",
                 "would_fail_ci",
                 "exit_code",
+            ]
+        )
+    if "CapabilityFact" in defs:
+        defs["CapabilityFact"]["required"] = sorted(
+            [
+                "id",
+                "tool_name",
+                "source_type",
+                "source_ref",
+                "capability",
+                "risk_tags",
+                "auth_scopes",
+                "owner",
+                "included_reason",
+                "control_status",
+                "related_findings",
+            ]
+        )
+    if "DeclaredIntention" in defs:
+        defs["DeclaredIntention"]["required"] = sorted(
+            ["id", "kind", "text", "source", "intent_tags"]
+        )
+    if "Misalignment" in defs:
+        defs["Misalignment"]["required"] = sorted(
+            [
+                "id",
+                "kind",
+                "severity",
+                "tool_name",
+                "capability_refs",
+                "intention_refs",
+                "finding_refs",
+                "policy_requirement",
+                "gap",
+                "release_implication",
+            ]
+        )
+    if "ReleaseConsequence" in defs:
+        defs["ReleaseConsequence"]["required"] = sorted(
+            [
+                "decision",
+                "summary",
+                "blocker_misalignment_count",
+                "review_misalignment_count",
+                "fail_policy",
+            ]
+        )
+    if "SuggestedScenario" in defs:
+        defs["SuggestedScenario"]["required"] = sorted(
+            [
+                "id",
+                "scenario_type",
+                "title",
+                "given",
+                "expected_control",
+                "source_misalignments",
+                "source_findings",
             ]
         )
 

@@ -1,0 +1,1482 @@
+{
+  "$defs": {
+    "AppendPointerPatch": {
+      "additionalProperties": false,
+      "description": "Append a value to the list at a JSON pointer.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "const": "append_pointer",
+          "default": "append_pointer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "target_file": {
+          "title": "Target File",
+          "type": "string"
+        },
+        "target_format": {
+          "enum": [
+            "yaml",
+            "json"
+          ],
+          "title": "Target Format",
+          "type": "string"
+        },
+        "target_sha256": {
+          "title": "Target Sha256",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "target_file",
+        "pointer",
+        "value",
+        "target_format",
+        "confidence",
+        "rationale",
+        "target_sha256"
+      ],
+      "title": "AppendPointerPatch",
+      "type": "object"
+    },
+    "BaselineDelta": {
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "matched_count": {
+          "default": 0,
+          "title": "Matched Count",
+          "type": "integer"
+        },
+        "new_count": {
+          "default": 0,
+          "title": "New Count",
+          "type": "integer"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "resolved_count": {
+          "default": 0,
+          "title": "Resolved Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "matched_count",
+        "new_count",
+        "resolved_count"
+      ],
+      "title": "BaselineDelta",
+      "type": "object"
+    },
+    "BaselineSummary": {
+      "properties": {
+        "matched_count": {
+          "default": 0,
+          "title": "Matched Count",
+          "type": "integer"
+        },
+        "new_count": {
+          "default": 0,
+          "title": "New Count",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "resolved_count": {
+          "default": 0,
+          "title": "Resolved Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "BaselineSummary",
+      "type": "object"
+    },
+    "CapabilityFact": {
+      "properties": {
+        "auth_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Auth Scopes",
+          "type": "array"
+        },
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "control_status": {
+          "enum": [
+            "missing",
+            "partial",
+            "present",
+            "unknown"
+          ],
+          "title": "Control Status",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "included_reason": {
+          "enum": [
+            "high_risk_tag",
+            "wildcard_exposure",
+            "referenced_by_critical_finding",
+            "referenced_by_high_finding",
+            "referenced_by_medium_finding"
+          ],
+          "title": "Included Reason",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "related_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Findings",
+          "type": "array"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "auth_scopes",
+        "capability",
+        "control_status",
+        "id",
+        "included_reason",
+        "owner",
+        "related_findings",
+        "risk_tags",
+        "source_ref",
+        "source_type",
+        "tool_name"
+      ],
+      "title": "CapabilityFact",
+      "type": "object"
+    },
+    "DeclaredIntention": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "intent_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Intent Tags",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "declared_purpose",
+            "prohibited_action",
+            "instruction_preview"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "intent_tags",
+        "kind",
+        "source",
+        "text"
+      ],
+      "title": "DeclaredIntention",
+      "type": "object"
+    },
+    "EvidenceCoverageDecision": {
+      "properties": {
+        "human_review_recommended": {
+          "title": "Human Review Recommended",
+          "type": "boolean"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "low_confidence_tool_count": {
+          "title": "Low Confidence Tool Count",
+          "type": "integer"
+        },
+        "source_warning_count": {
+          "title": "Source Warning Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "human_review_recommended",
+        "level",
+        "low_confidence_tool_count",
+        "source_warning_count"
+      ],
+      "title": "EvidenceCoverageDecision",
+      "type": "object"
+    },
+    "FailPolicy": {
+      "properties": {
+        "ci_mode": {
+          "title": "Ci Mode",
+          "type": "string"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "fail_on": {
+          "items": {
+            "enum": [
+              "info",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "new_findings_only": {
+          "default": false,
+          "title": "New Findings Only",
+          "type": "boolean"
+        },
+        "would_fail_ci": {
+          "title": "Would Fail Ci",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ci_mode",
+        "exit_code",
+        "fail_on",
+        "new_findings_only",
+        "would_fail_ci"
+      ],
+      "title": "FailPolicy",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": true,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "autofix_safe": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Autofix Safe"
+        },
+        "baseline_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "new",
+                "matched",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "docs_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Docs Url"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "patches": {
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "append_pointer": "#/$defs/AppendPointerPatch",
+                    "manual": "#/$defs/ManualPatch",
+                    "remove_pointer": "#/$defs/RemovePointerPatch",
+                    "set_pointer": "#/$defs/SetPointerPatch"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/SetPointerPatch"
+                  },
+                  {
+                    "$ref": "#/$defs/AppendPointerPatch"
+                  },
+                  {
+                    "$ref": "#/$defs/RemovePointerPatch"
+                  },
+                  {
+                    "$ref": "#/$defs/ManualPatch"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Patches"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "requires_human_review": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requires Human Review"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "suggested_patch_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Patch Kind"
+        },
+        "suppressed": {
+          "default": false,
+          "title": "Suppressed",
+          "type": "boolean"
+        },
+        "suppression_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suppression Reason"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "baseline_status",
+        "category",
+        "check_id",
+        "confidence",
+        "evidence",
+        "fingerprint",
+        "id",
+        "recommendation",
+        "severity",
+        "suppressed",
+        "title"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "LoadedPolicyPack": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rule_count": {
+          "title": "Rule Count",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "path",
+        "rule_count"
+      ],
+      "title": "LoadedPolicyPack",
+      "type": "object"
+    },
+    "ManualPatch": {
+      "additionalProperties": false,
+      "description": "No machine-applicable change. Carries human-readable instructions.\n\nUsed for every finding whose check ID has no v0.6 non-manual generator\nand for findings (like trace flips, per C6) that are intentionally\nnever auto-patched.",
+      "properties": {
+        "instructions": {
+          "title": "Instructions",
+          "type": "string"
+        },
+        "kind": {
+          "const": "manual",
+          "default": "manual",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instructions"
+      ],
+      "title": "ManualPatch",
+      "type": "object"
+    },
+    "Misalignment": {
+      "properties": {
+        "capability_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Refs",
+          "type": "array"
+        },
+        "finding_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Refs",
+          "type": "array"
+        },
+        "gap": {
+          "title": "Gap",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "intention_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Intention Refs",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "policy_gap",
+            "scope_drift",
+            "prohibited_action_present",
+            "control_missing",
+            "intent_mismatch",
+            "undetected_gap"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy_requirement": {
+          "title": "Policy Requirement",
+          "type": "string"
+        },
+        "release_implication": {
+          "title": "Release Implication",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "capability_refs",
+        "finding_refs",
+        "gap",
+        "id",
+        "intention_refs",
+        "kind",
+        "policy_requirement",
+        "release_implication",
+        "severity",
+        "tool_name"
+      ],
+      "title": "Misalignment",
+      "type": "object"
+    },
+    "ReleaseConsequence": {
+      "properties": {
+        "blocker_misalignment_count": {
+          "default": 0,
+          "title": "Blocker Misalignment Count",
+          "type": "integer"
+        },
+        "decision": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "passed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "fail_policy": {
+          "$ref": "#/$defs/FailPolicy"
+        },
+        "review_misalignment_count": {
+          "default": 0,
+          "title": "Review Misalignment Count",
+          "type": "integer"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "blocker_misalignment_count",
+        "decision",
+        "fail_policy",
+        "review_misalignment_count",
+        "summary"
+      ],
+      "title": "ReleaseConsequence",
+      "type": "object"
+    },
+    "ReleaseDecision": {
+      "properties": {
+        "baseline_delta": {
+          "$ref": "#/$defs/BaselineDelta"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "decision": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "passed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evidence_coverage": {
+          "$ref": "#/$defs/EvidenceCoverageDecision"
+        },
+        "fail_policy": {
+          "$ref": "#/$defs/FailPolicy"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "review_items": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Review Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "baseline_delta",
+        "blockers",
+        "decision",
+        "evidence_coverage",
+        "fail_policy",
+        "reason",
+        "review_items"
+      ],
+      "title": "ReleaseDecision",
+      "type": "object"
+    },
+    "ReleaseDecisionItem": {
+      "properties": {
+        "baseline_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "new",
+                "matched",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline_status",
+        "check_id",
+        "fingerprint",
+        "id",
+        "severity",
+        "title"
+      ],
+      "title": "ReleaseDecisionItem",
+      "type": "object"
+    },
+    "RemovePointerPatch": {
+      "additionalProperties": false,
+      "description": "Remove the node at a JSON pointer.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "const": "remove_pointer",
+          "default": "remove_pointer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "target_file": {
+          "title": "Target File",
+          "type": "string"
+        },
+        "target_format": {
+          "enum": [
+            "yaml",
+            "json"
+          ],
+          "title": "Target Format",
+          "type": "string"
+        },
+        "target_sha256": {
+          "title": "Target Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_file",
+        "pointer",
+        "target_format",
+        "confidence",
+        "rationale",
+        "target_sha256"
+      ],
+      "title": "RemovePointerPatch",
+      "type": "object"
+    },
+    "ReportSummary": {
+      "properties": {
+        "critical_count": {
+          "default": 0,
+          "title": "Critical Count",
+          "type": "integer"
+        },
+        "evidence_coverage": {
+          "default": "static",
+          "title": "Evidence Coverage",
+          "type": "string"
+        },
+        "high_count": {
+          "default": 0,
+          "title": "High Count",
+          "type": "integer"
+        },
+        "human_review_recommended": {
+          "default": false,
+          "title": "Human Review Recommended",
+          "type": "boolean"
+        },
+        "info_count": {
+          "default": 0,
+          "title": "Info Count",
+          "type": "integer"
+        },
+        "low_count": {
+          "default": 0,
+          "title": "Low Count",
+          "type": "integer"
+        },
+        "medium_count": {
+          "default": 0,
+          "title": "Medium Count",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "suppressed_count": {
+          "default": 0,
+          "title": "Suppressed Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ReportSummary",
+      "type": "object"
+    },
+    "SetPointerPatch": {
+      "additionalProperties": false,
+      "description": "Set the value at a JSON pointer inside a YAML or JSON file.",
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "const": "set_pointer",
+          "default": "set_pointer",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "target_file": {
+          "title": "Target File",
+          "type": "string"
+        },
+        "target_format": {
+          "enum": [
+            "yaml",
+            "json"
+          ],
+          "title": "Target Format",
+          "type": "string"
+        },
+        "target_sha256": {
+          "title": "Target Sha256",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "target_file",
+        "pointer",
+        "value",
+        "target_format",
+        "confidence",
+        "rationale",
+        "target_sha256"
+      ],
+      "title": "SetPointerPatch",
+      "type": "object"
+    },
+    "SourceReference": {
+      "additionalProperties": true,
+      "properties": {
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SourceReference",
+      "type": "object"
+    },
+    "SuggestedScenario": {
+      "properties": {
+        "expected_control": {
+          "title": "Expected Control",
+          "type": "string"
+        },
+        "given": {
+          "title": "Given",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "scenario_type": {
+          "enum": [
+            "approval",
+            "confirmation",
+            "idempotency_retry",
+            "least_privilege_scope",
+            "prohibited_action",
+            "wildcard_inventory",
+            "schema_boundary",
+            "prompt_scope_alignment",
+            "test_case_coverage"
+          ],
+          "title": "Scenario Type",
+          "type": "string"
+        },
+        "source_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Findings",
+          "type": "array"
+        },
+        "source_misalignments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Misalignments",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_control",
+        "given",
+        "id",
+        "scenario_type",
+        "source_findings",
+        "source_misalignments",
+        "title"
+      ],
+      "title": "SuggestedScenario",
+      "type": "object"
+    },
+    "ToolSurfaceSummary": {
+      "properties": {
+        "high_risk_tools": {
+          "title": "High Risk Tools",
+          "type": "integer"
+        },
+        "missing_descriptions": {
+          "default": 0,
+          "title": "Missing Descriptions",
+          "type": "integer"
+        },
+        "sources": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Sources",
+          "type": "object"
+        },
+        "total_tools": {
+          "title": "Total Tools",
+          "type": "integer"
+        },
+        "wildcard_tools": {
+          "default": 0,
+          "title": "Wildcard Tools",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_tools",
+        "high_risk_tools"
+      ],
+      "title": "ToolSurfaceSummary",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.9.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. Generated from agents_shipgate.core.models.ReadinessReport with post-processing to preserve the v0.5 public contract. Do not edit by hand.",
+  "properties": {
+    "agent": {
+      "additionalProperties": true,
+      "title": "Agent",
+      "type": "object"
+    },
+    "anthropic_surface": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Anthropic Surface"
+    },
+    "api_surface": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Api Surface"
+    },
+    "baseline": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BaselineSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "capability_facts": {
+      "items": {
+        "$ref": "#/$defs/CapabilityFact"
+      },
+      "title": "Capability Facts",
+      "type": "array"
+    },
+    "declared_intentions": {
+      "items": {
+        "$ref": "#/$defs/DeclaredIntention"
+      },
+      "title": "Declared Intentions",
+      "type": "array"
+    },
+    "environment": {
+      "additionalProperties": true,
+      "title": "Environment",
+      "type": "object"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "frameworks": {
+      "additionalProperties": true,
+      "properties": {
+        "crewai": {
+          "additionalProperties": true,
+          "required": [
+            "agent_count",
+            "class_tool_count",
+            "crew_count",
+            "dynamic_tool_surface_count",
+            "function_tool_count",
+            "prebuilt_tool_count",
+            "python_entrypoint_count",
+            "tool_inventory_file_count",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "google_adk": {
+          "additionalProperties": true,
+          "required": [
+            "agent_config_count",
+            "agent_count",
+            "callback_count",
+            "dynamic_toolset_count",
+            "eval_file_count",
+            "function_tool_count",
+            "long_running_tool_count",
+            "plugin_count",
+            "python_entrypoint_count",
+            "sub_agent_count",
+            "tool_inventory_file_count",
+            "toolset_count",
+            "trace_sample_count",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "langchain": {
+          "additionalProperties": true,
+          "required": [
+            "agent_tool_binding_count",
+            "dynamic_tool_surface_count",
+            "function_tool_count",
+            "python_entrypoint_count",
+            "structured_tool_count",
+            "tool_inventory_file_count",
+            "tool_node_count",
+            "warnings"
+          ],
+          "type": "object"
+        }
+      },
+      "title": "Frameworks",
+      "type": "object"
+    },
+    "generated_reports": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Generated Reports",
+      "type": "object"
+    },
+    "loaded_plugins": {
+      "items": {
+        "additionalProperties": true,
+        "required": [
+          "check_id",
+          "distribution",
+          "name",
+          "value",
+          "version"
+        ],
+        "type": "object"
+      },
+      "title": "Loaded Plugins",
+      "type": "array"
+    },
+    "loaded_policy_packs": {
+      "items": {
+        "$ref": "#/$defs/LoadedPolicyPack"
+      },
+      "title": "Loaded Policy Packs",
+      "type": "array"
+    },
+    "manifest_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manifest Dir"
+    },
+    "misalignments": {
+      "items": {
+        "$ref": "#/$defs/Misalignment"
+      },
+      "title": "Misalignments",
+      "type": "array"
+    },
+    "project": {
+      "additionalProperties": true,
+      "title": "Project",
+      "type": "object"
+    },
+    "recommended_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Recommended Actions",
+      "type": "array"
+    },
+    "release_consequence": {
+      "$ref": "#/$defs/ReleaseConsequence"
+    },
+    "release_decision": {
+      "$ref": "#/$defs/ReleaseDecision"
+    },
+    "report_schema_version": {
+      "const": "0.9"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "source_warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Warnings",
+      "type": "array"
+    },
+    "suggested_scenarios": {
+      "items": {
+        "$ref": "#/$defs/SuggestedScenario"
+      },
+      "title": "Suggested Scenarios",
+      "type": "array"
+    },
+    "summary": {
+      "$ref": "#/$defs/ReportSummary"
+    },
+    "tool_inventory": {
+      "items": {
+        "additionalProperties": true,
+        "required": [
+          "auth_scopes",
+          "confidence",
+          "name",
+          "risk_tags",
+          "source_type"
+        ],
+        "type": "object"
+      },
+      "title": "Tool Inventory",
+      "type": "array"
+    },
+    "tool_surface": {
+      "$ref": "#/$defs/ToolSurfaceSummary"
+    }
+  },
+  "required": [
+    "agent",
+    "capability_facts",
+    "declared_intentions",
+    "environment",
+    "findings",
+    "frameworks",
+    "generated_reports",
+    "loaded_plugins",
+    "loaded_policy_packs",
+    "misalignments",
+    "project",
+    "recommended_actions",
+    "release_consequence",
+    "release_decision",
+    "report_schema_version",
+    "run_id",
+    "schema_version",
+    "source_warnings",
+    "suggested_scenarios",
+    "summary",
+    "tool_inventory",
+    "tool_surface"
+  ],
+  "title": "Agents Shipgate Readiness Report v0.9",
+  "type": "object"
+}

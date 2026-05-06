@@ -137,7 +137,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.8"`). v0.8 adds the required `release_decision` block — read `release_decision.decision` for release gating in new consumers.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.9"`). v0.9 adds the capability/intent diff fields; read `release_decision.decision` for release gating in new consumers.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -341,7 +341,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK/LangChain/CrewAI inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.8"` and add the `release_decision` block while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.9"` and add the capability/intent diff fields while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -402,7 +402,7 @@ contact details.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.8](docs/report-schema.v0.8.json)
+- [JSON report schema v0.9](docs/report-schema.v0.9.json)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)

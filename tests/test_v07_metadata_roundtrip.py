@@ -3,7 +3,7 @@
 Per the v0.7 plan §3 final-polish verification: agents reading
 ``agents-shipgate list-checks --json`` and ``report.json`` should both
 get populated remediation metadata for every check, and the JSON
-contracts on both endpoints should validate against the v0.7 schema.
+   contracts on both endpoints should validate against the current schema.
 
 Specifically:
 
@@ -14,8 +14,7 @@ Specifically:
    active finding from a real scan against
    ``samples/support_refund_agent``, both with and without
    ``--suggest-patches``.
-3. The ``report.json`` validates against
-   ``docs/report-schema.v0.7.json``.
+3. The ``report.json`` validates against the current report schema.
 4. The catalog-vs-Finding contract holds in practice: stale-manifest
    findings whose actual emitted patch is non-manual + high-confidence
    carry ``autofix_safe: True`` even though the catalog stays
@@ -40,6 +39,7 @@ SAMPLES = REPO_ROOT / "samples"
 SAMPLE_MANIFEST = SAMPLES / "support_refund_agent" / "shipgate.yaml"
 REPORT_SCHEMA_V07 = REPO_ROOT / "docs" / "report-schema.v0.7.json"
 REPORT_SCHEMA_V08 = REPO_ROOT / "docs" / "report-schema.v0.8.json"
+REPORT_SCHEMA_V09 = REPO_ROOT / "docs" / "report-schema.v0.9.json"
 
 REQUIRED_REMEDIATION_KEYS = (
     "autofix_safe",
@@ -138,10 +138,10 @@ def test_report_json_populates_metadata_with_suggest_patches(tmp_path):
 # --- v0.7 schema validation ------------------------------------------------
 
 
-def test_report_json_validates_against_v08_schema_with_patches(tmp_path):
+def test_report_json_validates_against_v09_schema_with_patches(tmp_path):
     """v0.7 contract: every active finding has the four remediation
-    fields populated. v0.8 added required `release_decision` on top.
-    Validate against the current v0.8 schema (the v0.7 file stays
+    fields populated. v0.9 adds capability/intent diff fields on top.
+    Validate against the current v0.9 schema (the v0.7 file stays
     frozen — see test_reports.py::test_v07_schema_file_is_frozen)."""
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
@@ -151,11 +151,11 @@ def test_report_json_validates_against_v08_schema_with_patches(tmp_path):
         suggest_patches=True,
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    schema = json.loads(REPORT_SCHEMA_V08.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V09.read_text(encoding="utf-8"))
     validate(instance=payload, schema=schema)
 
 
-def test_report_schema_version_is_v08_in_emitted_report(tmp_path):
+def test_report_schema_version_is_v09_in_emitted_report(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
         output_dir=tmp_path,
@@ -163,7 +163,7 @@ def test_report_schema_version_is_v08_in_emitted_report(tmp_path):
         ci_mode="advisory",
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert payload["report_schema_version"] == "0.8"
+    assert payload["report_schema_version"] == "0.9"
 
 
 # --- Catalog-vs-Finding contract holds in practice -------------------------

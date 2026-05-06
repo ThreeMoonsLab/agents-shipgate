@@ -83,18 +83,18 @@ def test_index_no_longer_references_v05_schema():
     )
 
 
-def test_index_lists_current_v08_schema():
-    """The current schema version moved to v0.8; the index must point
-    agents at v0.8 for fresh report.json validation. v0.7 stays linked
+def test_index_lists_current_v09_schema():
+    """The current schema version moved to v0.9; the index must point
+    agents at v0.9 for fresh report.json validation. v0.8 stays linked
     as the frozen reference for older reports."""
     index_text = INDEX_MD.read_text(encoding="utf-8")
-    assert "report-schema.v0.8.json" in index_text, (
-        "docs/INDEX.md must list report-schema.v0.8.json as the current schema "
-        "since emitted reports carry report_schema_version: \"0.8\"."
+    assert "report-schema.v0.9.json" in index_text, (
+        "docs/INDEX.md must list report-schema.v0.9.json as the current schema "
+        "since emitted reports carry report_schema_version: \"0.9\"."
     )
-    assert "report-schema.v0.7.json" in index_text, (
-        "docs/INDEX.md must keep report-schema.v0.7.json linked as the "
-        "frozen reference for pre-v0.8 reports."
+    assert "report-schema.v0.8.json" in index_text, (
+        "docs/INDEX.md must keep report-schema.v0.8.json linked as the "
+        "frozen reference for pre-v0.9 reports."
     )
 
 

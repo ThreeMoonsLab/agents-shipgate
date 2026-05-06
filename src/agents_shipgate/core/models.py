@@ -244,6 +244,93 @@ class ReleaseDecision(BaseModel):
     fail_policy: FailPolicy
 
 
+DeclaredIntentionKind = Literal[
+    "declared_purpose",
+    "prohibited_action",
+    "instruction_preview",
+]
+CapabilityIncludedReason = Literal[
+    "high_risk_tag",
+    "wildcard_exposure",
+    "referenced_by_critical_finding",
+    "referenced_by_high_finding",
+    "referenced_by_medium_finding",
+]
+CapabilityControlStatus = Literal["missing", "partial", "present", "unknown"]
+MisalignmentKind = Literal[
+    "policy_gap",
+    "scope_drift",
+    "prohibited_action_present",
+    "control_missing",
+    "intent_mismatch",
+    "undetected_gap",
+]
+SuggestedScenarioType = Literal[
+    "approval",
+    "confirmation",
+    "idempotency_retry",
+    "least_privilege_scope",
+    "prohibited_action",
+    "wildcard_inventory",
+    "schema_boundary",
+    "prompt_scope_alignment",
+    "test_case_coverage",
+]
+
+
+class CapabilityFact(BaseModel):
+    id: str
+    tool_name: str
+    source_type: str
+    source_ref: str | None = None
+    capability: str
+    risk_tags: list[str] = Field(default_factory=list)
+    auth_scopes: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    included_reason: CapabilityIncludedReason
+    control_status: CapabilityControlStatus
+    related_findings: list[str] = Field(default_factory=list)
+
+
+class DeclaredIntention(BaseModel):
+    id: str
+    kind: DeclaredIntentionKind
+    text: str
+    source: str
+    intent_tags: list[str] = Field(default_factory=list)
+
+
+class Misalignment(BaseModel):
+    id: str
+    kind: MisalignmentKind
+    severity: Severity
+    tool_name: str | None = None
+    capability_refs: list[str] = Field(default_factory=list)
+    intention_refs: list[str] = Field(default_factory=list)
+    finding_refs: list[str] = Field(default_factory=list)
+    policy_requirement: str
+    gap: str
+    release_implication: str
+
+
+class ReleaseConsequence(BaseModel):
+    decision: ReleaseDecisionStatus
+    summary: str
+    blocker_misalignment_count: int = 0
+    review_misalignment_count: int = 0
+    fail_policy: FailPolicy
+
+
+class SuggestedScenario(BaseModel):
+    id: str
+    scenario_type: SuggestedScenarioType
+    title: str
+    given: str
+    expected_control: str
+    source_misalignments: list[str] = Field(default_factory=list)
+    source_findings: list[str] = Field(default_factory=list)
+
+
 class ApiResponseFormat(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -488,7 +575,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.8"
+    report_schema_version: str = "0.9"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -503,6 +590,13 @@ class ReadinessReport(BaseModel):
     # but Python-optional so older test fixtures and SARIF-only callers
     # can construct minimal reports. build_report() always populates it.
     release_decision: ReleaseDecision | None = None
+    # v0.9 capability/intent diff. Populated for emitted scan reports after
+    # release_decision is built; defaults keep older test helpers lightweight.
+    capability_facts: list[CapabilityFact] = Field(default_factory=list)
+    declared_intentions: list[DeclaredIntention] = Field(default_factory=list)
+    misalignments: list[Misalignment] = Field(default_factory=list)
+    release_consequence: ReleaseConsequence | None = None
+    suggested_scenarios: list[SuggestedScenario] = Field(default_factory=list)
     tool_surface: ToolSurfaceSummary
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None
