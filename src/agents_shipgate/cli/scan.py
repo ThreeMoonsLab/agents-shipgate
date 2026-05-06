@@ -231,10 +231,17 @@ def run_scan(
     packet_cfg = manifest.output.packet
     packet_format_set, packet_pdf_skipped = _resolve_packet_format_set(packet_cfg)
     if packet_pdf_skipped:
-        warnings.append(
+        # PDF availability is an *output renderer* concern, not a source
+        # loader concern. Routing it through `warnings` would inflate
+        # `evidence_coverage.source_warning_count` and add a noise
+        # residual to the packet's §10, telling reviewers to rerun the
+        # scan after fixing source warnings even when no source loader
+        # had a problem. Log it instead — same channel as runtime
+        # WeasyPrint failures in `_write_packet`.
+        logger.warning(
             "packet.pdf requested but weasyprint is not installed; "
-            "install with `pipx install 'agents-shipgate[pdf]'` to enable. "
-            "Skipping PDF for this run."
+            "install with `pipx install 'agents-shipgate[pdf]'` to "
+            "enable. Skipping PDF for this run."
         )
     generated_paths = _planned_generated_paths(
         out_dir,

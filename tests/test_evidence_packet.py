@@ -639,6 +639,147 @@ def test_packet_json_is_byte_reproducible_for_identical_inputs(tmp_path):
     assert a == b
 
 
+def test_pdf_unavailable_warning_does_not_pollute_source_warnings(tmp_path, monkeypatch):
+    """Regression for PR #43 review: a missing WeasyPrint install must
+    log a warning, not feed into ``report.source_warnings`` /
+    ``evidence_coverage.source_warning_count``. Otherwise a clean scan
+    with ``--packet-format ...,pdf`` would falsely tell reviewers to
+    rerun after fixing source loaders."""
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "docs.lookup",
+                        "description": "Read internal docs.",
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: clean-pdf-skip
+agent:
+  name: clean-agent
+  declared_purpose:
+    - look up documentation
+environment:
+  target: local
+tool_sources:
+  - id: docs
+    type: mcp
+    path: tools.json
+""",
+        encoding="utf-8",
+    )
+
+    # Force WeasyPrint to be unavailable.
+    monkeypatch.setitem(sys.modules, "weasyprint", None)
+
+    report, _ = run_scan(
+        config_path=workspace / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_formats=["md", "json", "html", "pdf"],
+        packet_generated_at=GENERATED_AT,
+    )
+
+    # No source-loader warnings on this clean fixture.
+    assert report.source_warnings == []
+    assert report.release_decision is not None
+    assert report.release_decision.evidence_coverage.source_warning_count == 0
+    # Packet still emits the other formats; PDF is silently skipped.
+    out = tmp_path / "reports"
+    assert (out / "packet.md").exists()
+    assert not (out / "packet.pdf").exists()
+    # And §10 of the packet does not list any source warnings either.
+    payload = json.loads((out / "packet.json").read_text(encoding="utf-8"))
+    assert payload["not_proven"]["source_warnings"] == []
+
+
+def test_packet_markdown_escapes_user_controlled_strings(tmp_path):
+    """Regression for PR #43 review: project/agent names, tool names,
+    and finding titles must be Markdown-escaped before reaching
+    ``packet.md``. ``[Click here](evil)`` in a tool name must not
+    render as a clickable link in a Markdown viewer."""
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "openapi.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Injection
+  version: "1.0"
+paths:
+  /records:
+    post:
+      operationId: "[Click here](https://evil.example)"
+      summary: "Update [records](https://evil.example)"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: object
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (workspace / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: "**bold** _team_ <tag>"
+agent:
+  name: "markdown-agent"
+  declared_purpose:
+    - "update [records](https://evil.example)"
+environment:
+  target: local
+tool_sources:
+  - id: api
+    type: openapi
+    path: openapi.yaml
+policies:
+  require_approval_for_tools:
+    - "[Click here](https://evil.example)"
+""",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "reports"
+    run_scan(
+        config_path=workspace / "shipgate.yaml",
+        output_dir=out_dir,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_generated_at=GENERATED_AT,
+    )
+    md = (out_dir / "packet.md").read_text(encoding="utf-8")
+
+    # Raw injection patterns must not appear unescaped in the rendered
+    # Markdown — they would otherwise be interpreted by a Markdown viewer.
+    assert "[Click here](https://evil.example)" not in md
+    assert "**bold** _team_ <tag>" not in md
+    # Their escaped forms must appear.
+    assert "\\[Click here\\]\\(https://evil.example\\)" in md
+    assert "\\*\\*bold\\*\\* \\_team\\_ \\<tag\\>" in md
+
+
 def test_packet_omits_generated_at_when_unset(tmp_path):
     """When ``packet_generated_at`` is not supplied, ``packet.json`` must
     not include a ``generated_at`` key. Sub-section optional fields stay
