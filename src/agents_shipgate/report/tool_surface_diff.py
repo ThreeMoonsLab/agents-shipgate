@@ -587,7 +587,10 @@ def _diff_scopes(
     for key in sorted(current_by_key.keys() & base_by_key.keys()):
         current_item = current_by_key[key]
         base_item = base_by_key[key]
-        if current_item.tool_names != base_item.tool_names:
+        if (
+            current_item.tool_names != base_item.tool_names
+            or current_item.broad != base_item.broad
+        ):
             changes.append(_scope_change("changed", current_item))
     return changes
 

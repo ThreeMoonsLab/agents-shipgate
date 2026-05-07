@@ -239,6 +239,63 @@ def test_finding_deltas_compute_when_reference_lacks_surface_facts():
     assert any("Finding deltas were computed" in note for note in diff.notes)
 
 
+def test_v02_baseline_diff_reference_reports_upgrade_note():
+    reference = ToolSurfaceDiffReference(
+        kind="baseline",
+        facts=None,
+        baseline_schema_version="0.2",
+        findings=[
+            ToolSurfaceFindingDeltaItem(
+                fingerprint="fp_old",
+                check_id="SHIP-DOC-MISSING-DESCRIPTION",
+                severity="medium",
+                title="description missing",
+            )
+        ],
+        notes=("Baseline schema 0.2 has no tool_surface_facts; surface diff disabled.",),
+    )
+
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(),
+        None,
+        [],
+        reference=reference,
+    )
+
+    assert diff.enabled is False
+    assert diff.summary.resolved_findings == 1
+    assert any("baseline save" in note for note in diff.notes)
+
+
+def test_scope_diff_tracks_broadness_changes():
+    base = ToolSurfaceFacts(
+        scopes=[
+            ToolSurfaceScopeFact(
+                kind="tool_required",
+                scope="custom-scope",
+                tool_names=["tool"],
+                broad=False,
+            )
+        ]
+    )
+    current = ToolSurfaceFacts(
+        scopes=[
+            ToolSurfaceScopeFact(
+                kind="tool_required",
+                scope="custom-scope",
+                tool_names=["tool"],
+                broad=True,
+            )
+        ]
+    )
+
+    diff = compute_tool_surface_diff(current, base, [], reference=None)
+
+    assert [(item.kind, item.scope, item.broad) for item in diff.scopes] == [
+        ("changed", "custom-scope", True)
+    ]
+
+
 def test_build_tool_surface_facts_projects_controls_and_metadata():
     manifest = AgentsShipgateManifest.model_validate(
         {

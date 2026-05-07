@@ -859,14 +859,17 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     )
     diff = report.tool_surface_diff
     if diff.enabled:
-        typer.echo(
-            "Tool-surface diff: "
-            f"+{diff.summary.tools_added} tools, "
-            f"-{diff.summary.tools_removed} tools, "
-            f"{diff.summary.tools_changed} changed, "
-            f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
-            f"{diff.summary.controls_removed} removed control(s)"
-        )
+        if _tool_surface_diff_has_changes(diff.summary):
+            typer.echo(
+                "Tool-surface diff: "
+                f"+{diff.summary.tools_added} tools, "
+                f"-{diff.summary.tools_removed} tools, "
+                f"{diff.summary.tools_changed} changed, "
+                f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
+                f"{diff.summary.controls_removed} removed control(s)"
+            )
+        else:
+            typer.echo("Tool-surface diff: no changes")
     elif diff.notes:
         typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
     if verbose:
@@ -898,3 +901,25 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
+
+
+def _tool_surface_diff_has_changes(summary) -> bool:
+    return any(
+        (
+            summary.tools_added,
+            summary.tools_removed,
+            summary.tools_changed,
+            summary.new_scopes,
+            summary.removed_scopes,
+            summary.new_high_risk_effects,
+            summary.removed_high_risk_effects,
+            summary.controls_added,
+            summary.controls_removed,
+            summary.metadata_changes,
+            summary.policy_drift_items,
+            summary.new_findings,
+            summary.resolved_findings,
+            summary.unchanged_findings,
+            summary.accepted_debt,
+        )
+    )
