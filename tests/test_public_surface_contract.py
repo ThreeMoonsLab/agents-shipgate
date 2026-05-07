@@ -124,7 +124,8 @@ def test_well_known_metadata_lists_packet_outputs():
     schemas = data.get("schemas", {})
     assert "packet" in schemas, (
         ".well-known/agents-shipgate.json `schemas` missing 'packet'; "
-        "expected a URL pointing to docs/packet-schema.v0.1.json."
+        "expected a URL pointing to the current packet schema "
+        "(docs/packet-schema.v0.2.json)."
     )
     assert data.get("gating_signal") == "release_decision.decision", (
         ".well-known/agents-shipgate.json must declare "
