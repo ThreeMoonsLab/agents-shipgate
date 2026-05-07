@@ -174,6 +174,10 @@ def scan(
     verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
 ) -> None:
     """Run a static release-readiness scan."""
+    # Parse CLI options first, in their own try block. ConfigError raised
+    # here is about flag values, not the manifest — emitting a manifest
+    # diagnostic ("edit shipgate.yaml") would route the agent to the
+    # wrong fix.
     try:
         configure_logging(verbose=verbose)
         parsed_formats = _parse_formats(formats)
@@ -181,6 +185,29 @@ def scan(
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        guidance = (
+            "Fix the invalid CLI flag value referenced in the error and "
+            "re-run scan."
+        )
+        _emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "Re-run with a flag value the option parser accepts."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(2) from exc
+
+    try:
         config_paths = _resolve_config_paths(config=config, workspace=workspace)
         if len(config_paths) == 1:
             report, exit_code = run_scan(
@@ -887,14 +914,15 @@ def _missing_manifest_workspace(
 
     Routes recovery to the directory the user pointed scan/doctor at
     (``-c <path>`` or ``--workspace <dir>``), not whichever directory
-    they happen to be invoking the CLI from. For glob inputs, the parent
-    is itself a glob expression (``*``, ``foo/*``) so we fall back to
-    ``cwd`` rather than emit a non-routable path.
+    they happen to be invoking the CLI from. For glob inputs, walks the
+    path components and uses the longest non-glob prefix — so an
+    invocation like ``scan -c /tmp/repo/*/shipgate.yaml`` from another
+    cwd still routes the agent to ``/tmp/repo``.
     """
     if workspace is not None:
         return workspace.resolve()
     if any(char in config for char in "*?[]"):
-        return Path.cwd()
+        return _glob_non_glob_prefix(config)
     config_path = Path(config)
     parent = config_path.parent
     if not str(parent) or str(parent) == ".":
@@ -902,6 +930,24 @@ def _missing_manifest_workspace(
     # `Path.resolve()` works on non-existent paths — and the manifest
     # parent often exists even when the manifest itself is missing.
     return parent.resolve()
+
+
+def _glob_non_glob_prefix(config: str) -> Path:
+    """Return the longest leading path component sequence with no glob
+    metacharacters, falling back to ``cwd`` for purely-relative globs.
+    """
+    parts = Path(config).parts
+    safe: list[str] = []
+    for part in parts:
+        if any(char in part for char in "*?[]"):
+            break
+        safe.append(part)
+    if not safe:
+        return Path.cwd()
+    candidate = Path(*safe)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve()
 
 
 def _candidate_manifest_paths(

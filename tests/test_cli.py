@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import click
+import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
@@ -921,6 +922,117 @@ def test_artifact_only_command_quotes_workspace_with_spaces(
     assert parts[0] == "agents-shipgate"
     workspace_arg = parts[parts.index("--workspace") + 1]
     assert workspace_arg == str(spaced)
+
+
+def test_scan_bad_flag_value_does_not_dispatch_to_invalid_manifest(
+    tmp_path, monkeypatch
+):
+    """P1 regression (round 4): a bad CLI flag value (e.g. --fail-on banana)
+    raises ConfigError before the manifest is touched. The error must NOT
+    surface SHIP-DIAG-INVALID-MANIFEST claiming the loader rejected the
+    file — the manifest is fine; the fix is the flag value."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            "samples/clean_read_only_agent/shipgate.yaml",
+            "--fail-on",
+            "banana",
+        ],
+    )
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    assert payloads, result.output
+    rank_one = payloads[-1]["next_actions"][0]
+    # Must not advertise an edit action against the manifest, and must
+    # not advertise a detect/init command (this isn't a missing manifest
+    # either — it's a flag-value problem).
+    assert rank_one["kind"] != "edit", (
+        f"flag-value error dispatched to {rank_one!r}; the manifest is fine"
+    )
+    assert "samples/clean_read_only_agent" not in str(
+        rank_one.get("path") or ""
+    )
+
+
+@pytest.mark.parametrize(
+    ("bad_flag", "bad_value"),
+    [
+        ("--format", "txt"),
+        ("--ci-mode", "yolo"),
+        ("--packet-format", "docx"),
+    ],
+)
+def test_scan_other_bad_flag_values_skip_manifest_diagnostic(
+    tmp_path, monkeypatch, bad_flag, bad_value
+):
+    """P1 regression coverage for the rest of the option parsers."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            "samples/clean_read_only_agent/shipgate.yaml",
+            bad_flag,
+            bad_value,
+        ],
+    )
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] != "edit"
+
+
+def test_absolute_glob_no_match_targets_glob_prefix(tmp_path, monkeypatch):
+    """P2 regression (round 4): an absolute glob with no matches must route
+    recovery to the longest non-glob prefix (the area the user explicitly
+    pointed at), not the caller's cwd."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    foreign_cwd = tmp_path / "elsewhere"
+    foreign_cwd.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(foreign_cwd)
+
+    glob_pattern = str(repo / "*" / "shipgate.yaml")
+    result = runner.invoke(app, ["scan", "--config", glob_pattern])
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] == "command"
+    import shlex as _shlex
+
+    parts = _shlex.split(rank_one["command"])
+    workspace_arg = parts[parts.index("--workspace") + 1]
+    # Routes to the explicit glob prefix, not the foreign cwd.
+    assert workspace_arg == str(repo)
+    assert workspace_arg != str(foreign_cwd)
+
+
+def test_relative_glob_no_match_still_falls_back_to_cwd(tmp_path, monkeypatch):
+    """A purely relative glob (no leading non-glob component) keeps the
+    existing cwd-fallback behavior — there's no useful prefix to route to."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["scan", "--config", "*/shipgate.yaml"])
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    import shlex as _shlex
+
+    parts = _shlex.split(rank_one["command"])
+    workspace_arg = parts[parts.index("--workspace") + 1]
+    assert workspace_arg == str(tmp_path)
 
 
 def test_doctor_edit_action_paths_include_manifest_directory(tmp_path):
