@@ -218,7 +218,9 @@ def scan(
         )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        diagnostics = diagnose_missing_manifest(Path.cwd())
+        diagnostics = diagnose_missing_manifest(
+            _missing_manifest_workspace(config=config, workspace=workspace)
+        )
         flattened = top_next_actions(diagnostics)
         _emit_agent_mode_error(
             "config_error",
@@ -593,7 +595,9 @@ def doctor(
         payloads = [inspect_sources(config_path=path, verbose=verbose) for path in paths]
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        diagnostics = diagnose_missing_manifest(Path.cwd())
+        diagnostics = diagnose_missing_manifest(
+            _missing_manifest_workspace(config=config, workspace=workspace)
+        )
         flattened = top_next_actions(diagnostics)
         _emit_agent_mode_error(
             "config_error",
@@ -625,7 +629,7 @@ def doctor(
         )
         raise typer.Exit(3) from exc
     enriched_payloads: list[dict[str, object]] = []
-    for path, payload in zip(paths, payloads):
+    for path, payload in zip(paths, payloads, strict=True):
         try:
             manifest_text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -711,7 +715,42 @@ def doctor(
             typer.echo("Warnings:")
             for warning in payload["warnings"]:
                 typer.echo(f"- {warning}")
+        if payload.get("unresolved_sources"):
+            typer.echo("Unresolved required sources:")
+            config_name = Path(str(payload["config"])).name
+            for entry in payload["unresolved_sources"]:
+                line = entry.get("line")
+                location = (
+                    f"{config_name}:{line}" if line is not None else config_name
+                )
+                typer.echo(
+                    f"- {entry['id']} -> {entry['declared_path']!r} "
+                    f"(declared at {location})"
+                )
+        diagnostics = payload.get("diagnostics") or []
+        if diagnostics:
+            typer.echo("Diagnostics:")
+            for diag in diagnostics:
+                typer.echo(
+                    f"- [{diag['severity']}] {diag['id']}: {diag['title']}"
+                )
+                if diag["next_actions"]:
+                    action = diag["next_actions"][0]
+                    kind = action["kind"]
+                    if kind == "command":
+                        typer.echo(f"    next: {action['command']}")
+                    elif kind == "edit":
+                        typer.echo(f"    edit: {action['path']}")
+                    elif kind == "stop":
+                        typer.echo(f"    stop: {action['why']}")
+                    else:
+                        typer.echo(f"    review: {action['why']}")
         typer.echo("")
+    # Restore pre-PR loud-failure for humans on the missing-required-source
+    # case. JSON consumers (agents) get exit 0 + unresolved_sources earlier in
+    # this function and route on the structured diagnostic instead.
+    if any(payload.get("unresolved_sources") for payload in payloads):
+        raise typer.Exit(3)
 
 
 @baseline_app.command("save")
@@ -803,6 +842,26 @@ def _resolve_config_paths(*, config: str, workspace: Path | None) -> list[Path]:
     if not paths:
         raise ConfigError("No shipgate.yaml files matched")
     return paths
+
+
+def _missing_manifest_workspace(
+    *, config: str, workspace: Path | None
+) -> Path:
+    """Pick the workspace path used by the missing-manifest diagnostic.
+
+    Routes recovery to the directory the user pointed scan/doctor at
+    (``-c <path>`` or ``--workspace <dir>``), not whichever directory
+    they happen to be invoking the CLI from.
+    """
+    if workspace is not None:
+        return workspace.resolve()
+    config_path = Path(config)
+    parent = config_path.parent
+    if not str(parent) or str(parent) == ".":
+        return Path.cwd()
+    # `Path.resolve()` works on non-existent paths — and the manifest
+    # parent often exists even when the manifest itself is missing.
+    return parent.resolve()
 
 
 def _run_multi_scan(

@@ -24,7 +24,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.cli.discovery.signals import DetectResult
 
-
 # --- Public models ----------------------------------------------------------
 
 
@@ -281,7 +280,10 @@ def diagnose_doctor(
     pure and the placeholder helper is exercised once per command.
     """
     diagnostics: list[Diagnostic] = []
-    manifest_rel = manifest_path.name
+    # Use the manifest path the caller actually invoked, so edit actions
+    # remain unambiguous in workspace runs ("subdir/shipgate.yaml:14")
+    # and absolute-path invocations.
+    manifest_rel = str(manifest_path)
 
     # SHIP-DIAG-MISSING-SOURCE-FILE — required tool_sources path doesn't resolve.
     unresolved = payload.get("unresolved_sources") or []
@@ -292,15 +294,26 @@ def diagnose_doctor(
             target = (
                 f"{manifest_rel}:{line}" if line is not None else manifest_rel
             )
+            reason = entry.get("reason", "missing")
+            if reason == "outside_manifest_dir":
+                why = (
+                    f"tool_sources entry '{entry.get('id')}' points at "
+                    f"{entry.get('declared_path')!r} which resolves outside "
+                    "the manifest directory; the loader would refuse to "
+                    "load it."
+                )
+            else:
+                why = (
+                    f"tool_sources entry '{entry.get('id')}' points at "
+                    f"{entry.get('declared_path')!r} which does not "
+                    "resolve to an existing file under the manifest "
+                    "directory."
+                )
             actions.append(
                 NextAction(
                     kind="edit",
                     path=target,
-                    why=(
-                        f"tool_sources entry '{entry.get('id')}' points at "
-                        f"{entry.get('declared_path')!r} which does not "
-                        "resolve under the manifest directory."
-                    ),
+                    why=why,
                     expects="The path resolves to an existing file.",
                 )
             )

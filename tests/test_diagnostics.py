@@ -33,7 +33,6 @@ from agents_shipgate.cli.discovery.signals import (
 )
 from agents_shipgate.cli.main import app as typer_app
 
-
 # --- NextAction model invariants -------------------------------------------
 
 

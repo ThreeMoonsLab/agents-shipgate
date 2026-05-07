@@ -633,3 +633,134 @@ tool_sources:
 
     result = runner.invoke(app, ["scan", "--config", str(config)])
     assert result.exit_code == 3
+
+
+# Regression coverage for PR #47 reviewer findings -----------------------------
+
+
+_MISSING_SOURCE_MANIFEST = """
+version: "0.1"
+project:
+  name: missing-source
+agent:
+  name: missing-source-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: missing
+    type: mcp
+    path: missing.json
+"""
+
+
+def test_doctor_human_output_fails_loudly_on_missing_required_source(tmp_path):
+    """P1-1 regression: the human (non-JSON) doctor output must not silently
+    pass when a required tool_sources path doesn't resolve. It used to raise
+    InputParseError(3); now it surfaces the diagnostic and exits 3."""
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(_MISSING_SOURCE_MANIFEST, encoding="utf-8")
+
+    result = runner.invoke(app, ["doctor", "--config", str(config)])
+
+    assert result.exit_code == 3, result.output
+    assert "Unresolved required sources:" in result.output
+    assert "missing.json" in result.output
+    assert "SHIP-DIAG-MISSING-SOURCE-FILE" in result.output
+
+
+def test_missing_manifest_recovery_uses_config_workspace(tmp_path, monkeypatch):
+    """P2-1 regression: agent-mode rank-1 command must point at the config's
+    parent dir, not whichever cwd the CLI was invoked from."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    foreign_cwd = tmp_path / "elsewhere"
+    foreign_cwd.mkdir()
+    monkeypatch.chdir(foreign_cwd)
+
+    config = tmp_path / "repo" / "shipgate.yaml"
+    config.parent.mkdir()
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    assert payloads, result.output
+    rank_one = payloads[-1]["next_actions"][0]
+    assert "agents-shipgate detect --workspace" in rank_one["command"]
+    # Routes recovery to the config's parent directory, not the foreign cwd.
+    assert str(tmp_path / "repo") in rank_one["command"]
+    assert str(foreign_cwd) not in rank_one["command"]
+
+
+def test_doctor_flags_outside_manifest_dir_source_as_diagnostic(tmp_path):
+    """P2-2 regression: a required tool_sources path that resolves outside
+    the manifest directory must surface as SHIP-DIAG-MISSING-SOURCE-FILE
+    with reason="outside_manifest_dir" — not crash the loader."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    # The "outside" file genuinely exists, so the existence check alone
+    # would pass it through. Containment must catch it.
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"tools": []}', encoding="utf-8")
+
+    config = repo / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: outside-source
+agent:
+  name: outside-source-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: escaped
+    type: mcp
+    path: ../outside.json
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["doctor", "--config", str(config), "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)[0]
+    unresolved = payload["unresolved_sources"]
+    assert len(unresolved) == 1
+    assert unresolved[0]["id"] == "escaped"
+    assert unresolved[0]["reason"] == "outside_manifest_dir"
+    diag = next(
+        d
+        for d in payload["diagnostics"]
+        if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE"
+    )
+    assert "outside" in diag["next_actions"][0]["why"].lower()
+
+
+def test_doctor_edit_action_paths_include_manifest_directory(tmp_path):
+    """P2-3 regression: edit-action paths must include the manifest's
+    directory so workspace and nested-manifest runs route the agent to
+    the correct file, not just `shipgate.yaml:<line>`."""
+    repo = tmp_path / "subdir"
+    repo.mkdir()
+    config = repo / "shipgate.yaml"
+    config.write_text(_MISSING_SOURCE_MANIFEST, encoding="utf-8")
+
+    result = runner.invoke(app, ["doctor", "--config", str(config), "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)[0]
+    diag = next(
+        d
+        for d in payload["diagnostics"]
+        if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE"
+    )
+    edit_path = diag["next_actions"][0]["path"]
+    # Edit target carries the directory the user pointed doctor at.
+    assert str(config) in edit_path
+    assert edit_path != "shipgate.yaml" and not edit_path.startswith(
+        "shipgate.yaml:"
+    )

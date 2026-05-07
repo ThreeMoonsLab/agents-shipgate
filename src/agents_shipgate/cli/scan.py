@@ -409,12 +409,22 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
 def _resolve_source_paths(
     manifest, base_dir: Path, config_path: Path
 ) -> list[dict[str, object]]:
-    """Return required tool_sources whose declared path doesn't resolve.
+    """Return required tool_sources whose declared path is unusable.
 
-    Optional sources are not reported here — the existing ``_load_sources``
-    flow handles them with a warning. Returned entries carry the source
-    id, the declared path string, and the 1-indexed line number in the
-    manifest text where the path appears (best-effort).
+    Two failure modes are flagged so doctor can surface them as a
+    ``SHIP-DIAG-MISSING-SOURCE-FILE`` diagnostic instead of crashing in
+    a downstream loader:
+
+    - ``reason="missing"`` — the file does not exist.
+    - ``reason="outside_manifest_dir"`` — the file exists but escapes the
+      manifest's containment boundary (loaders mirror this check and
+      would raise ``InputParseError``).
+
+    Optional sources are not reported here — the existing
+    ``_load_sources`` flow handles them with a warning. Returned entries
+    carry the source id, the declared path string, the 1-indexed line
+    number in the manifest text where the path appears (best-effort),
+    and the failure reason.
     """
     unresolved: list[dict[str, object]] = []
     try:
@@ -422,14 +432,25 @@ def _resolve_source_paths(
     except (OSError, UnicodeDecodeError):
         manifest_text = ""
     text_lines = manifest_text.splitlines()
+    base_resolved = base_dir.resolve()
     for source in manifest.tool_sources:
         if source.optional:
             continue
         if source.path is None:
             continue
-        candidate = (base_dir / source.path).resolve()
-        if candidate.exists():
-            continue
+        raw_path = Path(source.path)
+        candidate = (
+            raw_path if raw_path.is_absolute() else base_resolved / raw_path
+        ).resolve()
+        if not candidate.exists():
+            reason = "missing"
+        else:
+            try:
+                candidate.relative_to(base_resolved)
+            except ValueError:
+                reason = "outside_manifest_dir"
+            else:
+                continue
         line_no: int | None = None
         needle = f"path: {source.path}"
         for index, line in enumerate(text_lines, start=1):
@@ -441,6 +462,7 @@ def _resolve_source_paths(
                 "id": source.id,
                 "declared_path": source.path,
                 "line": line_no,
+                "reason": reason,
             }
         )
     return unresolved
