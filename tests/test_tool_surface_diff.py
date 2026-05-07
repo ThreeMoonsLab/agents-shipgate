@@ -159,9 +159,15 @@ def test_tool_surface_diff_reports_surface_changes():
     assert diff.summary.controls_removed == 1
     assert diff.summary.metadata_changes == 3
     assert diff.summary.policy_drift_items == 1
-    assert diff.summary.new_findings == 2
+    assert diff.summary.new_findings == 1
     assert diff.summary.resolved_findings == 1
     assert diff.summary.accepted_debt == 1
+    assert {item.fingerprint for item in diff.finding_deltas.new_findings} == {
+        "fp_new"
+    }
+    assert {item.fingerprint for item in diff.finding_deltas.accepted_debt} == {
+        "fp_debt"
+    }
     assert any(item.tag == "external_write" for item in diff.high_risk_effects)
 
 
@@ -192,6 +198,45 @@ def test_tool_rename_is_added_and_removed():
         ("removed", "legacy.refund"),
     ]
     assert "renames" in " ".join(diff.notes)
+
+
+def test_finding_deltas_compute_when_reference_lacks_surface_facts():
+    finding = Finding(
+        id="fp_same",
+        fingerprint="fp_same",
+        check_id="SHIP-DOC-MISSING-DESCRIPTION",
+        title="description missing",
+        severity="medium",
+        category="documentation",
+        confidence="medium",
+        recommendation="Add description.",
+    )
+    reference = ToolSurfaceDiffReference(
+        kind="report",
+        facts=None,
+        report_schema_version="0.9",
+        findings=[
+            ToolSurfaceFindingDeltaItem(
+                fingerprint="fp_same",
+                check_id="SHIP-DOC-MISSING-DESCRIPTION",
+                severity="medium",
+                title="description missing",
+            )
+        ],
+        notes=("Reference report is pre-v0.10 and lacks tool_surface_facts.",),
+    )
+
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(),
+        None,
+        [finding],
+        reference=reference,
+    )
+
+    assert diff.enabled is False
+    assert diff.summary.unchanged_findings == 1
+    assert diff.finding_deltas.unchanged_findings[0].fingerprint == "fp_same"
+    assert any("Finding deltas were computed" in note for note in diff.notes)
 
 
 def test_build_tool_surface_facts_projects_controls_and_metadata():

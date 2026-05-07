@@ -175,11 +175,15 @@ runs:
           args+=(--baseline "${BASELINE}" --baseline-mode "${BASELINE_MODE}")
         fi
         resolved_diff_from="${DIFF_FROM}"
+        diff_tmp_to_cleanup=""
+        diff_worktree_to_cleanup=""
         if [ -z "${resolved_diff_from}" ] && [ "${DIFF_BASE}" = "target" ]; then
           if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
             base_tmp="$(mktemp -d)"
             base_worktree="${base_tmp}/base"
             base_out="${base_tmp}/reports"
+            diff_tmp_to_cleanup="${base_tmp}"
+            diff_worktree_to_cleanup="${base_worktree}"
             diff_note=""
             if ! git fetch --depth=1 origin "${BASE_REF}"; then
               diff_note="tool-surface diff disabled: could not fetch base ref ${BASE_REF}"
@@ -228,6 +232,12 @@ runs:
         set +e
         agents-shipgate "${args[@]}"
         exit_code=$?
+        if [ -n "${diff_worktree_to_cleanup}" ] && [ -d "${diff_worktree_to_cleanup}" ]; then
+          git worktree remove --force "${diff_worktree_to_cleanup}" >/dev/null 2>&1 || true
+        fi
+        if [ -n "${diff_tmp_to_cleanup}" ]; then
+          rm -rf "${diff_tmp_to_cleanup}"
+        fi
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
@@ -397,7 +407,11 @@ runs:
           const diffHighlights = () => {
             if (!diff.enabled) {
               const note = (diff.notes || [])[0];
-              return note ? [`Tool-surface diff: ${escapeMarkdown(note)}`] : [];
+              const lines = note ? [`Tool-surface diff: ${escapeMarkdown(note)}`] : [];
+              if ((diffSummary.new_findings || 0) || (diffSummary.resolved_findings || 0) || (diffSummary.accepted_debt || 0)) {
+                lines.push(`Finding deltas: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`);
+              }
+              return lines;
             }
             const lines = [
               "### What changed",
@@ -405,18 +419,27 @@ runs:
               `Risk/control drift: ${diffSummary.new_high_risk_effects || 0} new high-risk effect(s), ${diffSummary.controls_removed || 0} removed control(s)`,
               `Findings: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`,
             ];
-            const highlights = [];
+            const riskHighlights = [];
+            const controlHighlights = [];
+            const toolHighlights = [];
             for (const item of diff.high_risk_effects || []) {
-              if (item.kind === "added") highlights.push(`- New high-risk tag \`${escapeMarkdown(item.tag)}\` on \`${escapeMarkdown(item.tool)}\``);
+              if (item.kind === "added") riskHighlights.push(`- New high-risk tag \`${escapeMarkdown(item.tag)}\` on \`${escapeMarkdown(item.tool)}\``);
             }
             for (const item of diff.controls || []) {
-              if (item.kind === "removed") highlights.push(`- Removed \`${escapeMarkdown(item.control)}\` for \`${escapeMarkdown(item.tool)}\``);
+              if (item.kind === "removed") controlHighlights.push(`- Removed \`${escapeMarkdown(item.control)}\` for \`${escapeMarkdown(item.tool)}\``);
             }
             for (const item of diff.tools || []) {
-              if (item.kind === "added") highlights.push(`- Added tool \`${escapeMarkdown(item.name)}\``);
-              if (item.kind === "removed") highlights.push(`- Removed tool \`${escapeMarkdown(item.name)}\``);
+              if (item.kind === "added") toolHighlights.push(`- Added tool \`${escapeMarkdown(item.name)}\``);
+              if (item.kind === "removed") toolHighlights.push(`- Removed tool \`${escapeMarkdown(item.name)}\``);
             }
-            return [...lines, ...highlights.slice(0, 5)];
+            const highlights = [];
+            const groups = [controlHighlights, riskHighlights, toolHighlights];
+            while (highlights.length < 5 && groups.some((group) => group.length)) {
+              for (const group of groups) {
+                if (group.length && highlights.length < 5) highlights.push(group.shift());
+              }
+            }
+            return [...lines, ...highlights];
           };
           const whatChanged = truncate(diffHighlights().join("\n"), 1500);
           const body = truncate([

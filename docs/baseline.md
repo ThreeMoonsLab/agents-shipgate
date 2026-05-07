@@ -76,3 +76,8 @@ Newer baselines are not guaranteed to load in older package versions.
 `findings[].baseline_status`, strict-mode filtering, and
 `release_decision.baseline_delta`; `--diff-from` drives only
 `tool_surface_diff`.
+
+Scope deltas distinguish tool-required scopes from manifest-declared scopes.
+If the same literal scope moves between those kinds, the diff reports one
+removed scope and one added scope so the JSON preserves the source of the
+change.

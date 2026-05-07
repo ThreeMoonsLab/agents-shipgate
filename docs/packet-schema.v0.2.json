@@ -903,6 +903,7 @@
       "type": "object"
     },
     "ToolSurfaceDiffSummary": {
+      "additionalProperties": false,
       "properties": {
         "accepted_debt": {
           "default": 0,

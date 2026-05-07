@@ -388,9 +388,20 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
             [
                 f"- Status: disabled - {_safe_markdown_text(note)}",
                 f"- Base: {_safe_markdown_text(diff.base.kind)}",
-                "",
             ]
         )
+        if (
+            diff.summary.new_findings
+            or diff.summary.resolved_findings
+            or diff.summary.accepted_debt
+        ):
+            lines.append(
+                "- Finding deltas: "
+                f"{diff.summary.new_findings} new, "
+                f"{diff.summary.resolved_findings} resolved, "
+                f"{diff.summary.accepted_debt} accepted debt"
+            )
+        lines.append("")
         return
 
     summary = diff.summary

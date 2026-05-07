@@ -52,6 +52,8 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "DIFF_FROM: ${{ inputs.diff_from }}" in text
     assert "DIFF_BASE: ${{ inputs.diff_base }}" in text
     assert "args+=(--diff-from" in text
+    assert "git worktree remove --force" in text
+    assert 'rm -rf "${diff_tmp_to_cleanup}"' in text
     assert "POLICY_PACKS: ${{ inputs.policy_packs }}" in text
     assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text
@@ -74,6 +76,7 @@ def test_action_pr_comment_truncates_user_controlled_text():
 
     assert "const truncate =" in text
     assert "truncate(finding.title || finding.check_id, 240)" in text
+    assert "const groups = [controlHighlights, riskHighlights, toolHighlights]" in text
     assert "].join(\"\\n\"), 6000)" in text
 
 

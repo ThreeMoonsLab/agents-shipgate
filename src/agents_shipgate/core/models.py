@@ -200,6 +200,8 @@ ToolSurfaceControlKind = Literal[
 
 
 class ToolSurfaceHashes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_ref: str | None = None
     description: str | None = None
     input_schema: str | None = None
@@ -209,6 +211,8 @@ class ToolSurfaceHashes(BaseModel):
 
 
 class ToolSurfaceToolFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     source_type: str
     source_id: str | None = None
@@ -222,6 +226,8 @@ class ToolSurfaceToolFact(BaseModel):
 
 
 class ToolSurfaceScopeFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     scope: str
     kind: ToolSurfaceFactScopeKind
     tool_names: list[str] = Field(default_factory=list)
@@ -229,6 +235,8 @@ class ToolSurfaceScopeFact(BaseModel):
 
 
 class ToolSurfaceControlFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceControlKind
     tool: str
     source: str
@@ -236,13 +244,18 @@ class ToolSurfaceControlFact(BaseModel):
 
 
 class ToolSurfacePolicyFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: str
     key: str
+    # Change-detection hash only; not a security boundary.
     value_hash: str
     summary: str | None = None
 
 
 class ToolSurfaceFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tools: list[ToolSurfaceToolFact] = Field(default_factory=list)
     scopes: list[ToolSurfaceScopeFact] = Field(default_factory=list)
     controls: list[ToolSurfaceControlFact] = Field(default_factory=list)
@@ -250,6 +263,8 @@ class ToolSurfaceFacts(BaseModel):
 
 
 class ToolSurfaceDiffBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceDiffBaseKind = "none"
     path: str | None = None
     report_schema_version: str | None = None
@@ -257,6 +272,8 @@ class ToolSurfaceDiffBase(BaseModel):
 
 
 class ToolSurfaceDiffSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tools_added: int = 0
     tools_removed: int = 0
     tools_changed: int = 0
@@ -275,12 +292,16 @@ class ToolSurfaceDiffSummary(BaseModel):
 
 
 class ToolSurfaceFieldChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     field: str
     before: Any = None
     after: Any = None
 
 
 class ToolSurfaceToolChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     name: str
     source_type: str | None = None
@@ -289,12 +310,16 @@ class ToolSurfaceToolChange(BaseModel):
 
 
 class ToolSurfaceHighRiskEffectChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     tool: str
     tag: str
 
 
 class ToolSurfaceScopeChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     scope: str
     scope_kind: ToolSurfaceFactScopeKind
@@ -303,6 +328,8 @@ class ToolSurfaceScopeChange(BaseModel):
 
 
 class ToolSurfaceControlChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     control: ToolSurfaceControlKind
     tool: str
@@ -311,6 +338,8 @@ class ToolSurfaceControlChange(BaseModel):
 
 
 class ToolSurfaceMetadataChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     tool: str
     metadata: str
@@ -319,6 +348,8 @@ class ToolSurfaceMetadataChange(BaseModel):
 
 
 class ToolSurfacePolicyDrift(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ToolSurfaceChangeKind
     policy_kind: str
     key: str
@@ -329,6 +360,8 @@ class ToolSurfacePolicyDrift(BaseModel):
 
 
 class ToolSurfaceFindingDeltaItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     fingerprint: str
     check_id: str
     severity: Severity
@@ -338,6 +371,8 @@ class ToolSurfaceFindingDeltaItem(BaseModel):
 
 
 class ToolSurfaceFindingDeltas(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     new_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
     resolved_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
     unchanged_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
@@ -345,6 +380,8 @@ class ToolSurfaceFindingDeltas(BaseModel):
 
 
 class ToolSurfaceDiff(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     base: ToolSurfaceDiffBase = Field(default_factory=ToolSurfaceDiffBase)
     summary: ToolSurfaceDiffSummary = Field(default_factory=ToolSurfaceDiffSummary)

@@ -80,11 +80,34 @@ def compute_tool_surface_diff(
     reference: ToolSurfaceDiffReference | None = None,
 ) -> ToolSurfaceDiff:
     if base is None:
+        finding_deltas = (
+            _finding_deltas(findings, reference.findings)
+            if reference
+            else ToolSurfaceFindingDeltas()
+        )
         diff_base = _diff_base(reference)
         notes = list(reference.notes) if reference else []
         if not notes:
             notes.append("No --diff-from report or v0.3 baseline snapshot was provided.")
-        return ToolSurfaceDiff(enabled=False, base=diff_base, notes=notes)
+        elif reference and reference.kind == "report":
+            notes.append(
+                "Finding deltas were computed from reference findings. Re-run "
+                "the base scan with report_schema_version 0.10, or use a v0.3 "
+                "baseline, to enable the full tool-surface diff."
+            )
+        elif reference and reference.kind == "baseline":
+            notes.append(
+                "Run `agents-shipgate baseline save` with v0.10 or newer to "
+                "write a v0.3 baseline snapshot and enable the full "
+                "tool-surface diff."
+            )
+        return ToolSurfaceDiff(
+            enabled=False,
+            base=diff_base,
+            summary=_summary_from_diff_parts(finding_deltas=finding_deltas),
+            finding_deltas=finding_deltas,
+            notes=notes,
+        )
 
     tool_changes = _diff_tools(current.tools, base.tools)
     high_risk_effects = _diff_high_risk_effects(current.tools, base.tools)
@@ -93,7 +116,50 @@ def compute_tool_surface_diff(
     metadata_changes = _metadata_changes(tool_changes)
     policy_drift = _diff_policies(current.policies, base.policies)
     finding_deltas = _finding_deltas(findings, reference.findings if reference else None)
-    summary = ToolSurfaceDiffSummary(
+    summary = _summary_from_diff_parts(
+        tool_changes=tool_changes,
+        high_risk_effects=high_risk_effects,
+        scopes=scopes,
+        controls=controls,
+        metadata_changes=metadata_changes,
+        policy_drift=policy_drift,
+        finding_deltas=finding_deltas,
+    )
+    notes = ["Tool renames are reported as one removed tool plus one added tool."]
+    if reference:
+        notes.extend(reference.notes)
+    return ToolSurfaceDiff(
+        enabled=True,
+        base=_diff_base(reference),
+        summary=summary,
+        tools=tool_changes,
+        high_risk_effects=high_risk_effects,
+        scopes=scopes,
+        controls=controls,
+        metadata_changes=metadata_changes,
+        policy_drift=policy_drift,
+        finding_deltas=finding_deltas,
+        notes=notes,
+    )
+
+
+def _summary_from_diff_parts(
+    *,
+    tool_changes: list[ToolSurfaceToolChange] | None = None,
+    high_risk_effects: list[ToolSurfaceHighRiskEffectChange] | None = None,
+    scopes: list[ToolSurfaceScopeChange] | None = None,
+    controls: list[ToolSurfaceControlChange] | None = None,
+    metadata_changes: list[ToolSurfaceMetadataChange] | None = None,
+    policy_drift: list[ToolSurfacePolicyDrift] | None = None,
+    finding_deltas: ToolSurfaceFindingDeltas,
+) -> ToolSurfaceDiffSummary:
+    tool_changes = tool_changes or []
+    high_risk_effects = high_risk_effects or []
+    scopes = scopes or []
+    controls = controls or []
+    metadata_changes = metadata_changes or []
+    policy_drift = policy_drift or []
+    return ToolSurfaceDiffSummary(
         tools_added=sum(1 for item in tool_changes if item.kind == "added"),
         tools_removed=sum(1 for item in tool_changes if item.kind == "removed"),
         tools_changed=sum(1 for item in tool_changes if item.kind == "changed"),
@@ -113,22 +179,6 @@ def compute_tool_surface_diff(
         resolved_findings=len(finding_deltas.resolved_findings),
         unchanged_findings=len(finding_deltas.unchanged_findings),
         accepted_debt=len(finding_deltas.accepted_debt),
-    )
-    notes = ["Tool renames are reported as one removed tool plus one added tool."]
-    if reference:
-        notes.extend(reference.notes)
-    return ToolSurfaceDiff(
-        enabled=True,
-        base=_diff_base(reference),
-        summary=summary,
-        tools=tool_changes,
-        high_risk_effects=high_risk_effects,
-        scopes=scopes,
-        controls=controls,
-        metadata_changes=metadata_changes,
-        policy_drift=policy_drift,
-        finding_deltas=finding_deltas,
-        notes=notes,
     )
 
 
@@ -670,7 +720,7 @@ def _finding_deltas(
         for fingerprint, item in current_items.items()
         if item.baseline_status == "matched"
     }
-    new_keys = sorted(current_items.keys() - base_items.keys())
+    new_keys = sorted((current_items.keys() - base_items.keys()) - accepted.keys())
     resolved_keys = sorted(base_items.keys() - current_items.keys())
     unchanged_keys = sorted((current_items.keys() & base_items.keys()) - accepted.keys())
     return ToolSurfaceFindingDeltas(
@@ -709,8 +759,8 @@ def _reference_from_report_payload(
     notes: list[str] = []
     if facts is None:
         notes.append(
-            "Diff reference report does not contain tool_surface_facts; "
-            "surface diff disabled."
+            "Reference report is pre-v0.10 or otherwise lacks "
+            "tool_surface_facts; surface diff disabled."
         )
     return ToolSurfaceDiffReference(
         kind="report",

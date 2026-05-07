@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from agents_shipgate.core.models import ReadinessReport
+from agents_shipgate.report.markdown import _safe_markdown_text
 
 
 def write_github_step_summary(report: ReadinessReport) -> None:
@@ -78,6 +79,17 @@ def write_github_step_summary(report: ReadinessReport) -> None:
             lines.append(f"- {item}")
     elif diff.notes:
         lines.extend(["", f"Tool-surface diff: {diff.notes[0]}"])
+        if (
+            diff.summary.new_findings
+            or diff.summary.resolved_findings
+            or diff.summary.accepted_debt
+        ):
+            lines.append(
+                "Finding deltas: "
+                f"{diff.summary.new_findings} new, "
+                f"{diff.summary.resolved_findings} resolved, "
+                f"{diff.summary.accepted_debt} accepted debt."
+            )
     lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
@@ -85,16 +97,37 @@ def write_github_step_summary(report: ReadinessReport) -> None:
 
 def _diff_highlights(report: ReadinessReport) -> list[str]:
     diff = report.tool_surface_diff
-    highlights: list[str] = []
+    risk_highlights: list[str] = []
+    control_highlights: list[str] = []
+    tool_highlights: list[str] = []
     for item in diff.high_risk_effects:
         if item.kind == "added":
-            highlights.append(f"New high-risk tag `{item.tag}` on `{item.tool}`")
+            risk_highlights.append(
+                "New high-risk tag "
+                f"`{_safe_markdown_text(item.tag)}` on "
+                f"`{_safe_markdown_text(item.tool)}`"
+            )
     for item in diff.controls:
         if item.kind == "removed":
-            highlights.append(f"Removed `{item.control}` for `{item.tool}`")
+            control_highlights.append(
+                f"Removed `{_safe_markdown_text(item.control)}` for "
+                f"`{_safe_markdown_text(item.tool)}`"
+            )
     for item in diff.tools:
         if item.kind == "added":
-            highlights.append(f"Added tool `{item.name}`")
+            tool_highlights.append(f"Added tool `{_safe_markdown_text(item.name)}`")
         elif item.kind == "removed":
-            highlights.append(f"Removed tool `{item.name}`")
-    return highlights[:5]
+            tool_highlights.append(f"Removed tool `{_safe_markdown_text(item.name)}`")
+    return _interleaved_highlights(
+        [control_highlights, risk_highlights, tool_highlights],
+        limit=5,
+    )
+
+
+def _interleaved_highlights(groups: list[list[str]], *, limit: int) -> list[str]:
+    highlights: list[str] = []
+    while len(highlights) < limit and any(groups):
+        for group in groups:
+            if group and len(highlights) < limit:
+                highlights.append(group.pop(0))
+    return highlights
