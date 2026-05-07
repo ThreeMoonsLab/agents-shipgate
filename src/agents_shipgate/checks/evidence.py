@@ -43,7 +43,12 @@ def _approval_trace_findings(context: ScanContext) -> list[Finding]:
     required_tools = _approval_tools(context)
     findings: list[Finding] = []
     tool_lookup = {tool.name: tool for tool in context.tools}
-    reason = "file_missing" if not trace_files else "approved_trace_missing"
+    if not trace_files:
+        reason = "file_missing"
+    elif not traces:
+        reason = "no_trace_events"
+    else:
+        reason = "approved_trace_missing"
     for tool_name in sorted(required_tools - approved_tools):
         evidence = {
             "tool_name": tool_name,
@@ -119,6 +124,7 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
                 "required": "override_reason_required",
                 "reason": reason,
                 "override_log_files": log_files,
+                "events_missing_reason": [],
             },
             confidence="high",
             recommendation=(

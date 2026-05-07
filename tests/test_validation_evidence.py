@@ -205,6 +205,51 @@ def test_validation_loader_containment_for_each_evidence_path(tmp_path, field, p
         load_validation_artifacts(config, project)
 
 
+def test_empty_stream_evidence_reports_distinct_reasons(tmp_path):
+    _write_project(
+        tmp_path,
+        validation_block="""
+validation:
+  mode: human_in_the_loop
+  required_evidence:
+    approval_trace_required: true
+    override_reason_required: true
+  evidence:
+    approval_traces:
+      - path: validation/approval-traces.jsonl
+    override_logs:
+      - path: validation/override-log.jsonl
+""",
+    )
+    validation_dir = tmp_path / "validation"
+    validation_dir.mkdir()
+    (validation_dir / "approval-traces.jsonl").write_text("", encoding="utf-8")
+    (validation_dir / "override-log.jsonl").write_text("", encoding="utf-8")
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    approval = next(
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING"
+    )
+    override = next(
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING"
+    )
+    assert exit_code == 0
+    assert approval.evidence["reason"] == "no_trace_events"
+    assert approval.evidence["trace_files"] == ["validation/approval-traces.jsonl"]
+    assert override.evidence["reason"] == "no_override_events"
+    assert override.evidence["events_missing_reason"] == []
+
+
 def test_validation_evidence_covered_case_has_no_evidence_findings(tmp_path):
     _write_project(
         tmp_path,
@@ -319,6 +364,12 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
     hitl_checks = {item["check_id"] for item in packet["human_in_the_loop"]["trace_findings"]}
     assert "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING" in hitl_checks
     assert "HITL evidence gaps" in (tmp_path / "packet.md").read_text(encoding="utf-8")
+    override_finding = next(
+        finding
+        for finding in payload["findings"]
+        if finding["check_id"] == "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING"
+    )
+    assert override_finding["evidence"]["events_missing_reason"] == []
 
     sarif = json.loads((tmp_path / "report.sarif").read_text(encoding="utf-8"))
     rule_ids = {
