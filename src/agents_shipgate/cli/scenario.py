@@ -104,7 +104,7 @@ def suggest(
         _emit_input_error(
             "input_parse_error",
             message=str(exc),
-            next_action="Run `agents-shipgate scan --json --out agents-shipgate-reports/report.json` first.",
+            next_action="Run `agents-shipgate scan -c shipgate.yaml --format json --out agents-shipgate-reports` first.",
         )
         raise typer.Exit(2) from exc
 

@@ -12,6 +12,7 @@ this module and the in-report grouping cannot drift.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -78,6 +79,32 @@ def _scenario_id(scenario_type: SuggestedScenarioType, tool: str | None) -> str:
     return f"{scenario_type}__{_slug(tool)}"
 
 
+def _disambiguate_ids(
+    keys: list[tuple[SuggestedScenarioType, str | None]],
+) -> dict[tuple[SuggestedScenarioType, str | None], str]:
+    """Return a {key: id} mapping, appending a short hash of the original
+    tool name when two distinct tool names slug to the same id (e.g.
+    `a.b` and `a/b` both produce `<type>__a_b`). Hashes are deterministic
+    and only added on collision so the common case stays clean.
+    """
+    proposed: dict[tuple[SuggestedScenarioType, str | None], str] = {
+        key: _scenario_id(*key) for key in keys
+    }
+    by_id: dict[str, list[tuple[SuggestedScenarioType, str | None]]] = defaultdict(list)
+    for key, value in proposed.items():
+        by_id[value].append(key)
+    final: dict[tuple[SuggestedScenarioType, str | None], str] = {}
+    for value, sharing_keys in by_id.items():
+        if len(sharing_keys) == 1:
+            final[sharing_keys[0]] = value
+            continue
+        for key in sharing_keys:
+            _, tool = key
+            tool_hash = hashlib.sha256((tool or "").encode("utf-8")).hexdigest()[:8]
+            final[key] = f"{value}__{tool_hash}"
+    return final
+
+
 def _adversarial_goal(scenario_type: SuggestedScenarioType, tool: str | None) -> str:
     if tool is None or not tool.strip():
         return _AGENT_LEVEL_GOALS.get(
@@ -98,16 +125,18 @@ def _expected_control(scenario_type: SuggestedScenarioType) -> str:
 
 
 def _index_findings(findings: list[Finding]) -> dict[str, Finding]:
-    """Index findings by every non-empty identifier (id, fingerprint).
+    """Index findings by every non-empty identifier (id, fingerprint, check_id).
 
-    Misalignments may reference findings via either form (see
+    Misalignments may reference findings via any of these forms (see
     `_finding_ref` in capability_diff: `id or fingerprint or check_id`),
-    so the index must accept either key for robust lookup against
-    archived or hand-built reports.
+    so the index must accept all three keys for robust lookup against
+    archived or hand-built reports where id/fingerprint may be absent.
+    First-write-wins on collisions (e.g., multiple findings sharing a
+    check_id) so the primary identifier paths still resolve.
     """
     index: dict[str, Finding] = {}
     for finding in findings:
-        for key in (finding.id, finding.fingerprint):
+        for key in (finding.id, finding.fingerprint, finding.check_id):
             if key and key not in index:
                 index[key] = finding
     return index
@@ -164,11 +193,13 @@ def derive_yaml_scenarios(
             check_ids.add(finding.check_id)
             finding_refs.add(_ref(finding))
 
+    id_for_key = _disambiguate_ids(list(grouped.keys()))
     scenarios: list[dict[str, Any]] = []
-    for (scenario_type, tool), (check_ids, finding_refs) in grouped.items():
+    for key, (check_ids, finding_refs) in grouped.items():
+        scenario_type, tool = key
         scenarios.append(
             {
-                "id": _scenario_id(scenario_type, tool),
+                "id": id_for_key[key],
                 "derived_from": sorted(check_ids),
                 "tool": tool,
                 "adversarial_goal": _adversarial_goal(scenario_type, tool),

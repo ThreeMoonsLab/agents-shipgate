@@ -369,6 +369,79 @@ def test_scenario_type_for_finding_matches_in_report_grouping():
                 )
 
 
+# Test 12 — slug collision disambiguation
+def test_slug_collision_produces_distinct_disambiguated_ids():
+    """Two distinct tool names that slug to the same value (e.g. `a.b`
+    and `a/b` both produce `a_b`) must emit two scenarios with
+    different IDs — the new YAML contract is unsafe otherwise."""
+    findings = [
+        _finding(
+            fid="f1",
+            check_id="SHIP-POLICY-APPROVAL-MISSING",
+            severity="critical",
+            tool_name="a.b",
+        ),
+        _finding(
+            fid="f2",
+            check_id="SHIP-POLICY-APPROVAL-MISSING",
+            severity="critical",
+            tool_name="a/b",
+        ),
+    ]
+    misalignments = [
+        _misalignment(mid="m1", finding_ref="f1", severity="critical", tool_name="a.b"),
+        _misalignment(mid="m2", finding_ref="f2", severity="critical", tool_name="a/b"),
+    ]
+    scenarios = derive_yaml_scenarios(
+        _minimal_report(findings=findings, misalignments=misalignments),
+        min_severity="critical",
+    )
+    assert len(scenarios) == 2
+    ids = {s["id"] for s in scenarios}
+    assert len(ids) == 2, f"Slug collision left duplicate ids: {ids}"
+    tools = {s["tool"] for s in scenarios}
+    assert tools == {"a.b", "a/b"}
+    # Both ids share the slugged base; both must include a hash suffix.
+    base_prefix = "approval__a_b"
+    for sid in ids:
+        assert sid.startswith(base_prefix + "__"), sid
+        assert sid != base_prefix, sid
+
+
+# Test 13 — check_id-only finding refs resolve through the index
+def test_finding_refs_can_resolve_via_check_id_fallback():
+    """Older/hand-built reports may set id=None and fingerprint=None
+    on a finding and reference it via check_id from misalignments.
+    The export must still resolve the reference and emit a scenario."""
+    finding = Finding(
+        id=None,
+        fingerprint=None,
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        title="approval missing",
+        severity="critical",
+        category="policy",
+        tool_name="t",
+        recommendation="add approval policy",
+    )
+    mis = Misalignment(
+        id="m1",
+        kind="policy_gap",
+        severity="critical",
+        tool_name="t",
+        finding_refs=["SHIP-POLICY-APPROVAL-MISSING"],  # ref by check_id
+        policy_requirement="approval required",
+        gap="approval not declared",
+        release_implication="release blocked",
+    )
+    scenarios = derive_yaml_scenarios(
+        _minimal_report(findings=[finding], misalignments=[mis]),
+        min_severity="critical",
+    )
+    assert len(scenarios) == 1
+    assert scenarios[0]["id"] == "approval__t"
+    assert scenarios[0]["source_findings"] == ["SHIP-POLICY-APPROVAL-MISSING"]
+
+
 # Bonus — verify dump_json envelope matches dump_yaml shape
 def test_json_and_yaml_envelopes_match():
     report = _load(SUPPORT_REFUND_REPORT)
