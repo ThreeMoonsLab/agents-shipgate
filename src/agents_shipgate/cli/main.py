@@ -18,6 +18,7 @@ from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.diagnostics import (
     NextAction,
     diagnose_doctor,
+    diagnose_invalid_manifest,
     diagnose_missing_manifest,
     top_next_actions,
 )
@@ -218,8 +219,8 @@ def scan(
         )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        diagnostics = diagnose_missing_manifest(
-            _missing_manifest_workspace(config=config, workspace=workspace)
+        diagnostics = _diagnose_config_error(
+            config=config, workspace=workspace, exc=exc
         )
         flattened = top_next_actions(diagnostics)
         _emit_agent_mode_error(
@@ -595,8 +596,8 @@ def doctor(
         payloads = [inspect_sources(config_path=path, verbose=verbose) for path in paths]
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        diagnostics = diagnose_missing_manifest(
-            _missing_manifest_workspace(config=config, workspace=workspace)
+        diagnostics = _diagnose_config_error(
+            config=config, workspace=workspace, exc=exc
         )
         flattened = top_next_actions(diagnostics)
         _emit_agent_mode_error(
@@ -862,6 +863,28 @@ def _missing_manifest_workspace(
     # `Path.resolve()` works on non-existent paths — and the manifest
     # parent often exists even when the manifest itself is missing.
     return parent.resolve()
+
+
+def _diagnose_config_error(
+    *, config: str, workspace: Path | None, exc: ConfigError
+) -> list:
+    """Pick the right diagnostic for a ``ConfigError``.
+
+    ``ConfigError`` covers two distinct failure shapes:
+    - the manifest file does not exist (``MISSING-MANIFEST``)
+    - the manifest exists but failed to load — invalid YAML, schema
+      validation failure, unsupported version (``INVALID-MANIFEST``)
+
+    The caller's recovery is different in each case. Disambiguate by
+    checking whether the candidate path actually exists on disk.
+    """
+    if not any(char in config for char in "*?[]") and workspace is None:
+        candidate = Path(config)
+        if candidate.is_file():
+            return diagnose_invalid_manifest(candidate, message=str(exc))
+    return diagnose_missing_manifest(
+        _missing_manifest_workspace(config=config, workspace=workspace)
+    )
 
 
 def _run_multi_scan(

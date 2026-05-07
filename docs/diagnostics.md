@@ -6,10 +6,25 @@
 action and route to the next command without consulting human-facing
 docs.
 
-Diagnostics are advisory — they do not change exit codes. Exit codes
-are still owned by `ConfigError(2)`, `InputParseError(3)`, and
-the scan policy block (`20`). A diagnostic with `severity: "block"`
-describes a blocking *condition*; the caller decides what to do.
+Diagnostics describe conditions; the catalog itself does not pick exit
+codes. A diagnostic with `severity: "block"` flags a blocking *condition*
+and the caller (a CLI command) decides what to do. The current rules:
+
+- `agents-shipgate scan` always exits non-zero (`ConfigError(2)`,
+  `InputParseError(3)`, or the scan-policy `20`) on any condition that
+  used to fail it. Diagnostics are extra context, not a replacement.
+- `agents-shipgate doctor --json` is the agent contract: it exits **0**
+  on `SHIP-DIAG-MISSING-SOURCE-FILE` so the agent can read
+  `unresolved_sources[]` and route to a fix.
+- `agents-shipgate doctor` (no `--json`) is the human contract: it
+  exits **3** when any payload has `unresolved_sources`, so an
+  interactive user still sees a loud failure. The diagnostic block
+  prints in the human output regardless.
+
+This is the only place a diagnostic affects an exit code, and the
+divergence is bounded to `MISSING-SOURCE-FILE` on `doctor`. Other
+diagnostics (`ZERO-TOOLS`, `CHANGE-ME-PLACEHOLDERS`, etc.) print but
+do not change the exit code.
 
 ## Schema
 
@@ -52,7 +67,8 @@ diagnostics where no command should run.
 
 | ID                                  | Severity | Fires when                                                                                                                                       |
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SHIP-DIAG-MISSING-MANIFEST`        | block    | `shipgate.yaml` not found in the working directory.                                                                                              |
+| `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate detect --workspace <dir> --json`.                                       |
+| `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
 | `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND no manifest. Catch-all negative control.                                                |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |
 | `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`  | info     | Only `prompts/` is present; no Python framework, no tool sources.                                                                                |
@@ -86,13 +102,23 @@ agent no routable next step.
 
 Now `doctor --json` exits **0** with:
 
-- `unresolved_sources: [{id, declared_path, line}]` listing each unresolved entry
+- `unresolved_sources: [{id, declared_path, line, reason}]` listing each
+  unresolved entry. `reason` is `"missing"` (file does not exist) or
+  `"outside_manifest_dir"` (file exists but resolves outside the
+  manifest directory; loaders refuse it on containment grounds).
 - a `SHIP-DIAG-MISSING-SOURCE-FILE` diagnostic whose rank-1 action is an
-  `edit` pointing at `shipgate.yaml:<line>`
+  `edit` pointing at `<manifest_path>:<line>` (the full path the user
+  invoked `doctor` with, so workspace and nested-manifest runs stay
+  unambiguous).
+
+The non-JSON form (`agents-shipgate doctor` without `--json`) prints
+the same `unresolved_sources` and diagnostic block in human-readable
+form and **exits 3** to preserve the pre-feature loud failure for
+interactive users.
 
 `scan` is unchanged — it still raises `InputParseError(3)` on missing
-required sources, because once an agent moves past doctor, those are real
-scan failures.
+or escaped required sources regardless of `--json`, because once an
+agent moves past doctor, those are real scan failures.
 
 ## Where diagnostics surface
 

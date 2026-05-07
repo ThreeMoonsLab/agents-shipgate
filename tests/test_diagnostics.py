@@ -12,6 +12,7 @@ from agents_shipgate.cli.diagnostics import (
     ALL_DIAGNOSTIC_IDS,
     DIAG_CHANGE_ME_PLACEHOLDERS,
     DIAG_DYNAMIC_TOOLSETS_ONLY,
+    DIAG_INVALID_MANIFEST,
     DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
     DIAG_MISSING_MANIFEST,
     DIAG_MISSING_SOURCE_FILE,
@@ -24,6 +25,7 @@ from agents_shipgate.cli.diagnostics import (
     NextAction,
     diagnose_detect,
     diagnose_doctor,
+    diagnose_invalid_manifest,
     diagnose_missing_manifest,
     top_next_actions,
 )
@@ -139,6 +141,39 @@ class TestDiagnoseMissingManifest:
         assert diags[0].severity == "block"
         assert diags[0].next_actions[0].kind == "command"
         assert "agents-shipgate detect" in diags[0].next_actions[0].command
+
+    def test_command_quotes_workspace_with_spaces(
+        self, tmp_path: Path
+    ) -> None:
+        """Paths with spaces must round-trip through shlex.split()."""
+        import shlex
+
+        spaced = tmp_path / "with space"
+        diags = diagnose_missing_manifest(spaced)
+        for action in diags[0].next_actions:
+            parts = shlex.split(action.command)
+            assert parts[0] == "agents-shipgate"
+            ws_idx = parts.index("--workspace")
+            assert parts[ws_idx + 1] == str(spaced)
+
+
+class TestDiagnoseInvalidManifest:
+    def test_emits_edit_action_pointing_at_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = tmp_path / "shipgate.yaml"
+        diags = diagnose_invalid_manifest(
+            manifest, message="schema validation failed: project required"
+        )
+        assert [d.id for d in diags] == [DIAG_INVALID_MANIFEST]
+        assert diags[0].severity == "block"
+        # Rank-1 action points the agent at the file, not at detect/init —
+        # init refuses to overwrite an existing file, so dispatching there
+        # would loop.
+        rank_one = diags[0].next_actions[0]
+        assert rank_one.kind == "edit"
+        assert str(manifest) in rank_one.path
+        assert "schema validation failed" in rank_one.why
 
 
 # --- diagnose_detect — negative-control precedence -------------------------

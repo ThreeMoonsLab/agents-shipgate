@@ -120,20 +120,21 @@ def apply_patches(
             f"Malformed patch in report at {from_path}: {exc}",
             err=True,
         )
+        import shlex as _shlex
+
+        out_q = _shlex.quote(str(from_path.parent))
+        rerun_command = (
+            f"agents-shipgate scan -c shipgate.yaml --suggest-patches "
+            f"--out {out_q}"
+        )
         _emit_input_error(
             "malformed_patch",
             str(exc),
-            next_action=(
-                f"agents-shipgate scan -c shipgate.yaml --suggest-patches "
-                f"--out {from_path.parent}"
-            ),
+            next_action=rerun_command,
             next_actions=[
                 {
                     "kind": "command",
-                    "command": (
-                        f"agents-shipgate scan -c shipgate.yaml "
-                        f"--suggest-patches --out {from_path.parent}"
-                    ),
+                    "command": rerun_command,
                     "path": None,
                     "why": (
                         "Re-run scan with --suggest-patches to regenerate a "

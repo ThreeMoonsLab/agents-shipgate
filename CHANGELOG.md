@@ -21,12 +21,15 @@
   three negative-control cases) without consulting human-facing docs. Errors
   emitted under `AGENTS_SHIPGATE_AGENT_MODE=1` carry the same `next_actions`
   array. Diagnostic catalog and schema in [docs/diagnostics.md](docs/diagnostics.md).
-- Behavior change: `agents-shipgate doctor` no longer raises
-  `InputParseError(3)` when a required `tool_sources[].path` does not
-  resolve. It now exits 0 with `unresolved_sources: [...]` and a
-  `SHIP-DIAG-MISSING-SOURCE-FILE` diagnostic so an agent gets a routable
-  next action. `agents-shipgate scan` is unchanged — it still raises
-  `InputParseError(3)` on missing required sources.
+- Behavior change: when a required `tool_sources[].path` does not
+  resolve (file missing OR resolves outside the manifest directory),
+  `agents-shipgate doctor --json` exits **0** with
+  `unresolved_sources: [...]` and a `SHIP-DIAG-MISSING-SOURCE-FILE`
+  diagnostic so an agent gets a routable next action. The non-JSON
+  `agents-shipgate doctor` form prints the same diagnostic in
+  human-readable form and exits **3** so interactive users still see a
+  loud failure. `agents-shipgate scan` is unchanged — it still raises
+  `InputParseError(3)` on the same condition regardless of `--json`.
 - `DetectResult` gains a `workspace_signals` block (Python file count,
   `pyproject.toml`/`requirements.txt` presence, conventional dir hits) used
   by the new diagnostic resolvers to discriminate negative-control cases.

@@ -17,12 +17,25 @@ blocking *condition*; the caller decides what to do.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.cli.discovery.signals import DetectResult
+
+
+def _quote_path(value: str | Path) -> str:
+    """POSIX-shell-quote a path for inclusion in a `command` field.
+
+    `next_actions[].command` is a single shell string per the v1 contract,
+    so paths with spaces or shell metacharacters must be quoted before
+    interpolation. ``shlex.quote`` returns the input verbatim when no
+    quoting is needed, which keeps the existing rank-1 commands stable
+    in the common case of simple paths.
+    """
+    return shlex.quote(str(value))
 
 # --- Public models ----------------------------------------------------------
 
@@ -89,6 +102,7 @@ class Diagnostic(BaseModel):
 # docs/diagnostics.md. See tests/test_diagnostics.py for stability checks.
 
 DIAG_MISSING_MANIFEST = "SHIP-DIAG-MISSING-MANIFEST"
+DIAG_INVALID_MANIFEST = "SHIP-DIAG-INVALID-MANIFEST"
 DIAG_NO_AGENT_SURFACE = "SHIP-DIAG-NO-AGENT-SURFACE"
 DIAG_NON_AGENT_LIBRARY = "SHIP-DIAG-NON-AGENT-LIBRARY"
 DIAG_PURE_PROMPT_EXPERIMENT = "SHIP-DIAG-PURE-PROMPT-EXPERIMENT"
@@ -101,6 +115,7 @@ DIAG_NO_PRODUCTION_PERMISSIONS = "SHIP-DIAG-NO-PRODUCTION-PERMISSIONS"
 
 ALL_DIAGNOSTIC_IDS: tuple[str, ...] = (
     DIAG_MISSING_MANIFEST,
+    DIAG_INVALID_MANIFEST,
     DIAG_NO_AGENT_SURFACE,
     DIAG_NON_AGENT_LIBRARY,
     DIAG_PURE_PROMPT_EXPERIMENT,
@@ -118,6 +133,7 @@ ALL_DIAGNOSTIC_IDS: tuple[str, ...] = (
 
 def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
     """``shipgate.yaml`` is absent. The agent should detect, then init."""
+    workspace_q = _quote_path(workspace)
     return [
         Diagnostic(
             id=DIAG_MISSING_MANIFEST,
@@ -126,7 +142,7 @@ def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
             next_actions=[
                 NextAction(
                     kind="command",
-                    command=f"agents-shipgate detect --workspace {workspace} --json",
+                    command=f"agents-shipgate detect --workspace {workspace_q} --json",
                     why=(
                         "Confirm this is an agent project before writing a "
                         "manifest. detect is read-only."
@@ -138,12 +154,62 @@ def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
                 ),
                 NextAction(
                     kind="command",
-                    command=f"agents-shipgate init --workspace {workspace} --write",
+                    command=f"agents-shipgate init --workspace {workspace_q} --write",
                     why=(
                         "Draft a starter manifest from auto-detected "
                         "frameworks and tool sources."
                     ),
                     expects="shipgate.yaml is created at the workspace root.",
+                ),
+            ],
+        )
+    ]
+
+
+def diagnose_invalid_manifest(
+    manifest_path: Path, *, message: str
+) -> list[Diagnostic]:
+    """``shipgate.yaml`` exists on disk but the loader rejected it.
+
+    Distinct from ``SHIP-DIAG-MISSING-MANIFEST``: the manifest is
+    present, so the right rank-1 action is to *edit* it, not to run
+    ``detect`` / ``init`` again. ``message`` is the underlying loader
+    error (invalid YAML, schema validation failure, unsupported version,
+    etc.) so the agent can route to the specific fix.
+    """
+    return [
+        Diagnostic(
+            id=DIAG_INVALID_MANIFEST,
+            title="Manifest exists but failed to load",
+            severity="block",
+            next_actions=[
+                NextAction(
+                    kind="edit",
+                    path=str(manifest_path),
+                    why=(
+                        f"Loader rejected {manifest_path}: {message}. Fix "
+                        "the manifest in place — do not re-run init, which "
+                        "would refuse to overwrite an existing file."
+                    ),
+                    expects=(
+                        "agents-shipgate doctor -c <path> --json runs without "
+                        "raising ConfigError."
+                    ),
+                ),
+                NextAction(
+                    kind="command",
+                    command=(
+                        f"agents-shipgate doctor -c {_quote_path(manifest_path)} "
+                        "--json"
+                    ),
+                    why=(
+                        "Re-run doctor after editing to verify the fix and "
+                        "surface any further diagnostics."
+                    ),
+                    expects=(
+                        "JSON payload with diagnostics[] reflecting current "
+                        "manifest state."
+                    ),
                 ),
             ],
         )
@@ -337,7 +403,7 @@ def diagnose_doctor(
                     NextAction(
                         kind="command",
                         command=(
-                            f"agents-shipgate doctor -c {manifest_path} "
+                            f"agents-shipgate doctor -c {_quote_path(manifest_path)} "
                             "--verbose --json"
                         ),
                         why=(

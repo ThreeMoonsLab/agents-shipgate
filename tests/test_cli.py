@@ -740,6 +740,83 @@ tool_sources:
     assert "outside" in diag["next_actions"][0]["why"].lower()
 
 
+def test_invalid_manifest_dispatches_to_invalid_diagnostic(
+    tmp_path, monkeypatch
+):
+    """P1 regression: ConfigError where the file exists but is invalid must
+    surface SHIP-DIAG-INVALID-MANIFEST with an `edit` rank-1 action — NOT
+    SHIP-DIAG-MISSING-MANIFEST with a detect/init command. Otherwise the
+    coding agent runs `init`, which refuses to overwrite, and loops."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    config = tmp_path / "shipgate.yaml"
+    # Valid YAML structure but schema-invalid (missing required project, etc.)
+    config.write_text("not: a valid manifest\n", encoding="utf-8")
+
+    for command in (["scan", "--config", str(config)],
+                     ["doctor", "--config", str(config)]):
+        result = runner.invoke(app, command)
+        assert result.exit_code == 2, result.output
+        payloads = _stderr_json_lines(result.output)
+        assert payloads, result.output
+        rank_one = payloads[-1]["next_actions"][0]
+        assert rank_one["kind"] == "edit", (
+            f"{command[0]} dispatched to {rank_one!r}, expected kind=edit"
+        )
+        assert str(config) in rank_one["path"]
+        # And the next_action string must NOT advertise a detect command —
+        # that would route the agent away from the actual fix.
+        assert not payloads[-1]["next_action"].startswith(
+            "agents-shipgate detect"
+        )
+
+
+def test_invalid_yaml_manifest_dispatches_to_invalid_diagnostic(
+    tmp_path, monkeypatch
+):
+    """Companion to the schema-invalid case: an unparseable YAML file is
+    also "exists but invalid" — same dispatch."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    config = tmp_path / "shipgate.yaml"
+    config.write_text("version: '0.1\nproject:\n  name: \"x", encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] == "edit"
+    assert str(config) in rank_one["path"]
+
+
+def test_missing_manifest_command_quotes_workspace_with_spaces(
+    tmp_path, monkeypatch
+):
+    """P2 regression: dynamic `command` strings must POSIX-shell-quote
+    paths so a coding-agent shell runner doesn't word-split a workspace
+    containing spaces."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    spaced = tmp_path / "space path" / "repo dir"
+    spaced.mkdir(parents=True)
+    config = spaced / "shipgate.yaml"
+    # File does not exist → MISSING-MANIFEST path → command embeds workspace.
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    command = rank_one["command"]
+    # Path must round-trip through shlex; the quoted form survives split.
+    import shlex
+
+    parts = shlex.split(command)
+    assert parts[0] == "agents-shipgate"
+    assert parts[1] == "detect"
+    assert "--workspace" in parts
+    workspace_arg = parts[parts.index("--workspace") + 1]
+    assert workspace_arg == str(spaced)
+
+
 def test_doctor_edit_action_paths_include_manifest_directory(tmp_path):
     """P2-3 regression: edit-action paths must include the manifest's
     directory so workspace and nested-manifest runs route the agent to
