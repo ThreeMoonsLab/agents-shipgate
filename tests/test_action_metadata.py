@@ -73,6 +73,40 @@ def test_action_pr_comment_truncates_user_controlled_text():
     assert "].join(\"\\n\"), 6000)" in text
 
 
+def test_action_pr_comment_upserts_via_sticky_marker():
+    """Re-running the action on the same PR must update the existing
+    Shipgate comment in place rather than appending a new one — that's
+    PR spam and erodes trust. The marker also lets external tooling
+    find the comment programmatically."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+
+    assert "<!-- agents-shipgate-pr-comment -->" in text
+    assert "github.rest.issues.listComments" in text
+    assert "github.rest.issues.updateComment" in text
+    # createComment is still present (the create-on-first-run branch),
+    # but it must be guarded by the sticky-marker lookup.
+    assert "github.rest.issues.createComment" in text
+
+
+def test_action_pr_comment_includes_packet_artifact_pointer():
+    """The PR comment template must point reviewers at both the report
+    and the packet (the latter is the reviewer-shaped artifact)."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+
+    assert "Release Evidence Packet" in text
+    assert "packet.md" in text and "packet.json" in text
+
+
+def test_action_pr_comment_surfaces_ci_mode():
+    """Teams adopting Shipgate need to see at a glance whether the gate
+    is advisory (won't block their PR) or strict (will). Surfacing
+    fail_policy.ci_mode in the comment removes that ambiguity."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+
+    assert "fail_policy.ci_mode" in text
+    assert "would_fail_ci" in text
+
+
 def test_marketplace_action_repo_has_ci_and_release_workflows():
     workflow_dir = Path(".github/workflows")
 

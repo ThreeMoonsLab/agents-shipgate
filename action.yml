@@ -303,19 +303,25 @@ runs:
             .slice(0, 3)
             .map((finding, index) => `${index + 1}. ${escapeMarkdown(truncate(finding.title || finding.check_id, 240))}`)
             .join("\n");
+          const ciModeLine = decision && decision.fail_policy
+            ? `CI mode: \`${decision.fail_policy.ci_mode || "advisory"}\` — ${decision.fail_policy.would_fail_ci ? "this PR would fail CI" : "this PR is not blocked by Shipgate"}`
+            : "";
           const decisionLines = decision
             ? [
                 `Decision: \`${decision.decision}\``,
                 `Reason: ${escapeMarkdown(decision.reason || "")}`,
                 `Blockers: ${(decision.blockers || []).length} · Review items: ${(decision.review_items || []).length}`,
                 `Fail policy: would_fail_ci=\`${(decision.fail_policy || {}).would_fail_ci ? "true" : "false"}\` (exit ${(decision.fail_policy || {}).exit_code ?? "?"})`,
-              ]
+                ciModeLine,
+              ].filter(Boolean)
             : [
                 `Status: ${summary.status || "unknown"}`,
                 `Critical: ${summary.critical_count || 0} · High: ${summary.high_count || 0} · Medium: ${summary.medium_count || 0}`,
                 `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
               ];
+          const STICKY = "<!-- agents-shipgate-pr-comment -->";
           const body = truncate([
+            STICKY,
             "## Agents Shipgate",
             "",
             ...decisionLines,
@@ -323,14 +329,33 @@ runs:
             "",
             top ? `Top findings:\n${top}` : "No critical or high findings.",
             "",
-            "Full report: `agents-shipgate-report` artifact."
+            "Artifacts (in `agents-shipgate-report` workflow artifact):",
+            "- Tool-Use Readiness Report: `report.md` / `report.json`",
+            "- Release Evidence Packet: `packet.md` / `packet.json` / `packet.html`",
           ].join("\n"), 6000);
-          await github.rest.issues.createComment({
+          // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
+          const existing = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
-            body
+            per_page: 100,
           });
+          const prior = existing.data.find((c) => c.body && c.body.startsWith(STICKY));
+          if (prior) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: prior.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
 
     - name: Apply Agents Shipgate exit code
       if: ${{ always() && steps.scan.outputs.exit_code != '' && steps.scan.outputs.exit_code != '0' }}

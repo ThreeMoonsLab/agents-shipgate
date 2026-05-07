@@ -48,12 +48,21 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
    ```bash
    agents-shipgate scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
    ```
-   The report lands at `agents-shipgate-reports/report.json`. Parse it. Per-finding fields you can rely on (v0.7+):
+   The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`.
+
+   **Read these first for release gating (v0.8+):**
+   - `release_decision.decision` ∈ `{"blocked", "review_required", "passed"}` — baseline-aware. This is the gating signal.
+   - `release_decision.{reason, blockers, review_items, fail_policy.would_fail_ci}`
+
+   **Read these for release review (v0.9+):**
+   - `capability_facts[]`, `declared_intentions[]`, `misalignments[]`, `release_consequence`, `suggested_scenarios[]`
+
+   **Per-finding fields:**
    - `check_id`, `severity`, `category`, `tool_name`, `recommendation`, `suppressed`
-   - `autofix_safe`, `requires_human_review`, `suggested_patch_kind`, `docs_url`
+   - `autofix_safe`, `requires_human_review`, `suggested_patch_kind`, `docs_url` (v0.7+)
    - `patches[]` (only with `--suggest-patches`) — each has `kind` ∈ `{set_pointer, append_pointer, remove_pointer, manual}` plus `confidence` + `target_file` + etc. for non-manual kinds.
 
-   Top-level: `summary.{status, critical_count, high_count, medium_count}`, `manifest_dir` (absolute path of the manifest's directory — used by `apply-patches` for the containment check).
+   **Top-level:** `manifest_dir` (absolute path of the manifest's directory — used by `apply-patches` for the containment check). `summary.{status, critical_count, high_count, medium_count}` is preserved for v0.7 callers and is baseline-blind — do not gate on `summary.status` for new consumers. Full contract: [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md).
 
 7. **Apply the safe patches:**
    ```bash
@@ -78,7 +87,9 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
 8. **Add `agents-shipgate-reports/` to `.gitignore`** if it isn't already. The reports are scan artifacts, not source.
 
 9. **Report back to the user**:
-   - The `summary.status` (`release_blockers_detected`, `warnings_detected`, etc.)
+   - `release_decision.decision` and `release_decision.reason` (the gating signal — baseline-aware, v0.8+)
+   - Blocker / review-item counts (`len(release_decision.blockers)` / `len(release_decision.review_items)`)
+   - The path to the Release Evidence Packet (`agents-shipgate-reports/packet.md`) for reviewer-shaped output
    - The top 3 active critical/high findings (use `report.json`, not stdout)
    - Which patches were applied (count from `apply-patches --json` output's `files`)
    - Any check IDs the user should investigate first — link to `docs_url` from the finding for full rationale, or use `agents-shipgate explain <CHECK_ID> --json` for the same content via CLI
@@ -107,7 +118,8 @@ Common errors and fixes:
 ## Verification before reporting success
 
 - `agents-shipgate-reports/report.json` exists and parses as JSON
-- `report.json` carries `report_schema_version: "0.8"` (or higher) and a non-empty `manifest_dir`
+- `report.json` carries `report_schema_version: "0.9"` (or higher) and a non-empty `manifest_dir`
+- `report.json` carries a non-null `release_decision.decision` — this is the field to surface to the user
 - `shipgate.yaml` has no `CHANGE_ME` values (comments containing the literal `CHANGE_ME` are informational and OK)
 - `.gitignore` contains `agents-shipgate-reports/` (or equivalent)
 - If `--ci` ran with `workflow.status: "written"`: `.github/workflows/agents-shipgate.yml` exists and references `ThreeMoonsLab/agents-shipgate@v…`

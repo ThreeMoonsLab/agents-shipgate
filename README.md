@@ -43,10 +43,16 @@ pipx install agents-shipgate
 agents-shipgate fixture run support_refund_agent
 ```
 
-This runs a bundled fixture with no manifest required and writes
-`agents-shipgate-reports/report.md` showing 18 findings, including 2 critical
-findings on `stripe.create_refund`: missing approval policy and missing
-idempotency evidence.
+This runs a bundled fixture with no manifest required.
+
+```text
+Decision: blocked
+Blockers: 2
+Why:     stripe.create_refund lacks approval policy and idempotency evidence
+Artifacts:
+  agents-shipgate-reports/report.{md,json,sarif}
+  agents-shipgate-reports/packet.{md,json,html}
+```
 
 ![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
 
@@ -57,7 +63,14 @@ agents-shipgate init --workspace . --write
 agents-shipgate scan -c shipgate.yaml
 ```
 
-Reports land at `agents-shipgate-reports/report.md` and `report.json`.
+Reports land at `agents-shipgate-reports/report.{md,json,sarif}`; the Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`.
+
+Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
+
+```bash
+python -m pip install agents-shipgate    # global pip
+uv tool install agents-shipgate          # via uv
+```
 
 ## Adopt in one turn (for AI coding agents)
 
@@ -109,9 +122,8 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Markdown report** for human release review.
-- **JSON report** for tools and coding agents.
-- **SARIF report** for GitHub code-scanning workflows.
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.9](docs/report-schema.v0.9.json); gating signal is `release_decision.decision`), SARIF for GitHub code-scanning workflows.
+- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.1](docs/packet-schema.v0.1.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v01).
 
 ## Exit codes
 
@@ -130,6 +142,7 @@ repo's machine-readable contracts quickly.
 
 Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Claude Code, Codex, Cursor, Aider) reading this repo:
 
+- **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)** — copyable snippets for adding Shipgate trigger rules to downstream agent repos
@@ -173,6 +186,14 @@ Top findings:
 - `wildcard_mcp_tools.*` exposes a wildcard tool surface, making review incomplete.
 - `gmail.send_customer_email` overlaps a prohibited external-communication action without a matching confirmation policy.
 
+## See it block a PR
+
+The fastest way to understand what changes for a reviewer: walk through a Golden PR. Each one ships a sample manifest, the resulting report, the release decision, and the recommended PR-comment summary an agent should post.
+
+- [`openai-agents-sdk-refund-agent`](examples/golden-prs/openai-agents-sdk-refund-agent/README.md) — refund agent adds `stripe.create_refund`. Shipgate decides `blocked` because approval policy and idempotency evidence are missing. Includes the recommended Markdown PR-comment template.
+- [`mcp-only-tool-server`](examples/golden-prs/mcp-only-tool-server/README.md) — MCP server with no Python framework imports; demonstrates the MCP-only adoption path.
+- [`openapi-support-agent`](examples/golden-prs/openapi-support-agent/README.md) — OpenAPI-described tool surface; shows scope-coverage findings.
+
 ## Why Not Just...
 
 | Alternative | Gap Agents Shipgate Covers |
@@ -181,43 +202,6 @@ Top findings:
 | Code review | Reviewers miss generated specs, MCP exports, broad scopes, and missing approval policies. |
 | Runtime traces | Useful later, but they arrive after behavior exists. Agents Shipgate runs before promotion. |
 | Nothing | Tool-surface drift becomes a production surprise. |
-
-## Quickstart
-
-Use Agents Shipgate as a [GitHub Action](#github-action) on every PR, or run the CLI locally.
-
-Install the published package:
-
-```bash
-python -m pip install agents-shipgate
-agents-shipgate --version
-```
-
-Install from a source checkout when developing locally:
-
-```bash
-python -m pip install -e ".[dev]"
-agents-shipgate init --workspace . --write
-agents-shipgate doctor --config shipgate.yaml
-agents-shipgate scan --config shipgate.yaml
-```
-
-Or install directly from GitHub when testing the latest unreleased source:
-
-```bash
-python -m pip install "git+https://github.com/ThreeMoonsLab/agents-shipgate@main"
-```
-
-Try the bundled fixture:
-
-```bash
-agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
-agents-shipgate scan --config samples/simple_openai_api_agent/shipgate.yaml
-agents-shipgate scan --config samples/google_adk_agent/shipgate.yaml
-agents-shipgate scan --config samples/simple_langchain_agent/shipgate.yaml
-agents-shipgate scan --config samples/simple_crewai_agent/shipgate.yaml
-agents-shipgate scan --config samples/clean_read_only_agent/shipgate.yaml
-```
 
 ## CI Behavior
 
@@ -353,31 +337,32 @@ See [Trust model](docs/trust-model.md) and [Security policy](SECURITY.md) for th
 
 ## GitHub Action
 
-Use a pinned release tag for CI. Set `permissions: contents: read` and run on `pull_request`:
+Drop this full advisory workflow into `.github/workflows/agents-shipgate.yml`. It runs on every PR, posts an idempotent summary comment (updates in place on re-runs), uploads the report and packet as workflow artifacts, and never fails the job. This is the same file shipped at [`examples/github-actions/01-advisory-pr-comment.yml`](examples/github-actions/01-advisory-pr-comment.yml).
 
 ```yaml
-name: Agents Shipgate
+name: Agents Shipgate (advisory)
 
 on:
   pull_request:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
-  agents-shipgate:
+  shipgate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
-          config: shipgate.yaml
           ci_mode: advisory
-          output_dir: agents-shipgate-reports
+          pr_comment: 'true'
+          shipgate_version: '0.8.0'
 ```
 
-For PR comments, add `pull-requests: write` to the job's `permissions` and set `pr_comment: "true"`.
+Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
 Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
 

@@ -280,6 +280,8 @@ glossary: https://threemoonslab.com/glossary/.
 
 ## Schemas
 
+For the short, current statement of "which fields to read", see [`docs/agent-contract-current.md`](docs/agent-contract-current.md). It is the single file that updates first when the contract bumps; the table below lists the underlying schemas.
+
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |

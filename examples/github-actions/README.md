@@ -38,14 +38,23 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ## Action outputs
 
-Useful for downstream steps:
+**Prefer for new release gates (v0.8+):**
+
+| Output | Purpose |
+|---|---|
+| `decision` | `blocked` / `review_required` / `passed`. Baseline-aware; this is the gating signal. |
+| `blocker_count` | Number of items in `release_decision.blockers`. |
+| `review_item_count` | Number of items in `release_decision.review_items`. |
+| `ci_would_fail` | `true`/`false`. Whether the active fail policy would fail CI. |
 
 ```yaml
 - id: shipgate
   uses: ThreeMoonsLab/agents-shipgate@v0.8.0
 
-- if: steps.shipgate.outputs.critical_count != '0'
-  run: echo "Action this!"
+- if: steps.shipgate.outputs.decision == 'blocked'
+  run: echo "Release blocked by Agents Shipgate"
 ```
 
-Available outputs: `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `report_json`, `report_markdown`, `exit_code`.
+**Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
+
+The PR comment posted by `pr_comment: 'true'` is idempotent: re-runs update the existing comment in place via a `<!-- agents-shipgate-pr-comment -->` sticky marker, rather than appending new comments.
