@@ -21,10 +21,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.9.json`](report-schema.v0.9.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.9"` with the required capability/intent diff fields)
+- [`report-schema.v0.10.json`](report-schema.v0.10.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.10"` with required tool-surface facts/diff fields)
+- [`report-schema.v0.9.json`](report-schema.v0.9.json) — frozen v0.9 reference schema; pre-v0.10 reports validate against this
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
+- [`packet-schema.v0.2.json`](packet-schema.v0.2.json) — JSON Schema for the Release Evidence Packet
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 
 ## Examples

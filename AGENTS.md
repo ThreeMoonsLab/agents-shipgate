@@ -187,6 +187,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+) — **read this first for release gating**
 - `release_decision.fail_policy.{would_fail_ci, exit_code}` matches the process exit code
 - `capability_facts[]`, `declared_intentions[]`, `misalignments[]`, `release_consequence`, and `suggested_scenarios[]` (v0.9+) — capability/intent diff for release review
+- `tool_surface_facts` and `tool_surface_diff` (v0.10+) — static comparison facts/deltas for answering what changed; explanatory only, not a release gate
 - `summary.{critical_count, high_count, medium_count, status}` (status preserved for v0.7 compat — see note below)
 - `findings[].{id, fingerprint, check_id, severity, tool_name, evidence, recommendation, suppressed}`
 - `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url}` (v0.7+)
@@ -194,7 +195,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) (current; emitted reports carry `report_schema_version: "0.9"`). Older reports validate against [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current; emitted reports carry `report_schema_version: "0.10"`). Older reports validate against [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
 
@@ -247,9 +248,9 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) (current).
-Older reports (`report_schema_version: "0.8"`) validate against the
-frozen [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json).
+[`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current).
+Older reports (`report_schema_version: "0.9"`) validate against the
+frozen [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json).
 Do not scrape Markdown when JSON is available.
 
 ### How do I add a new check?
@@ -283,11 +284,12 @@ glossary: https://threemoonslab.com/glossary/.
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
+| Report schema (current) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
+| Report schema (v0.9 frozen reference) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.1.json`](docs/packet-schema.v0.1.json) | `0.1` |
+| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.2.json`](docs/packet-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -306,7 +308,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
@@ -316,9 +318,9 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.1)
+### Release Evidence Packet (v0.2)
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with ten fixed sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed).
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
@@ -335,9 +337,9 @@ agents-shipgate evidence-packet --from agents-shipgate-reports/report.json --for
 Rules of the packet contract (do not break in 0.x):
 - The packet is **derived from JSON** (the in-memory scan) and is a **local artifact only** — no hosted/SaaS view.
 - §10 ("What this packet did NOT prove") **always** lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance — regardless of run state.
-- All ten sections are **always present** in `packet.json`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
+- All reviewer sections are **always present** in `packet.json`, including `tool_surface_diff`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
 - §1 verdict (`PASSED` / `REVIEW REQUIRED` / `BLOCKED`) derives from `release_decision.decision` only. CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
-- v0.1 does **not** model `agent.memory` in the manifest schema. §7 always renders "not declared, see §10" until a future schema bump adds the field.
+- v0.2 does **not** model `agent.memory` in the manifest schema. §7 always renders "not declared, see §10" until a future schema bump adds the field.
 
 Exit codes (stable):
 

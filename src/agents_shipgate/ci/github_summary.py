@@ -55,10 +55,46 @@ def write_github_step_summary(report: ReadinessReport) -> None:
                 f"Counts: critical={summary.critical_count}, "
                 f"high={summary.high_count}, medium={summary.medium_count}"
             ),
-            "",
-            f"Generated reports: {formats}.",
-            "",
         ]
     )
+    diff = report.tool_surface_diff
+    if diff.enabled:
+        lines.extend(
+            [
+                "",
+                "### What changed",
+                (
+                    f"Tools: +{diff.summary.tools_added}, "
+                    f"-{diff.summary.tools_removed}, "
+                    f"{diff.summary.tools_changed} changed. "
+                    f"New high-risk effects: "
+                    f"{diff.summary.new_high_risk_effects}. "
+                    f"Removed controls: {diff.summary.controls_removed}. "
+                    f"New findings: {diff.summary.new_findings}."
+                ),
+            ]
+        )
+        for item in _diff_highlights(report):
+            lines.append(f"- {item}")
+    elif diff.notes:
+        lines.extend(["", f"Tool-surface diff: {diff.notes[0]}"])
+    lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
+
+
+def _diff_highlights(report: ReadinessReport) -> list[str]:
+    diff = report.tool_surface_diff
+    highlights: list[str] = []
+    for item in diff.high_risk_effects:
+        if item.kind == "added":
+            highlights.append(f"New high-risk tag `{item.tag}` on `{item.tool}`")
+    for item in diff.controls:
+        if item.kind == "removed":
+            highlights.append(f"Removed `{item.control}` for `{item.tool}`")
+    for item in diff.tools:
+        if item.kind == "added":
+            highlights.append(f"Added tool `{item.name}`")
+        elif item.kind == "removed":
+            highlights.append(f"Removed tool `{item.name}`")
+    return highlights[:5]

@@ -137,7 +137,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.9"`). v0.9 adds the capability/intent diff fields; read `release_decision.decision` for release gating in new consumers.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.10"`). v0.10 adds `tool_surface_facts` and `tool_surface_diff`; read `release_decision.decision` for release gating in new consumers.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -341,7 +341,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK/LangChain/CrewAI inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.9"` and add the capability/intent diff fields while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.10"` and add tool-surface facts/diff fields while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -374,14 +374,15 @@ jobs:
         with:
           config: shipgate.yaml
           ci_mode: advisory
+          diff_base: target
           output_dir: agents-shipgate-reports
 ```
 
 For PR comments, add `pull-requests: write` to the job's `permissions` and set `pr_comment: "true"`.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for a best-effort target-branch scan in PRs; shallow checkout, missing config, schema mismatch, or scan failure disables the diff and leaves the release gate unchanged.
 
-Outputs: `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. Prefer `decision` and `ci_would_fail` over legacy `status` for new release gates.
+Outputs: `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. Prefer `decision` and `ci_would_fail` over legacy `status` for new release gates.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 
@@ -402,7 +403,7 @@ contact details.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.9](docs/report-schema.v0.9.json)
+- [JSON report schema v0.10](docs/report-schema.v0.10.json)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)

@@ -1,7 +1,7 @@
 """Pydantic models for the Release Evidence Packet.
 
 These models define the JSON contract for ``packet.json`` (validated
-against ``docs/packet-schema.v0.1.json``). Every field is explicit; no
+against the current ``docs/packet-schema.v0.*.json``). Every field is explicit; no
 free-form ``dict`` slots leak through except where the underlying scan
 data is already a stable dict (e.g. project / agent / environment
 copied from ``ReadinessReport``).
@@ -24,6 +24,7 @@ from agents_shipgate.core.models import (
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
     Severity,
+    ToolSurfaceDiffSummary,
 )
 
 VerdictLabel = Literal["PASSED", "REVIEW REQUIRED", "BLOCKED"]
@@ -90,6 +91,19 @@ class HighRiskSurfaceSection(BaseModel):
     total_tools: int = 0
     high_risk_count: int = 0
     tools: list[HighRiskToolEntry] = Field(default_factory=list)
+
+
+class ToolSurfaceDiffSection(BaseModel):
+    """§3A — compact tool-surface diff for reviewers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: SectionStatus
+    enabled: bool = False
+    base_kind: str = "none"
+    summary: ToolSurfaceDiffSummary = Field(default_factory=ToolSurfaceDiffSummary)
+    highlights: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 class ApprovalCoverageRow(BaseModel):
@@ -236,7 +250,7 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.1"] = "0.1"
+    packet_schema_version: Literal["0.2"] = "0.2"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)
@@ -246,6 +260,12 @@ class EvidencePacket(BaseModel):
     release_decision: ReleaseDecisionSection
     capability_intent: CapabilityIntentDiff
     high_risk_surface: HighRiskSurfaceSection
+    tool_surface_diff: ToolSurfaceDiffSection = Field(
+        default_factory=lambda: ToolSurfaceDiffSection(
+            status="not_declared",
+            notes=["No tool-surface diff was recorded."],
+        )
+    )
     approval_coverage: ApprovalCoverageSection
     idempotency_risk: IdempotencyRiskSection
     scope_coverage: ScopeCoverageSection
@@ -276,5 +296,6 @@ __all__ = [
     "ScopeCoverageSection",
     "SectionStatus",
     "Severity",
+    "ToolSurfaceDiffSection",
     "VerdictLabel",
 ]

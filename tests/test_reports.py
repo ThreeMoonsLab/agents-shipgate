@@ -22,6 +22,7 @@ REPORT_SCHEMA_V06 = Path("docs/report-schema.v0.6.json")
 REPORT_SCHEMA_V07 = Path("docs/report-schema.v0.7.json")
 REPORT_SCHEMA_V08 = Path("docs/report-schema.v0.8.json")
 REPORT_SCHEMA_V09 = Path("docs/report-schema.v0.9.json")
+REPORT_SCHEMA_V10 = Path("docs/report-schema.v0.10.json")
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -103,7 +104,7 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_plugins" in payload
     assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
-    assert payload["report_schema_version"] == "0.9"
+    assert payload["report_schema_version"] == "0.10"
     assert "release_decision" in payload
     assert payload["release_decision"]["decision"] in {
         "blocked",
@@ -118,6 +119,8 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
         "misalignments",
         "release_consequence",
         "suggested_scenarios",
+        "tool_surface_facts",
+        "tool_surface_diff",
     ):
         assert key in payload
 
@@ -457,9 +460,9 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v09_schema(tmp_path):
-    """v0.9 schema adds top-level capability/intent diff fields. Emitted
-    reports must validate against the v0.9 schema."""
+def test_json_report_validates_against_v10_schema(tmp_path):
+    """v0.10 schema adds top-level tool-surface diff fields. Emitted
+    reports must validate against the v0.10 schema."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -468,7 +471,7 @@ def test_json_report_validates_against_v09_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V09.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V10.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -493,6 +496,14 @@ def test_v08_schema_file_is_frozen():
         "release_consequence",
         "suggested_scenarios",
     ):
+        assert field not in schema.get("required", [])
+
+
+def test_v09_schema_file_is_frozen():
+    """v0.9 schema file stays parseable and excludes v0.10 additive fields."""
+    schema = json.loads(REPORT_SCHEMA_V09.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.9"}
+    for field in ("tool_surface_facts", "tool_surface_diff"):
         assert field not in schema.get("required", [])
 
 
@@ -621,11 +632,10 @@ def test_v08_schema_requires_release_decision():
     }
 
 
-def test_v09_schema_requires_release_decision_and_capability_diff():
-    """Top-level required must include v0.8 release_decision and v0.9
-    capability/intent diff fields."""
-    schema = json.loads(REPORT_SCHEMA_V09.read_text(encoding="utf-8"))
-    assert schema["properties"]["report_schema_version"] == {"const": "0.9"}
+def test_v10_schema_requires_release_decision_and_diffs():
+    """Top-level required must include release_decision and additive diff fields."""
+    schema = json.loads(REPORT_SCHEMA_V10.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.10"}
     assert {
         "release_decision",
         "capability_facts",
@@ -633,6 +643,8 @@ def test_v09_schema_requires_release_decision_and_capability_diff():
         "misalignments",
         "release_consequence",
         "suggested_scenarios",
+        "tool_surface_facts",
+        "tool_surface_diff",
     } <= set(schema["required"])
     assert schema["properties"]["release_decision"] == {
         "$ref": "#/$defs/ReleaseDecision"
@@ -681,10 +693,24 @@ def test_v09_schema_requires_release_decision_and_capability_diff():
         "prompt_scope_alignment",
         "test_case_coverage",
     ]
+    diff_required = set(schema["$defs"]["ToolSurfaceDiff"]["required"])
+    assert {
+        "enabled",
+        "base",
+        "summary",
+        "tools",
+        "high_risk_effects",
+        "scopes",
+        "controls",
+        "metadata_changes",
+        "policy_drift",
+        "finding_deltas",
+        "notes",
+    } <= diff_required
 
 
-def test_v09_schema_rejects_null_release_decision_and_consequence(tmp_path):
-    """A v0.9 payload with null release blocks MUST fail validation.
+def test_v10_schema_rejects_null_release_decision_and_consequence(tmp_path):
+    """A v0.10 payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
     `anyOf: [ReleaseDecision, null]` and silently accepted null."""
     import jsonschema
@@ -697,7 +723,7 @@ def test_v09_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V09.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V10.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

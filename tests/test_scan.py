@@ -264,12 +264,15 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
         baseline_path=baseline_path,
     )
 
-    assert baseline.schema_version == "0.2"
+    assert baseline.schema_version == "0.3"
+    assert baseline.tool_surface_facts is not None
     assert first_report.run_id == second_report.run_id
     assert exit_code == 0
     assert second_report.baseline is not None
     assert second_report.baseline.matched_count > 0
     assert second_report.baseline.new_count == 0
+    assert second_report.tool_surface_diff.enabled is True
+    assert second_report.tool_surface_diff.base.kind == "baseline"
     assert all(
         finding.baseline_status in {None, "matched"}
         for finding in second_report.findings
@@ -291,6 +294,40 @@ def test_baseline_save_is_idempotent_for_unchanged_findings(tmp_path):
     second = baseline_path.read_text(encoding="utf-8")
 
     assert first == second
+
+
+def test_scan_diff_from_prior_report_does_not_change_release_gate(tmp_path):
+    first_report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "base",
+        formats=["json"],
+        ci_mode="strict",
+    )
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(first_report, baseline_path)
+
+    without_diff, without_diff_exit = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "without",
+        formats=["json"],
+        ci_mode="strict",
+        baseline_path=baseline_path,
+    )
+    with_diff, with_diff_exit = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "with",
+        formats=["json"],
+        ci_mode="strict",
+        baseline_path=baseline_path,
+        diff_from_path=tmp_path / "base" / "report.json",
+    )
+
+    assert with_diff_exit == without_diff_exit
+    assert with_diff.release_decision is not None
+    assert without_diff.release_decision is not None
+    assert with_diff.release_decision.decision == without_diff.release_decision.decision
+    assert with_diff.tool_surface_diff.enabled is True
+    assert with_diff.tool_surface_diff.base.kind == "report"
 
 
 def test_baseline_scan_fails_only_on_new_findings(tmp_path):

@@ -54,6 +54,13 @@ from agents_shipgate.report.capability_diff import apply_capability_diff
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
+from agents_shipgate.report.tool_surface_diff import (
+    build_tool_surface_facts,
+    compute_tool_surface_diff,
+    disabled_tool_surface_diff,
+    load_tool_surface_diff_reference,
+    reference_from_baseline,
+)
 
 PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
 """Allowed values for ``--packet-format`` and ``output.packet.formats``."""
@@ -69,6 +76,7 @@ def run_scan(
     ci_mode: str | None = None,
     fail_on: list[str] | None = None,
     baseline_path: Path | None = None,
+    diff_from_path: Path | None = None,
     baseline_mode: str = "new-findings",
     deep_import: bool = False,
     policy_pack_paths: list[Path] | None = None,
@@ -215,6 +223,7 @@ def run_scan(
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
     baseline_summary = None
+    baseline_file = None
     if baseline_path:
         baseline_file = load_baseline(baseline_path)
         baseline_summary = apply_baseline(
@@ -262,6 +271,34 @@ def run_scan(
         langchain_artifacts,
         crewai_artifacts,
     )
+    tool_surface_facts = build_tool_surface_facts(
+        manifest,
+        tools,
+        findings,
+        api_artifacts,
+        anthropic_artifacts,
+    )
+    try:
+        if diff_from_path:
+            diff_reference = load_tool_surface_diff_reference(
+                diff_from_path,
+                display_path=_relative_display_path(diff_from_path, base_dir),
+            )
+        elif baseline_file:
+            diff_reference = reference_from_baseline(
+                baseline_file,
+                display_path=baseline_summary.path if baseline_summary else None,
+            )
+        else:
+            diff_reference = None
+        tool_surface_diff = compute_tool_surface_diff(
+            tool_surface_facts,
+            diff_reference.facts if diff_reference else None,
+            findings,
+            reference=diff_reference,
+        )
+    except InputParseError as exc:
+        tool_surface_diff = disabled_tool_surface_diff(str(exc))
     report = build_report(
         run_id=_run_id(
             manifest,
@@ -291,6 +328,8 @@ def run_scan(
         anthropic_surface=anthropic_surface,
         frameworks=frameworks_surface,
         baseline=baseline_summary,
+        tool_surface_facts=tool_surface_facts,
+        tool_surface_diff=tool_surface_diff,
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -308,6 +347,7 @@ def run_scan(
             api_artifacts=api_artifacts,
             anthropic_artifacts=anthropic_artifacts,
             source_warnings=warnings,
+            tool_surface_diff=report.tool_surface_diff,
             generated_at=packet_generated_at,
         )
         _write_packet(packet, generated_paths, packet_format_set)

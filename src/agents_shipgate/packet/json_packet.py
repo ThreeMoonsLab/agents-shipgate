@@ -13,7 +13,7 @@ from agents_shipgate.packet.models import EvidencePacket
 
 class PacketSchemaError(ValueError):
     """Raised when ``packet.json`` content does not match the expected
-    v0.1 schema (e.g. wrong ``packet_schema_version``, missing fields).
+    schema (e.g. wrong ``packet_schema_version``, missing fields).
     """
 
 
@@ -47,9 +47,9 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     """Validate ``payload`` and return an ``EvidencePacket``.
 
     ``payload`` may be a parsed dict or a raw JSON string/bytes. A
-    mismatched ``packet_schema_version`` (anything other than ``"0.1"``)
-    raises ``PacketSchemaError`` so callers can downgrade to a clean
-    error rather than a noisy validation traceback.
+    v0.1 payloads are upgraded with the default v0.2 tool-surface diff
+    section. Unsupported versions raise ``PacketSchemaError`` so callers
+    can downgrade to a clean error rather than a noisy validation traceback.
     """
 
     if isinstance(payload, (str, bytes)):
@@ -64,9 +64,22 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         raise PacketSchemaError("packet.json must be a JSON object")
 
     version = payload_dict.get("packet_schema_version")
-    if version != "0.1":
+    if version == "0.1":
+        payload_dict = {
+            **payload_dict,
+            "packet_schema_version": "0.2",
+            "tool_surface_diff": {
+                "status": "not_declared",
+                "enabled": False,
+                "base_kind": "none",
+                "summary": {},
+                "highlights": [],
+                "notes": ["No tool-surface diff was recorded."],
+            },
+        }
+    elif version != "0.2":
         raise PacketSchemaError(
-            f"unsupported packet_schema_version: {version!r}; expected '0.1'"
+            f"unsupported packet_schema_version: {version!r}; expected '0.1' or '0.2'"
         )
 
     try:

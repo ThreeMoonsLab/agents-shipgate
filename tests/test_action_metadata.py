@@ -30,6 +30,7 @@ def test_action_has_marketplace_metadata_and_outputs():
         "blocker_count",
         "review_item_count",
         "ci_would_fail",
+        "diff_enabled",
         "status",
         "critical_count",
         "high_count",
@@ -48,6 +49,9 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "steps.scan.outputs.exit_code" in text
     assert "FAIL_ON: ${{ inputs.fail_on }}" in text
     assert "BASELINE: ${{ inputs.baseline }}" in text
+    assert "DIFF_FROM: ${{ inputs.diff_from }}" in text
+    assert "DIFF_BASE: ${{ inputs.diff_base }}" in text
+    assert "args+=(--diff-from" in text
     assert "POLICY_PACKS: ${{ inputs.policy_packs }}" in text
     assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text

@@ -150,10 +150,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
+          diff_base: target
           pr_comment: "true"
 ```
 

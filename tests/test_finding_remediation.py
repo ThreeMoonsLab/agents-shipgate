@@ -352,10 +352,10 @@ def test_report_json_payload_carries_new_fields(tmp_path):
             assert key in finding, f"{finding['check_id']} missing {key} in JSON"
 
 
-def test_report_schema_version_is_v09(tmp_path):
-    """Schema version moved from 0.8 to 0.9 per the additive contract
+def test_report_schema_version_is_v10(tmp_path):
+    """Schema version moved from 0.9 to 0.10 per the additive contract
     in STABILITY.md. Old reports validate against their respective
-    schema files, but new scans emit 0.9 with the capability/intent diff."""
+    schema files, but new scans emit 0.10 with the tool-surface diff."""
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
         output_dir=tmp_path,
@@ -363,6 +363,7 @@ def test_report_schema_version_is_v09(tmp_path):
         ci_mode="advisory",
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert payload["report_schema_version"] == "0.9"
+    assert payload["report_schema_version"] == "0.10"
     assert "release_decision" in payload
     assert "misalignments" in payload
+    assert "tool_surface_diff" in payload

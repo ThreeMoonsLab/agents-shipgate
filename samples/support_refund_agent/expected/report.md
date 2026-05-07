@@ -144,6 +144,11 @@ Next validation:
 - Missing descriptions: 0
 - Sources: mcp=3, openapi=4, sdk_function=1
 
+## Tool Surface Diff
+
+- Status: disabled - No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: none
+
 ## Findings By Category
 
 ### Auth

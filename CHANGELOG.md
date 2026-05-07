@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Added JSON-first tool-surface diff for PR review. `agents-shipgate scan`
+  now emits `report_schema_version: "0.10"` with always-present
+  `tool_surface_facts` and `tool_surface_diff` fields. The diff explains
+  added/removed/changed tools, high-risk tag changes, scope drift, enforcement
+  control changes, policy drift, finding deltas, and accepted debt without
+  changing `release_decision.decision`, strict/advisory exit behavior, or SARIF.
+- Added `agents-shipgate scan --diff-from <path>` for comparing against a prior
+  `report.json` or v0.3 baseline JSON. `--baseline` still controls finding
+  baseline status and strict-mode filtering; `--diff-from` controls only
+  `tool_surface_diff`.
+- Baseline files now save as schema `0.3` with optional `tool_surface_facts`.
+  Schema `0.2` baselines continue to load for accepted-debt matching but cannot
+  enable surface diff by themselves.
+- GitHub Action adds `diff_from`, `diff_base`, and `diff_enabled`. Setting
+  `diff_base: target` performs a best-effort target-branch scan with the
+  PR-side installed package and falls back to a disabled diff note on fetch,
+  config, schema, or scan failures.
+- Release Evidence Packet schema bumped to `0.2` with a compact
+  `tool_surface_diff` section derived from the report JSON.
 - Added optional manifest-level HITL validation evidence mode under
   `validation:`. The scanner now reads local approval traces, override logs,
   high-risk auto-approval exclusions, and promotion criteria to structure

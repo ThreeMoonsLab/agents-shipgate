@@ -347,7 +347,7 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
         ci_mode="advisory",
     )
     payload = report_json_payload(report)
-    schema = json.loads(Path("docs/report-schema.v0.9.json").read_text(encoding="utf-8"))
+    schema = json.loads(Path("docs/report-schema.v0.10.json").read_text(encoding="utf-8"))
 
     assert exit_code == 0
     assert payload["summary"]["critical_count"] == 0

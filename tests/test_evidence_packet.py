@@ -64,7 +64,7 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.1"
+    assert packet.packet_schema_version == "0.2"
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):
@@ -79,13 +79,14 @@ def test_no_packet_flag_skips_packet_outputs(tmp_path):
         assert not (tmp_path / name).exists(), f"{name} should not be present"
 
 
-def test_packet_has_all_ten_sections(tmp_path):
+def test_packet_has_reviewer_sections(tmp_path):
     _, packet = _scan_with_packet(tmp_path)
     payload = serialize_packet_json(packet)
     for section in (
         "release_decision",
         "capability_intent",
         "high_risk_surface",
+        "tool_surface_diff",
         "approval_coverage",
         "idempotency_risk",
         "scope_coverage",
@@ -95,6 +96,7 @@ def test_packet_has_all_ten_sections(tmp_path):
         "not_proven",
     ):
         assert section in payload, f"missing section: {section}"
+    assert payload["tool_surface_diff"]["status"] == "not_declared"
 
 
 def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
@@ -464,7 +466,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.1"
+    assert reloaded.packet_schema_version == "0.2"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
@@ -595,7 +597,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.1"
+    assert payload["packet_schema_version"] == "0.2"
     assert payload["run_id"] == packet.run_id
 
 
