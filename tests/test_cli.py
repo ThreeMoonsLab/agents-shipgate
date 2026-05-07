@@ -817,6 +817,112 @@ def test_missing_manifest_command_quotes_workspace_with_spaces(
     assert workspace_arg == str(spaced)
 
 
+def test_doctor_workspace_dispatches_invalid_manifest(tmp_path, monkeypatch):
+    """P1 regression (round 3): doctor --workspace with an existing-but-invalid
+    shipgate.yaml must surface SHIP-DIAG-INVALID-MANIFEST pointing at the
+    actual file, not SHIP-DIAG-MISSING-MANIFEST with a detect command."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = repo / "shipgate.yaml"
+    # Schema-invalid (missing required project block) but valid YAML.
+    config.write_text("not: a manifest\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["doctor", "--workspace", str(repo)])
+
+    assert result.exit_code == 2, result.output
+    payloads = _stderr_json_lines(result.output)
+    assert payloads, result.output
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] == "edit", (
+        f"--workspace mode dispatched to {rank_one!r}, "
+        "expected SHIP-DIAG-INVALID-MANIFEST edit action"
+    )
+    assert str(config) in rank_one["path"]
+    assert not payloads[-1]["next_action"].startswith(
+        "agents-shipgate detect"
+    )
+
+
+def test_scan_glob_dispatches_invalid_manifest(tmp_path, monkeypatch):
+    """P1 regression (round 3): same dispatch must work for glob configs."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = tmp_path / "subdir"
+    repo.mkdir()
+    config = repo / "shipgate.yaml"
+    config.write_text("not: a manifest\n", encoding="utf-8")
+    glob_pattern = str(tmp_path / "*" / "shipgate.yaml")
+
+    result = runner.invoke(app, ["scan", "--config", glob_pattern])
+
+    assert result.exit_code == 2, result.output
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] == "edit"
+    assert str(config) in rank_one["path"]
+
+
+def test_glob_with_no_matches_yields_workspace_cwd_not_glob_chars(
+    tmp_path, monkeypatch
+):
+    """P1 regression (round 3): a glob with no matches must produce a
+    missing-manifest hint targeting cwd, not a workspace argument
+    containing literal `*` characters."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app, ["scan", "--config", "no_such_dir/*/shipgate.yaml"]
+    )
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    rank_one = payloads[-1]["next_actions"][0]
+    assert rank_one["kind"] == "command"
+    # No literal glob metacharacter ends up in the workspace argument.
+    import shlex as _shlex
+
+    parts = _shlex.split(rank_one["command"])
+    workspace_arg = parts[parts.index("--workspace") + 1]
+    assert "*" not in workspace_arg
+    assert "?" not in workspace_arg
+
+
+def test_artifact_only_command_quotes_workspace_with_spaces(
+    tmp_path, monkeypatch
+):
+    """P2 regression (round 3): SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY's rank-1
+    command must shell-quote the workspace path."""
+    spaced = tmp_path / "space dir" / "artifact only"
+    spaced.mkdir(parents=True)
+    # Plant an MCP file matching MCP_PATTERNS so the artifact-only
+    # diagnostic fires.
+    (spaced / "mcp-tools.json").write_text(
+        '{"tools": [{"name": "x"}]}', encoding="utf-8"
+    )
+
+    result = runner.invoke(
+        app, ["detect", "--workspace", str(spaced), "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    diag_ids = [d["id"] for d in payload["diagnostics"]]
+    assert "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY" in diag_ids
+    artifact_only = next(
+        d
+        for d in payload["diagnostics"]
+        if d["id"] == "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY"
+    )
+    command = artifact_only["next_actions"][0]["command"]
+    import shlex as _shlex
+
+    parts = _shlex.split(command)
+    assert parts[0] == "agents-shipgate"
+    workspace_arg = parts[parts.index("--workspace") + 1]
+    assert workspace_arg == str(spaced)
+
+
 def test_doctor_edit_action_paths_include_manifest_directory(tmp_path):
     """P2-3 regression: edit-action paths must include the manifest's
     directory so workspace and nested-manifest runs route the agent to

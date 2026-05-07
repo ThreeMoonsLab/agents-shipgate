@@ -308,8 +308,8 @@ def diagnose_detect(
                         NextAction(
                             kind="command",
                             command=(
-                                f"agents-shipgate init --workspace {workspace} "
-                                "--write"
+                                f"agents-shipgate init --workspace "
+                                f"{_quote_path(workspace)} --write"
                             ),
                             why=(
                                 "Artifact-only repos are valid Shipgate "

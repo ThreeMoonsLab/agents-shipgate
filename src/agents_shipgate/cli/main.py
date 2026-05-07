@@ -593,8 +593,8 @@ def doctor(
     try:
         configure_logging(verbose=verbose)
         paths = _resolve_config_paths(config=config, workspace=workspace)
-        payloads = [inspect_sources(config_path=path, verbose=verbose) for path in paths]
     except ConfigError as exc:
+        # Discovery itself failed — no candidate manifest exists.
         typer.echo(f"Config error: {exc}", err=True)
         diagnostics = _diagnose_config_error(
             config=config, workspace=workspace, exc=exc
@@ -607,6 +607,41 @@ def doctor(
             next_actions=[a.model_dump(mode="json") for a in flattened],
         )
         raise typer.Exit(2) from exc
+    payloads: list[dict[str, object]] = []
+    try:
+        for path in paths:
+            try:
+                payloads.append(inspect_sources(config_path=path, verbose=verbose))
+            except ConfigError as exc:
+                # A specific discovered manifest failed to load. If the
+                # file exists, route the agent to edit it directly
+                # (INVALID-MANIFEST) — `init` refuses to overwrite, so
+                # MISSING-MANIFEST's detect/init hint would loop. If
+                # the file is genuinely absent (only possible in the
+                # bare ``-c missing.yaml`` path, since discovery and
+                # globbing only yield existing files), fall through to
+                # the missing-manifest dispatch.
+                typer.echo(f"Config error: {exc}", err=True)
+                if path.is_file():
+                    diagnostics = diagnose_invalid_manifest(
+                        path, message=str(exc)
+                    )
+                else:
+                    diagnostics = _diagnose_config_error(
+                        config=str(path), workspace=None, exc=exc
+                    )
+                flattened = top_next_actions(diagnostics)
+                _emit_agent_mode_error(
+                    "config_error",
+                    message=str(exc),
+                    next_action=flattened[0].to_legacy_string(),
+                    next_actions=[
+                        a.model_dump(mode="json") for a in flattened
+                    ],
+                )
+                raise typer.Exit(2) from exc
+    except typer.Exit:
+        raise
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
         guidance = (
@@ -852,10 +887,14 @@ def _missing_manifest_workspace(
 
     Routes recovery to the directory the user pointed scan/doctor at
     (``-c <path>`` or ``--workspace <dir>``), not whichever directory
-    they happen to be invoking the CLI from.
+    they happen to be invoking the CLI from. For glob inputs, the parent
+    is itself a glob expression (``*``, ``foo/*``) so we fall back to
+    ``cwd`` rather than emit a non-routable path.
     """
     if workspace is not None:
         return workspace.resolve()
+    if any(char in config for char in "*?[]"):
+        return Path.cwd()
     config_path = Path(config)
     parent = config_path.parent
     if not str(parent) or str(parent) == ".":
@@ -865,6 +904,26 @@ def _missing_manifest_workspace(
     return parent.resolve()
 
 
+def _candidate_manifest_paths(
+    *, config: str, workspace: Path | None
+) -> list[Path]:
+    """Enumerate the manifest paths the user pointed scan/doctor at.
+
+    Mirrors ``_resolve_config_paths`` but does not raise — it's called
+    from inside the ``ConfigError`` handler, where re-raising would
+    obscure the original failure. Returns an empty list when nothing
+    resolves; the dispatcher then falls back to ``MISSING-MANIFEST``.
+    """
+    try:
+        if workspace is not None:
+            return list(discover_manifest_paths(workspace))
+        if any(char in config for char in "*?[]"):
+            return sorted(Path(p) for p in glob.glob(config, recursive=True))
+        return [Path(config)]
+    except Exception:  # noqa: BLE001 — diagnostic dispatch must not fail
+        return []
+
+
 def _diagnose_config_error(
     *, config: str, workspace: Path | None, exc: ConfigError
 ) -> list:
@@ -872,14 +931,18 @@ def _diagnose_config_error(
 
     ``ConfigError`` covers two distinct failure shapes:
     - the manifest file does not exist (``MISSING-MANIFEST``)
-    - the manifest exists but failed to load — invalid YAML, schema
-      validation failure, unsupported version (``INVALID-MANIFEST``)
+    - one or more candidate manifest files exist but the loader rejected
+      them — invalid YAML, schema validation failure, unsupported
+      version (``INVALID-MANIFEST``)
 
-    The caller's recovery is different in each case. Disambiguate by
-    checking whether the candidate path actually exists on disk.
+    Disambiguate by walking every candidate path the CLI invocation
+    points at (direct ``-c <file>``, ``--workspace`` discovery, or a
+    glob pattern). If any candidate is a real file, the loader is
+    choking on it — emit ``INVALID-MANIFEST`` for that file.
     """
-    if not any(char in config for char in "*?[]") and workspace is None:
-        candidate = Path(config)
+    for candidate in _candidate_manifest_paths(
+        config=config, workspace=workspace
+    ):
         if candidate.is_file():
             return diagnose_invalid_manifest(candidate, message=str(exc))
     return diagnose_missing_manifest(
