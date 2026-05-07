@@ -256,15 +256,18 @@ required_evidence:
         encoding="utf-8",
     )
 
+    reports_dir = tmp_path / "reports"
     report, exit_code = run_scan(
         config_path=tmp_path / "shipgate.yaml",
-        output_dir=tmp_path / "reports",
+        output_dir=reports_dir,
         formats=["json"],
         ci_mode="advisory",
     )
 
     assert exit_code == 0
     assert not any(finding.check_id.startswith("SHIP-EVIDENCE-") for finding in report.findings)
+    packet = json.loads((reports_dir / "packet.json").read_text(encoding="utf-8"))
+    assert packet["human_in_the_loop"]["status"] == "covered"
 
 
 def test_high_risk_exclusion_does_not_duplicate_missing_approval_policy(tmp_path):
@@ -336,6 +339,8 @@ def test_hitl_evidence_sample_outputs_are_deterministic(tmp_path):
     )
     first_report = (out / "report.json").read_text(encoding="utf-8")
     first_packet = (out / "packet.json").read_text(encoding="utf-8")
+    first_packet_md = (out / "packet.md").read_text(encoding="utf-8")
+    first_packet_html = (out / "packet.html").read_text(encoding="utf-8")
 
     run_scan(
         config_path=SAMPLE,
@@ -346,6 +351,8 @@ def test_hitl_evidence_sample_outputs_are_deterministic(tmp_path):
 
     assert first_report == (out / "report.json").read_text(encoding="utf-8")
     assert first_packet == (out / "packet.json").read_text(encoding="utf-8")
+    assert first_packet_md == (out / "packet.md").read_text(encoding="utf-8")
+    assert first_packet_html == (out / "packet.html").read_text(encoding="utf-8")
 
 
 def _write_tools(path: Path) -> None:

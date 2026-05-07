@@ -276,6 +276,10 @@ evidence checks, and every `required_evidence` flag defaults to `false`.
 When `target_review_posture: limited_auto_approval` is declared, the scanner
 expects all three canonical evidence flags to be explicitly true and expects a
 local promotion criteria file documenting the same posture and flags.
+If you target `limited_auto_approval` without setting all three canonical
+evidence flags to `true`, only the promotion-criteria finding surfaces; the
+underlying approval trace, override reason, and high-risk exclusion checks stay
+disabled until their flags are enabled.
 
 ### Producing validation evidence
 
@@ -292,6 +296,10 @@ fields as OpenAI API traces:
 {"tool_name":"issue_refund","approved":true,"success":true}
 ```
 
+A JSON object without a recognized list key is treated as one trace event for
+compatibility with the existing trace loader; prefer arrays or JSONL for
+multi-event files.
+
 `override_logs` are JSON arrays or JSONL. The scanner reads only the
 framework-neutral fields below and preserves other fields for the producing
 system:
@@ -300,8 +308,10 @@ system:
 {"tool_name":"issue_refund","action":"override","reason":"manager approved","actor":"ops-lead","timestamp":"2026-05-06T17:00:00Z"}
 ```
 
-`action` must be one of `override`, `bypass`, or `auto_approve`. `reason` must
-be non-empty for each normalized override event.
+`action` is a closed enum and must be one of `override`, `bypass`, or
+`auto_approve`. Events with any other action value, such as `denied`, are
+reported as loader warnings and do not count as override reason evidence.
+`reason` must be non-empty for each normalized override event.
 
 `high_risk_exclusions` are YAML or JSON only:
 
