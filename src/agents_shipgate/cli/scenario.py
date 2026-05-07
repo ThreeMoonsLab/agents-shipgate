@@ -29,7 +29,7 @@ from agents_shipgate.core.models import (
 )
 
 SCENARIO_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-ACTIVE_SCENARIO_SEVERITIES = {"critical", "high"}
+ACTIVE_SCENARIO_SEVERITIES = {"critical", "high", "medium"}
 
 scenario_app = typer.Typer(
     help="Export dynamic validation scenario suggestions.",
@@ -85,10 +85,7 @@ def scenario_suggest(
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
-            next_action=(
-                "Run agents-shipgate scan -c shipgate.yaml --format json, "
-                "then pass agents-shipgate-reports/report.json."
-            ),
+            next_action="Inspect the error message and adjust --from or --out accordingly.",
         )
         raise typer.Exit(2) from exc
 
@@ -170,7 +167,7 @@ def _scenario_rows(report: ReadinessReport) -> list[ScenarioRow]:
                 continue
             for finding_ref in misalignment.finding_refs:
                 finding = findings_by_ref.get(finding_ref)
-                if finding is None or not _active_high_or_critical(finding):
+                if finding is None or not _active_scenario_finding(finding):
                     continue
                 finding_id = _finding_id(finding)
                 for tool_name in _row_tools(finding, misalignment, known_tool_names):
@@ -269,7 +266,7 @@ def _row_ids(rows: list[ScenarioRow]) -> list[str]:
         return ids
 
     collision_counts = Counter(ids)
-    return [
+    ids = [
         (
             f"{row_id}_{_short_ref(row.misalignment_id)}"
             if collision_counts[row_id] > 1
@@ -277,9 +274,11 @@ def _row_ids(rows: list[ScenarioRow]) -> list[str]:
         )
         for row, row_id in zip(rows, ids, strict=True)
     ]
+    assert len(set(ids)) == len(ids), "scenario ids must be unique"
+    return ids
 
 
-def _active_high_or_critical(finding: Finding) -> bool:
+def _active_scenario_finding(finding: Finding) -> bool:
     return not finding.suppressed and finding.severity in ACTIVE_SCENARIO_SEVERITIES
 
 
@@ -293,6 +292,9 @@ def _finding_id(finding: Finding) -> str:
 
 
 def _known_tool_names(report: ReadinessReport) -> set[str]:
+    # Serialized reports do not carry the live Tool objects available to
+    # capability_diff.py; tool_inventory is the stable report field that
+    # mirrors the loaded tool surface for post-scan consumers.
     names: set[str] = set()
     for item in report.tool_inventory:
         name = item.get("name")
@@ -307,7 +309,7 @@ def _row_tools(
     known_tool_names: set[str],
 ) -> list[str | None]:
     names = set(finding_tool_names(finding, known_tool_names))
-    if misalignment.tool_name:
+    if misalignment.tool_name and misalignment.tool_name in known_tool_names:
         names.add(misalignment.tool_name)
     if not names:
         return [None]

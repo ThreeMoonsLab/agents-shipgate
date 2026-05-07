@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `agents-shipgate scenario suggest`, a YAML export that fans out
+  `report.json.suggested_scenarios[]` into concrete per-finding/per-tool
+  dynamic validation steps.
+
 ## 0.8.0 - 2026-05-05
 
 - Report schema bumped to `v0.8`. New top-level required `release_decision` block:

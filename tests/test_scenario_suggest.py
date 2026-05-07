@@ -18,7 +18,7 @@ from agents_shipgate.core.models import (
 from agents_shipgate.report.json_report import report_json_payload
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
-ACTIVE_SCENARIO_SEVERITIES = {"critical", "high"}
+ACTIVE_SCENARIO_SEVERITIES = {"critical", "high", "medium"}
 
 runner = CliRunner()
 
@@ -66,7 +66,7 @@ def test_scenario_suggest_writes_yaml_from_report_scenarios(tmp_path):
     assert "Wrote" in result.output
 
 
-def test_scenario_suggest_covers_reachable_active_high_and_critical_findings(tmp_path):
+def test_scenario_suggest_covers_reachable_active_scenario_findings(tmp_path):
     report_path = _sample_report_path(tmp_path)
     out_path = tmp_path / "suggested-scenarios.yaml"
     result = runner.invoke(
@@ -106,6 +106,11 @@ def test_scenario_suggest_covers_reachable_active_high_and_critical_findings(tmp
     )
     assert wildcard["id"] in row_finding_ids
     assert owner["id"] in row_finding_ids
+    assert any(
+        findings[finding_id]["severity"] == "medium"
+        for finding_id in row_finding_ids
+        if finding_id in findings
+    )
 
 
 def test_scenario_suggest_output_is_reproducible(tmp_path):
@@ -290,6 +295,22 @@ def test_scenario_suggest_rejects_bad_inputs(tmp_path):
         assert result.exit_code == 2, (args, result.output)
 
 
+def test_scenario_suggest_accepts_future_minor_report_schema(tmp_path):
+    report_path = _sample_report_path(tmp_path)
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload["report_schema_version"] = "0.10"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+    out_path = tmp_path / "suggested-scenarios.yaml"
+
+    result = runner.invoke(
+        app,
+        ["scenario", "suggest", "--from", str(report_path), "--out", str(out_path)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _load_yaml(out_path)["scenarios"]
+
+
 def test_scenario_suggest_agent_mode_error_includes_next_action(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
 
@@ -305,5 +326,6 @@ def test_scenario_suggest_agent_mode_error_includes_next_action(tmp_path, monkey
     assert json_lines
     payload = json.loads(json_lines[-1])
     assert payload["error"] == "input_parse_error"
-    assert "next_action" in payload
-
+    assert payload["next_action"] == (
+        "Inspect the error message and adjust --from or --out accordingly."
+    )

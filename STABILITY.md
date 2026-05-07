@@ -71,7 +71,8 @@ Stable YAML fields:
 - `scenarios[].{id, scenario_type, derived_from, finding_id, source_scenario_id, source_misalignment_id, tool, adversarial_goal, expected_control}`
 
 Suppressed findings are omitted. Baseline-matched findings are included because
-they represent accepted debt, not resolved risk.
+they represent accepted debt, not resolved risk. `adversarial_goal` text may
+evolve in minor releases; the field itself remains stable.
 
 #### `release_decision.decision` vs `summary.status`
 
