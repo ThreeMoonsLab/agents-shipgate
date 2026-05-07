@@ -33,6 +33,11 @@ class SourceReference(BaseModel):
     type: str
     ref: str | None = None
     location: str | None = None
+    path: str | None = None
+    start_line: int | None = None
+    end_line: int | None = None
+    start_column: int | None = None
+    pointer: str | None = None
 
 
 class AuthInfo(BaseModel):
@@ -78,6 +83,11 @@ class Tool(BaseModel):
     source_id: str | None = None
     source_ref: str | None = None
     source_location: str | None = None
+    source_path: str | None = None
+    source_start_line: int | None = None
+    source_end_line: int | None = None
+    source_start_column: int | None = None
+    source_pointer: str | None = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     parameters: list[ToolParameter] = Field(default_factory=list)
@@ -799,7 +809,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.10"
+    report_schema_version: str = "0.11"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

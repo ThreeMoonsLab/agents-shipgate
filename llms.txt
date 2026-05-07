@@ -55,7 +55,7 @@
 
 - Markdown report: `agents-shipgate-reports/report.md`.
 - JSON report: `agents-shipgate-reports/report.json`.
-- JSON report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.10.json
+- JSON report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.11.json
 - Release Evidence Packet (Markdown / JSON / HTML, optional PDF): `agents-shipgate-reports/packet.{md,json,html}`.
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.2.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
@@ -88,7 +88,7 @@
 - Discovery metadata: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
 - Website discovery metadata: https://threemoonslab.com/.well-known/agents-shipgate.json
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
-- Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.10.json
+- Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.11.json
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.2.json
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 

@@ -205,6 +205,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `release_decision.fail_policy.{would_fail_ci, exit_code}` matches the process exit code
 - `capability_facts[]`, `declared_intentions[]`, `misalignments[]`, `release_consequence`, and `suggested_scenarios[]` (v0.9+) — capability/intent diff for release review
 - `tool_surface_facts` and `tool_surface_diff` (v0.10+) — static comparison facts/deltas for answering what changed; explanatory only, not a release gate
+- `findings[].source.{path, start_line, end_line, start_column, pointer}` (v0.11+) — minimal source provenance for the common tool-source loaders (OpenAPI, MCP, OpenAI tool artifacts, Anthropic tool artifacts). Optional and additive — keys appear only when the loader populates them.
 - `summary.{critical_count, high_count, medium_count, status}` (status preserved for v0.7 compat — see note below)
 - `findings[].{id, fingerprint, check_id, severity, tool_name, evidence, recommendation, suppressed}`
 - `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url}` (v0.7+)
@@ -212,7 +213,7 @@ Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fie
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current; emitted reports carry `report_schema_version: "0.10"`). Older reports validate against [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current; emitted reports carry `report_schema_version: "0.11"`). Older reports validate against [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
 
@@ -265,9 +266,9 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current).
-Older reports (`report_schema_version: "0.9"`) validate against the
-frozen [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json).
+[`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current).
+Older reports (`report_schema_version: "0.10"`) validate against the
+frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
 
 ### How do I add a new check?
@@ -303,7 +304,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
+| Report schema (current) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
+| Report schema (v0.10 frozen reference) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
 | Report schema (v0.9 frozen reference) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |

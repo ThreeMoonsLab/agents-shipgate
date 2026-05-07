@@ -7,7 +7,7 @@ from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
-    load_structured_file,
+    load_structured_file_with_positions,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -19,13 +19,16 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
     assert source.path is not None
     path = resolve_input_path(base_dir, source.path)
     source_ref = source.path
-    data = load_structured_file(path)
+    data, positions = load_structured_file_with_positions(path)
     warnings: list[str] = []
 
+    pointer_prefix: str
     if isinstance(data, list):
         raw_tools = data
+        pointer_prefix = ""
     elif isinstance(data, dict):
         raw_tools = data.get("tools")
+        pointer_prefix = "/tools"
         if data.get("wildcard") is True or raw_tools == "*":
             if isinstance(raw_tools, list) and raw_tools:
                 raise InputParseError(
@@ -58,7 +61,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
 
     tools: list[Tool] = []
     seen_names: set[str] = set()
-    for raw in raw_tools:
+    for index, raw in enumerate(raw_tools):
         if not isinstance(raw, dict):
             warnings.append("Skipping non-object MCP tool entry")
             continue
@@ -76,6 +79,15 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
         output_schema = _first_present(raw, ["outputSchema", "output_schema"]) or {}
         annotations = raw.get("annotations") or {}
         auth = raw.get("auth") or {}
+        pointer = f"{pointer_prefix}/{index}"
+        pos = positions.lookup(pointer)
+        source_start_line: int | None = None
+        source_start_column: int | None = None
+        if pos is not None:
+            source_start_line, source_start_column = pos
+        # `source_location` stays None: the legacy `path:line` string is
+        # part of the `run_id` hash and v0.10 MCP tools never set it.
+        # Reviewers get the line through the structured fields below.
         tool = Tool(
             id=stable_tool_id(str(name)),
             name=name_text,
@@ -83,6 +95,10 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             source_type="mcp",
             source_id=source.id,
             source_ref=source_ref,
+            source_path=source_ref,
+            source_start_line=source_start_line,
+            source_start_column=source_start_column,
+            source_pointer=pointer,
             input_schema=input_schema if isinstance(input_schema, dict) else {},
             output_schema=output_schema if isinstance(output_schema, dict) else {},
             parameters=schema_to_parameters(input_schema),

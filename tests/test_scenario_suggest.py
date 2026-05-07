@@ -298,7 +298,7 @@ def test_scenario_suggest_rejects_bad_inputs(tmp_path):
 def test_scenario_suggest_accepts_future_minor_report_schema(tmp_path):
     report_path = _sample_report_path(tmp_path)
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    payload["report_schema_version"] = "0.10"
+    payload["report_schema_version"] = "0.99"
     report_path.write_text(json.dumps(payload), encoding="utf-8")
     out_path = tmp_path / "suggested-scenarios.yaml"
 

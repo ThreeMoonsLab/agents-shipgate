@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import yaml
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.error import YAMLError
 
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import ToolParameter
@@ -139,3 +142,168 @@ def infer_schema_type(schema: dict[str, Any]) -> str | None:
     if "items" in schema:
         return "array"
     return None
+
+
+def json_pointer_escape(part: str) -> str:
+    """RFC 6901 escape: ``~`` → ``~0``, ``/`` → ``~1`` (in that order)."""
+    return part.replace("~", "~0").replace("/", "~1")
+
+
+def json_pointer_unescape(part: str) -> str:
+    """Inverse of ``json_pointer_escape``."""
+    return part.replace("~1", "/").replace("~0", "~")
+
+
+class PositionIndex:
+    """Lookup of (line, column) positions by RFC 6901 JSON pointer.
+
+    All positions are 1-based. ``lookup`` returns the parent's key/item
+    location — for the pointer ``/paths/~1refunds/post`` the result is the
+    line of the ``post:`` key, not the first child line inside that
+    operation. Returning the child node's first content line gives wrong
+    results for collapsed mappings.
+
+    ``supported`` is ``False`` for inputs that cannot carry positions
+    (e.g. JSON in v0.11). Lookups always return ``None`` in that case.
+    """
+
+    __slots__ = ("_positions", "_supported")
+
+    def __init__(
+        self,
+        positions: dict[str, tuple[int, int]] | None = None,
+        *,
+        supported: bool = True,
+    ) -> None:
+        self._positions: dict[str, tuple[int, int]] = positions or {}
+        self._supported = supported
+
+    @property
+    def supported(self) -> bool:
+        return self._supported
+
+    def lookup(self, pointer: str) -> tuple[int, int] | None:
+        if not self._supported:
+            return None
+        return self._positions.get(pointer)
+
+
+_EMPTY_INDEX = PositionIndex(supported=False)
+_YAML_RT = YAML(typ="rt")
+
+
+def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]:
+    """Load JSON/YAML and (for YAML) build a position index for findings.
+
+    Mirrors :func:`load_structured_file` but additionally returns a
+    :class:`PositionIndex`. The returned data is plain :class:`dict` /
+    :class:`list` (ruamel-specific node types are stripped) so existing
+    consumers that compare against literals keep working byte-for-byte.
+
+    JSON inputs return ``(data, PositionIndex(supported=False))``;
+    callers can still build pointers (e.g. ``/tools/3``) without a line
+    number, which is strictly better than today's nothing.
+    """
+    if not path.exists():
+        raise InputParseError(f"Input file not found: {path}")
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise InputParseError(f"Unable to inspect input file {path}: {exc}") from exc
+    if size > MAX_INPUT_FILE_BYTES:
+        raise InputParseError(
+            f"Input file too large: {path} is {size} bytes; "
+            f"maximum is {MAX_INPUT_FILE_BYTES} bytes"
+        )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
+
+    stripped = text.lstrip()
+    is_json = path.suffix.lower() == ".json" or stripped.startswith(("{", "["))
+    if is_json:
+        try:
+            return json.loads(text), _EMPTY_INDEX
+        except json.JSONDecodeError as exc:
+            raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
+
+    try:
+        parsed = _YAML_RT.load(text)
+    except YAMLError as exc:
+        raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
+
+    positions: dict[str, tuple[int, int]] = {}
+    _walk_for_positions(parsed, "", positions)
+    return _to_plain(parsed), PositionIndex(positions)
+
+
+def _walk_for_positions(
+    node: Any,
+    pointer: str,
+    out: dict[str, tuple[int, int]],
+) -> None:
+    """Populate ``out`` with parent key/item positions for each pointer."""
+    if isinstance(node, CommentedMap):
+        for key in node:
+            key_text = str(key)
+            child_pointer = f"{pointer}/{json_pointer_escape(key_text)}"
+            try:
+                pos = node.lc.key(key)
+            except Exception:  # noqa: BLE001 — ruamel raises a variety of types
+                pos = None
+            if pos is not None:
+                out[child_pointer] = (pos[0] + 1, pos[1] + 1)
+            _walk_for_positions(node[key], child_pointer, out)
+    elif isinstance(node, CommentedSeq):
+        for idx, item in enumerate(node):
+            child_pointer = f"{pointer}/{idx}"
+            try:
+                pos = node.lc.item(idx)
+            except Exception:  # noqa: BLE001
+                pos = None
+            if pos is not None:
+                out[child_pointer] = (pos[0] + 1, pos[1] + 1)
+            _walk_for_positions(item, child_pointer, out)
+
+
+def _to_plain(node: Any) -> Any:
+    """Convert ruamel CommentedMap/CommentedSeq to plain dict/list."""
+    if isinstance(node, dict):
+        return {key: _to_plain(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_to_plain(item) for item in node]
+    return node
+
+
+def iter_tool_items(
+    data: Any,
+) -> Iterator[tuple[int, str, dict[str, Any]]]:
+    """Yield ``(original_index, pointer, item)`` for each tool-shaped item.
+
+    Pointer convention:
+
+    - ``dict`` with a ``tools`` list → ``/tools/{i}`` per item
+    - top-level ``list`` → ``/{i}`` per item
+    - singleton ``dict`` → ``''`` (one yield, index 0)
+
+    Non-dict items are skipped but **still consume the original index**,
+    so surviving items retain their source index even when the loader
+    filters earlier entries. This is intentional — the existing
+    ``_tool_items`` helpers in openai_api/anthropic_api filter first and
+    then ``enumerate``, which produces ``#i`` source refs that don't
+    match the actual file position.
+    """
+    if isinstance(data, list):
+        for i, item in enumerate(data):
+            if isinstance(item, dict):
+                yield (i, f"/{i}", item)
+        return
+    if isinstance(data, dict):
+        tools = data.get("tools")
+        if isinstance(tools, list):
+            for i, item in enumerate(tools):
+                if isinstance(item, dict):
+                    yield (i, f"/tools/{i}", item)
+            return
+        yield (0, "", data)

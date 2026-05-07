@@ -24,10 +24,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CURRENT_REPORT_SCHEMA = "report-schema.v0.10.json"
-CURRENT_REPORT_SCHEMA_VERSION = "0.10"
-# v0.9 became a frozen reference once main shipped v0.10 (tool-surface diff).
-LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9)\.json")
+CURRENT_REPORT_SCHEMA = "report-schema.v0.11.json"
+CURRENT_REPORT_SCHEMA_VERSION = "0.11"
+# v0.10 became a frozen reference once main shipped v0.11 (source provenance).
+LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9|10)\.json")
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 SUMMARY_STATUS_PATTERN = re.compile(
     r"summary\.status\b|summary\.\{[^}]*status[^}]*\}"

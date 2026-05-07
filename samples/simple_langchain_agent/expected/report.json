@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.9",
+  "report_schema_version": "0.11",
   "run_id": "agents_shipgate_09ab0114a3ecb63a",
-  "manifest_dir": "<REPO>/samples/simple_langchain_agent",
+  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/zealous-bell-c327f7/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
   },
@@ -116,6 +116,94 @@
     "wildcard_tools": 0,
     "missing_descriptions": 0
   },
+  "tool_surface_facts": {
+    "tools": [
+      {
+        "name": "lookup_case",
+        "source_type": "langchain_function",
+        "source_id": "langchain_agent",
+        "source_ref": "agent.py",
+        "risk_tags": [
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "medium",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "5739a14a33cd4e83",
+          "description": "5964fcbc6e4d1fd4",
+          "input_schema": "15aa3ad548f35e11",
+          "output_schema": "ff419ebbeba438f6",
+          "parameters": "27a4ea845d60ed09",
+          "annotations": "c130e86ec513819b"
+        }
+      },
+      {
+        "name": "summarize_case",
+        "source_type": "langchain_structured_tool",
+        "source_id": "langchain_agent",
+        "source_ref": "agent.py",
+        "risk_tags": [],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "medium",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "5739a14a33cd4e83",
+          "description": "f60def41dd0be85a",
+          "input_schema": "2d62471dcaa30290",
+          "output_schema": "ff419ebbeba438f6",
+          "parameters": "f5d7d1b59ebbfed2",
+          "annotations": "c130e86ec513819b"
+        }
+      }
+    ],
+    "scopes": [],
+    "controls": [],
+    "policies": []
+  },
+  "tool_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "tools_added": 0,
+      "tools_removed": 0,
+      "tools_changed": 0,
+      "new_scopes": 0,
+      "removed_scopes": 0,
+      "new_high_risk_effects": 0,
+      "removed_high_risk_effects": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "policy_drift_items": 0,
+      "new_findings": 0,
+      "resolved_findings": 0,
+      "unchanged_findings": 0,
+      "accepted_debt": 0
+    },
+    "tools": [],
+    "high_risk_effects": [],
+    "scopes": [],
+    "controls": [],
+    "metadata_changes": [],
+    "policy_drift": [],
+    "finding_deltas": {
+      "new_findings": [],
+      "resolved_findings": [],
+      "unchanged_findings": [],
+      "accepted_debt": []
+    },
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ]
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {
@@ -134,8 +222,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "<TMP>/report.md",
-    "json": "<TMP>/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp7pdbiys3/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp7pdbiys3/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

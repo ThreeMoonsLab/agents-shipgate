@@ -84,5 +84,5 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema: [`report-schema.v0.10.json`](report-schema.v0.10.json)
+- Report schema: [`report-schema.v0.11.json`](report-schema.v0.11.json)
 - Check catalog: [`checks.json`](checks.json)

@@ -90,19 +90,19 @@ Actual capabilities:
 
 Policy/control gaps:
 
-- CRITICAL control\_missing \[stripe.create\_refund\]: stripe.create\_refund lacks idempotency evidence.
+- CRITICAL control\_missing \[stripe.create\_refund\]: stripe.create\_refund lacks idempotency evidence. (at specs/support-tools.openapi.yaml:97)
   Requires: Risky write tools need idempotency evidence before retryable release.
   Release implication: Retries could duplicate financial, destructive, or external effects.
-- CRITICAL policy\_gap \[stripe.create\_refund\]: stripe.create\_refund lacks a declared approval policy.
+- CRITICAL policy\_gap \[stripe.create\_refund\]: stripe.create\_refund lacks a declared approval policy. (at specs/support-tools.openapi.yaml:97)
   Requires: High-risk tools must have a declared approval policy.
   Release implication: Release is blocked until approval is declared or the tool is removed.
-- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email accepts broad free-form action input.
+- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email accepts broad free-form action input. (at .agents-shipgate/mcp-tools.json)
   Requires: Action-like tool inputs must constrain high-blast-radius fields.
   Release implication: Release reviewers cannot bound the operation payload safely.
-- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks idempotency evidence.
+- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks idempotency evidence. (at .agents-shipgate/mcp-tools.json)
   Requires: Risky write tools need idempotency evidence before retryable release.
   Release implication: Retries could duplicate financial, destructive, or external effects.
-- HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner.
+- HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner. (at specs/support-tools.openapi.yaml:116)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
 - 13 more in report.json

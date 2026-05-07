@@ -40,6 +40,7 @@ SAMPLE_MANIFEST = SAMPLES / "support_refund_agent" / "shipgate.yaml"
 REPORT_SCHEMA_V07 = REPO_ROOT / "docs" / "report-schema.v0.7.json"
 REPORT_SCHEMA_V08 = REPO_ROOT / "docs" / "report-schema.v0.8.json"
 REPORT_SCHEMA_V10 = REPO_ROOT / "docs" / "report-schema.v0.10.json"
+REPORT_SCHEMA_V11 = REPO_ROOT / "docs" / "report-schema.v0.11.json"
 
 REQUIRED_REMEDIATION_KEYS = (
     "autofix_safe",
@@ -138,10 +139,11 @@ def test_report_json_populates_metadata_with_suggest_patches(tmp_path):
 # --- v0.7 schema validation ------------------------------------------------
 
 
-def test_report_json_validates_against_v10_schema_with_patches(tmp_path):
+def test_report_json_validates_against_v11_schema_with_patches(tmp_path):
     """v0.7 contract: every active finding has the four remediation
-    fields populated. v0.10 adds tool-surface diff fields on top.
-    Validate against the current v0.10 schema (the v0.7 file stays
+    fields populated. v0.11 adds optional source provenance keys on
+    findings[].source on top of v0.10's tool-surface diff fields.
+    Validate against the current v0.11 schema (the v0.7 file stays
     frozen — see test_reports.py::test_v07_schema_file_is_frozen)."""
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
@@ -151,11 +153,11 @@ def test_report_json_validates_against_v10_schema_with_patches(tmp_path):
         suggest_patches=True,
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    schema = json.loads(REPORT_SCHEMA_V10.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V11.read_text(encoding="utf-8"))
     validate(instance=payload, schema=schema)
 
 
-def test_report_schema_version_is_v10_in_emitted_report(tmp_path):
+def test_report_schema_version_is_v11_in_emitted_report(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
         output_dir=tmp_path,
@@ -163,7 +165,7 @@ def test_report_schema_version_is_v10_in_emitted_report(tmp_path):
         ci_mode="advisory",
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert payload["report_schema_version"] == "0.10"
+    assert payload["report_schema_version"] == "0.11"
 
 
 # --- Catalog-vs-Finding contract holds in practice -------------------------

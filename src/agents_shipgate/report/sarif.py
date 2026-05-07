@@ -116,21 +116,42 @@ def _level(severity: str) -> str:
 def _location(finding: Finding) -> dict[str, Any] | None:
     if not finding.source:
         return None
-    uri = finding.source.location or finding.source.ref
-    if not uri:
-        return None
-    artifact_uri, line = _split_location(uri)
+    source = finding.source
+    artifact_uri: str | None = None
+    line: int | None = None
+    end_line: int | None = None
+    start_column: int | None = None
+    if source.path:
+        artifact_uri = source.path
+        line = source.start_line
+        end_line = source.end_line
+        start_column = source.start_column
+    else:
+        uri = source.location or source.ref
+        if not uri:
+            return None
+        artifact_uri, line = _split_location(uri)
     physical_location: dict[str, Any] = {
         "artifactLocation": {"uri": artifact_uri},
     }
+    region: dict[str, Any] = {}
     if line is not None:
-        physical_location["region"] = {"startLine": line}
-    return {
+        region["startLine"] = line
+    if end_line is not None:
+        region["endLine"] = end_line
+    if start_column is not None:
+        region["startColumn"] = start_column
+    if region:
+        physical_location["region"] = region
+    location: dict[str, Any] = {
         "physicalLocation": physical_location,
         "logicalLocations": [
             {"name": finding.tool_name or finding.agent_id or finding.check_id}
         ],
     }
+    if source.pointer:
+        location["properties"] = {"shipgatePointer": source.pointer}
+    return location
 
 
 def _split_location(value: str) -> tuple[str, int | None]:

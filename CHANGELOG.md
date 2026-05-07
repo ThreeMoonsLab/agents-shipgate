@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Added minimal source provenance to findings. `agents-shipgate scan` now
+  emits `report_schema_version: "0.11"` with optional structured location
+  keys on `findings[].source`: `path`, `start_line`, `end_line`,
+  `start_column`, and `pointer` (RFC 6901). Populated for the common
+  tool-source loaders (OpenAPI, MCP, OpenAI tool artifacts, Anthropic
+  tool artifacts) when the source file is YAML; JSON inputs carry `path`
+  and `pointer` but no line. SARIF emits the position via
+  `physicalLocation.region.startLine` (and `endLine` / `startColumn`
+  when present), with the JSON pointer under
+  `properties.shipgatePointer`. Capability-Intent Diff markdown appends
+  `(at path:line)` to misalignment rows when provenance is available.
+  `run_id` explicitly excludes the new provenance fields so YAML line
+  drift cannot churn the hash. Reports without populated provenance
+  remain byte-identical to v0.10 because `report_json_payload` strips
+  unset keys.
 - Added JSON-first tool-surface diff for PR review. `agents-shipgate scan`
   now emits `report_schema_version: "0.10"` with always-present
   `tool_surface_facts` and `tool_surface_diff` fields. The diff explains

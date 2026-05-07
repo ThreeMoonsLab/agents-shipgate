@@ -85,19 +85,19 @@ Actual capabilities:
 
 Policy/control gaps:
 
-- HIGH control\_missing \[create\_refund\]: create\_refund.amount has no maximum bound.
+- HIGH control\_missing \[create\_refund\]: create\_refund.amount has no maximum bound. (at tools/openai-tools.json)
   Requires: Risky numeric parameters must declare a maximum or equivalent limit.
   Release implication: Release reviewers cannot verify blast-radius limits.
-- HIGH control\_missing \[create\_refund\]: create\_refund function schema is not strict enough.
+- HIGH control\_missing \[create\_refund\]: create\_refund function schema is not strict enough. (at tools/openai-tools.json)
   Requires: API function schemas must be strict enough for reliable tool calls.
   Release implication: The model may send ambiguous or overbroad tool arguments.
-- HIGH control\_missing \[create\_refund\]: create\_refund is high-risk but has no owner.
+- HIGH control\_missing \[create\_refund\]: create\_refund is high-risk but has no owner. (at tools/openai-tools.json)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
-- HIGH control\_missing \[create\_refund\]: create\_refund lacks idempotency evidence.
+- HIGH control\_missing \[create\_refund\]: create\_refund lacks idempotency evidence. (at tools/openai-tools.json)
   Requires: Risky write tools need idempotency evidence before retryable release.
   Release implication: Retries could duplicate financial, destructive, or external effects.
-- HIGH control\_missing \[send\_customer\_email\]: send\_customer\_email lacks idempotency evidence.
+- HIGH control\_missing \[send\_customer\_email\]: send\_customer\_email lacks idempotency evidence. (at tools/openai-tools.json)
   Requires: Risky write tools need idempotency evidence before retryable release.
   Release implication: Retries could duplicate financial, destructive, or external effects.
 - 18 more in report.json
