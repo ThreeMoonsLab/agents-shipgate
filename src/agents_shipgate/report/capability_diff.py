@@ -65,6 +65,7 @@ RELEASE_RELEVANT_CATEGORIES = {
     "auth",
     "crewai",
     "documentation",
+    "evidence",
     "inventory",
     "langchain",
     "manifest",
@@ -281,6 +282,30 @@ CHECK_DIFF_MAP: dict[str, DiffSpec] = {
         policy_requirement="Trace evidence for confirmation-controlled tools must show confirmation.",
         release_implication="Observed sample evidence contradicts the confirmation expectation.",
         scenario_type="confirmation",
+    ),
+    "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING": DiffSpec(
+        kind="policy_gap",
+        policy_requirement="Local HITL evidence must show approval before approval-controlled tool calls.",
+        release_implication="Reviewers do not have local approval trace evidence for the approval-controlled action.",
+        scenario_type="approval",
+    ),
+    "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Local HITL override evidence must record non-empty reasons.",
+        release_implication="Reviewers do not have local reason evidence for override, bypass, or auto-approval events.",
+        scenario_type=None,
+    ),
+    "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="High-risk tools with approval policy must have local auto-approval exclusion evidence.",
+        release_implication="Reviewers do not have local evidence that the high-risk tool is excluded from auto-approval.",
+        scenario_type=None,
+    ),
+    "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING": DiffSpec(
+        kind="control_missing",
+        policy_requirement="Limited auto-approval review posture requires local promotion criteria evidence.",
+        release_implication="Reviewers do not have the local criteria evidence needed to evaluate that review posture.",
+        scenario_type=None,
     ),
 }
 
@@ -553,6 +578,13 @@ def _diff_spec(finding: Finding) -> DiffSpec:
             policy_requirement="Tool documentation must include enough static metadata for review.",
             release_implication="Release reviewers lack the static description needed to assess behavior.",
             scenario_type="schema_boundary",
+        )
+    if finding.category == "evidence":
+        return DiffSpec(
+            kind="control_missing",
+            policy_requirement="Local validation evidence must match the declared review posture.",
+            release_implication="Release reviewers lack local evidence needed to evaluate the declared review posture.",
+            scenario_type=None,
         )
     return DiffSpec(
         kind="undetected_gap",

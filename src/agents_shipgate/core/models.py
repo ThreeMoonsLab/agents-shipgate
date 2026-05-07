@@ -456,6 +456,22 @@ class AnthropicArtifacts(BaseModel):
         }
 
 
+class ValidationArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    approval_trace_files: list[str] = Field(default_factory=list)
+    approval_traces: list[dict[str, Any]] = Field(default_factory=list)
+    override_log_files: list[str] = Field(default_factory=list)
+    override_events: list[dict[str, Any]] = Field(default_factory=list)
+    high_risk_exclusion_files: list[str] = Field(default_factory=list)
+    high_risk_auto_approval_exclusions: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
+    promotion_criteria_files: list[str] = Field(default_factory=list)
+    promotion_criteria: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class GoogleAdkToolset(BaseModel):
     model_config = ConfigDict(extra="allow")
 

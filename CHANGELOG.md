@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Added optional manifest-level HITL validation evidence mode under
+  `validation:`. The scanner now reads local approval traces, override logs,
+  high-risk auto-approval exclusions, and promotion criteria to structure
+  evidence gaps for reviewers; it does not generate those runtime artifacts or
+  certify readiness.
+- Added four `SHIP-EVIDENCE-*` checks. Existing baselines may surface these as
+  new findings after upgrade when a manifest opts into `validation:`.
+
 ## 0.8.0 - 2026-05-05
 
 - Report schema bumped to `v0.8`. New top-level required `release_decision` block:

@@ -394,7 +394,7 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
             parts.append(f"<li><code>{escape(tool)}</code></li>")
         parts.append("</ul>")
     if section.trace_findings:
-        parts.append("<h3>Trace evidence gaps</h3><ul>")
+        parts.append("<h3>HITL evidence gaps</h3><ul>")
         for item in section.trace_findings:
             parts.append(
                 f"<li><code>{escape(item.check_id)}</code> "

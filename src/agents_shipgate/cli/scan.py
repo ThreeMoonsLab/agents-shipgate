@@ -40,6 +40,7 @@ from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.packet.html import write_packet_html
 from agents_shipgate.packet.json_packet import write_packet_json
@@ -118,6 +119,7 @@ def run_scan(
     )
     if anthropic_source:
         loaded_sources.append(anthropic_source)
+    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     logger.debug(
         "loaded sources",
         extra={
@@ -137,6 +139,8 @@ def run_scan(
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if validation_artifacts:
+        warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(
         manifest,
         base_dir,
@@ -181,6 +185,7 @@ def run_scan(
         adk_artifacts=adk_artifacts,
         langchain_artifacts=langchain_artifacts,
         crewai_artifacts=crewai_artifacts,
+        validation_artifacts=validation_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
@@ -328,6 +333,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     )
     if anthropic_source:
         loaded_sources.append(anthropic_source)
+    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
@@ -337,6 +343,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if validation_artifacts:
+        warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(manifest, base_dir)
     warnings.extend(policy_packs.warnings)
     warnings = list(dict.fromkeys(warnings))
