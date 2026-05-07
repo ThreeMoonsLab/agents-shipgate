@@ -9,6 +9,7 @@ from agents_shipgate.core.models import (
     HitlProvenanceType,
     HitlSourceProvenance,
     Tool,
+    sorted_hitl_source_provenance,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
@@ -450,7 +451,7 @@ def _source_provenance(
         )
     return [
         item.model_dump(mode="json")
-        for item in _sort_provenance(items)
+        for item in sorted_hitl_source_provenance(items)
     ]
 
 
@@ -476,18 +477,3 @@ def _declared_evidence_sources(
 def _manifest_ref(context: ScanContext) -> str:
     return context.config_path.name
 
-
-def _sort_provenance(
-    items: list[HitlSourceProvenance],
-) -> list[HitlSourceProvenance]:
-    by_key = {
-        (item.type, item.ref, item.location, item.status, item.detail): item
-        for item in items
-    }
-    return [
-        by_key[key]
-        for key in sorted(
-            by_key,
-            key=lambda item: (item[0], item[1], item[2], item[3], item[4]),
-        )
-    ]

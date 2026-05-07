@@ -339,6 +339,28 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
     assert upgraded.human_in_the_loop.provenance_mode == "unavailable"
 
 
+def test_load_packet_json_upgrades_v01_to_v03(tmp_path):
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = "0.1"
+    payload.pop("tool_surface_diff")
+    hitl = payload["human_in_the_loop"]
+    hitl.pop("runtime_control_disclaimer", None)
+    hitl.pop("source_provenance", None)
+    hitl.pop("provenance_mode", None)
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.3"
+    assert upgraded.tool_surface_diff.status == "not_declared"
+    assert upgraded.tool_surface_diff.enabled is False
+    assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
+        HITL_RUNTIME_CONTROL_DISCLAIMER
+    )
+    assert upgraded.human_in_the_loop.source_provenance == []
+    assert upgraded.human_in_the_loop.provenance_mode == "unavailable"
+
+
 def test_evidence_packet_cli_accepts_report_json(tmp_path):
     """Regression for PR #43 review: a CI-archived ``report.json`` must
     produce a (degraded) packet via ``evidence-packet --from``. The

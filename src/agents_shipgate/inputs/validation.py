@@ -11,6 +11,7 @@ from agents_shipgate.core.models import (
     HitlProvenanceType,
     HitlSourceProvenance,
     ValidationArtifacts,
+    sorted_hitl_source_provenance,
 )
 from agents_shipgate.inputs.common import (
     load_structured_file,
@@ -69,7 +70,9 @@ def load_validation_artifacts(
     )
     artifacts.promotion_criteria_files.extend(files)
     artifacts.promotion_criteria.extend(criteria)
-    artifacts.source_provenance[:] = _sorted_provenance(artifacts.source_provenance)
+    artifacts.source_provenance[:] = sorted_hitl_source_provenance(
+        artifacts.source_provenance
+    )
 
     return artifacts
 
@@ -453,18 +456,3 @@ def _append_provenance(
         )
     )
 
-
-def _sorted_provenance(
-    provenance: list[HitlSourceProvenance],
-) -> list[HitlSourceProvenance]:
-    by_key = {
-        (item.type, item.ref, item.location, item.status, item.detail): item
-        for item in provenance
-    }
-    return [
-        by_key[key]
-        for key in sorted(
-            by_key,
-            key=lambda item: (item[0], item[1], item[2], item[3], item[4]),
-        )
-    ]

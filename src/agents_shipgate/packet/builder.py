@@ -39,6 +39,7 @@ from agents_shipgate.core.models import (
     ToolRiskHint,
     ToolSurfaceDiff,
     ValidationArtifacts,
+    sorted_hitl_source_provenance,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.packet.disclaimer import (
@@ -794,13 +795,13 @@ def _hitl_source_provenance(
     provenance_mode: str,
 ) -> list[HitlSourceProvenance]:
     if provenance_mode == "rebuilt_from_findings":
-        return _sort_provenance(_provenance_from_findings(findings))
+        return sorted_hitl_source_provenance(_provenance_from_findings(findings))
     items: list[HitlSourceProvenance] = []
     items.extend(_manifest_validation_provenance(manifest, config_ref))
     if validation_artifacts is not None:
         items.extend(validation_artifacts.source_provenance)
     items.extend(_provenance_from_findings(findings))
-    return _sort_provenance(items)
+    return sorted_hitl_source_provenance(items)
 
 
 def _manifest_validation_provenance(
@@ -850,6 +851,9 @@ def _manifest_validation_provenance(
 
 
 def _provenance_from_findings(findings: list[Finding]) -> list[HitlSourceProvenance]:
+    # Rebuilt packets can only recover provenance that was attached to
+    # findings; fresh-scan-only context such as validation/mode remains
+    # unavailable without the source manifest.
     items: list[HitlSourceProvenance] = []
     for finding in findings:
         raw_items = finding.evidence.get("source_provenance")
@@ -863,22 +867,6 @@ def _provenance_from_findings(findings: list[Finding]) -> list[HitlSourceProvena
             except ValueError:
                 continue
     return items
-
-
-def _sort_provenance(
-    items: list[HitlSourceProvenance],
-) -> list[HitlSourceProvenance]:
-    by_key = {
-        (item.type, item.ref, item.location, item.status, item.detail): item
-        for item in items
-    }
-    return [
-        by_key[key]
-        for key in sorted(
-            by_key,
-            key=lambda item: (item[0], item[1], item[2], item[3], item[4]),
-        )
-    ]
 
 
 def _build_dynamic_scenarios(

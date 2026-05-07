@@ -61,6 +61,22 @@ class HitlSourceProvenance(SourceReference):
     detail: str
 
 
+def sorted_hitl_source_provenance(
+    items: list[HitlSourceProvenance],
+) -> list[HitlSourceProvenance]:
+    by_key = {
+        (item.type, item.ref, item.location, item.status, item.detail): item
+        for item in items
+    }
+    return [
+        by_key[key]
+        for key in sorted(
+            by_key,
+            key=lambda item: (item[0], item[1], item[2], item[3], item[4]),
+        )
+    ]
+
+
 class AuthInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
