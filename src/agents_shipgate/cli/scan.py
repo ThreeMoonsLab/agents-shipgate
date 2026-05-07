@@ -347,8 +347,10 @@ def run_scan(
             api_artifacts=api_artifacts,
             anthropic_artifacts=anthropic_artifacts,
             source_warnings=warnings,
+            validation_artifacts=validation_artifacts,
             tool_surface_diff=report.tool_surface_diff,
             generated_at=packet_generated_at,
+            config_ref=config_path.resolve().name,
         )
         _write_packet(packet, generated_paths, packet_format_set)
     write_github_step_summary(report)

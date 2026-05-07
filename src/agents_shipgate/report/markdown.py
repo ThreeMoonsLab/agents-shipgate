@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import SEVERITY_ORDER
 from agents_shipgate.core.models import DeclaredIntention, Finding, ReadinessReport
 
@@ -36,6 +37,12 @@ CAPABILITY_DIFF_MARKDOWN_LIMITS = {
     "capabilities": 5,
     "misalignments": 5,
     "scenarios": 5,
+}
+HITL_EVIDENCE_CHECKS = {
+    "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
+    "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
+    "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING",
+    "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING",
 }
 
 
@@ -179,6 +186,9 @@ def _append_top_findings(lines: list[str], findings: list[Finding]) -> None:
         lines.append(f"{index}. {_safe_markdown_text(finding.title)}")
         lines.append(f"   Evidence: {_compact_evidence(finding.evidence)}")
         lines.append(f"   Recommendation: {_safe_markdown_text(finding.recommendation)}")
+        lines.append("")
+    if any(finding.check_id in HITL_EVIDENCE_CHECKS for finding in active[:5]):
+        lines.append(_safe_markdown_text(HITL_RUNTIME_CONTROL_DISCLAIMER))
         lines.append("")
 
 
@@ -580,6 +590,9 @@ def _append_findings_by_category(lines: list[str], findings: list[Finding]) -> N
     for category in sorted(grouped):
         lines.append(f"### {category.replace('_', ' ').title()}")
         lines.append("")
+        if any(finding.check_id in HITL_EVIDENCE_CHECKS for finding in grouped[category]):
+            lines.append(_safe_markdown_text(HITL_RUNTIME_CONTROL_DISCLAIMER))
+            lines.append("")
         for finding in sorted(
             grouped[category],
             key=lambda item: (SEVERITY_ORDER[item.severity], item.check_id, item.tool_name or ""),
@@ -623,6 +636,8 @@ def _human_status(status: str) -> str:
 def _compact_evidence(evidence: dict[str, object]) -> str:
     parts = []
     for key, value in evidence.items():
+        if key == "source_provenance" and isinstance(value, list):
+            value = f"{len(value)} provenance item(s)"
         parts.append(_safe_markdown_text(f"{key}={value}"))
     return "; ".join(parts) or "static metadata"
 

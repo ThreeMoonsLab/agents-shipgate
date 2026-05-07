@@ -1,0 +1,66 @@
+version: "0.1"
+
+project:
+  name: hitl-evidence-covered-agent
+  owner: support-ops
+
+agent:
+  name: hitl-refund-assistant-covered
+  declared_purpose:
+    - prepare reviewed refund actions for support operations
+  prohibited_actions:
+    - issue refund without approval
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: refund_tools
+    type: mcp
+    path: tools.json
+
+validation:
+  mode: human_in_the_loop
+  target_review_posture: limited_auto_approval
+  required_evidence:
+    approval_trace_required: true
+    override_reason_required: true
+    high_risk_auto_approval_exclusion_required: true
+  evidence:
+    approval_traces:
+      - path: validation/approval-traces.jsonl
+    override_logs:
+      - path: validation/override-log.jsonl
+    high_risk_exclusions:
+      - path: validation/high-risk-exclusions.yaml
+    promotion_criteria:
+      - path: validation/promotion-criteria.yaml
+
+permissions:
+  scopes:
+    - refunds:write
+
+policies:
+  require_approval_for_tools:
+    - tool: issue_refund
+      reason: financial action
+  require_idempotency_for_tools:
+    - tool: issue_refund
+      reason: avoid duplicate refunds
+
+risk_overrides:
+  tools:
+    issue_refund:
+      tags: [financial_action, write]
+      owner: support-ops
+      reason: refund issuance is a financial write action
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
+

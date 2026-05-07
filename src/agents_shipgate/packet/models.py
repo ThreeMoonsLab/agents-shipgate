@@ -17,10 +17,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.models import (
     BaselineDelta,
     EvidenceCoverageDecision,
     FailPolicy,
+    HitlSourceProvenance,
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
     Severity,
@@ -29,6 +31,7 @@ from agents_shipgate.core.models import (
 
 VerdictLabel = Literal["PASSED", "REVIEW REQUIRED", "BLOCKED"]
 SectionStatus = Literal["covered", "partial", "not_declared", "missing", "informational"]
+HitlProvenanceMode = Literal["fresh_scan", "rebuilt_from_findings", "unavailable"]
 
 
 class ReleaseDecisionSection(BaseModel):
@@ -199,6 +202,9 @@ class HumanInTheLoopEvidence(BaseModel):
     approval_required_tools: list[str] = Field(default_factory=list)
     confirmation_required_tools: list[str] = Field(default_factory=list)
     trace_findings: list[ReleaseDecisionItem] = Field(default_factory=list)
+    runtime_control_disclaimer: str = HITL_RUNTIME_CONTROL_DISCLAIMER
+    source_provenance: list[HitlSourceProvenance] = Field(default_factory=list)
+    provenance_mode: HitlProvenanceMode = "fresh_scan"
 
 
 class DynamicScenarioRequirement(BaseModel):
@@ -250,7 +256,7 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.2"] = "0.2"
+    packet_schema_version: Literal["0.3"] = "0.3"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

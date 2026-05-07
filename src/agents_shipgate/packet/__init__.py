@@ -9,7 +9,7 @@ to the in-memory manifest and per-source artifacts) and persisted as a
 sibling family of files alongside ``report.{md,json}``::
 
     agents-shipgate-reports/packet.md
-    agents-shipgate-reports/packet.json    (schema: docs/packet-schema.v0.2.json)
+    agents-shipgate-reports/packet.json    (schema: docs/packet-schema.v0.3.json)
     agents-shipgate-reports/packet.html
     agents-shipgate-reports/packet.pdf     (only with the [pdf] extras)
 

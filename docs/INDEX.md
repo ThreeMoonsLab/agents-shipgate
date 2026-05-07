@@ -26,7 +26,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.2.json`](packet-schema.v0.2.json) — JSON Schema for the Release Evidence Packet
+- [`packet-schema.v0.3.json`](packet-schema.v0.3.json) — JSON Schema for the Release Evidence Packet
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 
 ## Examples

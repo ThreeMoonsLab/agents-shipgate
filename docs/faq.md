@@ -104,13 +104,15 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.2.json`](packet-schema.v0.2.json)
+default. The packet is governed by [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
 and has ten always-present sections (release decision, capability/intent,
 high-risk surface, approval coverage, idempotency risk, scope coverage,
 memory isolation, human-in-the-loop, dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v01).
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v03).
+Packet schema v0.3 also includes HITL runtime-control disclaimer text and
+local HITL source provenance when validation evidence artifacts are available.
 Skip emission with `--no-packet`; re-render later with
 `agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json`.
 

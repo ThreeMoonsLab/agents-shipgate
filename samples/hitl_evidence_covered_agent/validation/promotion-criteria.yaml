@@ -1,0 +1,6 @@
+target_review_posture: limited_auto_approval
+required_evidence:
+  approval_trace_required: true
+  override_reason_required: true
+  high_risk_auto_approval_exclusion_required: true
+

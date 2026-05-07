@@ -25,7 +25,7 @@ from agents_shipgate.core.patches import ManualPatch
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {"default_severity"}
+FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {"default_severity", "source_provenance"}
 
 
 def assign_finding_ids(findings: list[Finding]) -> list[Finding]:

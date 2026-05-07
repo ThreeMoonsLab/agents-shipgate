@@ -26,6 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 CURRENT_REPORT_SCHEMA = "report-schema.v0.10.json"
 CURRENT_REPORT_SCHEMA_VERSION = "0.10"
+CURRENT_PACKET_SCHEMA = "packet-schema.v0.3.json"
+CURRENT_PACKET_SCHEMA_VERSION = "0.3"
 # v0.9 became a frozen reference once main shipped v0.10 (tool-surface diff).
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9)\.json")
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
@@ -125,7 +127,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert "packet" in schemas, (
         ".well-known/agents-shipgate.json `schemas` missing 'packet'; "
         "expected a URL pointing to the current packet schema "
-        "(docs/packet-schema.v0.2.json)."
+        f"(docs/{CURRENT_PACKET_SCHEMA})."
     )
     assert data.get("gating_signal") == "release_decision.decision", (
         ".well-known/agents-shipgate.json must declare "
@@ -156,9 +158,10 @@ def test_agent_contract_current_doc_is_canonical():
         "docs/agent-contract-current.md must lead with "
         "release_decision.decision as the gating signal."
     )
-    assert "packet-schema.v0.2.json" in text, (
+    assert CURRENT_PACKET_SCHEMA in text, (
         "docs/agent-contract-current.md must reference the current packet "
-        "schema (v0.2) so coding agents know about the Release Evidence Packet."
+        f"schema (v{CURRENT_PACKET_SCHEMA_VERSION}) so coding agents know "
+        "about the Release Evidence Packet."
     )
 
 

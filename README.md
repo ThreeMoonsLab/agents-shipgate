@@ -125,7 +125,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 ## What it produces
 
 - **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.10](docs/report-schema.v0.10.json); gating signal is `release_decision.decision`), SARIF for GitHub code-scanning workflows.
-- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.2](docs/packet-schema.v0.2.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v01).
+- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.3](docs/packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v03).
 
 ## Exit codes
 

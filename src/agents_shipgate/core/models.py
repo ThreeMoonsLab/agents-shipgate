@@ -35,6 +35,32 @@ class SourceReference(BaseModel):
     location: str | None = None
 
 
+HitlProvenanceType = Literal[
+    "approval_trace",
+    "override_log",
+    "high_risk_exclusion",
+    "promotion_criteria",
+    "manifest_requirement",
+]
+HitlProvenanceStatus = Literal[
+    "requirement_only",
+    "expected_but_absent",
+    "source_load_failed",
+    "loaded",
+    "loaded_with_warnings",
+]
+
+
+class HitlSourceProvenance(SourceReference):
+    model_config = ConfigDict(extra="forbid")
+
+    type: HitlProvenanceType
+    ref: str
+    location: str
+    status: HitlProvenanceStatus
+    detail: str
+
+
 class AuthInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -677,6 +703,7 @@ class ValidationArtifacts(BaseModel):
     )
     promotion_criteria_files: list[str] = Field(default_factory=list)
     promotion_criteria: list[dict[str, Any]] = Field(default_factory=list)
+    source_provenance: list[HitlSourceProvenance] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

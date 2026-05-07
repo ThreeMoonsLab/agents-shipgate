@@ -26,6 +26,19 @@
   high-risk auto-approval exclusions, and promotion criteria to structure
   evidence gaps for reviewers; it does not generate those runtime artifacts or
   certify readiness.
+- Tightened HITL evidence wording and provenance. `SHIP-EVIDENCE-*` findings
+  now describe missing or incomplete local review evidence without implying
+  runtime controls are absent, and include deterministic
+  `evidence.source_provenance[]` entries. `source_provenance` is excluded from
+  finding fingerprints, so adding provenance does not rotate existing HITL
+  baselines or suppressions.
+- Release Evidence Packet schema bumped to `0.3` with
+  `human_in_the_loop.runtime_control_disclaimer`,
+  `human_in_the_loop.source_provenance[]`, and
+  `human_in_the_loop.provenance_mode`.
+- Added `samples/hitl_evidence_covered_agent`, a refund-domain fixture with
+  local approval trace, override log, high-risk exclusion, and promotion
+  criteria evidence.
 - Added four `SHIP-EVIDENCE-*` checks. Existing baselines may surface these as
   new findings after upgrade when a manifest opts into `validation:`.
 - Add `agents-shipgate scenario suggest` (target: `0.9.1`), a YAML export that

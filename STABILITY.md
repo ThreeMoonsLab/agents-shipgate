@@ -107,6 +107,7 @@ Where `canonical_evidence`:
 - Sorts dict keys recursively
 - Sorts list items by JSON repr
 - **Excludes** the `default_severity` audit-evidence key (so applying `severity_overrides` does not change identity)
+- **Excludes** the `source_provenance` evidence key (so adding local HITL provenance does not rotate existing baselines or suppressions)
 
 Fingerprints are stable across runs on the same input. They are the identity primitive used by suppressions and baselines.
 
@@ -142,12 +143,14 @@ enable a surface diff and emit a disabled diff note instead.
 The diff is static evidence only. It does not fetch branches in the CLI,
 infer runtime routing, execute tools, or change release gating.
 
-### Release Evidence Packet (v0.2)
+### Release Evidence Packet (v0.3)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.2.json`](docs/packet-schema.v0.2.json). Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.3.json`](docs/packet-schema.v0.3.json). Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, capability_intent, high_risk_surface, tool_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
+- `human_in_the_loop.runtime_control_disclaimer` is always present and applies to covered and gap states: local HITL evidence is not runtime-enforcement proof.
+- `human_in_the_loop.source_provenance[]` is deterministic, local-only provenance for validation evidence when available. Packets rebuilt from `report.json` may set `provenance_mode: "unavailable"` when no finding-level provenance survived.
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
 - `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
 - The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.

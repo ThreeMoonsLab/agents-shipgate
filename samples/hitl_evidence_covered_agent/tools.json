@@ -1,0 +1,33 @@
+{
+  "tools": [
+    {
+      "name": "issue_refund",
+      "description": "Issue a customer refund after support review.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 500
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": ["case_id", "amount", "idempotency_key"]
+      },
+      "annotations": {
+        "idempotentHint": true
+      },
+      "auth": {
+        "scopes": ["refunds:write"]
+      },
+      "owner": "support-ops"
+    }
+  ]
+}
+

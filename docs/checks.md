@@ -48,10 +48,10 @@ baseline summary and do not fail CI.
 | `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | high | A tool appears to overlap with a manifest `prohibited_actions` entry. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
-| `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | HITL approval trace evidence is missing for an approval-required tool. |
-| `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | HITL override reason evidence is absent, empty, or missing reasons. |
-| `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | A high-risk approval-controlled tool lacks auto-approval exclusion evidence. |
-| `SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING` | high | HITL promotion criteria evidence is absent or missing canonical flags. |
+| `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | Local HITL approval trace evidence is missing or incomplete for an approval-required tool. |
+| `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | Local HITL override reason evidence is missing or incomplete. |
+| `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | Local high-risk auto-approval exclusion evidence is missing or incomplete. |
+| `SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING` | high | Local HITL promotion criteria evidence is missing or incomplete. |
 | `SHIP-SIDEFX-IDEMPOTENCY-MISSING` | critical/high | A risky write tool lacks idempotency evidence. Critical only when retry behavior is known. |
 | `SHIP-API-FUNCTION-SCHEMA-STRICTNESS` | high/medium | An OpenAI API function schema is missing strictness, required fields, or bounded risky fields. |
 | `SHIP-API-STRUCTURED-OUTPUT-READINESS` | high/medium | An OpenAI API response format is missing or too broad for downstream decisions. |
@@ -162,14 +162,16 @@ A destructive, external-write, or customer-communication tool lacks a confirmati
 validation evidence does not show `approved: true` for an approval-required
 tool. Add local approval trace evidence produced by runtime middleware or
 change the declared review posture. Agents Shipgate reads this evidence; it
-does not produce or certify it.
+does not produce or certify it. Missing local evidence does not prove the
+runtime approval control is absent.
 
 ### SHIP-EVIDENCE-OVERRIDE-REASON-MISSING
 
 `validation.required_evidence.override_reason_required` is true, but override
 logs are absent, empty, or include normalized `override`, `bypass`, or
 `auto_approve` events without a non-empty `reason`. Record reviewer-visible
-reasons in the local override log.
+reasons in the local override log. Missing local evidence does not prove the
+runtime override control is absent.
 
 ### SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING
 
@@ -178,7 +180,8 @@ true, and a high-risk tool with declared approval policy is not listed under
 `high_risk_auto_approval_exclusions`. This is separate from
 `SHIP-POLICY-APPROVAL-MISSING`: it only fires after approval policy is already
 declared, because it checks the local evidence that the tool is excluded from
-auto-approval review posture.
+auto-approval review posture. Missing local evidence does not prove the
+runtime exclusion control is absent.
 
 ### SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING
 
@@ -186,7 +189,8 @@ auto-approval review posture.
 promotion criteria evidence is missing or the canonical required-evidence
 flags are not true in the manifest and criteria file. Finding evidence includes
 `reason: file_missing` or `reason: flags_missing` so reviewers can distinguish
-an absent file from incomplete criteria.
+an absent local source from incomplete criteria. Missing local evidence does
+not prove runtime controls are absent.
 
 ### SHIP-SIDEFX-IDEMPOTENCY-MISSING
 
