@@ -170,7 +170,12 @@ class MemoryIsolationStatus(BaseModel):
 
 
 class HumanInTheLoopEvidence(BaseModel):
-    """§8 — human-in-the-loop evidence."""
+    """§8 — human-in-the-loop evidence.
+
+    ``trace_findings`` is kept for packet v0.1 compatibility. It now
+    carries HITL evidence gaps surfaced as findings, including the
+    original trace-derived gaps and validation-config evidence gaps.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

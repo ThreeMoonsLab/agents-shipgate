@@ -71,6 +71,23 @@ crewai:
   tool_inventories:
     - path: inventories/crewai-tools.json
 
+validation:
+  mode: human_in_the_loop
+  target_review_posture: limited_auto_approval
+  required_evidence:
+    approval_trace_required: true
+    override_reason_required: true
+    high_risk_auto_approval_exclusion_required: true
+  evidence:
+    approval_traces:
+      - path: validation/approval-traces.jsonl
+    override_logs:
+      - path: validation/override-log.jsonl
+    high_risk_exclusions:
+      - path: validation/high-risk-exclusions.yaml
+    promotion_criteria:
+      - path: validation/promotion-criteria.yaml
+
 permissions:
   scopes:
     - refunds:write

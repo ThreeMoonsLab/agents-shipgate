@@ -409,7 +409,7 @@
     },
     "HumanInTheLoopEvidence": {
       "additionalProperties": false,
-      "description": "\u00a78 \u2014 human-in-the-loop evidence.",
+      "description": "\u00a78 \u2014 human-in-the-loop evidence.\n\n``trace_findings`` is kept for packet v0.1 compatibility. It now\ncarries HITL evidence gaps surfaced as findings, including the\noriginal trace-derived gaps and validation-config evidence gaps.",
       "properties": {
         "approval_required_tools": {
           "items": {

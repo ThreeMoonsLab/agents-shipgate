@@ -434,6 +434,85 @@
     },
     {
       "autofix_safe": false,
+      "category": "evidence",
+      "default_severity": "high",
+      "description": "HITL approval trace evidence is missing for an approval-required tool.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-approval-trace-missing",
+      "evidence_fields": [
+        "tool_name",
+        "required",
+        "reason",
+        "trace_files",
+        "approved_tools"
+      ],
+      "fires_when": "validation.required_evidence.approval_trace_required is true and no local approval trace shows approved=true for an approval-required tool.",
+      "id": "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
+      "rationale": "Limited automation review depends on local evidence that approval-controlled actions were approved before the tool call.",
+      "recommendation": "Add local approval trace evidence or change the validation review posture.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "evidence",
+      "default_severity": "high",
+      "description": "High-risk auto-approval exclusion evidence is missing.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-high-risk-exclusion-missing",
+      "evidence_fields": [
+        "required",
+        "reason",
+        "risk_tags",
+        "exclusion_files",
+        "excluded_tools"
+      ],
+      "fires_when": "validation.required_evidence.high_risk_auto_approval_exclusion_required is true and a high-risk tool with declared approval policy is not listed in high_risk_auto_approval_exclusions.",
+      "id": "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING",
+      "rationale": "High-risk tools that already declare approval policy need separate local evidence that they are excluded from auto-approval review posture.",
+      "recommendation": "Document high-risk approval-controlled tools in high_risk_auto_approval_exclusions with reasons.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "evidence",
+      "default_severity": "high",
+      "description": "HITL promotion criteria evidence is missing.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-hitl-promotion-criteria-missing",
+      "evidence_fields": [
+        "target_review_posture",
+        "reason",
+        "criteria_files",
+        "manifest_flags_missing",
+        "criteria_flags_missing"
+      ],
+      "fires_when": "validation.target_review_posture is limited_auto_approval and promotion criteria are absent or the canonical required-evidence flags are not true in the manifest and criteria file.",
+      "id": "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING",
+      "rationale": "A limited auto-approval review posture needs local criteria evidence; Shipgate only structures the missing evidence for reviewers.",
+      "recommendation": "Add local promotion criteria evidence documenting the review posture and required evidence flags.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "evidence",
+      "default_severity": "high",
+      "description": "HITL override reason evidence is missing.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-override-reason-missing",
+      "evidence_fields": [
+        "required",
+        "reason",
+        "override_log_files",
+        "events_missing_reason"
+      ],
+      "fires_when": "validation.required_evidence.override_reason_required is true and override logs are absent, empty, or contain events without non-empty reasons.",
+      "id": "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
+      "rationale": "Override, bypass, and auto-approval events need reviewer-visible reasons for governance review.",
+      "recommendation": "Record non-empty reasons for override, bypass, and auto-approval events.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "inventory",
       "default_severity": "high",
       "description": "Production target includes low-confidence tool extraction.",

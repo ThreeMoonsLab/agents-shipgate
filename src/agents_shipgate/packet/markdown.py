@@ -372,7 +372,7 @@ def _append_human_in_the_loop(
             lines.append(f"- `{_escape(tool)}`")
         lines.append("")
     if section.trace_findings:
-        lines.append("### Trace evidence gaps")
+        lines.append("### HITL evidence gaps")
         lines.append("")
         for item in section.trace_findings:
             lines.append(

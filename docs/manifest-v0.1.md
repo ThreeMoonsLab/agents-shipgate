@@ -244,6 +244,94 @@ tool_output_schemas:
 
 Trace samples are JSON arrays or JSONL with simple normalized fields such as `tool_name`, `approved`, `confirmed`, `success`, and `error`. Unsupported raw logs produce source warnings rather than blockers.
 
+## Validation Evidence Artifacts
+
+The optional top-level `validation` block declares local human-in-the-loop
+evidence for review workflows. It does not cause Agents Shipgate to run an
+agent, shorten validation, certify safety, or decide auto-approval readiness.
+It only tells the scanner which local evidence files a reviewer expects for
+the declared review posture.
+
+```yaml
+validation:
+  mode: human_in_the_loop
+  target_review_posture: limited_auto_approval # recommendation_only | limited_auto_approval
+  required_evidence:
+    approval_trace_required: true
+    override_reason_required: true
+    high_risk_auto_approval_exclusion_required: true
+  evidence:
+    approval_traces:
+      - path: validation/approval-traces.jsonl
+    override_logs:
+      - path: validation/override-log.jsonl
+    high_risk_exclusions:
+      - path: validation/high-risk-exclusions.yaml
+    promotion_criteria:
+      - path: validation/promotion-criteria.yaml
+```
+
+Defaults are conservative and opt-in: omitting `validation` emits no HITL
+evidence checks, and every `required_evidence` flag defaults to `false`.
+When `target_review_posture: limited_auto_approval` is declared, the scanner
+expects all three canonical evidence flags to be explicitly true and expects a
+local promotion criteria file documenting the same posture and flags.
+If you target `limited_auto_approval` without setting all three canonical
+evidence flags to `true`, only the promotion-criteria finding surfaces; the
+underlying approval trace, override reason, and high-risk exclusion checks stay
+disabled until their flags are enabled.
+
+### Producing validation evidence
+
+Agents Shipgate reads these files; it does not generate them. They normally
+come from runtime middleware, SDK hooks, gateway logs, or an internal ops
+workflow that records approvals and overrides while the agent is exercised.
+Keep the files local to the manifest directory; paths outside that directory
+are rejected.
+
+`approval_traces` are JSON arrays or JSONL. They use the same normalized trace
+fields as OpenAI API traces:
+
+```json
+{"tool_name":"issue_refund","approved":true,"success":true}
+```
+
+A JSON object without a recognized list key is treated as one trace event for
+compatibility with the existing trace loader; prefer arrays or JSONL for
+multi-event files.
+
+`override_logs` are JSON arrays or JSONL. The scanner reads only the
+framework-neutral fields below and preserves other fields for the producing
+system:
+
+```json
+{"tool_name":"issue_refund","action":"override","reason":"manager approved","actor":"ops-lead","timestamp":"2026-05-06T17:00:00Z"}
+```
+
+`action` is a closed enum and must be one of `override`, `bypass`, or
+`auto_approve`. Events with any other action value, such as `denied`, are
+reported as loader warnings and do not count as override reason evidence.
+`reason` must be non-empty for each normalized override event.
+
+`high_risk_exclusions` are YAML or JSON only:
+
+```yaml
+high_risk_auto_approval_exclusions:
+  - tool: issue_refund
+    reason: financial actions remain manual
+    owner: support-ops
+```
+
+`promotion_criteria` are YAML or JSON only:
+
+```yaml
+target_review_posture: limited_auto_approval
+required_evidence:
+  approval_trace_required: true
+  override_reason_required: true
+  high_risk_auto_approval_exclusion_required: true
+```
+
 ## Anthropic Messages API Artifacts
 
 `anthropic` is for agents built on the Anthropic Messages API tool-use surface (https://docs.anthropic.com/en/docs/build-with-claude/tool-use). It is local-only: Agents Shipgate reads files and never calls Anthropic APIs.

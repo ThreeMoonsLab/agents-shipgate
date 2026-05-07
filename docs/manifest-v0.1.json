@@ -855,6 +855,93 @@
       ],
       "title": "ToolSourceConfig",
       "type": "object"
+    },
+    "ValidationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/ValidationEvidenceConfig"
+        },
+        "mode": {
+          "const": "human_in_the_loop",
+          "title": "Mode",
+          "type": "string"
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/ValidationRequiredEvidenceConfig"
+        },
+        "target_review_posture": {
+          "default": "recommendation_only",
+          "enum": [
+            "recommendation_only",
+            "limited_auto_approval"
+          ],
+          "title": "Target Review Posture",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "ValidationConfig",
+      "type": "object"
+    },
+    "ValidationEvidenceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_traces": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Approval Traces",
+          "type": "array"
+        },
+        "high_risk_exclusions": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "High Risk Exclusions",
+          "type": "array"
+        },
+        "override_logs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Override Logs",
+          "type": "array"
+        },
+        "promotion_criteria": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Promotion Criteria",
+          "type": "array"
+        }
+      },
+      "title": "ValidationEvidenceConfig",
+      "type": "object"
+    },
+    "ValidationRequiredEvidenceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_trace_required": {
+          "default": false,
+          "title": "Approval Trace Required",
+          "type": "boolean"
+        },
+        "high_risk_auto_approval_exclusion_required": {
+          "default": false,
+          "title": "High Risk Auto Approval Exclusion Required",
+          "type": "boolean"
+        },
+        "override_reason_required": {
+          "default": false,
+          "title": "Override Reason Required",
+          "type": "boolean"
+        }
+      },
+      "title": "ValidationRequiredEvidenceConfig",
+      "type": "object"
     }
   },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
@@ -950,6 +1037,17 @@
       },
       "title": "Tool Sources",
       "type": "array"
+    },
+    "validation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ValidationConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "version": {
       "title": "Version",

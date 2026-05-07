@@ -88,9 +88,13 @@ SCOPE_GAP_CHECKS = (
     "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
     "SHIP-MANIFEST-UNUSED-SCOPE",
 )
-TRACE_HITL_CHECKS = (
+HITL_GAP_CHECKS = (
     "SHIP-API-TRACE-APPROVAL-MISSING",
     "SHIP-API-TRACE-CONFIRMATION-MISSING",
+    "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
+    "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
+    "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING",
+    "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING",
 )
 
 
@@ -676,8 +680,8 @@ def _build_human_in_the_loop(
             else set()
         )
     )
-    trace_findings = _findings_with_check(findings, TRACE_HITL_CHECKS)
-    is_configured = bool(approval_tools or confirmation_tools)
+    trace_findings = _findings_with_check(findings, HITL_GAP_CHECKS)
+    is_configured = bool(approval_tools or confirmation_tools or manifest.validation)
     human_review_recommended = decision.evidence_coverage.human_review_recommended
 
     if not is_configured and not human_review_recommended:

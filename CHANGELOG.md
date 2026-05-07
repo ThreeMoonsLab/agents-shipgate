@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased (target: 0.9.1)
+## Unreleased
 
-- Add `agents-shipgate scenario suggest`, a YAML export that fans out
-  `report.json.suggested_scenarios[]` into concrete per-finding/per-tool
-  dynamic validation steps.
+- Added optional manifest-level HITL validation evidence mode under
+  `validation:`. The scanner now reads local approval traces, override logs,
+  high-risk auto-approval exclusions, and promotion criteria to structure
+  evidence gaps for reviewers; it does not generate those runtime artifacts or
+  certify readiness.
+- Added four `SHIP-EVIDENCE-*` checks. Existing baselines may surface these as
+  new findings after upgrade when a manifest opts into `validation:`.
+- Add `agents-shipgate scenario suggest` (target: `0.9.1`), a YAML export that
+  fans out `report.json.suggested_scenarios[]` into concrete
+  per-finding/per-tool dynamic validation steps.
 
 ## 0.8.0 - 2026-05-05
 

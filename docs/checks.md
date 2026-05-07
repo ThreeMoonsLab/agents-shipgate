@@ -48,6 +48,10 @@ baseline summary and do not fail CI.
 | `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | high | A tool appears to overlap with a manifest `prohibited_actions` entry. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
+| `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | HITL approval trace evidence is missing for an approval-required tool. |
+| `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | HITL override reason evidence is absent, empty, or missing reasons. |
+| `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | A high-risk approval-controlled tool lacks auto-approval exclusion evidence. |
+| `SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING` | high | HITL promotion criteria evidence is absent or missing canonical flags. |
 | `SHIP-SIDEFX-IDEMPOTENCY-MISSING` | critical/high | A risky write tool lacks idempotency evidence. Critical only when retry behavior is known. |
 | `SHIP-API-FUNCTION-SCHEMA-STRICTNESS` | high/medium | An OpenAI API function schema is missing strictness, required fields, or bounded risky fields. |
 | `SHIP-API-STRUCTURED-OUTPUT-READINESS` | high/medium | An OpenAI API response format is missing or too broad for downstream decisions. |
@@ -151,6 +155,38 @@ A high-risk tool lacks a declared approval policy. Add an approval policy or rem
 ### SHIP-POLICY-CONFIRMATION-MISSING
 
 A destructive, external-write, or customer-communication tool lacks a confirmation policy. Add confirmation policy or remove the tool.
+
+### SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
+
+`validation.required_evidence.approval_trace_required` is true, but local
+validation evidence does not show `approved: true` for an approval-required
+tool. Add local approval trace evidence produced by runtime middleware or
+change the declared review posture. Agents Shipgate reads this evidence; it
+does not produce or certify it.
+
+### SHIP-EVIDENCE-OVERRIDE-REASON-MISSING
+
+`validation.required_evidence.override_reason_required` is true, but override
+logs are absent, empty, or include normalized `override`, `bypass`, or
+`auto_approve` events without a non-empty `reason`. Record reviewer-visible
+reasons in the local override log.
+
+### SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING
+
+`validation.required_evidence.high_risk_auto_approval_exclusion_required` is
+true, and a high-risk tool with declared approval policy is not listed under
+`high_risk_auto_approval_exclusions`. This is separate from
+`SHIP-POLICY-APPROVAL-MISSING`: it only fires after approval policy is already
+declared, because it checks the local evidence that the tool is excluded from
+auto-approval review posture.
+
+### SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING
+
+`validation.target_review_posture` is `limited_auto_approval`, but local
+promotion criteria evidence is missing or the canonical required-evidence
+flags are not true in the manifest and criteria file. Finding evidence includes
+`reason: file_missing` or `reason: flags_missing` so reviewers can distinguish
+an absent file from incomplete criteria.
 
 ### SHIP-SIDEFX-IDEMPOTENCY-MISSING
 
