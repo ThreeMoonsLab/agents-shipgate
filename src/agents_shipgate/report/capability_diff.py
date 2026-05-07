@@ -7,6 +7,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 
+from agents_shipgate.core.finding_refs import finding_tool_names
 from agents_shipgate.core.models import (
     CapabilityFact,
     CapabilityIncludedReason,
@@ -346,7 +347,7 @@ def _findings_by_tool(
     known = set(known_tool_names)
     by_tool: dict[str, list[Finding]] = defaultdict(list)
     for finding in findings:
-        for tool_name in _finding_tool_names(finding, known):
+        for tool_name in finding_tool_names(finding, known):
             by_tool[tool_name].append(finding)
     return dict(by_tool)
 
@@ -473,7 +474,7 @@ def _misalignment_records(
     known_tools = set(tool_lookup)
     for finding in findings:
         spec = _diff_spec(finding)
-        tool_names = _finding_tool_names(finding, known_tools) or [None]
+        tool_names = finding_tool_names(finding, known_tools) or [None]
         for tool_name in tool_names:
             capability = capability_by_tool.get(tool_name or "")
             capability_refs = [capability.id] if capability else []
@@ -747,21 +748,6 @@ def _decision_ref(item: object) -> str | None:
 
 def _finding_ref(finding: Finding) -> str:
     return finding.id or finding.fingerprint or finding.check_id
-
-
-def _finding_tool_names(finding: Finding, known_tool_names: set[str]) -> list[str]:
-    names: set[str] = set()
-    if finding.tool_name:
-        names.add(finding.tool_name)
-    for key in ("tool_name", "tool"):
-        value = finding.evidence.get(key)
-        if isinstance(value, str):
-            names.add(value)
-    for key in ("tools", "high_risk_tools"):
-        value = finding.evidence.get(key)
-        if isinstance(value, list):
-            names.update(item for item in value if isinstance(item, str))
-    return sorted(name for name in names if name in known_tool_names)
 
 
 def _evidence_tags(finding: Finding) -> list[str]:

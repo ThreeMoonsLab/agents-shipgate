@@ -102,6 +102,19 @@ has at least one patch. Manual-only findings (e.g. trace approval
 flips, per-check policy decisions) carry a single `ManualPatch` with
 `instructions` instead of a machine-applicable patch.
 
+Optional dynamic-validation handoff:
+
+```bash
+agents-shipgate scenario suggest \
+    --from agents-shipgate-reports/report.json \
+    --out agents-shipgate-reports/suggested-scenarios.yaml
+```
+
+This YAML is a concrete per-finding/per-tool fan-out of
+`report.json.suggested_scenarios[]`, not a separate scenario engine.
+Suppressed findings are omitted; baseline-matched findings remain because
+they are accepted debt, not resolved risk.
+
 ### Step 4 · `apply-patches --confidence high --apply`
 
 Default `--confidence high` only auto-applies patches whose `confidence`

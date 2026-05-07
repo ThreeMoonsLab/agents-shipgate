@@ -3,7 +3,6 @@ from __future__ import annotations
 import glob
 import json
 import logging
-import os
 import re
 import sys
 from difflib import get_close_matches
@@ -13,6 +12,7 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.discovery import (
@@ -25,21 +25,12 @@ from agents_shipgate.cli.discovery import (
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
+from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.core.baseline import write_baseline
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings import SEVERITY_ORDER
 from agents_shipgate.core.logging import configure_logging
-
-
-def _emit_agent_mode_error(error_kind: str, **fields: object) -> None:
-    """When AGENTS_SHIPGATE_AGENT_MODE=1, emit a structured one-line JSON
-    record on stderr after the human-readable error so coding agents can
-    parse the next action without scraping prose."""
-    if os.environ.get("AGENTS_SHIPGATE_AGENT_MODE", "").lower() not in {"1", "true", "yes", "on"}:
-        return
-    payload = {"error": error_kind, **fields}
-    print(json.dumps(payload, default=str), file=sys.stderr)
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -50,6 +41,7 @@ app = typer.Typer(
 baseline_app = typer.Typer(help="Manage local finding baselines.")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(fixture_app, name="fixture")
+app.add_typer(scenario_app, name="scenario")
 app.command(
     "self-check",
     help="Verify install and bundled fixtures. Run this first in a fresh environment.",

@@ -16,6 +16,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 |---|---|
 | `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
+| `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
@@ -57,6 +58,20 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
+
+### Scenario Suggestion YAML
+
+`agents-shipgate scenario suggest --from agents-shipgate-reports/report.json`
+projects `report.json.suggested_scenarios[]` into
+`suggested-scenarios.yaml`. It is a concrete fan-out of the JSON report's
+scenario contract, not a separate scenario engine.
+
+Stable YAML fields:
+
+- `scenarios[].{id, scenario_type, derived_from, finding_id, source_scenario_id, source_misalignment_id, tool, adversarial_goal, expected_control}`
+
+Suppressed findings are omitted. Baseline-matched findings are included because
+they represent accepted debt, not resolved risk.
 
 #### `release_decision.decision` vs `summary.status`
 

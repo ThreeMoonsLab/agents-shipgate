@@ -88,7 +88,15 @@ For source-only testing in this repository:
 agents-shipgate init --workspace . --write
 agents-shipgate doctor --config shipgate.yaml
 AGENTS_SHIPGATE_LOG_FORMAT=json agents-shipgate scan --config shipgate.yaml --verbose
+agents-shipgate scenario suggest \
+  --from agents-shipgate-reports/report.json \
+  --out agents-shipgate-reports/suggested-scenarios.yaml
 ```
+
+The scenario YAML is derived from `report.json.suggested_scenarios[]` and
+fans static findings out into concrete sandbox/adversarial validation steps.
+Baseline-matched findings remain in this export because they are accepted
+debt, not resolved risk.
 
 ## GitLab CI
 
