@@ -88,6 +88,19 @@ def test_action_pr_comment_upserts_via_sticky_marker():
     assert "github.rest.issues.createComment" in text
 
 
+def test_action_pr_comment_paginates_listcomments_lookup():
+    """Single-page listComments (per_page=100, no pagination) silently
+    regresses to append-on-rerun once a PR has >100 earlier comments
+    before Shipgate's first scan — the sticky marker lookup misses,
+    and a fresh comment posts every time. Use github.paginate."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+
+    assert "github.paginate(github.rest.issues.listComments" in text, (
+        "PR-comment upsert must paginate the listComments lookup so it "
+        "can find the sticky marker on PRs with many prior comments."
+    )
+
+
 def test_action_pr_comment_includes_packet_artifact_pointer():
     """The PR comment template must point reviewers at both the report
     and the packet (the latter is the reviewer-shaped artifact)."""

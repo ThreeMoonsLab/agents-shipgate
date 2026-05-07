@@ -43,16 +43,18 @@ pipx install agents-shipgate
 agents-shipgate fixture run support_refund_agent
 ```
 
-This runs a bundled fixture with no manifest required.
+This runs a bundled fixture with no manifest required and prints:
 
 ```text
+Fixture: support_refund_agent
 Decision: blocked
-Blockers: 2
-Why:     stripe.create_refund lacks approval policy and idempotency evidence
-Artifacts:
-  agents-shipgate-reports/report.{md,json,sarif}
-  agents-shipgate-reports/packet.{md,json,html}
+Blockers: 2  Review items: 16
+Counts:  critical=2 high=14 medium=2
+Reports: <tempdir>/reports
+Fixture copy at <tempdir>; pass --keep to retain after the run.
 ```
+
+Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
 
 ![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
 
@@ -337,7 +339,7 @@ See [Trust model](docs/trust-model.md) and [Security policy](SECURITY.md) for th
 
 ## GitHub Action
 
-Drop this full advisory workflow into `.github/workflows/agents-shipgate.yml`. It runs on every PR, posts an idempotent summary comment (updates in place on re-runs), uploads the report and packet as workflow artifacts, and never fails the job. This is the same file shipped at [`examples/github-actions/01-advisory-pr-comment.yml`](examples/github-actions/01-advisory-pr-comment.yml).
+Drop this full advisory workflow into `.github/workflows/agents-shipgate.yml`. It runs on every PR, posts a summary comment, uploads the report and packet as workflow artifacts, and never fails the job. This is the same file shipped at [`examples/github-actions/01-advisory-pr-comment.yml`](examples/github-actions/01-advisory-pr-comment.yml).
 
 ```yaml
 name: Agents Shipgate (advisory)

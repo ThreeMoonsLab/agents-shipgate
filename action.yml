@@ -334,13 +334,15 @@ runs:
             "- Release Evidence Packet: `packet.md` / `packet.json` / `packet.html`",
           ].join("\n"), 6000);
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
-          const existing = await github.rest.issues.listComments({
+          // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
+          // earlier comments before Shipgate's first run, which would silently regress to append-only.
+          const allComments = await github.paginate(github.rest.issues.listComments, {
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
             per_page: 100,
           });
-          const prior = existing.data.find((c) => c.body && c.body.startsWith(STICKY));
+          const prior = allComments.find((c) => c.body && c.body.startsWith(STICKY));
           if (prior) {
             await github.rest.issues.updateComment({
               owner: context.repo.owner,

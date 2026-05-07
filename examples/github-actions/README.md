@@ -56,5 +56,3 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 ```
 
 **Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
-
-The PR comment posted by `pr_comment: 'true'` is idempotent: re-runs update the existing comment in place via a `<!-- agents-shipgate-pr-comment -->` sticky marker, rather than appending new comments.
