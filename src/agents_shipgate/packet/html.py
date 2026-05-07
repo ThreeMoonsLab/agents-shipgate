@@ -31,6 +31,7 @@ from agents_shipgate.packet.models import (
     ReleaseDecisionSection,
     ScopeCoverageSection,
     SectionStatus,
+    ToolSurfaceDiffSection,
     VerdictLabel,
 )
 
@@ -96,6 +97,7 @@ def render_packet_html(packet: EvidencePacket) -> str:
     parts.append(_render_release_decision(packet.release_decision))
     parts.append(_render_capability_intent(packet.capability_intent))
     parts.append(_render_high_risk_surface(packet.high_risk_surface))
+    parts.append(_render_tool_surface_diff(packet.tool_surface_diff))
     parts.append(_render_approval_coverage(packet.approval_coverage))
     parts.append(_render_idempotency_risk(packet.idempotency_risk))
     parts.append(_render_scope_coverage(packet.scope_coverage))
@@ -245,6 +247,45 @@ def _render_high_risk_surface(section: HighRiskSurfaceSection) -> str:
         parts.append(
             "<p>No high-risk tools detected on this surface.</p>"
         )
+    return "".join(parts)
+
+
+def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
+    parts = [
+        "<h2>§3A Tool-surface diff — "
+        f"<span class=\"status-{section.status}\">"
+        f"{_STATUS_LABEL[section.status]}</span></h2>"
+    ]
+    if not section.enabled:
+        note = section.notes[0] if section.notes else "No comparison source was available."
+        parts.append(
+            f"<p>Status: disabled — {escape(note)}<br>"
+            f"Base: <code>{escape(section.base_kind)}</code></p>"
+        )
+        return "".join(parts)
+    summary = section.summary
+    parts.append("<ul>")
+    parts.append(f"<li>Base: <code>{escape(section.base_kind)}</code></li>")
+    parts.append(
+        f"<li>Tools: +{summary.tools_added}, -{summary.tools_removed}, "
+        f"{summary.tools_changed} changed</li>"
+    )
+    parts.append(
+        f"<li>Evidence gaps: {summary.new_findings} new finding(s), "
+        f"{summary.resolved_findings} resolved, "
+        f"{summary.accepted_debt} accepted debt</li>"
+    )
+    parts.append(
+        f"<li>Risk/control drift: {summary.new_high_risk_effects} new "
+        f"high-risk effect(s), {summary.controls_removed} removed "
+        f"control(s), {summary.policy_drift_items} policy drift item(s)</li>"
+    )
+    parts.append("</ul>")
+    if section.highlights:
+        parts.append("<h3>What changed</h3><ul>")
+        for item in section.highlights:
+            parts.append(f"<li>{escape(item)}</li>")
+        parts.append("</ul>")
     return "".join(parts)
 
 

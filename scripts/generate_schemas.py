@@ -84,11 +84,12 @@ def write_report_schema() -> None:
         "post-processing to preserve the v0.5 public contract. "
         "Do not edit by hand."
     )
-    # Preserve v0.5's stable required list, plus v0.8/v0.9 additions.
+    # Preserve v0.5's stable required list, plus v0.8/v0.9/v0.10 additions.
     # Optional intermediate additions (manifest_dir, per-finding patches)
     # are not added here, so they stay optional for additive consumers.
-    # `release_decision` is required at v0.8, and the v0.9 capability diff
-    # fields are required for every emitted report. Marking them required
+    # `release_decision` is required at v0.8, v0.9 capability diff fields and
+    # v0.10 tool-surface diff fields are required for every emitted report.
+    # Marking them required
     # at the schema level catches drift early.
     schema["required"] = sorted(
         [
@@ -106,6 +107,8 @@ def write_report_schema() -> None:
             "release_consequence",
             "suggested_scenarios",
             "tool_surface",
+            "tool_surface_facts",
+            "tool_surface_diff",
             "frameworks",
             "findings",
             "recommended_actions",
@@ -263,6 +266,149 @@ def write_report_schema() -> None:
                 "source_findings",
             ]
         )
+    if "ToolSurfaceHashes" in defs:
+        defs["ToolSurfaceHashes"]["required"] = sorted(
+            [
+                "source_ref",
+                "description",
+                "input_schema",
+                "output_schema",
+                "parameters",
+                "annotations",
+            ]
+        )
+    if "ToolSurfaceToolFact" in defs:
+        defs["ToolSurfaceToolFact"]["required"] = sorted(
+            [
+                "name",
+                "source_type",
+                "source_id",
+                "source_ref",
+                "risk_tags",
+                "auth_scopes",
+                "owner",
+                "extraction_confidence",
+                "has_description",
+                "hashes",
+            ]
+        )
+    if "ToolSurfaceScopeFact" in defs:
+        defs["ToolSurfaceScopeFact"]["required"] = sorted(
+            ["scope", "kind", "tool_names", "broad"]
+        )
+    if "ToolSurfaceControlFact" in defs:
+        defs["ToolSurfaceControlFact"]["required"] = sorted(
+            ["kind", "tool", "source", "reason"]
+        )
+    if "ToolSurfacePolicyFact" in defs:
+        defs["ToolSurfacePolicyFact"]["required"] = sorted(
+            ["kind", "key", "value_hash", "summary"]
+        )
+    if "ToolSurfaceFacts" in defs:
+        defs["ToolSurfaceFacts"]["required"] = sorted(
+            ["tools", "scopes", "controls", "policies"]
+        )
+    if "ToolSurfaceDiffBase" in defs:
+        defs["ToolSurfaceDiffBase"]["required"] = sorted(
+            [
+                "kind",
+                "path",
+                "report_schema_version",
+                "baseline_schema_version",
+            ]
+        )
+    if "ToolSurfaceDiffSummary" in defs:
+        defs["ToolSurfaceDiffSummary"]["required"] = sorted(
+            [
+                "tools_added",
+                "tools_removed",
+                "tools_changed",
+                "new_scopes",
+                "removed_scopes",
+                "new_high_risk_effects",
+                "removed_high_risk_effects",
+                "controls_added",
+                "controls_removed",
+                "metadata_changes",
+                "policy_drift_items",
+                "new_findings",
+                "resolved_findings",
+                "unchanged_findings",
+                "accepted_debt",
+            ]
+        )
+    if "ToolSurfaceFieldChange" in defs:
+        defs["ToolSurfaceFieldChange"]["required"] = sorted(
+            ["field", "before", "after"]
+        )
+    if "ToolSurfaceToolChange" in defs:
+        defs["ToolSurfaceToolChange"]["required"] = sorted(
+            ["kind", "name", "source_type", "source_id", "changes"]
+        )
+    if "ToolSurfaceHighRiskEffectChange" in defs:
+        defs["ToolSurfaceHighRiskEffectChange"]["required"] = sorted(
+            ["kind", "tool", "tag"]
+        )
+    if "ToolSurfaceScopeChange" in defs:
+        defs["ToolSurfaceScopeChange"]["required"] = sorted(
+            ["kind", "scope", "scope_kind", "tool_names", "broad"]
+        )
+    if "ToolSurfaceControlChange" in defs:
+        defs["ToolSurfaceControlChange"]["required"] = sorted(
+            ["kind", "control", "tool", "source", "reason"]
+        )
+    if "ToolSurfaceMetadataChange" in defs:
+        defs["ToolSurfaceMetadataChange"]["required"] = sorted(
+            ["kind", "tool", "metadata", "before", "after"]
+        )
+    if "ToolSurfacePolicyDrift" in defs:
+        defs["ToolSurfacePolicyDrift"]["required"] = sorted(
+            [
+                "kind",
+                "policy_kind",
+                "key",
+                "before_hash",
+                "after_hash",
+                "before_summary",
+                "after_summary",
+            ]
+        )
+    if "ToolSurfaceFindingDeltaItem" in defs:
+        defs["ToolSurfaceFindingDeltaItem"]["required"] = sorted(
+            [
+                "fingerprint",
+                "check_id",
+                "severity",
+                "title",
+                "tool_name",
+                "baseline_status",
+            ]
+        )
+    if "ToolSurfaceFindingDeltas" in defs:
+        defs["ToolSurfaceFindingDeltas"]["required"] = sorted(
+            [
+                "new_findings",
+                "resolved_findings",
+                "unchanged_findings",
+                "accepted_debt",
+            ]
+        )
+    if "ToolSurfaceDiff" in defs:
+        defs["ToolSurfaceDiff"]["required"] = sorted(
+            [
+                "enabled",
+                "base",
+                "summary",
+                "tools",
+                "high_risk_effects",
+                "scopes",
+                "controls",
+                "metadata_changes",
+                "policy_drift",
+                "finding_deltas",
+                "notes",
+            ]
+        )
 
     # tool_inventory[] and loaded_plugins[] are typed as
     # ``list[dict[str, Any]]`` on the model, so Pydantic emits item
@@ -386,7 +532,7 @@ def write_packet_schema() -> None:
     from agents_shipgate.packet.models import EvidencePacket
 
     schema = EvidencePacket.model_json_schema()
-    minor = "0.1"
+    minor = str(EvidencePacket.model_fields["packet_schema_version"].default)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
         f"main/docs/packet-schema.v{minor}.json"

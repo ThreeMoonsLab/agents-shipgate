@@ -29,9 +29,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.10.0
   with:
-    shipgate_version: "0.8.0"
+    shipgate_version: "0.10.0"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient on `@main`, less reproducible.
@@ -49,10 +49,14 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+  uses: ThreeMoonsLab/agents-shipgate@v0.10.0
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
 ```
 
+**Diagnostic (informational, not a release gate):** `diff_enabled` — `true`/`false`. Whether the action performed a base-branch comparison (`diff_base: target` or `diff_from: <ref>` was set and the scan succeeded).
+
 **Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
+
+For PR review diffs, set `diff_base: target`. The action performs a best-effort base-branch scan with the PR-side installed package; use `fetch-depth: 0` on `actions/checkout` if your workflow needs reliable target-branch comparison.

@@ -28,6 +28,14 @@ inputs:
     required: false
     default: ""
     description: Optional local baseline JSON path. Strict mode fails only on new findings.
+  diff_from:
+    required: false
+    default: ""
+    description: Optional prior report.json or v0.3 baseline JSON for tool-surface diff.
+  diff_base:
+    required: false
+    default: ""
+    description: Set to target to best-effort scan the pull request base branch for diff.
   baseline_mode:
     required: false
     default: new-findings
@@ -113,6 +121,9 @@ outputs:
   ci_would_fail:
     description: Whether the active fail policy would fail CI (`true`/`false`). v0.8+.
     value: ${{ steps.report_outputs.outputs.ci_would_fail }}
+  diff_enabled:
+    description: Whether tool_surface_diff was enabled in report.json.
+    value: ${{ steps.report_outputs.outputs.diff_enabled }}
 
 runs:
   using: composite
@@ -142,6 +153,10 @@ runs:
         FAIL_ON: ${{ inputs.fail_on }}
         BASELINE: ${{ inputs.baseline }}
         BASELINE_MODE: ${{ inputs.baseline_mode }}
+        DIFF_FROM: ${{ inputs.diff_from }}
+        DIFF_BASE: ${{ inputs.diff_base }}
+        BASE_REF: ${{ github.base_ref }}
+        EVENT_NAME: ${{ github.event_name }}
         POLICY_PACKS: ${{ inputs.policy_packs }}
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -159,6 +174,52 @@ runs:
         if [ -n "${BASELINE}" ]; then
           args+=(--baseline "${BASELINE}" --baseline-mode "${BASELINE_MODE}")
         fi
+        resolved_diff_from="${DIFF_FROM}"
+        diff_tmp_to_cleanup=""
+        diff_worktree_to_cleanup=""
+        if [ -z "${resolved_diff_from}" ] && [ "${DIFF_BASE}" = "target" ]; then
+          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
+            base_tmp="$(mktemp -d)"
+            base_worktree="${base_tmp}/base"
+            base_out="${base_tmp}/reports"
+            diff_tmp_to_cleanup="${base_tmp}"
+            diff_worktree_to_cleanup="${base_worktree}"
+            diff_note=""
+            if ! git fetch --depth=1 origin "${BASE_REF}"; then
+              diff_note="tool-surface diff disabled: could not fetch base ref ${BASE_REF}"
+            elif ! git worktree add --detach "${base_worktree}" "FETCH_HEAD"; then
+              diff_note="tool-surface diff disabled: could not create base worktree"
+            elif [ ! -f "${base_worktree}/${CONFIG}" ]; then
+              diff_note="tool-surface diff disabled: base branch lacks ${CONFIG}"
+            else
+              set +e
+              (
+                cd "${base_worktree}"
+                agents-shipgate scan \
+                  --config "${CONFIG}" \
+                  --ci-mode advisory \
+                  --out "${base_out}" \
+                  --format json \
+                  --no-packet
+              )
+              base_exit=$?
+              set -e
+              if [ "${base_exit}" -eq 0 ] && [ -f "${base_out}/report.json" ]; then
+                resolved_diff_from="${base_out}/report.json"
+              else
+                diff_note="tool-surface diff disabled: base branch scan failed with exit ${base_exit}"
+              fi
+            fi
+            if [ -n "${diff_note}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              printf '## Agents Shipgate\n\n- %s\n\n' "${diff_note}" >> "${GITHUB_STEP_SUMMARY}"
+            fi
+          elif [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            printf '## Agents Shipgate\n\n- tool-surface diff disabled: diff_base=target requires a pull_request event with github.base_ref\n\n' >> "${GITHUB_STEP_SUMMARY}"
+          fi
+        fi
+        if [ -n "${resolved_diff_from}" ]; then
+          args+=(--diff-from "${resolved_diff_from}")
+        fi
         if [ -n "${POLICY_PACKS}" ]; then
           while IFS= read -r policy_pack; do
             [ -z "${policy_pack}" ] && continue
@@ -171,6 +232,12 @@ runs:
         set +e
         agents-shipgate "${args[@]}"
         exit_code=$?
+        if [ -n "${diff_worktree_to_cleanup}" ] && [ -d "${diff_worktree_to_cleanup}" ]; then
+          git worktree remove --force "${diff_worktree_to_cleanup}" >/dev/null 2>&1 || true
+        fi
+        if [ -n "${diff_tmp_to_cleanup}" ]; then
+          rm -rf "${diff_tmp_to_cleanup}"
+        fi
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
@@ -195,6 +262,8 @@ runs:
         adk_surface = {}
         release_decision = {}
         fail_policy = {}
+        tool_surface_diff = {}
+        diff_summary = {}
         if report_json.exists():
             with report_json.open(encoding="utf-8") as handle:
                 payload = json.load(handle)
@@ -203,6 +272,8 @@ runs:
                 adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
                 release_decision = payload.get("release_decision") or {}
                 fail_policy = release_decision.get("fail_policy") or {}
+                tool_surface_diff = payload.get("tool_surface_diff") or {}
+                diff_summary = tool_surface_diff.get("summary") or {}
 
         def clean(value: object) -> str:
             # `value or ""` would emit 0 as "", which breaks workflow
@@ -230,6 +301,7 @@ runs:
             # v0.8+ output. Pinned older package versions emit no release_decision,
             # so this stays false until the workflow installs v0.8+.
             "ci_would_fail": str(bool(fail_policy.get("would_fail_ci"))).lower(),
+            "diff_enabled": str(bool(tool_surface_diff.get("enabled"))).lower(),
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():
@@ -259,6 +331,21 @@ runs:
                         f"- Critical: {clean(summary.get('critical_count', 0))} · "
                         f"High: {clean(summary.get('high_count', 0))} · "
                         f"Medium: {clean(summary.get('medium_count', 0))}\n"
+                    )
+                if tool_surface_diff.get("enabled"):
+                    summary_file.write(
+                        "- What changed: "
+                        f"+{clean(diff_summary.get('tools_added', 0))} tools, "
+                        f"-{clean(diff_summary.get('tools_removed', 0))} tools, "
+                        f"{clean(diff_summary.get('tools_changed', 0))} changed, "
+                        f"{clean(diff_summary.get('new_high_risk_effects', 0))} "
+                        "new high-risk effect(s), "
+                        f"{clean(diff_summary.get('new_findings', 0))} "
+                        "new finding(s)\n"
+                    )
+                elif tool_surface_diff.get("notes"):
+                    summary_file.write(
+                        f"- Tool-surface diff: {clean(tool_surface_diff.get('notes')[0])}\n"
                     )
                 summary_file.write(f"- Report JSON: `{clean(report_json)}`\n")
         PY
@@ -290,6 +377,8 @@ runs:
           const summary = report.summary || {};
           const decision = report.release_decision || null;
           const adk = ((report.frameworks || {}).google_adk) || null;
+          const diff = report.tool_surface_diff || {};
+          const diffSummary = diff.summary || {};
           const escapeMarkdown = (value) =>
             String(value || "")
               .replace(/\\/g, "\\\\")
@@ -320,11 +409,50 @@ runs:
                 `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
               ];
           const STICKY = "<!-- agents-shipgate-pr-comment -->";
+          const diffHighlights = () => {
+            if (!diff.enabled) {
+              const note = (diff.notes || [])[0];
+              const lines = note ? [`Tool-surface diff: ${escapeMarkdown(note)}`] : [];
+              if ((diffSummary.new_findings || 0) || (diffSummary.resolved_findings || 0) || (diffSummary.accepted_debt || 0)) {
+                lines.push(`Finding deltas: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`);
+              }
+              return lines;
+            }
+            const lines = [
+              "### What changed",
+              `Tools: +${diffSummary.tools_added || 0}, -${diffSummary.tools_removed || 0}, ${diffSummary.tools_changed || 0} changed`,
+              `Risk/control drift: ${diffSummary.new_high_risk_effects || 0} new high-risk effect(s), ${diffSummary.controls_removed || 0} removed control(s)`,
+              `Findings: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`,
+            ];
+            const riskHighlights = [];
+            const controlHighlights = [];
+            const toolHighlights = [];
+            for (const item of diff.high_risk_effects || []) {
+              if (item.kind === "added") riskHighlights.push(`- New high-risk tag \`${escapeMarkdown(item.tag)}\` on \`${escapeMarkdown(item.tool)}\``);
+            }
+            for (const item of diff.controls || []) {
+              if (item.kind === "removed") controlHighlights.push(`- Removed \`${escapeMarkdown(item.control)}\` for \`${escapeMarkdown(item.tool)}\``);
+            }
+            for (const item of diff.tools || []) {
+              if (item.kind === "added") toolHighlights.push(`- Added tool \`${escapeMarkdown(item.name)}\``);
+              if (item.kind === "removed") toolHighlights.push(`- Removed tool \`${escapeMarkdown(item.name)}\``);
+            }
+            const highlights = [];
+            const groups = [controlHighlights, riskHighlights, toolHighlights];
+            while (highlights.length < 5 && groups.some((group) => group.length)) {
+              for (const group of groups) {
+                if (group.length && highlights.length < 5) highlights.push(group.shift());
+              }
+            }
+            return [...lines, ...highlights];
+          };
+          const whatChanged = truncate(diffHighlights().join("\n"), 1500);
           const body = truncate([
             STICKY,
             "## Agents Shipgate",
             "",
             ...decisionLines,
+            whatChanged,
             adk ? `Google ADK: ${adk.agent_count || 0} agents · ${adk.dynamic_toolset_count || 0} dynamic toolsets` : "",
             "",
             top ? `Top findings:\n${top}` : "No critical or high findings.",

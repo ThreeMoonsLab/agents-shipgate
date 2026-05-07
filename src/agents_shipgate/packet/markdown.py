@@ -29,6 +29,7 @@ from agents_shipgate.packet.models import (
     ReleaseDecisionSection,
     ScopeCoverageSection,
     SectionStatus,
+    ToolSurfaceDiffSection,
 )
 from agents_shipgate.report.markdown import _safe_markdown_text
 
@@ -65,6 +66,7 @@ def render_packet_markdown(packet: EvidencePacket) -> str:
     _append_release_decision(lines, packet.release_decision)
     _append_capability_intent(lines, packet.capability_intent)
     _append_high_risk_surface(lines, packet.high_risk_surface)
+    _append_tool_surface_diff(lines, packet.tool_surface_diff)
     _append_approval_coverage(lines, packet.approval_coverage)
     _append_idempotency_risk(lines, packet.idempotency_risk)
     _append_scope_coverage(lines, packet.scope_coverage)
@@ -222,6 +224,45 @@ def _append_high_risk_surface(lines: list[str], section: HighRiskSurfaceSection)
     else:
         lines.append("- No high-risk tools detected on this surface.")
         lines.append("")
+
+
+def _append_tool_surface_diff(
+    lines: list[str], section: ToolSurfaceDiffSection
+) -> None:
+    lines.append(f"## §3A Tool-surface diff — {_STATUS_LABEL[section.status]}")
+    lines.append("")
+    if not section.enabled:
+        note = section.notes[0] if section.notes else "No comparison source was available."
+        lines.append(f"- Status: disabled — {_escape(note)}")
+        lines.append(f"- Base: `{_escape(section.base_kind)}`")
+        lines.append("")
+        return
+    summary = section.summary
+    lines.append(f"- Base: `{_escape(section.base_kind)}`")
+    lines.append(
+        "- Tools: "
+        f"+{summary.tools_added}, -{summary.tools_removed}, "
+        f"{summary.tools_changed} changed"
+    )
+    lines.append(
+        "- Evidence gaps: "
+        f"{summary.new_findings} new finding(s), "
+        f"{summary.resolved_findings} resolved, "
+        f"{summary.accepted_debt} accepted debt"
+    )
+    lines.append(
+        "- Risk/control drift: "
+        f"{summary.new_high_risk_effects} new high-risk effect(s), "
+        f"{summary.controls_removed} removed control(s), "
+        f"{summary.policy_drift_items} policy drift item(s)"
+    )
+    if section.highlights:
+        lines.append("")
+        lines.append("### What changed")
+        lines.append("")
+        for item in section.highlights:
+            lines.append(f"- {_escape(item)}")
+    lines.append("")
 
 
 def _append_approval_coverage(

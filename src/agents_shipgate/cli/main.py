@@ -115,6 +115,11 @@ def scan(
         "--baseline",
         help="Path to a local baseline JSON. Strict mode fails only on new findings.",
     ),
+    diff_from: Path | None = typer.Option(
+        None,
+        "--diff-from",
+        help="Prior report.json or v0.3 baseline JSON used for tool-surface diff.",
+    ),
     baseline_mode: str = typer.Option(
         "new-findings",
         "--baseline-mode",
@@ -182,6 +187,7 @@ def scan(
                 ci_mode=ci_mode,
                 fail_on=parsed_fail_on,
                 baseline_path=baseline,
+                diff_from_path=diff_from,
                 baseline_mode=baseline_mode,
                 deep_import=deep_import,
                 policy_pack_paths=policy_packs,
@@ -200,6 +206,7 @@ def scan(
             ci_mode=ci_mode,
             fail_on=parsed_fail_on,
             baseline=baseline,
+            diff_from=diff_from,
             baseline_mode=baseline_mode,
             deep_import=deep_import,
             policy_packs=policy_packs or [],
@@ -713,6 +720,7 @@ def _run_multi_scan(
     ci_mode: str | None,
     fail_on: list[str] | None,
     baseline: Path | None,
+    diff_from: Path | None,
     baseline_mode: str,
     deep_import: bool,
     policy_packs: list[Path],
@@ -738,6 +746,7 @@ def _run_multi_scan(
                 ci_mode=ci_mode,
                 fail_on=fail_on,
                 baseline_path=baseline,
+                diff_from_path=diff_from,
                 baseline_mode=baseline_mode,
                 deep_import=deep_import,
                 policy_pack_paths=policy_packs,
@@ -848,6 +857,21 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         f"medium={summary.medium_count}, low={summary.low_count}, "
         f"suppressed={summary.suppressed_count}"
     )
+    diff = report.tool_surface_diff
+    if diff.enabled:
+        if _tool_surface_diff_has_changes(diff.summary):
+            typer.echo(
+                "Tool-surface diff: "
+                f"+{diff.summary.tools_added} tools, "
+                f"-{diff.summary.tools_removed} tools, "
+                f"{diff.summary.tools_changed} changed, "
+                f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
+                f"{diff.summary.controls_removed} removed control(s)"
+            )
+        else:
+            typer.echo("Tool-surface diff: no changes")
+    elif diff.notes:
+        typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
     if verbose:
         typer.echo(f"Tool count: {report.tool_surface.total_tools}")
         typer.echo(f"Source warnings: {len(report.source_warnings)}")
@@ -877,3 +901,25 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
+
+
+def _tool_surface_diff_has_changes(summary) -> bool:
+    return any(
+        (
+            summary.tools_added,
+            summary.tools_removed,
+            summary.tools_changed,
+            summary.new_scopes,
+            summary.removed_scopes,
+            summary.new_high_risk_effects,
+            summary.removed_high_risk_effects,
+            summary.controls_added,
+            summary.controls_removed,
+            summary.metadata_changes,
+            summary.policy_drift_items,
+            summary.new_findings,
+            summary.resolved_findings,
+            summary.unchanged_findings,
+            summary.accepted_debt,
+        )
+    )

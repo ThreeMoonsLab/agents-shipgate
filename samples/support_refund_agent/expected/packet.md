@@ -5,7 +5,7 @@
 - Environment: production\_like
 - Run id: agents\_shipgate\_3716da0eb0ec2fad
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.1
+- Packet schema: 0\.2
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -81,6 +81,11 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | `gmail.send\_customer\_email` | mcp | customer\_communication, external\_write | no | no |
 | `shopify.cancel\_order` | openapi | destructive, write | yes | yes |
 | `stripe.create\_refund` | openapi | external\_write, financial\_action, write | no | no |
+
+## §3A Tool-surface diff — not declared
+
+- Status: disabled — No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: `none`
 
 ## §4 Approval policy coverage — partial
 

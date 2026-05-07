@@ -92,7 +92,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.9, current). Always parse this for programmatic use.
+  (schema v0.10, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
@@ -104,7 +104,7 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.1.json`](packet-schema.v0.1.json)
+default. The packet is governed by [`docs/packet-schema.v0.2.json`](packet-schema.v0.2.json)
 and has ten always-present sections (release decision, capability/intent,
 high-risk surface, approval coverage, idempotency risk, scope coverage,
 memory isolation, human-in-the-loop, dynamic scenarios, and a

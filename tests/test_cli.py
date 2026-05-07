@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.checks import registry
 from agents_shipgate.cli.main import _safe_output_name, app
+from agents_shipgate.core.models import ToolSurfaceDiffSummary
 
 runner = CliRunner()
 
@@ -127,6 +128,16 @@ def test_cli_scan_help_hides_deferred_flags():
     assert "--deep-import" in hidden_options
     assert "--baseline-mode" in public_options
     assert "--policy-pack" in public_options
+
+
+def test_cli_tool_surface_summary_detects_no_changes():
+    from agents_shipgate.cli.main import _tool_surface_diff_has_changes
+
+    assert _tool_surface_diff_has_changes(ToolSurfaceDiffSummary()) is False
+    assert (
+        _tool_surface_diff_has_changes(ToolSurfaceDiffSummary(tools_added=1))
+        is True
+    )
 
 
 def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):

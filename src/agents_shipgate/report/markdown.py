@@ -89,6 +89,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_tool_surface(lines, report)
+    _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
     _append_findings_by_category(lines, report.findings)
@@ -376,6 +377,109 @@ def _append_tool_surface(lines: list[str], report: ReadinessReport) -> None:
             "",
         ]
     )
+
+
+def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None:
+    diff = report.tool_surface_diff
+    lines.extend(["## Tool Surface Diff", ""])
+    if not diff.enabled:
+        note = diff.notes[0] if diff.notes else "No comparison source was available."
+        lines.extend(
+            [
+                f"- Status: disabled - {_safe_markdown_text(note)}",
+                f"- Base: {_safe_markdown_text(diff.base.kind)}",
+            ]
+        )
+        if (
+            diff.summary.new_findings
+            or diff.summary.resolved_findings
+            or diff.summary.accepted_debt
+        ):
+            lines.append(
+                "- Finding deltas: "
+                f"{diff.summary.new_findings} new, "
+                f"{diff.summary.resolved_findings} resolved, "
+                f"{diff.summary.accepted_debt} accepted debt"
+            )
+        lines.append("")
+        return
+
+    summary = diff.summary
+    lines.extend(
+        [
+            f"- Base: {_safe_markdown_text(diff.base.kind)}"
+            + (f" ({_safe_markdown_text(diff.base.path)})" if diff.base.path else ""),
+            (
+                "- Tools: "
+                f"+{summary.tools_added}, -{summary.tools_removed}, "
+                f"{summary.tools_changed} changed"
+            ),
+            (
+                "- Scopes: "
+                f"+{summary.new_scopes}, -{summary.removed_scopes}; "
+                f"{summary.new_high_risk_effects} new high-risk effect(s)"
+            ),
+            (
+                "- Controls: "
+                f"+{summary.controls_added}, -{summary.controls_removed}; "
+                f"{summary.policy_drift_items} policy drift item(s)"
+            ),
+            (
+                "- Findings: "
+                f"{summary.new_findings} new, "
+                f"{summary.resolved_findings} resolved, "
+                f"{summary.unchanged_findings} unchanged, "
+                f"{summary.accepted_debt} accepted debt"
+            ),
+            "",
+        ]
+    )
+    _append_diff_values(
+        lines,
+        "Added tools",
+        [item.name for item in diff.tools if item.kind == "added"],
+    )
+    _append_diff_values(
+        lines,
+        "Changed tools",
+        [item.name for item in diff.tools if item.kind == "changed"],
+    )
+    _append_diff_values(
+        lines,
+        "New high-risk effects",
+        [
+            f"{item.tool}: {item.tag}"
+            for item in diff.high_risk_effects
+            if item.kind == "added"
+        ],
+    )
+    _append_diff_values(
+        lines,
+        "Removed controls",
+        [
+            f"{item.tool}: {item.control}"
+            for item in diff.controls
+            if item.kind == "removed"
+        ],
+    )
+    _append_diff_values(
+        lines,
+        "Policy drift",
+        [f"{item.kind} {item.policy_kind} {item.key}" for item in diff.policy_drift],
+    )
+    if diff.notes:
+        _append_diff_values(lines, "Notes", diff.notes[:3])
+
+
+def _append_diff_values(lines: list[str], label: str, values: list[str]) -> None:
+    if not values:
+        return
+    lines.extend([f"{label}:", ""])
+    for value in values[:5]:
+        lines.append(f"- {_safe_markdown_text(value)}")
+    if len(values) > 5:
+        lines.append(f"- {len(values) - 5} more in report.json")
+    lines.append("")
 
 
 def _append_api_surface(lines: list[str], report: ReadinessReport) -> None:

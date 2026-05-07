@@ -1,0 +1,1079 @@
+{
+  "$defs": {
+    "ApprovalCoverageRow": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "title": "Declared",
+          "type": "boolean"
+        },
+        "gap_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gap Finding Ids",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "declared"
+      ],
+      "title": "ApprovalCoverageRow",
+      "type": "object"
+    },
+    "ApprovalCoverageSection": {
+      "additionalProperties": false,
+      "description": "\u00a74 \u2014 approval policy coverage.",
+      "properties": {
+        "gap_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Gap Findings",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ApprovalCoverageRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ApprovalCoverageSection",
+      "type": "object"
+    },
+    "BaselineDelta": {
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "matched_count": {
+          "default": 0,
+          "title": "Matched Count",
+          "type": "integer"
+        },
+        "new_count": {
+          "default": 0,
+          "title": "New Count",
+          "type": "integer"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "resolved_count": {
+          "default": 0,
+          "title": "Resolved Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "BaselineDelta",
+      "type": "object"
+    },
+    "CapabilityIntentDiff": {
+      "additionalProperties": false,
+      "description": "\u00a72 \u2014 capability \u2194 intent diff.",
+      "properties": {
+        "declared_purpose": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Purpose",
+          "type": "array"
+        },
+        "divergence_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Divergence Findings",
+          "type": "array"
+        },
+        "observed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observed Tools",
+          "type": "array"
+        },
+        "prohibited_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Actions",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/CapabilityIntentRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "CapabilityIntentDiff",
+      "type": "object"
+    },
+    "CapabilityIntentRow": {
+      "additionalProperties": false,
+      "description": "One declared/observed pair in the \u00a72 capability \u2194 intent diff.",
+      "properties": {
+        "declared": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared",
+          "type": "array"
+        },
+        "divergent": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Divergent",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "observed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "CapabilityIntentRow",
+      "type": "object"
+    },
+    "DynamicScenarioRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Ids",
+          "type": "array"
+        },
+        "scenario": {
+          "title": "Scenario",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scenario",
+        "why"
+      ],
+      "title": "DynamicScenarioRequirement",
+      "type": "object"
+    },
+    "DynamicScenariosSection": {
+      "additionalProperties": false,
+      "description": "\u00a79 \u2014 required dynamic scenarios.",
+      "properties": {
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/DynamicScenarioRequirement"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "DynamicScenariosSection",
+      "type": "object"
+    },
+    "EvidenceCoverageDecision": {
+      "properties": {
+        "human_review_recommended": {
+          "title": "Human Review Recommended",
+          "type": "boolean"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "low_confidence_tool_count": {
+          "title": "Low Confidence Tool Count",
+          "type": "integer"
+        },
+        "source_warning_count": {
+          "title": "Source Warning Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "human_review_recommended",
+        "source_warning_count",
+        "low_confidence_tool_count"
+      ],
+      "title": "EvidenceCoverageDecision",
+      "type": "object"
+    },
+    "FailPolicy": {
+      "properties": {
+        "ci_mode": {
+          "title": "Ci Mode",
+          "type": "string"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "fail_on": {
+          "items": {
+            "enum": [
+              "info",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "new_findings_only": {
+          "default": false,
+          "title": "New Findings Only",
+          "type": "boolean"
+        },
+        "would_fail_ci": {
+          "title": "Would Fail Ci",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ci_mode",
+        "would_fail_ci",
+        "exit_code"
+      ],
+      "title": "FailPolicy",
+      "type": "object"
+    },
+    "HighRiskSurfaceSection": {
+      "additionalProperties": false,
+      "description": "\u00a73 \u2014 high-risk tool surface.",
+      "properties": {
+        "high_risk_count": {
+          "default": 0,
+          "title": "High Risk Count",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/HighRiskToolEntry"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "total_tools": {
+          "default": 0,
+          "title": "Total Tools",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "HighRiskSurfaceSection",
+      "type": "object"
+    },
+    "HighRiskToolEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "has_approval_policy": {
+          "default": false,
+          "title": "Has Approval Policy",
+          "type": "boolean"
+        },
+        "has_idempotency_policy": {
+          "default": false,
+          "title": "Has Idempotency Policy",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source_type"
+      ],
+      "title": "HighRiskToolEntry",
+      "type": "object"
+    },
+    "HumanInTheLoopEvidence": {
+      "additionalProperties": false,
+      "description": "\u00a78 \u2014 human-in-the-loop evidence.\n\n``trace_findings`` is kept for packet v0.1 compatibility. It now\ncarries HITL evidence gaps surfaced as findings, including the\noriginal trace-derived gaps and validation-config evidence gaps.",
+      "properties": {
+        "approval_required_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Approval Required Tools",
+          "type": "array"
+        },
+        "confirmation_required_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Confirmation Required Tools",
+          "type": "array"
+        },
+        "human_review_recommended": {
+          "default": false,
+          "title": "Human Review Recommended",
+          "type": "boolean"
+        },
+        "is_configured": {
+          "default": false,
+          "title": "Is Configured",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Trace Findings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "HumanInTheLoopEvidence",
+      "type": "object"
+    },
+    "IdempotencyRiskSection": {
+      "additionalProperties": false,
+      "description": "\u00a75 \u2014 idempotency / retry risk.",
+      "properties": {
+        "gap_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Gap Findings",
+          "type": "array"
+        },
+        "retry_policy_declared": {
+          "default": false,
+          "title": "Retry Policy Declared",
+          "type": "boolean"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/IdempotencyRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "IdempotencyRiskSection",
+      "type": "object"
+    },
+    "IdempotencyRow": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "title": "Declared",
+          "type": "boolean"
+        },
+        "gap_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gap Finding Ids",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "declared"
+      ],
+      "title": "IdempotencyRow",
+      "type": "object"
+    },
+    "MemoryIsolationStatus": {
+      "additionalProperties": false,
+      "description": "\u00a77 \u2014 memory isolation. v0.1 always renders ``is_declared=False``;\na future manifest schema may add ``agent.memory`` and populate this\nsection. Until then the structural slot is preserved so packets\nhave a consistent shape across versions.",
+      "properties": {
+        "is_declared": {
+          "default": false,
+          "title": "Is Declared",
+          "type": "boolean"
+        },
+        "notes": {
+          "default": "Manifest does not declare a memory isolation policy. The current manifest schema (v0.1) has no agent.memory field. See \u00a710 for the residual review item.",
+          "title": "Notes",
+          "type": "string"
+        },
+        "status": {
+          "default": "not_declared",
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "MemoryIsolationStatus",
+      "type": "object"
+    },
+    "NotProvenItem": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "body"
+      ],
+      "title": "NotProvenItem",
+      "type": "object"
+    },
+    "NotProvenSection": {
+      "additionalProperties": false,
+      "description": "\u00a710 \u2014 what Shipgate did NOT prove. Combines unconditional\ndisclaimers with per-run residuals so reviewers can see both the\nstatic scope and what's missing for this specific scan.",
+      "properties": {
+        "additional_residuals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Additional Residuals",
+          "type": "array"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "low_confidence_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Low Confidence Tools",
+          "type": "array"
+        },
+        "source_warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Warnings",
+          "type": "array"
+        },
+        "suppressed_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suppressed Finding Ids",
+          "type": "array"
+        },
+        "unconditional": {
+          "items": {
+            "$ref": "#/$defs/NotProvenItem"
+          },
+          "title": "Unconditional",
+          "type": "array"
+        }
+      },
+      "required": [
+        "headline"
+      ],
+      "title": "NotProvenSection",
+      "type": "object"
+    },
+    "ReleaseDecisionItem": {
+      "properties": {
+        "baseline_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "new",
+                "matched",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "severity",
+        "title"
+      ],
+      "title": "ReleaseDecisionItem",
+      "type": "object"
+    },
+    "ReleaseDecisionSection": {
+      "additionalProperties": false,
+      "description": "\u00a71 \u2014 release decision. Verdict derives from\n``release_decision.decision`` only; ``fail_policy`` is rendered as\nseparate CI behavior metadata, never as the verdict source.",
+      "properties": {
+        "baseline_delta": {
+          "$ref": "#/$defs/BaselineDelta"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "decision": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "passed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evidence_coverage": {
+          "$ref": "#/$defs/EvidenceCoverageDecision"
+        },
+        "fail_policy": {
+          "$ref": "#/$defs/FailPolicy"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "review_items": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Review Items",
+          "type": "array"
+        },
+        "verdict": {
+          "enum": [
+            "PASSED",
+            "REVIEW REQUIRED",
+            "BLOCKED"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "verdict",
+        "reason",
+        "evidence_coverage",
+        "baseline_delta",
+        "fail_policy"
+      ],
+      "title": "ReleaseDecisionSection",
+      "type": "object"
+    },
+    "ScopeCoverageRow": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "title": "Declared",
+          "type": "boolean"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "used_by_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Used By Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scope",
+        "declared"
+      ],
+      "title": "ScopeCoverageRow",
+      "type": "object"
+    },
+    "ScopeCoverageSection": {
+      "additionalProperties": false,
+      "description": "\u00a76 \u2014 scope coverage.",
+      "properties": {
+        "declared_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Scopes",
+          "type": "array"
+        },
+        "gap_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Gap Findings",
+          "type": "array"
+        },
+        "missing_declared": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Declared",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ScopeCoverageRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "unused_declared": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unused Declared",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ScopeCoverageSection",
+      "type": "object"
+    },
+    "ToolSurfaceDiffSection": {
+      "additionalProperties": false,
+      "description": "\u00a73A \u2014 compact tool-surface diff for reviewers.",
+      "properties": {
+        "base_kind": {
+          "default": "none",
+          "title": "Base Kind",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "highlights": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Highlights",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/$defs/ToolSurfaceDiffSummary"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ToolSurfaceDiffSection",
+      "type": "object"
+    },
+    "ToolSurfaceDiffSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_debt": {
+          "default": 0,
+          "title": "Accepted Debt",
+          "type": "integer"
+        },
+        "controls_added": {
+          "default": 0,
+          "title": "Controls Added",
+          "type": "integer"
+        },
+        "controls_removed": {
+          "default": 0,
+          "title": "Controls Removed",
+          "type": "integer"
+        },
+        "metadata_changes": {
+          "default": 0,
+          "title": "Metadata Changes",
+          "type": "integer"
+        },
+        "new_findings": {
+          "default": 0,
+          "title": "New Findings",
+          "type": "integer"
+        },
+        "new_high_risk_effects": {
+          "default": 0,
+          "title": "New High Risk Effects",
+          "type": "integer"
+        },
+        "new_scopes": {
+          "default": 0,
+          "title": "New Scopes",
+          "type": "integer"
+        },
+        "policy_drift_items": {
+          "default": 0,
+          "title": "Policy Drift Items",
+          "type": "integer"
+        },
+        "removed_high_risk_effects": {
+          "default": 0,
+          "title": "Removed High Risk Effects",
+          "type": "integer"
+        },
+        "removed_scopes": {
+          "default": 0,
+          "title": "Removed Scopes",
+          "type": "integer"
+        },
+        "resolved_findings": {
+          "default": 0,
+          "title": "Resolved Findings",
+          "type": "integer"
+        },
+        "tools_added": {
+          "default": 0,
+          "title": "Tools Added",
+          "type": "integer"
+        },
+        "tools_changed": {
+          "default": 0,
+          "title": "Tools Changed",
+          "type": "integer"
+        },
+        "tools_removed": {
+          "default": 0,
+          "title": "Tools Removed",
+          "type": "integer"
+        },
+        "unchanged_findings": {
+          "default": 0,
+          "title": "Unchanged Findings",
+          "type": "integer"
+        }
+      },
+      "title": "ToolSurfaceDiffSummary",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for packet.json. Generated from agents_shipgate.packet.models.EvidencePacket. Do not edit by hand.",
+  "properties": {
+    "agent": {
+      "additionalProperties": true,
+      "title": "Agent",
+      "type": "object"
+    },
+    "approval_coverage": {
+      "$ref": "#/$defs/ApprovalCoverageSection"
+    },
+    "capability_intent": {
+      "$ref": "#/$defs/CapabilityIntentDiff"
+    },
+    "dynamic_scenarios": {
+      "$ref": "#/$defs/DynamicScenariosSection"
+    },
+    "environment": {
+      "additionalProperties": true,
+      "title": "Environment",
+      "type": "object"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "high_risk_surface": {
+      "$ref": "#/$defs/HighRiskSurfaceSection"
+    },
+    "human_in_the_loop": {
+      "$ref": "#/$defs/HumanInTheLoopEvidence"
+    },
+    "idempotency_risk": {
+      "$ref": "#/$defs/IdempotencyRiskSection"
+    },
+    "memory_isolation": {
+      "$ref": "#/$defs/MemoryIsolationStatus"
+    },
+    "not_proven": {
+      "$ref": "#/$defs/NotProvenSection"
+    },
+    "packet_schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Packet Schema Version",
+      "type": "string"
+    },
+    "project": {
+      "additionalProperties": true,
+      "title": "Project",
+      "type": "object"
+    },
+    "release_decision": {
+      "$ref": "#/$defs/ReleaseDecisionSection"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scope_coverage": {
+      "$ref": "#/$defs/ScopeCoverageSection"
+    },
+    "tool_surface_diff": {
+      "$ref": "#/$defs/ToolSurfaceDiffSection"
+    }
+  },
+  "required": [
+    "run_id",
+    "release_decision",
+    "capability_intent",
+    "high_risk_surface",
+    "approval_coverage",
+    "idempotency_risk",
+    "scope_coverage",
+    "memory_isolation",
+    "human_in_the_loop",
+    "dynamic_scenarios",
+    "not_proven"
+  ],
+  "title": "Agents Shipgate Release Evidence Packet v0.2",
+  "type": "object"
+}

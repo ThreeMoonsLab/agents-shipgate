@@ -14,7 +14,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--no-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
@@ -51,6 +51,8 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `misalignments[].{id, kind, severity, tool_name, capability_refs, intention_refs, finding_refs, policy_requirement, gap, release_implication}` (v0.9+)
 - `release_consequence.{decision, summary, blocker_misalignment_count, review_misalignment_count, fail_policy}` (v0.9+)
 - `suggested_scenarios[].{id, scenario_type, title, given, expected_control, source_misalignments, source_findings}` (v0.9+)
+- `tool_surface_facts.{tools, scopes, controls, policies}` (v0.10+) — deterministic current facts used for static tool-surface comparison
+- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` (v0.10+) — explanatory diff data only; it never changes `release_decision.decision` or exit behavior
 - `summary.{critical_count, high_count, medium_count, low_count, info_count, suppressed_count, status, human_review_recommended}`
 - `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`
 - `findings[].tool_name` (string or null)
@@ -124,12 +126,28 @@ Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; 
 
 The manifest schema version (`version: "0.1"`) is independent of the CLI version. Manifest schema changes follow their own deprecation cycle. A `0.1`-shaped manifest will load correctly across all `0.x.y` CLI releases.
 
-### Release Evidence Packet (v0.1)
+### Tool-Surface Diff
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.1.json`](docs/packet-schema.v0.1.json). Within `0.x`:
+`agents-shipgate scan --diff-from <path>` accepts a prior `report.json` or a
+v0.3 baseline JSON with `tool_surface_facts`. If both `--baseline` and
+`--diff-from` are provided, `--baseline` continues to drive finding baseline
+status, strict-mode filtering, and `release_decision.baseline_delta`;
+`--diff-from` drives only `tool_surface_diff`.
+
+If `--diff-from` is absent and `--baseline` points at a v0.3 baseline with
+`tool_surface_facts`, the baseline snapshot is used as the diff reference.
+Older v0.2 baselines still load for accepted-debt gating, but they cannot
+enable a surface diff and emit a disabled diff note instead.
+
+The diff is static evidence only. It does not fetch branches in the CLI,
+infer runtime routing, execute tools, or change release gating.
+
+### Release Evidence Packet (v0.2)
+
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.2.json`](docs/packet-schema.v0.2.json). Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
-- All ten sections (release_decision, capability_intent, high_risk_surface, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
+- The reviewer sections (release_decision, capability_intent, high_risk_surface, tool_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
 - `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
 - The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.

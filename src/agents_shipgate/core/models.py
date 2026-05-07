@@ -189,6 +189,214 @@ class ToolSurfaceSummary(BaseModel):
     missing_descriptions: int = 0
 
 
+ToolSurfaceDiffBaseKind = Literal["none", "report", "baseline"]
+ToolSurfaceChangeKind = Literal["added", "removed", "changed"]
+ToolSurfaceFactScopeKind = Literal["tool_required", "manifest_declared"]
+ToolSurfaceControlKind = Literal[
+    "approval_policy",
+    "confirmation_policy",
+    "idempotency_evidence",
+]
+
+
+class ToolSurfaceHashes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_ref: str | None = None
+    description: str | None = None
+    input_schema: str | None = None
+    output_schema: str | None = None
+    parameters: str | None = None
+    annotations: str | None = None
+
+
+class ToolSurfaceToolFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    source_type: str
+    source_id: str | None = None
+    source_ref: str | None = None
+    risk_tags: list[str] = Field(default_factory=list)
+    auth_scopes: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    extraction_confidence: Confidence = "low"
+    has_description: bool = False
+    hashes: ToolSurfaceHashes = Field(default_factory=ToolSurfaceHashes)
+
+
+class ToolSurfaceScopeFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str
+    kind: ToolSurfaceFactScopeKind
+    tool_names: list[str] = Field(default_factory=list)
+    broad: bool = False
+
+
+class ToolSurfaceControlFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceControlKind
+    tool: str
+    source: str
+    reason: str | None = None
+
+
+class ToolSurfacePolicyFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    key: str
+    # Change-detection hash only; not a security boundary.
+    value_hash: str
+    summary: str | None = None
+
+
+class ToolSurfaceFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tools: list[ToolSurfaceToolFact] = Field(default_factory=list)
+    scopes: list[ToolSurfaceScopeFact] = Field(default_factory=list)
+    controls: list[ToolSurfaceControlFact] = Field(default_factory=list)
+    policies: list[ToolSurfacePolicyFact] = Field(default_factory=list)
+
+
+class ToolSurfaceDiffBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceDiffBaseKind = "none"
+    path: str | None = None
+    report_schema_version: str | None = None
+    baseline_schema_version: str | None = None
+
+
+class ToolSurfaceDiffSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tools_added: int = 0
+    tools_removed: int = 0
+    tools_changed: int = 0
+    new_scopes: int = 0
+    removed_scopes: int = 0
+    new_high_risk_effects: int = 0
+    removed_high_risk_effects: int = 0
+    controls_added: int = 0
+    controls_removed: int = 0
+    metadata_changes: int = 0
+    policy_drift_items: int = 0
+    new_findings: int = 0
+    resolved_findings: int = 0
+    unchanged_findings: int = 0
+    accepted_debt: int = 0
+
+
+class ToolSurfaceFieldChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    before: Any = None
+    after: Any = None
+
+
+class ToolSurfaceToolChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    name: str
+    source_type: str | None = None
+    source_id: str | None = None
+    changes: list[ToolSurfaceFieldChange] = Field(default_factory=list)
+
+
+class ToolSurfaceHighRiskEffectChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    tool: str
+    tag: str
+
+
+class ToolSurfaceScopeChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    scope: str
+    scope_kind: ToolSurfaceFactScopeKind
+    tool_names: list[str] = Field(default_factory=list)
+    broad: bool = False
+
+
+class ToolSurfaceControlChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    control: ToolSurfaceControlKind
+    tool: str
+    source: str | None = None
+    reason: str | None = None
+
+
+class ToolSurfaceMetadataChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    tool: str
+    metadata: str
+    before: Any = None
+    after: Any = None
+
+
+class ToolSurfacePolicyDrift(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolSurfaceChangeKind
+    policy_kind: str
+    key: str
+    before_hash: str | None = None
+    after_hash: str | None = None
+    before_summary: str | None = None
+    after_summary: str | None = None
+
+
+class ToolSurfaceFindingDeltaItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fingerprint: str
+    check_id: str
+    severity: Severity
+    title: str
+    tool_name: str | None = None
+    baseline_status: BaselineStatus | None = None
+
+
+class ToolSurfaceFindingDeltas(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
+    resolved_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
+    unchanged_findings: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
+    accepted_debt: list[ToolSurfaceFindingDeltaItem] = Field(default_factory=list)
+
+
+class ToolSurfaceDiff(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    base: ToolSurfaceDiffBase = Field(default_factory=ToolSurfaceDiffBase)
+    summary: ToolSurfaceDiffSummary = Field(default_factory=ToolSurfaceDiffSummary)
+    tools: list[ToolSurfaceToolChange] = Field(default_factory=list)
+    high_risk_effects: list[ToolSurfaceHighRiskEffectChange] = Field(default_factory=list)
+    scopes: list[ToolSurfaceScopeChange] = Field(default_factory=list)
+    controls: list[ToolSurfaceControlChange] = Field(default_factory=list)
+    metadata_changes: list[ToolSurfaceMetadataChange] = Field(default_factory=list)
+    policy_drift: list[ToolSurfacePolicyDrift] = Field(default_factory=list)
+    finding_deltas: ToolSurfaceFindingDeltas = Field(
+        default_factory=ToolSurfaceFindingDeltas
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
 class BaselineSummary(BaseModel):
     path: str
     matched_count: int = 0
@@ -591,7 +799,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.9"
+    report_schema_version: str = "0.10"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -614,6 +822,10 @@ class ReadinessReport(BaseModel):
     release_consequence: ReleaseConsequence | None = None
     suggested_scenarios: list[SuggestedScenario] = Field(default_factory=list)
     tool_surface: ToolSurfaceSummary
+    # v0.10 tool-surface diff. `tool_surface` remains the count summary;
+    # these facts/diff fields are explanatory reviewer data.
+    tool_surface_facts: ToolSurfaceFacts = Field(default_factory=ToolSurfaceFacts)
+    tool_surface_diff: ToolSurfaceDiff = Field(default_factory=ToolSurfaceDiff)
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None
     frameworks: dict[str, Any] = Field(default_factory=dict)

@@ -116,6 +116,8 @@ def test_sarif_output_stays_findings_only_for_capability_diff_reports(tmp_path):
     assert "misalignments" not in sarif_text
     assert "release_consequence" not in sarif_text
     assert "suggested_scenarios" not in sarif_text
+    assert "tool_surface_facts" not in sarif_text
+    assert "tool_surface_diff" not in sarif_text
 
 
 def _report_with_findings(findings: list[Finding]) -> ReadinessReport:

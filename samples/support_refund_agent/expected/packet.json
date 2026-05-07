@@ -399,7 +399,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.1",
+  "packet_schema_version": "0.2",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -675,5 +675,31 @@
     "unused_declared": [
       "zendesk:tickets:read"
     ]
+  },
+  "tool_surface_diff": {
+    "base_kind": "none",
+    "enabled": false,
+    "highlights": [],
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ],
+    "status": "not_declared",
+    "summary": {
+      "accepted_debt": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "new_findings": 0,
+      "new_high_risk_effects": 0,
+      "new_scopes": 0,
+      "policy_drift_items": 0,
+      "removed_high_risk_effects": 0,
+      "removed_scopes": 0,
+      "resolved_findings": 0,
+      "tools_added": 0,
+      "tools_changed": 0,
+      "tools_removed": 0,
+      "unchanged_findings": 0
+    }
   }
 }

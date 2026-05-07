@@ -52,6 +52,11 @@ No action required from static findings.
 - Missing descriptions: 0
 - Sources: crewai_class_tool=1, crewai_function=1, crewai_prebuilt_tool=1
 
+## Tool Surface Diff
+
+- Status: disabled - No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: none
+
 ## CrewAI Surface Summary
 
 - Python entrypoints: 1

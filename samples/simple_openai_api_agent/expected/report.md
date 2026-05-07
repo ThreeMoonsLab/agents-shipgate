@@ -135,6 +135,11 @@ Next validation:
 - Missing descriptions: 0
 - Sources: openai_api=2
 
+## Tool Surface Diff
+
+- Status: disabled - No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: none
+
 ## OpenAI API Surface Summary
 
 - Prompt files: 1

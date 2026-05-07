@@ -36,6 +36,7 @@ from agents_shipgate.core.models import (
     ReleaseDecisionItem,
     Tool,
     ToolRiskHint,
+    ToolSurfaceDiff,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.packet.disclaimer import (
@@ -62,6 +63,7 @@ from agents_shipgate.packet.models import (
     ScopeCoverageRow,
     ScopeCoverageSection,
     SectionStatus,
+    ToolSurfaceDiffSection,
     VerdictLabel,
 )
 
@@ -111,6 +113,7 @@ def build_packet(
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
     source_warnings: list[str],
+    tool_surface_diff: ToolSurfaceDiff | None = None,
     generated_at: str | None = None,
 ) -> EvidencePacket:
     """Build an ``EvidencePacket`` from in-memory scan data.
@@ -140,6 +143,7 @@ def build_packet(
         high_risk_surface=_build_high_risk_surface(
             tools, approval_declared, idempotency_declared
         ),
+        tool_surface_diff=_build_tool_surface_diff(tool_surface_diff),
         approval_coverage=_build_approval_coverage(
             manifest, api_artifacts, anthropic_artifacts, tools, active
         ),
@@ -205,6 +209,7 @@ def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
         api_artifacts=None,
         anthropic_artifacts=None,
         source_warnings=list(report.source_warnings),
+        tool_surface_diff=report.tool_surface_diff,
     )
     packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)
     return packet
@@ -316,6 +321,50 @@ def _build_release_decision(decision: ReleaseDecision) -> ReleaseDecisionSection
         baseline_delta=decision.baseline_delta,
         fail_policy=decision.fail_policy,
     )
+
+
+def _build_tool_surface_diff(
+    diff: ToolSurfaceDiff | None,
+) -> ToolSurfaceDiffSection:
+    if diff is None:
+        return ToolSurfaceDiffSection(
+            status="not_declared",
+            notes=["No tool-surface diff was recorded."],
+        )
+    if not diff.enabled:
+        return ToolSurfaceDiffSection(
+            status="not_declared",
+            enabled=False,
+            base_kind=diff.base.kind,
+            summary=diff.summary,
+            notes=list(diff.notes),
+        )
+    return ToolSurfaceDiffSection(
+        status="covered",
+        enabled=True,
+        base_kind=diff.base.kind,
+        summary=diff.summary,
+        highlights=_tool_surface_diff_highlights(diff),
+        notes=list(diff.notes[:3]),
+    )
+
+
+def _tool_surface_diff_highlights(diff: ToolSurfaceDiff) -> list[str]:
+    highlights: list[str] = []
+    for item in diff.high_risk_effects:
+        if item.kind == "added":
+            highlights.append(f"New high-risk tag {item.tag} on {item.tool}")
+    for item in diff.controls:
+        if item.kind == "removed":
+            highlights.append(f"Removed {item.control} for {item.tool}")
+    for item in diff.tools:
+        if item.kind == "added":
+            highlights.append(f"Added tool {item.name}")
+        elif item.kind == "removed":
+            highlights.append(f"Removed tool {item.name}")
+    for item in diff.policy_drift:
+        highlights.append(f"{item.kind.title()} {item.policy_kind} {item.key}")
+    return highlights[:5]
 
 
 def _build_capability_intent(

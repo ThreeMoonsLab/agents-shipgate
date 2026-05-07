@@ -24,9 +24,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CURRENT_REPORT_SCHEMA = "report-schema.v0.9.json"
-CURRENT_REPORT_SCHEMA_VERSION = "0.9"
-LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8)\.json")
+CURRENT_REPORT_SCHEMA = "report-schema.v0.10.json"
+CURRENT_REPORT_SCHEMA_VERSION = "0.10"
+# v0.9 became a frozen reference once main shipped v0.10 (tool-surface diff).
+LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9)\.json")
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 SUMMARY_STATUS_PATTERN = re.compile(
     r"summary\.status\b|summary\.\{[^}]*status[^}]*\}"
@@ -68,13 +69,13 @@ def _has_legacy_context(text: str, start: int, end: int) -> bool:
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
 def test_public_surface_mentions_current_schema_when_it_mentions_any(relpath):
     """A file that talks about report schemas at all must talk about
-    the current one (v0.9). Files that don't mention schemas are fine."""
+    the current one. Files that don't mention schemas are fine."""
     text = _read(relpath)
     if not ANY_REPORT_SCHEMA_PATTERN.search(text):
         return
     assert CURRENT_REPORT_SCHEMA in text, (
         f"{relpath} references a report schema but not the current one "
-        f"({CURRENT_REPORT_SCHEMA}). Update to reference v0.9 — see "
+        f"({CURRENT_REPORT_SCHEMA}). Update accordingly — see "
         "docs/agent-contract-current.md."
     )
 
@@ -154,9 +155,9 @@ def test_agent_contract_current_doc_is_canonical():
         "docs/agent-contract-current.md must lead with "
         "release_decision.decision as the gating signal."
     )
-    assert "packet-schema.v0.1.json" in text, (
-        "docs/agent-contract-current.md must reference the packet schema "
-        "so coding agents know about the Release Evidence Packet."
+    assert "packet-schema.v0.2.json" in text, (
+        "docs/agent-contract-current.md must reference the current packet "
+        "schema (v0.2) so coding agents know about the Release Evidence Packet."
     )
 
 

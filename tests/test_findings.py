@@ -1,5 +1,12 @@
+import json
+
 from agents_shipgate.config.schema import SuppressionConfig
-from agents_shipgate.core.baseline import BaselineFile, BaselineFinding, apply_baseline
+from agents_shipgate.core.baseline import (
+    BaselineFile,
+    BaselineFinding,
+    apply_baseline,
+    load_baseline,
+)
 from agents_shipgate.core.findings import (
     apply_severity_overrides,
     apply_suppressions,
@@ -257,3 +264,33 @@ def test_tool_confidence_defaults_to_low_when_extraction_omits_contract():
 
     assert tool.extraction_confidence == "low"
     assert tool.extraction["confidence"] == "low"
+
+
+def test_v02_baseline_loads_without_tool_surface_facts(tmp_path):
+    path = tmp_path / "baseline-v02.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.2",
+                "project": {"name": "legacy"},
+                "agent": {"name": "agent"},
+                "created_at": "2026-01-01T00:00:00Z",
+                "source_report_run_id": "run",
+                "findings": [
+                    {
+                        "fingerprint": "fp_legacy",
+                        "check_id": "SHIP-DOC-MISSING-DESCRIPTION",
+                        "tool_name": "tool",
+                        "severity": "medium",
+                        "title": "legacy finding",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    baseline = load_baseline(path)
+
+    assert baseline.schema_version == "0.2"
+    assert baseline.tool_surface_facts is None

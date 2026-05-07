@@ -16,6 +16,8 @@ from agents_shipgate.core.models import (
     ReportSummary,
     Severity,
     Tool,
+    ToolSurfaceDiff,
+    ToolSurfaceFacts,
     ToolSurfaceSummary,
     confidence_rank,
 )
@@ -264,6 +266,8 @@ def build_report(
     frameworks: dict[str, object] | None = None,
     baseline: BaselineSummary | None = None,
     manifest_dir: str | None = None,
+    tool_surface_facts: ToolSurfaceFacts | None = None,
+    tool_surface_diff: ToolSurfaceDiff | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -273,6 +277,8 @@ def build_report(
         environment=environment,
         summary=summarize_findings(findings, tools),
         tool_surface=summarize_tool_surface(tools),
+        tool_surface_facts=tool_surface_facts or ToolSurfaceFacts(),
+        tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
         api_surface=api_surface,
         anthropic_surface=anthropic_surface,
         frameworks=frameworks or {},
