@@ -18,14 +18,17 @@ agents-shipgate doctor --config shipgate.yaml
 
 Use this before reading the full manifest schema.
 
-| Symptom | Fix |
-| --- | --- |
-| `detect --json` returns `is_agent_project: false`, but `suggested_sources` has MCP or OpenAPI files | Continue to `init --workspace . --write`; artifact-only repos are valid Shipgate targets. |
-| `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source parse warnings, and dynamic toolset warnings. |
-| SDK/framework extractor finds no tools | Add an explicit MCP export, OpenAPI spec, or local tool inventory instead of relying on dynamic code discovery. |
-| `shipgate.yaml` still has `CHANGE_ME` | Replace `agent.name` and `agent.declared_purpose` from prompt, main agent file, or README context before scanning. |
-| Install fails in an older project environment | Agents Shipgate requires Python 3.12+. Install with `pipx` or `uv` using a Python 3.12+ interpreter. |
-| Reports show up as untracked files | Add `agents-shipgate-reports/` to `.gitignore`; do not commit reports by default. |
+| Symptom | Diagnostic ID | Fix |
+| --- | --- | --- |
+| `detect --json` returns `is_agent_project: false`, but `suggested_sources` has MCP or OpenAPI files | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | Continue to `init --workspace . --write`; artifact-only repos are valid Shipgate targets. |
+| `doctor` shows zero tools | `SHIP-DIAG-ZERO-TOOLS` | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source parse warnings, and dynamic toolset warnings. |
+| SDK/framework extractor finds no tools | `SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY` | Add an explicit MCP export, OpenAPI spec, or local tool inventory instead of relying on dynamic code discovery. |
+| `shipgate.yaml` still has `CHANGE_ME` | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS` | Replace `agent.name` and `agent.declared_purpose` from prompt, main agent file, or README context before scanning. |
+| Required `tool_sources[].path` does not resolve | `SHIP-DIAG-MISSING-SOURCE-FILE` | `doctor --json` reports `unresolved_sources: [...]` and a diagnostic with `kind="edit", path="shipgate.yaml:<line>"`. Fix the path. (`scan` still exits 3 on the same condition — fix it before scanning.) |
+| Install fails in an older project environment | — | Agents Shipgate requires Python 3.12+. Install with `pipx` or `uv` using a Python 3.12+ interpreter. |
+| Reports show up as untracked files | — | Add `agents-shipgate-reports/` to `.gitignore`; do not commit reports by default. |
+
+When run under `AGENTS_SHIPGATE_AGENT_MODE=1`, errors carry a `next_actions: [...]` array alongside the legacy `next_action: str`. The full catalog and schema is in [diagnostics.md](diagnostics.md).
 
 ## `doctor` Shows Zero Tools
 

@@ -480,3 +480,156 @@ def test_cli_scan_missing_baseline_exits_three(tmp_path):
 
     assert result.exit_code == 3
     assert "Baseline file not found" in result.output
+
+
+# --- Ranked next-action diagnostics integration ----------------------------
+
+
+def _stderr_json_lines(output: str) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (output or "").splitlines()
+        if line.strip().startswith("{") and '"error"' in line
+    ]
+
+
+def test_agent_mode_scan_missing_config_emits_next_actions(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app, ["scan", "--config", str(tmp_path / "missing.yaml")]
+    )
+
+    assert result.exit_code == 2
+    payloads = _stderr_json_lines(result.output)
+    assert payloads, f"no agent-mode JSON in output: {result.output!r}"
+    payload = payloads[-1]
+    assert payload["error"] == "config_error"
+    assert isinstance(payload["next_action"], str)
+    assert payload["next_action"]
+    assert isinstance(payload["next_actions"], list)
+    assert payload["next_actions"]
+    rank_one = payload["next_actions"][0]
+    assert payload["next_action"] == rank_one["command"]
+
+
+def test_agent_mode_doctor_missing_config_matches_scan(tmp_path, monkeypatch):
+    """Cross-command consistency: scan and doctor surface the same diagnostic
+    for missing manifest."""
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    scan_result = runner.invoke(
+        app, ["scan", "--config", str(tmp_path / "missing.yaml")]
+    )
+    doctor_result = runner.invoke(
+        app, ["doctor", "--config", str(tmp_path / "missing.yaml")]
+    )
+
+    scan_payload = _stderr_json_lines(scan_result.output)[-1]
+    doctor_payload = _stderr_json_lines(doctor_result.output)[-1]
+    # Same rank-1 next_action whether the agent reached for scan or doctor.
+    assert (
+        scan_payload["next_actions"][0]["command"]
+        == doctor_payload["next_actions"][0]["command"]
+    )
+
+
+def test_detect_emits_negative_control_diagnostic_for_empty_workspace(
+    tmp_path,
+):
+    # Empty workspace — no python, no pyproject, no prompts/tools.
+    result = runner.invoke(
+        app, ["detect", "--workspace", str(tmp_path), "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    diagnostics = payload.get("diagnostics", [])
+    assert any(
+        d["id"] == "SHIP-DIAG-NO-AGENT-SURFACE" for d in diagnostics
+    )
+    assert payload["next_actions"]
+    rank_one = payload["next_actions"][0]
+    assert rank_one["kind"] == "stop"
+    # next_action stays string-typed even when rank-1 is "stop".
+    assert isinstance(payload["next_action"], str)
+    assert payload["next_action"].startswith("Stop:")
+
+
+def test_detect_plain_json_carries_diagnostics_without_agent_mode(tmp_path):
+    """Diagnostics surface in --json output even when AGENTS_SHIPGATE_AGENT_MODE
+    is unset. The env var only gates structured-error stderr emission."""
+    result = runner.invoke(
+        app, ["detect", "--workspace", str(tmp_path), "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert "diagnostics" in payload
+    assert "next_actions" in payload
+
+
+def test_doctor_emits_unresolved_source_diagnostic_without_failing(tmp_path):
+    """Deliberate behavior change: a required tool_sources path that doesn't
+    resolve causes ``doctor --json`` to exit 0 with a diagnostic — not the
+    legacy InputParseError(3)."""
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: missing-source
+agent:
+  name: missing-source-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: missing
+    type: mcp
+    path: missing.json
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["doctor", "--config", str(config), "--json"])
+
+    assert result.exit_code == 0, result.output
+    payloads = json.loads(result.output)
+    assert len(payloads) == 1
+    payload = payloads[0]
+    unresolved = payload["unresolved_sources"]
+    assert len(unresolved) == 1
+    assert unresolved[0]["id"] == "missing"
+    assert unresolved[0]["declared_path"] == "missing.json"
+    diag_ids = [d["id"] for d in payload["diagnostics"]]
+    assert "SHIP-DIAG-MISSING-SOURCE-FILE" in diag_ids
+
+
+def test_scan_still_raises_on_missing_required_source(tmp_path):
+    """Regression guard: doctor's behavior change must not leak into scan.
+    scan should still fail with InputParseError(3) when a required
+    tool_sources path doesn't resolve."""
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: missing-source
+agent:
+  name: missing-source-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: missing
+    type: mcp
+    path: missing.json
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+    assert result.exit_code == 3

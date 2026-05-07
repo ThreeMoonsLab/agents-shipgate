@@ -16,6 +16,11 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.diagnostics import (
+    Diagnostic,
+    diagnose_detect,
+    top_next_actions,
+)
 from agents_shipgate.cli.discovery import detect_workspace
 
 
@@ -38,9 +43,25 @@ def detect(
     ),
 ) -> None:
     """Classify a workspace: which agent framework(s), if any."""
-    result = detect_workspace(workspace.resolve(), max_python_files=max_python_files)
+    workspace_resolved = workspace.resolve()
+    result = detect_workspace(workspace_resolved, max_python_files=max_python_files)
+    has_manifest = (workspace_resolved / "shipgate.yaml").is_file()
+    diagnostics: list[Diagnostic] = diagnose_detect(
+        result, has_manifest=has_manifest, workspace=workspace_resolved
+    )
+    flattened = top_next_actions(diagnostics)
+    if diagnostics:
+        # Override the legacy single-string field with the rank-1 projection
+        # so callers that read `next_action` get a routable answer when a
+        # diagnostic fires (otherwise keep the existing classification text).
+        result = result.model_copy(
+            update={"next_action": flattened[0].to_legacy_string()}
+        )
     if json_output:
-        typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+        payload = result.model_dump(mode="json")
+        payload["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
+        payload["next_actions"] = [a.model_dump(mode="json") for a in flattened]
+        typer.echo(json.dumps(payload, indent=2))
         return
 
     if not result.is_agent_project:

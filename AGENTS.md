@@ -117,15 +117,24 @@ agents-shipgate self-check --json
 agents-shipgate fixture list --json
 ```
 
-Errors carry a structured `next_action` when run with `AGENTS_SHIPGATE_AGENT_MODE=1`:
+Errors carry a structured `next_action` (single string, back-compat) and `next_actions` (ranked list) when run with `AGENTS_SHIPGATE_AGENT_MODE=1`:
 
 ```bash
 $ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate scan -c missing.yaml
 Config error: Config file not found: missing.yaml
-{"error": "config_error", "message": "Config file not found: missing.yaml", "next_action": "agents-shipgate init --workspace . --write"}
+{"error": "config_error", "message": "...", "next_action": "agents-shipgate detect --workspace . --json", "next_actions": [{"kind": "command", "command": "agents-shipgate detect --workspace . --json", "why": "..."}, {"kind": "command", "command": "agents-shipgate init --workspace . --write", "why": "..."}]}
 ```
 
-The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `other_error`, `internal_error`.
+The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `other_error`, `internal_error`, `malformed_patch`.
+
+`detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+
+### Doctor behavior change for unresolved tool_sources
+
+When a required `tool_sources[].path` does not resolve under the manifest directory:
+
+- `agents-shipgate doctor --json` exits **0** with a `SHIP-DIAG-MISSING-SOURCE-FILE` diagnostic and an `unresolved_sources: [{id, declared_path, line}]` field in the payload, so an agent can route to a fix without parsing the error message.
+- `agents-shipgate scan` is unchanged — it still raises `InputParseError(3)`. Once you're past doctor, missing sources are real scan failures.
 
 ---
 

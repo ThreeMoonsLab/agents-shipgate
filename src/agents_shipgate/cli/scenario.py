@@ -82,10 +82,25 @@ def scenario_suggest(
         payload = scenario_yaml_payload(report)
     except ScenarioInputError as exc:
         typer.echo(f"Invalid input: {exc}", err=True)
+        guidance = (
+            "Inspect the error message and adjust --from or --out accordingly."
+        )
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
-            next_action="Inspect the error message and adjust --from or --out accordingly.",
+            next_action=guidance,
+            next_actions=[
+                {
+                    "kind": "review",
+                    "command": None,
+                    "path": None,
+                    "why": guidance,
+                    "expects": (
+                        "--from points at a valid v0.9+ report.json and --out "
+                        "is a writable file path."
+                    ),
+                }
+            ],
         )
         raise typer.Exit(2) from exc
 
@@ -94,7 +109,23 @@ def scenario_suggest(
         out_path.write_text(render_scenario_yaml(payload), encoding="utf-8")
     except OSError as exc:
         typer.echo(f"Agents Shipgate error: cannot write {out_path}: {exc}", err=True)
-        emit_agent_mode_error("other_error", message=str(exc))
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            next_action=f"Verify {out_path.parent} is writable, then retry.",
+            next_actions=[
+                {
+                    "kind": "review",
+                    "command": None,
+                    "path": None,
+                    "why": (
+                        "Output directory is not writable. Confirm the path "
+                        "exists and your process has write permission."
+                    ),
+                    "expects": None,
+                }
+            ],
+        )
         raise typer.Exit(4) from exc
 
     typer.echo(f"Wrote {out_path}")

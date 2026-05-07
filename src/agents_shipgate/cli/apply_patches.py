@@ -120,7 +120,32 @@ def apply_patches(
             f"Malformed patch in report at {from_path}: {exc}",
             err=True,
         )
-        _emit_input_error("malformed_patch", str(exc))
+        _emit_input_error(
+            "malformed_patch",
+            str(exc),
+            next_action=(
+                f"agents-shipgate scan -c shipgate.yaml --suggest-patches "
+                f"--out {from_path.parent}"
+            ),
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": (
+                        f"agents-shipgate scan -c shipgate.yaml "
+                        f"--suggest-patches --out {from_path.parent}"
+                    ),
+                    "path": None,
+                    "why": (
+                        "Re-run scan with --suggest-patches to regenerate a "
+                        "well-formed patch payload."
+                    ),
+                    "expects": (
+                        f"{from_path} is rewritten with valid patches[] "
+                        "entries."
+                    ),
+                }
+            ],
+        )
         raise typer.Exit(2) from exc
     typed_patches = [p for p in typed_patches if not isinstance(p, ManualPatch)]
 
@@ -160,10 +185,15 @@ def apply_patches(
 # --- Internals --------------------------------------------------------------
 
 
-def _emit_input_error(kind: str, message: str) -> None:
+def _emit_input_error(kind: str, message: str, **fields: object) -> None:
     """Emit a structured one-line JSON error on stderr when
     AGENTS_SHIPGATE_AGENT_MODE=1 is set, matching the convention used by
-    other commands. Silent otherwise."""
+    other commands. Silent otherwise.
+
+    ``fields`` may carry ``next_action`` (legacy single string) and
+    ``next_actions`` (ranked list of NextAction dicts) so callers can
+    attach recovery hints in the same shape as the global agent-mode
+    helper."""
     import os
     import sys
 
@@ -174,7 +204,7 @@ def _emit_input_error(kind: str, message: str) -> None:
         "on",
     }:
         return
-    payload = {"error": kind, "message": message}
+    payload = {"error": kind, "message": message, **fields}
     print(json.dumps(payload, default=str), file=sys.stderr)
 
 

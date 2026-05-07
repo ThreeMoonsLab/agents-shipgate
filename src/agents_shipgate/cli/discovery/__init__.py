@@ -41,6 +41,7 @@ from agents_shipgate.cli.discovery.signals import (
     DetectResult,
     FrameworkDetection,
     NameCandidate,
+    WorkspaceSignals,
     detect_workspace,
 )
 from agents_shipgate.cli.discovery.template import render_auto_manifest
@@ -63,6 +64,7 @@ __all__ = [
     "TEST_CASE_PATTERNS",
     "TRACE_SAMPLE_PATTERNS",
     "WORKFLOW_RELATIVE_PATH",
+    "WorkspaceSignals",
     "detect_workspace",
     "discover_anthropic_artifacts",
     "discover_manifest_paths",

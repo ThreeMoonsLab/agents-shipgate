@@ -132,6 +132,24 @@ class NameCandidate(BaseModel):
     source: str  # "Agent_name_literal" | "ADK_name_field" | "pyproject" | "workspace_dir"
 
 
+class WorkspaceSignals(BaseModel):
+    """Minimal workspace state used by diagnostics to discriminate
+    negative-control cases (non-agent library, pure-prompt experiment,
+    no surface) from one another.
+
+    Derived inside :func:`detect_workspace` from inputs it already
+    computes; not exposed in the human-readable summary, only in JSON.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    python_file_count: int = 0
+    has_pyproject_or_requirements: bool = False
+    has_prompts_dir: bool = False
+    has_tools_dir: bool = False
+    conventional_dirs: list[str] = Field(default_factory=list)
+
+
 class DetectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -141,6 +159,7 @@ class DetectResult(BaseModel):
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     next_action: str = ""
+    workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
 
 
 # --- Internal scoring state -------------------------------------------------
@@ -241,6 +260,18 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         else "Workspace does not appear to be an agent project. No action."
     )
 
+    present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
+    workspace_signals = WorkspaceSignals(
+        python_file_count=len(py_facts),
+        has_pyproject_or_requirements=(
+            (workspace / "pyproject.toml").is_file()
+            or (workspace / "requirements.txt").is_file()
+        ),
+        has_prompts_dir="prompts" in present_dirs,
+        has_tools_dir="tools" in present_dirs,
+        conventional_dirs=present_dirs,
+    )
+
     return DetectResult(
         is_agent_project=is_agent_project,
         frameworks=detections,
@@ -248,6 +279,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         project_name_candidates=project_name_candidates,
         suggested_sources=suggested_sources,
         next_action=next_action,
+        workspace_signals=workspace_signals,
     )
 
 
