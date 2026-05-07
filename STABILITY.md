@@ -72,7 +72,9 @@ Stable YAML fields:
 
 Suppressed findings are omitted. Baseline-matched findings are included because
 they represent accepted debt, not resolved risk. `adversarial_goal` text may
-evolve in minor releases; the field itself remains stable.
+evolve in minor releases; the field itself remains stable. Rows follow the
+source `suggested_scenarios[]` order, then sort within each source scenario by
+severity, check ID, tool, finding ID, and misalignment ID.
 
 #### `release_decision.decision` vs `summary.status`
 

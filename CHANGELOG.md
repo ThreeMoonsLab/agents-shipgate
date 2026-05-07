@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased (target: 0.9.1)
 
 - Add `agents-shipgate scenario suggest`, a YAML export that fans out
   `report.json.suggested_scenarios[]` into concrete per-finding/per-tool

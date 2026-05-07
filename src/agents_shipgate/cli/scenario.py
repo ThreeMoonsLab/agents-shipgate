@@ -274,7 +274,8 @@ def _row_ids(rows: list[ScenarioRow]) -> list[str]:
         )
         for row, row_id in zip(rows, ids, strict=True)
     ]
-    assert len(set(ids)) == len(ids), "scenario ids must be unique"
+    if len(set(ids)) != len(ids):
+        raise RuntimeError("scenario id collision survived two-pass disambiguation")
     return ids
 
 

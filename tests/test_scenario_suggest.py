@@ -92,7 +92,7 @@ def test_scenario_suggest_covers_reachable_active_scenario_findings(tmp_path):
 
     rows = _load_yaml(out_path)["scenarios"]
     row_finding_ids = {row["finding_id"] for row in rows}
-    assert reachable_active <= row_finding_ids
+    assert reachable_active == row_finding_ids
 
     wildcard = next(
         finding
