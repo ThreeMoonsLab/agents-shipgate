@@ -167,7 +167,7 @@ Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos register as `is_agen
 
 ---
 
-## Five common agent tasks
+## Six common agent tasks
 
 ### Task 1 · Add the gate to an existing repo
 
@@ -234,6 +234,16 @@ agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING --json
 ```
 
 Returns the full `CheckMetadata` with `id`, `category`, `default_severity`, `description`, `rationale`, `fires_when`, `evidence_fields`, `recommendation`.
+
+### Task 6 · Turn static findings into adversarial scenario suggestions
+
+```bash
+agents-shipgate scenario suggest \
+  --from agents-shipgate-reports/report.json \
+  --out agents-shipgate-reports/suggested-scenarios.yaml
+```
+
+Bridges static→dynamic: every critical/high missing-control finding that maps to a known scenario type emits one row per (scenario_type, tool) pair. The YAML envelope `{scenarios, coverage_gaps?}` is stable — see [STABILITY.md](STABILITY.md#scenario-suggestions-yaml). Pass `--strict` to fail with exit 20 when uncovered findings exist (CI gate). Pass `--json` to print the same envelope to stdout.
 
 ---
 
@@ -314,6 +324,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
+| `agents-shipgate scenario suggest` | `--from`, `--out`, `--min-severity`, `--json`, `--strict` |
 | `agents-shipgate self-check` | `--json` |
 
 ### Release Evidence Packet (v0.1)

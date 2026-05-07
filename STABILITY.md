@@ -25,6 +25,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate fixture run` | `<name>`, `--ci-mode`, `--out` |
 | `agents-shipgate fixture copy` | `<name>`, `--to` |
 | `agents-shipgate fixture verify` | `<name>` |
+| `agents-shipgate scenario suggest` | `--from`, `--out`, `--min-severity`, `--json`, `--strict` |
 | `agents-shipgate self-check` | `--json` |
 
 ### Exit codes
@@ -35,7 +36,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `2` | Manifest config error (missing/typo/invalid) |
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
-| `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`) |
+| `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`, or `scenario suggest --strict` found uncovered critical/high findings) |
 
 ### JSON report fields (stable)
 
@@ -115,6 +116,15 @@ The manifest schema version (`version: "0.1"`) is independent of the CLI version
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
 - `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
 - The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.
+
+### Scenario suggestions YAML
+
+`agents-shipgate scenario suggest --out <path>` writes a deterministic YAML envelope. Within `0.x`:
+
+- Top-level keys: `scenarios` (always present), `coverage_gaps` (present iff `--strict` was passed).
+- `scenarios[]` shape: `{id, derived_from, tool, adversarial_goal, expected_control, source_findings}`. `id` is `<scenario_type>__<tool_slug>` (or `<scenario_type>__agent` when not tool-scoped). `derived_from` is a sorted list of check IDs. `tool` is the original (non-slugged) tool name or `null`. `source_findings` is a sorted list of `findings[].id`/`fingerprint` references back into `report.json`.
+- Coverage predicate: every critical/high finding whose `scenario_type_for_finding()` is non-None is expected to appear in at least one scenario's `source_findings`. Findings with no mapped scenario_type (e.g. `undetected_gap` misalignments) are explicitly outside the predicate's scope and never count as coverage gaps.
+- Output is byte-stable across runs on the same input report; scenario rows are sorted by `id` lexicographically.
 
 ### Fixture names
 

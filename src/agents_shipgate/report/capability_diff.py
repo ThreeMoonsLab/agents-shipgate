@@ -562,6 +562,14 @@ def _diff_spec(finding: Finding) -> DiffSpec:
     )
 
 
+def scenario_type_for_finding(finding: Finding) -> SuggestedScenarioType | None:
+    """Single source of truth: which SuggestedScenarioType (if any) this
+    finding maps to. Used by both the in-report grouping in
+    `apply_capability_diff` and the standalone `scenario suggest` YAML
+    export so they cannot drift."""
+    return _diff_spec(finding).scenario_type
+
+
 def _intention_refs(
     finding: Finding,
     capability: CapabilityFact | None,

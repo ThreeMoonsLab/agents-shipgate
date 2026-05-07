@@ -25,6 +25,7 @@ from agents_shipgate.cli.discovery import (
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
+from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.core.baseline import write_baseline
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
@@ -50,6 +51,7 @@ app = typer.Typer(
 baseline_app = typer.Typer(help="Manage local finding baselines.")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(fixture_app, name="fixture")
+app.add_typer(scenario_app, name="scenario")
 app.command(
     "self-check",
     help="Verify install and bundled fixtures. Run this first in a fresh environment.",
