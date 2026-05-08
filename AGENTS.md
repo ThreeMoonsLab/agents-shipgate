@@ -90,6 +90,12 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
+  `--agent-instructions=all` (or a comma-separated subset of
+  `agents-md,claude-md,cursor,pr-template`) renders agent-facing snippets to
+  stdout; combined with `--write` it commits them to the target repo via
+  managed `<!-- agents-shipgate:start -->` markers (idempotent — safe to
+  rerun). Strict CI and baselines remain opt-in human decisions; the flag
+  emits advisory guidance only.
 - **`scan --suggest-patches`** — attaches Patch objects to every active
   finding. `Finding.patches` is absent without the flag.
 - **`apply-patches`** — file-grouped, dry-run by default. Containment-
