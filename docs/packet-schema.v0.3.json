@@ -414,73 +414,13 @@
           "title": "Detail",
           "type": "string"
         },
-        "end_line": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "End Line"
-        },
         "location": {
           "title": "Location",
           "type": "string"
         },
-        "path": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Path"
-        },
-        "pointer": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pointer"
-        },
         "ref": {
           "title": "Ref",
           "type": "string"
-        },
-        "start_column": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Start Column"
-        },
-        "start_line": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Start Line"
         },
         "status": {
           "enum": [

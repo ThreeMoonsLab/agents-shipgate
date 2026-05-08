@@ -56,7 +56,7 @@ HitlProvenanceStatus = Literal[
 ]
 
 
-class HitlSourceProvenance(SourceReference):
+class HitlSourceProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: HitlProvenanceType
