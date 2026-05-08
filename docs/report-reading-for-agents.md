@@ -43,7 +43,7 @@ Once you have the decision, read the supporting fields:
 - `release_decision.review_items[]` — items the human reviewer should look at; same reference shape.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches the process exit code that CI will see.
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, exit_code}` — full CI policy.
-- `release_decision.evidence_coverage.{level, human_review_recommended, warnings}` — coverage for the evidence sections.
+- `release_decision.evidence_coverage.{level, human_review_recommended, low_confidence_tool_count, source_warning_count}` — coverage for the evidence sections.
 - `release_decision.baseline_delta.{matched_count, new_count, resolved_count}` — what changed vs. the loaded baseline.
 
 The GitHub Action exposes a subset as outputs (v0.8+): `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`.

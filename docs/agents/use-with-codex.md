@@ -1,12 +1,12 @@
 # Use Agents Shipgate with Codex
 
-OpenAI Codex supports both `AGENTS.md` (read natively at the repo root) and Codex Skills (versioned `SKILL.md` bundles installable at `.codex/skills/` for a project or `~/.codex/skills/` per user; invoked explicitly via `/skill-name` or implicitly when Codex decides). **This repo does not ship a Codex skill bundle yet** — the parallel to the Claude Code [`skills/agents-shipgate/`](../../skills/agents-shipgate/) bundle has not been authored. The minimal on-ramp that works today is therefore "drop the canonical Shipgate snippet into your repo's `AGENTS.md`" plus paste-style prompt invocation. See "What's next" below for the Codex skill path.
+OpenAI Codex supports both `AGENTS.md` (read natively at the repo root) and Codex Skills (versioned `SKILL.md` bundles scanned from `.agents/skills/` in every directory from the working directory up to the repo root, plus `$HOME/.agents/skills/` for user-scoped skills; invoked explicitly with `/skills` or by typing `$<skill-name>`, or implicitly when Codex decides the task matches). **This repo does not ship a Codex skill bundle yet** — the parallel to the Claude Code [`skills/agents-shipgate/`](../../skills/agents-shipgate/) bundle has not been authored. The minimal on-ramp that works today is therefore "drop the canonical Shipgate snippet into your repo's `AGENTS.md`" plus paste-style prompt invocation. See "What's next" below for the Codex skill path.
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
 | `AGENTS.md` snippet | Tells Codex when and how to run Shipgate. Copy the `## Agent Release Readiness` block into your repo's `AGENTS.md`. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
 | Reusable prompts | Codex reads pasted Markdown directly. Copy the body of any [`prompts/*.md`](../../prompts/) recipe into the chat. | [`prompts/README.md`](../../prompts/README.md) |
-| Codex skill | Not shipped here yet. Would live at `.codex/skills/agents-shipgate/SKILL.md` (project-scoped) or `~/.codex/skills/agents-shipgate/SKILL.md` (user-scoped) and mirror the Claude Code skill structure. | — |
+| Codex skill | Not shipped here yet. Would live at `.agents/skills/agents-shipgate/SKILL.md` (repo-scoped) or `$HOME/.agents/skills/agents-shipgate/SKILL.md` (user-scoped) and mirror the Claude Code skill structure. | — |
 
 ---
 
@@ -86,7 +86,7 @@ If you want to assemble one locally before this repo ships an official version, 
 
 - **`SKILL.md` manifest** — front matter (name, description, when to use) plus instructions. Codex loads the full file only when it decides to use the skill, so the front matter is the discovery surface.
 - **`scripts/`, `references/`, `assets/`** — optional sibling directories per the Codex skill layout.
-- **Install location** — `.codex/skills/agents-shipgate/` for a project-scoped skill, `~/.codex/skills/agents-shipgate/` for user-scoped.
+- **Install location** — `.agents/skills/agents-shipgate/` for a repo-scoped skill (Codex scans `.agents/skills/` in every directory from the working directory up to the repo root), `$HOME/.agents/skills/agents-shipgate/` for user-scoped. Invoke explicitly with `/skills` or `$agents-shipgate`, or let Codex pick implicitly.
 - **Body content** — the canonical 4-call flow plus the seven "must not assert" categories from [`agent-autofix-boundary.md`](../agent-autofix-boundary.md), and the `release_decision.decision`-first reading order from [`report-reading-for-agents.md`](../report-reading-for-agents.md).
 
 Until a vetted Codex skill ships in this repo, prefer the `AGENTS.md` snippet — it works today, requires no Codex-side install, and is the surface every Codex install reads natively.
