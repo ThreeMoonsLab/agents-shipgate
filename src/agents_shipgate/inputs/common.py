@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
 from ruamel.yaml import YAML
@@ -30,6 +31,28 @@ def resolve_input_path(base_dir: Path, value: str) -> Path:
             f"Input path {value!r} resolves outside manifest directory: {resolved}"
         ) from exc
     return resolved
+
+
+def manifest_relative_path(value: str, base_dir: Path) -> str:
+    """Return ``value`` as a forward-slash, manifest-relative POSIX path.
+
+    The v0.11 source-provenance contract says ``Finding.source.path`` is
+    manifest-relative for SARIF / report portability. ``ToolSourceConfig.path``
+    accepts absolute paths that resolve inside the manifest dir
+    (see :func:`resolve_input_path`), so loaders must relativize before
+    writing the path into ``Tool.source_path``. Already-relative inputs
+    are normalized through ``Path`` to ensure POSIX separators.
+    """
+    raw_path = Path(value)
+    if not raw_path.is_absolute():
+        return raw_path.as_posix()
+    try:
+        return raw_path.resolve().relative_to(base_dir.resolve()).as_posix()
+    except ValueError:
+        # Outside the manifest dir — resolve_input_path would have already
+        # rejected this, but fall back to a normalized POSIX form rather
+        # than emitting a Windows-style or unnormalized path.
+        return raw_path.as_posix()
 
 
 def load_structured_file(path: Path) -> Any:
@@ -234,6 +257,16 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
         raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
 
     positions: dict[str, tuple[int, int]] = {}
+    # Root pointer "" is a valid RFC 6901 reference to the document root.
+    # Singleton-tool YAML files (OpenAI/Anthropic ``tools`` entries that
+    # are a single object rather than a ``tools`` array) emit pointer "",
+    # so the lookup must return *something* sensible — the document's
+    # first content line via the top-level node's ``.lc``.
+    if hasattr(parsed, "lc"):
+        try:
+            positions[""] = (parsed.lc.line + 1, parsed.lc.col + 1)
+        except (AttributeError, TypeError):
+            pass
     _walk_for_positions(parsed, "", positions)
     return _to_plain(parsed), PositionIndex(positions)
 

@@ -12,6 +12,7 @@ from agents_shipgate.inputs.common import (
     PositionIndex,
     json_pointer_escape,
     load_structured_file_with_positions,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -55,6 +56,7 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     document=document,
                     source=source,
                     source_ref=source.path,
+                    source_path=manifest_relative_path(source.path, base_dir),
                     api_path=str(api_path),
                     method=method_lower,
                     operation=operation,
@@ -93,6 +95,7 @@ def _operation_to_tool(
     document: dict[str, Any],
     source: ToolSourceConfig,
     source_ref: str | None,
+    source_path: str | None,
     api_path: str,
     method: str,
     operation: dict[str, Any],
@@ -113,7 +116,6 @@ def _operation_to_tool(
 
     pointer = f"/paths/{json_pointer_escape(api_path)}/{method}"
     pos = positions.lookup(pointer)
-    source_path = source_ref
     source_start_line: int | None = None
     source_start_column: int | None = None
     if pos is not None:
@@ -339,5 +341,3 @@ def _operation_name(method: str, path: str) -> str:
     safe_path = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
     safe_path = safe_path.replace("-", "_") or "root"
     return f"{method}_{safe_path}"
-
-

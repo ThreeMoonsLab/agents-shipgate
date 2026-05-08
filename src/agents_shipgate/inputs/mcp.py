@@ -8,6 +8,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -19,6 +20,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
     assert source.path is not None
     path = resolve_input_path(base_dir, source.path)
     source_ref = source.path
+    source_path = manifest_relative_path(source.path, base_dir)
     data, positions = load_structured_file_with_positions(path)
     warnings: list[str] = []
 
@@ -95,7 +97,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             source_type="mcp",
             source_id=source.id,
             source_ref=source_ref,
-            source_path=source_ref,
+            source_path=source_path,
             source_start_line=source_start_line,
             source_start_column=source_start_column,
             source_pointer=pointer,

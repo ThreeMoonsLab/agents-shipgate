@@ -6,7 +6,6 @@ from typing import Any
 
 from agents_shipgate.core.models import ReadinessReport
 
-
 _PROVENANCE_KEYS = ("path", "start_line", "end_line", "start_column", "pointer")
 
 

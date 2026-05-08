@@ -21,6 +21,7 @@ from agents_shipgate.inputs.common import (
     load_structured_file,
     load_structured_file_with_positions,
     load_text_file,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -66,14 +67,18 @@ def load_openai_api_artifacts(
             raise InputParseError(
                 "OpenAI API tools artifact must be an object or list"
             )
+        relative_path = manifest_relative_path(tool_ref.path, base_dir)
         for original_index, pointer, item in iter_tool_items(data):
-            pos = positions.lookup(pointer) if pointer else None
+            # Empty pointer ("") is a valid RFC 6901 root-document pointer
+            # (singleton object form). Use ``is not None`` to keep the
+            # root case from being skipped.
+            pos = positions.lookup(pointer) if pointer is not None else None
             tool = _tool_from_openai_function(
                 item,
                 source_ref=f"{tool_ref.path}#{original_index}",
                 fallback_name=None,
                 warnings=artifacts.warnings,
-                source_path=tool_ref.path,
+                source_path=relative_path,
                 source_pointer=pointer,
                 source_position=pos,
             )
@@ -81,19 +86,25 @@ def load_openai_api_artifacts(
                 tools.append(tool)
 
     for schema_ref in config.function_schemas:
-        data = _load_required_or_optional(
+        loaded = _load_required_or_optional_with_positions(
             schema_ref, base_dir, artifacts.warnings, "function_schemas"
         )
-        if data is None:
+        if loaded is None:
             continue
+        data, positions = loaded
         artifacts.tool_files.append(
             _display_path(_resolve(base_dir, schema_ref.path), base_dir)
         )
+        # `function_schemas` files are a single function definition, so
+        # the natural pointer is the root-document pointer ("").
         tool = _tool_from_openai_function(
             data,
             source_ref=schema_ref.path,
             fallback_name=schema_ref.name,
             warnings=artifacts.warnings,
+            source_path=manifest_relative_path(schema_ref.path, base_dir),
+            source_pointer="",
+            source_position=positions.lookup(""),
         )
         if tool:
             tools.append(tool)

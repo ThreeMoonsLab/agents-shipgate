@@ -18,11 +18,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.cli.scan import _run_id
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import (
     Agent,
@@ -31,15 +30,14 @@ from agents_shipgate.core.models import (
     Tool,
 )
 from agents_shipgate.inputs.common import (
-    PositionIndex,
     iter_tool_items,
     json_pointer_escape,
     json_pointer_unescape,
     load_structured_file_with_positions,
+    manifest_relative_path,
 )
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.sarif import _location
-
 
 # --- json_pointer_escape / unescape ----------------------------------------
 
@@ -553,12 +551,6 @@ def test_findings_carry_provenance_end_to_end(tmp_path):
     assert sample.get("pointer")
 
 
-# Lazy import for ToolSourceConfig used in tmp_path fixture above. The
-# loader-level tests live below the run_id tests because they import
-# loaders that pull in the heavier check infrastructure.
-from agents_shipgate.config.schema import ToolSourceConfig  # noqa: E402
-
-
 def test_run_id_changes_when_legacy_location_changes():
     """Sanity: the legacy ``source.location`` IS in the hash (v0.10
     behavior). The structured fields are the only ones excluded."""
@@ -578,3 +570,136 @@ def test_run_id_changes_when_legacy_location_changes():
         ),
     )
     assert rid_a != rid_b
+
+
+# --- manifest-relative source.path -----------------------------------------
+
+
+def test_manifest_relative_path_normalizes_relative_input(tmp_path):
+    """Relative inputs come back as forward-slash POSIX paths."""
+    assert manifest_relative_path("specs/foo.yaml", tmp_path) == "specs/foo.yaml"
+    assert manifest_relative_path("./specs/foo.yaml", tmp_path) == "specs/foo.yaml"
+
+
+def test_manifest_relative_path_relativizes_absolute_input(tmp_path):
+    """Absolute paths inside the manifest dir come back as
+    manifest-relative — SARIF / report consumers expect repo-relative
+    URIs and absolute paths break portability across reviewers."""
+    inside = tmp_path / "specs" / "foo.yaml"
+    inside.parent.mkdir()
+    inside.write_text("openapi: 3.0.0\n", encoding="utf-8")
+    relative = manifest_relative_path(str(inside), tmp_path)
+    assert relative == "specs/foo.yaml"
+
+
+def test_mcp_loader_emits_relative_path_for_absolute_manifest_entry(tmp_path):
+    """ToolSourceConfig accepts absolute paths that resolve inside the
+    manifest dir; ``Tool.source_path`` must come back manifest-relative."""
+    from agents_shipgate.inputs.mcp import load_mcp_tools
+
+    tools_yaml = tmp_path / "tools.yaml"
+    tools_yaml.write_text(
+        "- name: only\n"
+        "  description: x\n",
+        encoding="utf-8",
+    )
+    source = ToolSourceConfig(id="src", type="mcp", path=str(tools_yaml))
+    loaded = load_mcp_tools(source, tmp_path)
+    assert loaded.tools
+    # The path is relative even though the manifest declared it absolute.
+    assert loaded.tools[0].source_path == "tools.yaml"
+
+
+# --- Root pointer (singleton YAML tool object) -----------------------------
+
+
+def test_position_index_exposes_root_pointer(tmp_path):
+    """A YAML doc whose root is a single mapping/sequence must have a
+    lookup entry at the empty pointer (RFC 6901 root-document)."""
+    yaml_path = tmp_path / "single.yaml"
+    yaml_path.write_text(
+        "name: only\n"
+        "description: x\n",
+        encoding="utf-8",
+    )
+    _, positions = load_structured_file_with_positions(yaml_path)
+    assert positions.lookup("") is not None
+    line, _ = positions.lookup("")
+    assert line == 1
+
+
+def test_singleton_yaml_tool_keeps_line_provenance(tmp_path):
+    """Anthropic / OpenAI singleton-tool YAML files (one object at the
+    document root) must still emit ``source_start_line`` even though the
+    natural pointer for the singleton is the empty (root) string."""
+    from agents_shipgate.config.schema import (
+        AnthropicConfig,
+        ArtifactPathConfig,
+    )
+    from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
+
+    tools_yaml = tmp_path / "tool.yaml"
+    tools_yaml.write_text(
+        "name: just_one\n"
+        "description: only tool\n"
+        "input_schema:\n"
+        "  type: object\n",
+        encoding="utf-8",
+    )
+    config = AnthropicConfig(tools=[ArtifactPathConfig(path=tools_yaml.name)])
+    loaded, _ = load_anthropic_artifacts(config, tmp_path)
+    assert loaded is not None and len(loaded.tools) == 1
+    tool = loaded.tools[0]
+    assert tool.source_pointer == ""
+    assert tool.source_start_line == 1
+
+
+def test_sarif_emits_empty_pointer_for_root_document_singleton():
+    """``""`` is a valid RFC 6901 pointer (root). SARIF must surface it
+    under ``properties.shipgatePointer`` — dropping it loses the
+    root-pointer signal for singleton-tool sources."""
+    finding = _finding(
+        SourceReference(
+            type="anthropic_api",
+            ref="tool.yaml#0",
+            path="tool.yaml",
+            start_line=1,
+            pointer="",
+        )
+    )
+    location = _location(finding)
+    assert location is not None
+    assert location["properties"] == {"shipgatePointer": ""}
+
+
+# --- function_schemas now carries provenance --------------------------------
+
+
+def test_openai_function_schemas_carries_root_pointer_and_line(tmp_path):
+    """``openai_api.function_schemas`` files are a single function
+    definition; the loader must emit ``source_path``, the root pointer,
+    and a YAML line just like ``openai_api.tools``."""
+    from agents_shipgate.config.schema import (
+        NamedArtifactPathConfig,
+        OpenAIApiConfig,
+    )
+    from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
+
+    schema_yaml = tmp_path / "fn.yaml"
+    schema_yaml.write_text(
+        "name: lookup\n"
+        "parameters:\n"
+        "  type: object\n",
+        encoding="utf-8",
+    )
+    config = OpenAIApiConfig(
+        function_schemas=[
+            NamedArtifactPathConfig(path=schema_yaml.name, name="lookup"),
+        ],
+    )
+    loaded, _ = load_openai_api_artifacts(config, tmp_path)
+    assert loaded is not None and len(loaded.tools) == 1
+    tool = loaded.tools[0]
+    assert tool.source_path == schema_yaml.name
+    assert tool.source_pointer == ""
+    assert tool.source_start_line == 1

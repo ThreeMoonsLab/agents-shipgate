@@ -149,7 +149,9 @@ def _location(finding: Finding) -> dict[str, Any] | None:
             {"name": finding.tool_name or finding.agent_id or finding.check_id}
         ],
     }
-    if source.pointer:
+    # Empty string is a valid RFC 6901 root-document pointer (singleton
+    # YAML object case), so check ``is not None`` rather than truthiness.
+    if source.pointer is not None:
         location["properties"] = {"shipgatePointer": source.pointer}
     return location
 
