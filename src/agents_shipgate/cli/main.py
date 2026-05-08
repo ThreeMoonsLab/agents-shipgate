@@ -612,12 +612,16 @@ def init(
         agent_instructions_exit = ai_result.exit_code
         agent_instructions_targets = list(ai_result.targets)
 
-    # Idempotency reconciliation: when --agent-instructions is set and the
-    # manifest already exists, treat the manifest action as already-done so
-    # that `init --write --agent-instructions=<target>` is safe to rerun (the
-    # advertised refresh command). The manifest_status field still reports
-    # "skipped_existing" so callers can detect.
-    if requested_targets is not None and manifest_status == "skipped_existing":
+    # Idempotency reconciliation: when --agent-instructions selects at least
+    # one real target AND the manifest already exists, treat the manifest
+    # action as already-done so `init --write --agent-instructions=<target>`
+    # is safe to rerun (the advertised refresh command). The manifest_status
+    # field still reports "skipped_existing" so callers can detect.
+    #
+    # `=none` parses to an empty list — no instruction action runs, so this
+    # accommodation does NOT apply and manifest skip remains exit 2 (matches
+    # plain `init --write`).
+    if requested_targets and manifest_status == "skipped_existing":
         manifest_exit = 0
         manifest_skip_pending = False
     if manifest_skip_pending:

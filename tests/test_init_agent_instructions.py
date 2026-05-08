@@ -230,6 +230,31 @@ def test_manifest_skip_still_exits_two_without_agent_instructions(
     assert payload["manifest_status"] == "skipped_existing"
 
 
+def test_manifest_skip_exits_two_with_agent_instructions_none(
+    tmp_path: Path,
+) -> None:
+    """`--agent-instructions=none` runs no instruction action, so the
+    idempotency accommodation should NOT apply — manifest skip still exits 2,
+    matching plain `init --write` behavior."""
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    (workspace / "shipgate.yaml").write_text("# user manifest\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--agent-instructions=none",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["manifest_status"] == "skipped_existing"
+    assert payload["agent_instructions"]["targets"] == []
+
+
 def test_write_appends_to_existing_agents_md_without_markers(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     original = "# Project AGENTS.md\n\nUser-authored prose.\n"
@@ -337,22 +362,25 @@ def test_triple_combo_init_write_ci_agent_instructions(tmp_path: Path) -> None:
         assert (workspace / SPECS[name].relative_path).exists()
 
 
-def test_help_text_documents_agent_instructions(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """The help string should advertise the new flag and call out advisory-only.
+def test_init_command_documents_agent_instructions() -> None:
+    """The init command must expose ``--agent-instructions`` and the help
+    string must call out advisory-only behavior (Rule 3).
 
-    Force a wide terminal so Rich's renderer does not truncate ``--agent-
-    instructions`` into ``--agent-in…`` on narrow CI runners (default
-    COLUMNS=80). The CliRunner does not propagate env to Rich's console;
-    setting it on the parent process via monkeypatch is the reliable way."""
-    monkeypatch.setenv("COLUMNS", "200")
-    monkeypatch.setenv("TERMINAL_WIDTH", "200")
-    result = runner.invoke(app, ["init", "--help"])
-    assert result.exit_code == 0
-    assert "--agent-instructions" in result.output
-    # Advisory-only safety language for Rule 3.
-    assert "advisory" in result.output.lower()
+    Existence is checked via Click param introspection — terminal-width
+    rendering varies across CI runners (Rich truncates option names on
+    narrow terminals even with COLUMNS set), and we should not gate merge
+    on whether the rendered string fits."""
+    from typer.main import get_command
+
+    click_app = get_command(app)
+    init_cmd = click_app.commands["init"]
+    param_names = {p.name for p in init_cmd.params}
+    assert "agent_instructions" in param_names
+
+    init_param = next(p for p in init_cmd.params if p.name == "agent_instructions")
+    # Decls include the long-form flag; help text mentions advisory.
+    assert any("--agent-instructions" in opt for opt in init_param.opts)
+    assert "advisory" in (init_param.help or "").lower()
 
 
 def test_existing_init_tests_unaffected_by_default(tmp_path: Path) -> None:

@@ -73,6 +73,33 @@ _SKIPPED_STATUSES = frozenset(
 )
 
 
+def _first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
+    """Return the first symlink encountered between ``workspace`` (exclusive)
+    and ``path`` (inclusive), or ``None`` if no existing component is a
+    symlink.
+
+    Walking the parent chain prevents the directory-symlink escape: a
+    workspace where ``.github -> /tmp/outside`` would otherwise route
+    ``.github/pull_request_template.md`` writes outside the workspace even
+    though the file itself is not a symlink. Non-existent intermediates
+    cannot be symlinks, so the walk stops at the first missing component.
+    """
+    workspace_real = workspace.resolve()
+    try:
+        relative_parts = path.relative_to(workspace_real).parts
+    except ValueError:
+        # Caller bug: target was not under workspace lexically. Refuse.
+        return path
+    cur = workspace_real
+    for part in relative_parts:
+        cur = cur / part
+        if cur.is_symlink():
+            return cur
+        if not cur.exists():
+            return None
+    return None
+
+
 @dataclass
 class TargetOutcome:
     """Result of applying or rendering a single target."""
@@ -202,20 +229,24 @@ def _resolve_pr_template_path(workspace: Path) -> tuple[Path, str | None]:
     return lower, None
 
 
-def _apply_managed_block_target(name: str, path: Path) -> TargetOutcome:
+def _apply_managed_block_target(
+    name: str, path: Path, workspace: Path
+) -> TargetOutcome:
     inner = _rendered_inner(name)
     preamble = H1_PREAMBLES.get(name, "")
-    # Refuse to follow symlinks. ``path.exists()`` would follow a dangling
-    # symlink and mutate whatever it points to (potentially outside the
-    # workspace). ``is_symlink()`` checks the link itself, not the target.
-    if path.is_symlink():
+    # Refuse to follow symlinks anywhere in the parent chain. A symlinked
+    # directory above the target file (e.g., ``.github -> /tmp/outside``)
+    # would otherwise route the write outside the workspace.
+    symlink = _first_symlink_in_chain(path, workspace)
+    if symlink is not None:
         return TargetOutcome(
             name=name,
             path=str(path),
             status="skipped_symlink",
             message=(
-                f"{path} is a symlink; refusing to follow it. "
-                "Replace the symlink with a regular file before re-running."
+                f"{symlink} is a symlink; refusing to follow it. "
+                "Replace the symlink with a regular file or directory before "
+                "re-running."
             ),
         )
     if not path.exists():
@@ -294,18 +325,20 @@ def _apply_managed_block_target(name: str, path: Path) -> TargetOutcome:
     )
 
 
-def _apply_cursor(path: Path) -> TargetOutcome:
+def _apply_cursor(path: Path, workspace: Path) -> TargetOutcome:
     rendered = render_cursor_file()
     rendered_bytes = rendered.encode("utf-8")
     rendered_sha = hashlib.sha256(rendered_bytes).hexdigest()
-    if path.is_symlink():
+    symlink = _first_symlink_in_chain(path, workspace)
+    if symlink is not None:
         return TargetOutcome(
             name="cursor",
             path=str(path),
             status="skipped_symlink",
             message=(
-                f"{path} is a symlink; refusing to follow it. "
-                "Replace the symlink with a regular file before re-running."
+                f"{symlink} is a symlink; refusing to follow it. "
+                "Replace the symlink with a regular file or directory before "
+                "re-running."
             ),
         )
     if not path.exists():
@@ -402,8 +435,8 @@ def apply_agent_instructions(
             path = workspace / spec.relative_path
 
         if name == "cursor":
-            outcomes.append(_apply_cursor(path))
+            outcomes.append(_apply_cursor(path, workspace))
         else:
-            outcomes.append(_apply_managed_block_target(name, path))
+            outcomes.append(_apply_managed_block_target(name, path, workspace))
 
     return ApplyResult(requested=requested_list, targets=outcomes)

@@ -380,6 +380,60 @@ def test_apply_does_not_resolve_symlinked_workspace_path(tmp_path: Path) -> None
     assert outcome.path == str(expected)
 
 
+def test_apply_refuses_symlinked_parent_directory_for_pr_template(
+    tmp_path: Path,
+) -> None:
+    """Parent-directory symlink escape: `.github -> /tmp/outside` would
+    otherwise route `.github/pull_request_template.md` writes to the
+    outside directory. The chain check must reject this."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / ".github").symlink_to(outside)
+    result = apply_agent_instructions(workspace, ["pr-template"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    # No file written to the outside directory.
+    assert list(outside.iterdir()) == []
+
+
+def test_apply_refuses_symlinked_parent_directory_for_cursor(
+    tmp_path: Path,
+) -> None:
+    """Same chain check applies to the cursor full-file target — the
+    `.cursor` parent must not be a symlink."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / ".cursor").symlink_to(outside)
+    result = apply_agent_instructions(workspace, ["cursor"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    assert list(outside.iterdir()) == []
+
+
+def test_apply_refuses_intermediate_symlinked_subdirectory_for_cursor(
+    tmp_path: Path,
+) -> None:
+    """A symlink one level deeper (`.cursor/rules -> /tmp/outside`) must
+    also be rejected — the chain walk runs through every existing
+    component, not just the immediate parent."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace = tmp_path / "ws"
+    cursor_dir = workspace / ".cursor"
+    cursor_dir.mkdir(parents=True)
+    (cursor_dir / "rules").symlink_to(outside)
+    result = apply_agent_instructions(workspace, ["cursor"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert list(outside.iterdir()) == []
+
+
 # --- case-insensitive PR template -----------------------------------------
 
 
