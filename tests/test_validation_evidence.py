@@ -319,8 +319,13 @@ validation:
     )
     assert exit_code == 0
     assert approval.evidence["reason"] == "no_trace_events"
+    assert (
+        approval.title
+        == "Loaded local approval trace evidence has no recorded events for issue_refund"
+    )
     assert approval.evidence["trace_files"] == ["validation/approval-traces.jsonl"]
     assert override.evidence["reason"] == "no_override_events"
+    assert override.title == "Loaded local override evidence has no recorded events"
     assert override.evidence["events_missing_reason"] == []
 
 

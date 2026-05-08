@@ -56,11 +56,18 @@ def _approval_trace_findings(context: ScanContext) -> list[Finding]:
     else:
         reason = "approved_trace_missing"
     for tool_name in sorted(required_tools - approved_tools):
-        title = (
-            f"Loaded local approval trace evidence does not show approval for {tool_name}"
-            if reason == "approved_trace_missing"
-            else f"No local approval trace evidence found for {tool_name}"
-        )
+        if reason == "approved_trace_missing":
+            title = (
+                "Loaded local approval trace evidence does not show "
+                f"approval for {tool_name}"
+            )
+        elif reason == "no_trace_events":
+            title = (
+                "Loaded local approval trace evidence has no recorded "
+                f"events for {tool_name}"
+            )
+        else:
+            title = f"No local approval trace evidence found for {tool_name}"
         evidence = {
             "tool_name": tool_name,
             "required": "approval_trace_required",
@@ -154,10 +161,15 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
             )
         ]
 
+    title = (
+        "Loaded local override evidence has no recorded events"
+        if reason == "no_override_events"
+        else "No local override-reason evidence found"
+    )
     return [
         agent_finding(
             check_id="SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
-            title="No local override-reason evidence found",
+            title=title,
             severity="high",
             category="evidence",
             evidence={
@@ -476,4 +488,3 @@ def _declared_evidence_sources(
 
 def _manifest_ref(context: ScanContext) -> str:
     return context.config_path.name
-
