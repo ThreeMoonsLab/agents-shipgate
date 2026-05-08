@@ -1,11 +1,12 @@
 # Use Agents Shipgate with Codex
 
-OpenAI Codex (the CLI agent) does not have an equivalent of Claude Code's `/shipgate` slash command or `agents-shipgate` skill — there is no per-agent install bundle to drop in. Codex's discoverability surface is `AGENTS.md` at the repo root: it reads that file natively when working on a project. The integration path is therefore "drop the canonical Shipgate snippet into your repo's `AGENTS.md`" plus paste-style prompt invocation.
+OpenAI Codex supports both `AGENTS.md` (read natively at the repo root) and Codex Skills (versioned `SKILL.md` bundles installable at `.codex/skills/` for a project or `~/.codex/skills/` per user; invoked explicitly via `/skill-name` or implicitly when Codex decides). **This repo does not ship a Codex skill bundle yet** — the parallel to the Claude Code [`skills/agents-shipgate/`](../../skills/agents-shipgate/) bundle has not been authored. The minimal on-ramp that works today is therefore "drop the canonical Shipgate snippet into your repo's `AGENTS.md`" plus paste-style prompt invocation. See "What's next" below for the Codex skill path.
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
 | `AGENTS.md` snippet | Tells Codex when and how to run Shipgate. Copy the `## Agent Release Readiness` block into your repo's `AGENTS.md`. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
 | Reusable prompts | Codex reads pasted Markdown directly. Copy the body of any [`prompts/*.md`](../../prompts/) recipe into the chat. | [`prompts/README.md`](../../prompts/README.md) |
+| Codex skill | Not shipped here yet. Would live at `.codex/skills/agents-shipgate/SKILL.md` (project-scoped) or `~/.codex/skills/agents-shipgate/SKILL.md` (user-scoped) and mirror the Claude Code skill structure. | — |
 
 ---
 
@@ -32,7 +33,7 @@ Open [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) an
 - Explicitly forbids auto-asserting approval, confirmation, idempotency, broad-scope, or prohibited-action policy decisions — see [`agent-autofix-boundary.md`](../agent-autofix-boundary.md) for the runtime trace evidence category as well.
 - Reminds the agent to add `agents-shipgate-reports/` to `.gitignore`.
 
-The snippet is the only discoverable surface Codex needs. There is no skill, no slash command, no auto-attach rule.
+The snippet is the minimal on-ramp that works today and does not require authoring a Codex skill. If a Codex skill bundle is added later (see "What's next"), it should reuse the same trigger conditions and the same `release_decision.decision` reading order; the AGENTS.md snippet remains the lowest-friction surface for any repo that has not opted into the skill.
 
 ---
 
@@ -77,8 +78,17 @@ For the stable CLI / JSON contract, see [`STABILITY.md`](../../STABILITY.md).
 
 ---
 
-## What's missing
+## What's next
 
-Codex has no native slash-command or auto-discovered skill mechanism (as of this writing). The on-ramp is the `AGENTS.md` snippet plus paste-style prompt invocation — there is nothing else to install on the Codex side. If a future Codex release ships per-agent extensions, this doc will be updated.
+A Codex skill bundle is the natural future surface — it would mirror what [`skills/agents-shipgate/`](../../skills/agents-shipgate/) does for Claude Code: bundle the recipes from [`prompts/`](../../prompts/) and the advisory CI workflow from [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml) into a self-contained `SKILL.md` bundle a downstream repo can drop in.
+
+If you want to assemble one locally before this repo ships an official version, the building blocks are:
+
+- **`SKILL.md` manifest** — front matter (name, description, when to use) plus instructions. Codex loads the full file only when it decides to use the skill, so the front matter is the discovery surface.
+- **`scripts/`, `references/`, `assets/`** — optional sibling directories per the Codex skill layout.
+- **Install location** — `.codex/skills/agents-shipgate/` for a project-scoped skill, `~/.codex/skills/agents-shipgate/` for user-scoped.
+- **Body content** — the canonical 4-call flow plus the seven "must not assert" categories from [`agent-autofix-boundary.md`](../agent-autofix-boundary.md), and the `release_decision.decision`-first reading order from [`report-reading-for-agents.md`](../report-reading-for-agents.md).
+
+Until a vetted Codex skill ships in this repo, prefer the `AGENTS.md` snippet — it works today, requires no Codex-side install, and is the surface every Codex install reads natively.
 
 For Claude Code, see [`use-with-claude-code.md`](use-with-claude-code.md). For Cursor, see [`use-with-cursor.md`](use-with-cursor.md).
