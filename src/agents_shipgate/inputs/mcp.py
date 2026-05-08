@@ -38,6 +38,18 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
                     f"array: {path}. Use wildcard exposure or explicit tools, not both."
                 )
             wildcard_warnings = ["MCP source declares wildcard tool exposure"]
+            # Pick the pointer that actually triggered the wildcard
+            # branch so reviewers jump to the offending line — `wildcard:
+            # true` and `tools: '*'` are different signals on different
+            # lines.
+            wildcard_pointer = (
+                "/wildcard" if data.get("wildcard") is True else "/tools"
+            )
+            wildcard_pos = positions.lookup(wildcard_pointer)
+            wildcard_start_line: int | None = None
+            wildcard_start_column: int | None = None
+            if wildcard_pos is not None:
+                wildcard_start_line, wildcard_start_column = wildcard_pos
             wildcard = Tool(
                 id=stable_tool_id(f"{source.id}.*"),
                 name=f"{source.id}.*",
@@ -45,6 +57,10 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
                 source_type="mcp",
                 source_id=source.id,
                 source_ref=source_ref,
+                source_path=source_path,
+                source_start_line=wildcard_start_line,
+                source_start_column=wildcard_start_column,
+                source_pointer=wildcard_pointer,
                 annotations={"wildcard_tools": True},
                 extraction_confidence="high",
                 extraction={"method": "mcp_json", "confidence": "high"},

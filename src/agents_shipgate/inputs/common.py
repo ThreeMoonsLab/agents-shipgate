@@ -218,10 +218,23 @@ _YAML_RT = YAML(typ="rt")
 def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]:
     """Load JSON/YAML and (for YAML) build a position index for findings.
 
-    Mirrors :func:`load_structured_file` but additionally returns a
-    :class:`PositionIndex`. The returned data is plain :class:`dict` /
-    :class:`list` (ruamel-specific node types are stripped) so existing
-    consumers that compare against literals keep working byte-for-byte.
+    Mirrors :func:`load_structured_file` exactly for the parsed data —
+    the same ``yaml.safe_load`` / ``json.loads`` calls and same error
+    handling — and additionally returns a :class:`PositionIndex` built
+    from a *separate* ``ruamel.yaml`` round-trip parse for YAML inputs.
+
+    Keeping the data path on PyYAML preserves v0.10 semantics:
+
+    - YAML 1.1 booleans (``on``, ``off``, ``yes``, ``no``) stay booleans
+      rather than becoming the strings ruamel 1.2 produces.
+    - Duplicate keys take the v0.10 "last wins" path rather than raising
+      ``DuplicateKeyError``.
+    - Octal-like scalars (``012``) parse the same way they did before.
+
+    The position index is best-effort: if ruamel rejects a file that
+    PyYAML accepts (rare — the YAML 1.1/1.2 divergence cases above), we
+    return the data with an unsupported (empty) index rather than
+    failing the scan.
 
     JSON inputs return ``(data, PositionIndex(supported=False))``;
     callers can still build pointers (e.g. ``/tools/3``) without a line
@@ -252,9 +265,17 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
             raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
 
     try:
-        parsed = _YAML_RT.load(text)
-    except YAMLError as exc:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
         raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
+
+    # Position index: best-effort, separate parse. PyYAML already accepted
+    # the file; if ruamel chokes (e.g. on a duplicate key), drop positions
+    # rather than failing the scan.
+    try:
+        parsed = _YAML_RT.load(text)
+    except YAMLError:
+        return data, _EMPTY_INDEX
 
     positions: dict[str, tuple[int, int]] = {}
     # Root pointer "" is a valid RFC 6901 reference to the document root.
@@ -268,7 +289,7 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
         except (AttributeError, TypeError):
             pass
     _walk_for_positions(parsed, "", positions)
-    return _to_plain(parsed), PositionIndex(positions)
+    return data, PositionIndex(positions)
 
 
 def _walk_for_positions(
@@ -298,15 +319,6 @@ def _walk_for_positions(
             if pos is not None:
                 out[child_pointer] = (pos[0] + 1, pos[1] + 1)
             _walk_for_positions(item, child_pointer, out)
-
-
-def _to_plain(node: Any) -> Any:
-    """Convert ruamel CommentedMap/CommentedSeq to plain dict/list."""
-    if isinstance(node, dict):
-        return {key: _to_plain(value) for key, value in node.items()}
-    if isinstance(node, list):
-        return [_to_plain(item) for item in node]
-    return node
 
 
 def iter_tool_items(

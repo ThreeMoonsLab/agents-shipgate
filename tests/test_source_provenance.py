@@ -539,16 +539,20 @@ def test_findings_carry_provenance_end_to_end(tmp_path):
         packet_enabled=False,
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    candidates = [
+    # Filter for findings whose source has the FULL provenance
+    # (path + start_line). A pure-JSON source like the MCP wildcard
+    # carries path + pointer but no line in v0.11 (documented gap), so
+    # we look specifically for the line-carrying YAML cases.
+    with_line = [
         f for f in payload["findings"]
         if f["severity"] in {"critical", "high"}
         and isinstance(f.get("source"), dict)
         and f["source"].get("path")
+        and isinstance(f["source"].get("start_line"), int)
     ]
-    assert candidates, "no high-severity finding has source.path populated"
-    sample = candidates[0]["source"]
-    assert isinstance(sample.get("start_line"), int)
-    assert sample.get("pointer")
+    assert with_line, "no high-severity finding has source.start_line populated"
+    sample = with_line[0]["source"]
+    assert sample.get("pointer") is not None
 
 
 def test_run_id_changes_when_legacy_location_changes():
@@ -673,6 +677,82 @@ def test_sarif_emits_empty_pointer_for_root_document_singleton():
 
 
 # --- function_schemas now carries provenance --------------------------------
+
+
+# --- YAML semantics preserved (positional loader is additive only) ---------
+
+
+def test_positional_loader_preserves_yaml_1_1_booleans(tmp_path):
+    """``on``, ``off``, ``yes``, ``no`` are booleans in PyYAML / YAML 1.1
+    (which v0.10 callers see). ruamel rt parses YAML 1.2 where they're
+    strings — switching to ruamel for the data path would silently break
+    every consumer that branches on these values. The positional loader
+    must keep the v0.10 booleans."""
+    yaml_path = tmp_path / "switches.yaml"
+    yaml_path.write_text("flag: on\nother: off\n", encoding="utf-8")
+    data, positions = load_structured_file_with_positions(yaml_path)
+    assert data == {"flag": True, "other": False}
+    # Position index still works even though data went through PyYAML.
+    assert positions.lookup("/flag") is not None
+
+
+def test_positional_loader_accepts_duplicate_keys_like_safe_load(tmp_path):
+    """PyYAML silently lets the last duplicate-key value win; ruamel rt
+    raises ``DuplicateKeyError``. The positional loader must follow
+    ``yaml.safe_load`` semantics so a v0.10 manifest that happened to
+    pass yesterday cannot start failing today."""
+    yaml_path = tmp_path / "dup.yaml"
+    yaml_path.write_text("a: 1\na: 2\n", encoding="utf-8")
+    data, positions = load_structured_file_with_positions(yaml_path)
+    assert data == {"a": 2}
+    # ruamel rejected the file, so positions are best-effort empty —
+    # but the scan does NOT fail.
+    assert positions.supported is False
+
+
+# --- Wildcard MCP carries provenance ----------------------------------------
+
+
+def test_mcp_wildcard_via_wildcard_key_records_pointer_and_line(tmp_path):
+    """``wildcard: true`` is a high-severity tool-surface signal. The
+    synthetic wildcard Tool must carry ``source_path`` and the line of
+    the ``wildcard:`` key so reviewers jump straight to the toggle."""
+    from agents_shipgate.inputs.mcp import load_mcp_tools
+
+    tools_yaml = tmp_path / "tools.yaml"
+    tools_yaml.write_text(
+        "wildcard: true\n"
+        "tools: []\n",
+        encoding="utf-8",
+    )
+    source = ToolSourceConfig(id="mcp_w", type="mcp", path=tools_yaml.name)
+    loaded = load_mcp_tools(source, tmp_path)
+    assert len(loaded.tools) == 1
+    tool = loaded.tools[0]
+    assert tool.annotations["wildcard_tools"] is True
+    assert tool.source_path == tools_yaml.name
+    assert tool.source_pointer == "/wildcard"
+    assert tool.source_start_line == 1
+
+
+def test_mcp_wildcard_via_tools_star_records_tools_pointer(tmp_path):
+    """``tools: '*'`` triggers the same wildcard branch but the pointer
+    should land on the ``tools:`` key, not ``/wildcard`` — they're
+    distinct lines and reviewers want the right one."""
+    from agents_shipgate.inputs.mcp import load_mcp_tools
+
+    tools_yaml = tmp_path / "tools.yaml"
+    tools_yaml.write_text(
+        "name: my-server\n"
+        "tools: '*'\n",
+        encoding="utf-8",
+    )
+    source = ToolSourceConfig(id="mcp_w", type="mcp", path=tools_yaml.name)
+    loaded = load_mcp_tools(source, tmp_path)
+    assert len(loaded.tools) == 1
+    tool = loaded.tools[0]
+    assert tool.source_pointer == "/tools"
+    assert tool.source_start_line == 2
 
 
 def test_openai_function_schemas_carries_root_pointer_and_line(tmp_path):
