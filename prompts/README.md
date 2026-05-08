@@ -29,7 +29,12 @@ or
 
 ### Codex / Cursor / Aider
 
-Open the prompt file, copy the markdown body (everything below the front-matter), and paste into the agent.
+For Codex and Cursor, see the per-agent install guides:
+
+- [`docs/agents/use-with-codex.md`](../docs/agents/use-with-codex.md) — drop the canonical `AGENTS.md` snippet in for Codex.
+- [`docs/agents/use-with-cursor.md`](../docs/agents/use-with-cursor.md) — drop the auto-attach `.cursor/rules/agents-shipgate.mdc` rule in for Cursor.
+
+For Aider (or any other agent without a dedicated guide): open the prompt file, copy the markdown body (everything below the front-matter), and paste into the agent.
 
 ## Conventions
 
