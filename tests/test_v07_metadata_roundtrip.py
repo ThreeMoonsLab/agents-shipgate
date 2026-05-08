@@ -226,15 +226,15 @@ def test_stale_finding_with_unique_match_is_per_finding_autofix_safe(tmp_path):
     )
 
 
-# --- v0.8 release version sanity check -------------------------------------
+# --- v0.10 release version sanity check ------------------------------------
 
 
-def test_package_version_is_v08():
+def test_package_version_is_v010():
     """Final-polish guard: catches the case where the schema bumped to
-    v0.8 but the package version was left at v0.7. Both move together."""
+    v0.10 but the package version was left behind. Both move together."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.8.0", (
+    assert agents_shipgate.__version__ == "0.10.0", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.8.0 for the v0.8 release"
+        "expected 0.10.0 for the v0.10 release"
     )

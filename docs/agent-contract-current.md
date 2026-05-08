@@ -4,7 +4,7 @@ The single, current statement of what AI coding agents and CI integrations shoul
 
 ## Current versions
 
-- Latest release: `v0.8.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Current report schema: `0.10` — [`docs/report-schema.v0.10.json`](report-schema.v0.10.json)
 - Current packet schema: `0.3` — [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
 - Frozen-reference report schemas: [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older

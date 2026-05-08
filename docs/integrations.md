@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.10.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -113,7 +113,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.8.0"
+    - python -m pip install "agents-shipgate==0.10.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -145,7 +145,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.8.0"
+      - run: python -m pip install "agents-shipgate==0.10.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports

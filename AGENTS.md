@@ -199,12 +199,12 @@ agents-shipgate scan -c shipgate.yaml
 
 ### Task 2 · Read findings programmatically
 
-Always parse `agents-shipgate-reports/report.json`, not the markdown. Stable fields:
+Always parse `agents-shipgate-reports/report.json`, not the markdown.
 
-- `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+) — **read this first for release gating**
-- `release_decision.fail_policy.{would_fail_ci, exit_code}` matches the process exit code
-- `capability_facts[]`, `declared_intentions[]`, `misalignments[]`, `release_consequence`, and `suggested_scenarios[]` (v0.9+) — capability/intent diff for release review
-- `tool_surface_facts` and `tool_surface_diff` (v0.10+) — static comparison facts/deltas for answering what changed; explanatory only, not a release gate
+The canonical field list — `release_decision`, `capability_facts` / `declared_intentions` / `misalignments` / `release_consequence` / `suggested_scenarios`, and `tool_surface_facts` / `tool_surface_diff` — lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). It updates first when the contract bumps; this file links to it instead of restating the field set.
+
+Other stable top-level fields:
+
 - `summary.{critical_count, high_count, medium_count, status}` (status preserved for v0.7 compat — see note below)
 - `findings[].{id, fingerprint, check_id, severity, tool_name, evidence, recommendation, suppressed}`
 - `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url}` (v0.7+)
@@ -339,7 +339,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 ### Release Evidence Packet (v0.3)
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed).
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v03).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
