@@ -61,6 +61,7 @@
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "passed"}` in `report.json` (baseline-aware; v0.8+).
+- Installed CLI contract: `agents-shipgate contract --json`.
 
 ## Quickstart
 

@@ -19,6 +19,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
+| `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
@@ -37,6 +38,27 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`) |
+
+### Runtime contract JSON
+
+`agents-shipgate contract --json` emits the installed CLI's local contract.
+Only the JSON form is stable; human-readable output is informational and may
+change in any minor release. The command is local-only: it does not scan a
+workspace, write files, call tools, perform network checks, or look up releases.
+
+Stable JSON fields:
+
+- `contract_version` — version of the contract-command payload shape.
+- `cli_version` — installed Agents Shipgate version.
+- `report_schema_version` — current report schema version from
+  `ReadinessReport`.
+- `packet_schema_version` — current packet schema version from
+  `EvidencePacket`.
+- `gating_signal` — always `release_decision.decision` in this contract.
+- `manual_review_signals[]` — stable report/packet fields an agent should read
+  when surfacing human review work.
+
+Signal paths use dotted notation; `[]` denotes an array field.
 
 ### JSON report fields (stable)
 

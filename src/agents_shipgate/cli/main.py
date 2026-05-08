@@ -35,6 +35,7 @@ from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
+from agents_shipgate.contract import build_contract_payload
 from agents_shipgate.core.baseline import write_baseline
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings import SEVERITY_ORDER
@@ -342,6 +343,26 @@ def list_checks(
         typer.echo(
             f"{check.id}\t{check.default_severity}\t{check.category}\t{check.description}"
         )
+
+
+@app.command()
+def contract(
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
+) -> None:
+    """Show the installed CLI contract for agent consumers."""
+    payload = build_contract_payload()
+    if json_output:
+        typer.echo(json.dumps(payload.model_dump(mode="json"), indent=2))
+        return
+
+    typer.echo(f"Contract version: {payload.contract_version}")
+    typer.echo(f"CLI version: {payload.cli_version}")
+    typer.echo(f"Report schema version: {payload.report_schema_version}")
+    typer.echo(f"Packet schema version: {payload.packet_schema_version}")
+    typer.echo(f"Gating signal: {payload.gating_signal}")
+    typer.echo("Manual review signals:")
+    for signal in payload.manual_review_signals:
+        typer.echo(f"  {signal}")
 
 
 @app.command()

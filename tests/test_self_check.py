@@ -24,6 +24,7 @@ def test_self_check_json_output_is_well_formed():
     for key in ("version", "python", "platform", "fixtures_run", "cli_surface", "ready"):
         assert key in payload, f"self-check JSON missing key: {key}"
     assert payload["ready"] is True
+    assert payload["cli_surface"]["contract"] == "ok"
     # Every CLI command should resolve cleanly in a healthy environment.
     for status in payload["cli_surface"].values():
         assert status == "ok", f"unhealthy CLI surface: {payload['cli_surface']}"

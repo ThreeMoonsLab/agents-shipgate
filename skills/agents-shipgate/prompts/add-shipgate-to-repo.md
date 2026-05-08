@@ -18,6 +18,16 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
    ```
    Confirm `"ready": true`. If not, surface the failure to the user.
 
+   When available, verify the installed CLI contract locally:
+   ```bash
+   agents-shipgate contract --json
+   ```
+   Read `report_schema_version`, `packet_schema_version`, `gating_signal`, and
+   `manual_review_signals[]`; prefer these local values over stale docs. If the
+   command is not recognized on an older install, continue after `self-check`
+   using [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md)
+   and upgrade before relying on local contract verification in automation.
+
 3. **Detect:**
    ```bash
    agents-shipgate detect --workspace . --json
