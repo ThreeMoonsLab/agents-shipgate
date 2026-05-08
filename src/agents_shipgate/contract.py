@@ -12,6 +12,7 @@ from agents_shipgate.packet.models import EvidencePacket
 
 CONTRACT_VERSION: Literal["1"] = "1"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
+# Adding `gating_signal_values` would be a `contract_version: "2"` change.
 MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.review_items",
     "findings[].requires_human_review",
@@ -28,6 +29,7 @@ MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
 class ContractPayload(BaseModel):
     """Stable JSON payload emitted by ``agents-shipgate contract --json``."""
 
+    # New fields must be deliberate contract changes with a version bump.
     model_config = ConfigDict(extra="forbid")
 
     contract_version: str

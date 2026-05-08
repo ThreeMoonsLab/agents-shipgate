@@ -156,6 +156,10 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("contract") == "agents-shipgate contract --json"
     assert data.get("contract_version") == contract["contract_version"]
     assert data.get("version") == contract["cli_version"]
+    package = data.get("package", {})
+    assert package.get("github_action") == (
+        f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
+    )
     outputs = data.get("outputs", [])
     for expected in ("packet_md", "packet_json", "packet_html"):
         assert expected in outputs, (

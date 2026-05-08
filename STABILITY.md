@@ -58,6 +58,8 @@ Stable JSON fields:
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
 
+Signal paths use dotted notation; `[]` denotes an array field.
+
 ### JSON report fields (stable)
 
 In `agents-shipgate-reports/report.json`, the following are guaranteed:
