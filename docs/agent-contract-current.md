@@ -4,7 +4,14 @@ The single, current statement of what AI coding agents and CI integrations shoul
 
 ## Current versions
 
+Verify the installed CLI contract locally before relying on hard-coded docs:
+
+```bash
+agents-shipgate contract --json
+```
+
 - Latest release: `v0.8.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Runtime contract: `1`
 - Current report schema: `0.10` — [`docs/report-schema.v0.10.json`](report-schema.v0.10.json)
 - Current packet schema: `0.3` — [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
 - Frozen-reference report schemas: [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
@@ -22,6 +29,10 @@ In `agents-shipgate-reports/report.json`:
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
 
 ## Read these for release review
+
+`agents-shipgate contract --json` exposes `manual_review_signals[]` as the
+installed CLI's stable list of report/packet fields to inspect for human review
+work.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:
 

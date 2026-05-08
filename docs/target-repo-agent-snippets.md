@@ -38,6 +38,7 @@ Commands:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
 agents-shipgate init --workspace . --write --ci --json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 agents-shipgate apply-patches \
@@ -68,6 +69,7 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 

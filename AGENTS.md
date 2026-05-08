@@ -111,6 +111,7 @@ agents-shipgate init --workspace . --write --json
 agents-shipgate scan -c shipgate.yaml                    # already produces report.json
 agents-shipgate apply-patches --from agents-shipgate-reports/report.json --json
 agents-shipgate doctor --json
+agents-shipgate contract --json
 agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING --json
 agents-shipgate list-checks --json
 agents-shipgate self-check --json
@@ -331,6 +332,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
+| `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
@@ -419,6 +421,7 @@ Claude Code: a `/shipgate` slash command lives at [`.claude/commands/shipgate.md
 After you (the agent) complete a task involving Agents Shipgate, verify:
 
 1. `agents-shipgate self-check --json` returns `"ready": true`.
-2. The user's `shipgate.yaml` has no `CHANGE_ME` placeholders.
-3. A scan completes with exit code 0 (advisory mode) and writes `report.json`.
-4. The user's repo `.gitignore` includes `agents-shipgate-reports/` (do not commit reports).
+2. `agents-shipgate contract --json` matches the installed CLI contract you expect.
+3. The user's `shipgate.yaml` has no `CHANGE_ME` placeholders.
+4. A scan completes with exit code 0 (advisory mode) and writes `report.json`.
+5. The user's repo `.gitignore` includes `agents-shipgate-reports/` (do not commit reports).

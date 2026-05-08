@@ -6,9 +6,16 @@ import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
+from agents_shipgate import __version__
 from agents_shipgate.checks import registry
 from agents_shipgate.cli.main import _safe_output_name, app
-from agents_shipgate.core.models import ToolSurfaceDiffSummary
+from agents_shipgate.contract import (
+    CONTRACT_VERSION,
+    GATING_SIGNAL,
+    MANUAL_REVIEW_SIGNALS,
+)
+from agents_shipgate.core.models import ReadinessReport, ToolSurfaceDiffSummary
+from agents_shipgate.packet.models import EvidencePacket
 
 runner = CliRunner()
 
@@ -106,6 +113,50 @@ def test_cli_version_outputs_version():
 
     assert result.exit_code == 0
     assert result.output.strip() == "Agents Shipgate 0.8.0"
+
+
+def test_cli_contract_json_outputs_runtime_contract():
+    result = runner.invoke(app, ["contract", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert list(payload) == [
+        "contract_version",
+        "cli_version",
+        "report_schema_version",
+        "packet_schema_version",
+        "gating_signal",
+        "manual_review_signals",
+    ]
+    assert payload == {
+        "contract_version": CONTRACT_VERSION,
+        "cli_version": __version__,
+        "report_schema_version": str(
+            ReadinessReport.model_fields["report_schema_version"].default
+        ),
+        "packet_schema_version": str(
+            EvidencePacket.model_fields["packet_schema_version"].default
+        ),
+        "gating_signal": GATING_SIGNAL,
+        "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
+    }
+
+
+def test_cli_contract_text_outputs_key_values():
+    result = runner.invoke(app, ["contract"])
+
+    assert result.exit_code == 0, result.output
+    assert CONTRACT_VERSION in result.output
+    assert __version__ in result.output
+    assert (
+        str(ReadinessReport.model_fields["report_schema_version"].default)
+        in result.output
+    )
+    assert (
+        str(EvidencePacket.model_fields["packet_schema_version"].default)
+        in result.output
+    )
+    assert GATING_SIGNAL in result.output
 
 
 def test_cli_scan_help_hides_deferred_flags():
