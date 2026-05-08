@@ -165,10 +165,11 @@ def test_write_all_targets_on_fresh_workspace(tmp_path: Path) -> None:
 
 
 def test_write_idempotent_rerun_is_noop(tmp_path: Path) -> None:
-    """Repeat ``--write --agent-instructions=all`` is a no-op for the
-    instruction files (byte-equal). Manifest action exits 2 on the second run
-    because shipgate.yaml already exists; that is the expected behavior for the
-    manifest action and is independent of agent-instructions idempotency."""
+    """The advertised refresh command — `init --write --agent-instructions=all`
+    — must be idempotent at the process level. A re-run reports every target as
+    ``unchanged``, exits 0 (even though shipgate.yaml already exists, because
+    the user's primary intent under --agent-instructions is the snippet
+    refresh, not manifest creation), and the workspace is byte-equal."""
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     first = runner.invoke(
         app,
@@ -197,8 +198,12 @@ def test_write_idempotent_rerun_is_noop(tmp_path: Path) -> None:
             "--json",
         ],
     )
+    # Idempotent at the process level: exit 0 even though shipgate.yaml exists.
+    assert second.exit_code == 0, second.output
     payload = json.loads(second.output)
-    # Agent-instructions specifically: every target reports unchanged.
+    # Manifest action reports the skip informationally; agent-instructions
+    # all unchanged.
+    assert payload["manifest_status"] == "skipped_existing"
     assert {t["status"] for t in payload["agent_instructions"]["targets"]} == {"unchanged"}
     after = {
         rel: (workspace / rel).read_bytes()
@@ -206,6 +211,23 @@ def test_write_idempotent_rerun_is_noop(tmp_path: Path) -> None:
     }
     # Byte-equal across the run — the canonical "safe to run repeatedly" proof.
     assert snapshot == after
+
+
+def test_manifest_skip_still_exits_two_without_agent_instructions(
+    tmp_path: Path,
+) -> None:
+    """Backwards compatibility: `init --write` (no --agent-instructions)
+    against an existing shipgate.yaml still exits 2. The idempotency
+    accommodation only applies when --agent-instructions is set."""
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    (workspace / "shipgate.yaml").write_text("# user manifest\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["init", "--workspace", str(workspace), "--write", "--json"],
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["manifest_status"] == "skipped_existing"
 
 
 def test_write_appends_to_existing_agents_md_without_markers(tmp_path: Path) -> None:
@@ -315,8 +337,17 @@ def test_triple_combo_init_write_ci_agent_instructions(tmp_path: Path) -> None:
         assert (workspace / SPECS[name].relative_path).exists()
 
 
-def test_help_text_documents_agent_instructions(tmp_path: Path) -> None:
-    """The help string should advertise the new flag and call out advisory-only."""
+def test_help_text_documents_agent_instructions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The help string should advertise the new flag and call out advisory-only.
+
+    Force a wide terminal so Rich's renderer does not truncate ``--agent-
+    instructions`` into ``--agent-in…`` on narrow CI runners (default
+    COLUMNS=80). The CliRunner does not propagate env to Rich's console;
+    setting it on the parent process via monkeypatch is the reliable way."""
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("TERMINAL_WIDTH", "200")
     result = runner.invoke(app, ["init", "--help"])
     assert result.exit_code == 0
     assert "--agent-instructions" in result.output

@@ -46,6 +46,11 @@ case_sensitive_fs = pytest.mark.skipif(
     reason="PR-template casing tests require a case-sensitive filesystem.",
 )
 
+case_insensitive_fs = pytest.mark.skipif(
+    _filesystem_is_case_sensitive(Path(__file__).parent),
+    reason="Test asserts case-insensitive samefile collapsing.",
+)
+
 # --- selector parsing ------------------------------------------------------
 
 
@@ -318,3 +323,83 @@ def test_apply_exit_code_is_max_of_target_contributions(tmp_path: Path) -> None:
 def test_block_version_constant_is_one() -> None:
     """v1 is the initial release; bump only on incompatible content changes."""
     assert BLOCK_VERSION == 1
+
+
+# --- symlink safety --------------------------------------------------------
+
+
+def test_apply_refuses_to_follow_symlink_for_managed_block_target(
+    tmp_path: Path,
+) -> None:
+    """A symlink at AGENTS.md must NOT be followed — otherwise an in-repo
+    `AGENTS.md -> ~/.zshrc` would mutate a file outside the workspace."""
+    decoy_target = tmp_path / "real_target.md"
+    decoy_target.write_text("USER PROSE outside the snippet system\n", encoding="utf-8")
+    link = tmp_path / "AGENTS.md"
+    link.symlink_to(decoy_target)
+    result = apply_agent_instructions(tmp_path, ["agents-md"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    # The link target was not mutated.
+    assert decoy_target.read_text(encoding="utf-8") == (
+        "USER PROSE outside the snippet system\n"
+    )
+    # The symlink still points at the original target.
+    assert link.is_symlink()
+    assert link.readlink() == decoy_target
+
+
+def test_apply_refuses_to_follow_symlink_for_cursor_target(
+    tmp_path: Path,
+) -> None:
+    """The full-file cursor target must also refuse symlinks."""
+    decoy_target = tmp_path / "real_cursor_rule.md"
+    decoy_target.write_text("not a cursor rule\n", encoding="utf-8")
+    link_dir = tmp_path / ".cursor" / "rules"
+    link_dir.mkdir(parents=True)
+    link = link_dir / "agents-shipgate.mdc"
+    link.symlink_to(decoy_target)
+    result = apply_agent_instructions(tmp_path, ["cursor"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    assert decoy_target.read_text(encoding="utf-8") == "not a cursor rule\n"
+
+
+def test_apply_does_not_resolve_symlinked_workspace_path(tmp_path: Path) -> None:
+    """When the workspace itself contains a symlink, the relative target
+    path must stay lexical (workspace / relative). We must not resolve()
+    the joined target path or symlinks inside the workspace would route
+    writes outside it."""
+    # Build a workspace with no symlinks; the assertion is structural — the
+    # resulting outcome path is the lexical join, not a resolved one.
+    result = apply_agent_instructions(tmp_path, ["agents-md"], write=True)
+    [outcome] = result.targets
+    expected = tmp_path.resolve() / "AGENTS.md"
+    assert outcome.path == str(expected)
+
+
+# --- case-insensitive PR template -----------------------------------------
+
+
+@case_insensitive_fs
+def test_pr_template_collapses_casings_on_case_insensitive_fs(
+    tmp_path: Path,
+) -> None:
+    """On macOS APFS / Windows NTFS, both casings address the same inode.
+    The CLI must NOT report ``skipped_ambiguous`` when there is only one
+    file on disk — it must treat them as the same path."""
+    # Create the file using the lowercase form. Both `is_file()` calls
+    # return True on a case-insensitive FS.
+    lower = tmp_path / PR_TEMPLATE_LOWER
+    lower.parent.mkdir(parents=True)
+    lower.write_text("# user prose, no marker\n", encoding="utf-8")
+    upper = tmp_path / PR_TEMPLATE_UPPER
+    assert upper.is_file()  # confirms the FS is case-insensitive
+    result = apply_agent_instructions(tmp_path, ["pr-template"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "appended"
+    assert result.exit_code == 0
+    # User content preserved.
+    assert "user prose, no marker" in lower.read_text(encoding="utf-8")

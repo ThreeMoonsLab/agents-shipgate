@@ -573,30 +573,16 @@ def init(
     manifest_status = "not_attempted"
     manifest_exit = 0
     manifest_message: str | None = None
+    manifest_skip_pending = False
     if write:
         if target.exists():
             manifest_status = "skipped_existing"
             manifest_exit = 2
             manifest_message = f"Config already exists: {target}"
-            _emit_agent_mode_error(
-                "config_already_exists",
-                path=str(target),
-                next_action=f"Edit {target}",
-                next_actions=[
-                    NextAction(
-                        kind="edit",
-                        path=str(target),
-                        why=(
-                            f"{target} already exists. Edit it directly or "
-                            "remove it before re-running init --write."
-                        ),
-                        expects=(
-                            "Manifest reflects the desired tool sources, "
-                            "agent declared_purpose, and policies."
-                        ),
-                    ).model_dump(mode="json")
-                ],
-            )
+            # Defer the agent-mode error emit. When --agent-instructions is
+            # set the user's primary intent is refreshing snippets, and an
+            # already-existing manifest is informational, not a failure.
+            manifest_skip_pending = True
         else:
             target.write_text(template, encoding="utf-8")
             manifest_status = "written"
@@ -625,6 +611,35 @@ def init(
         agent_instructions_outcome = ai_result.to_json()
         agent_instructions_exit = ai_result.exit_code
         agent_instructions_targets = list(ai_result.targets)
+
+    # Idempotency reconciliation: when --agent-instructions is set and the
+    # manifest already exists, treat the manifest action as already-done so
+    # that `init --write --agent-instructions=<target>` is safe to rerun (the
+    # advertised refresh command). The manifest_status field still reports
+    # "skipped_existing" so callers can detect.
+    if requested_targets is not None and manifest_status == "skipped_existing":
+        manifest_exit = 0
+        manifest_skip_pending = False
+    if manifest_skip_pending:
+        _emit_agent_mode_error(
+            "config_already_exists",
+            path=str(target),
+            next_action=f"Edit {target}",
+            next_actions=[
+                NextAction(
+                    kind="edit",
+                    path=str(target),
+                    why=(
+                        f"{target} already exists. Edit it directly or "
+                        "remove it before re-running init --write."
+                    ),
+                    expects=(
+                        "Manifest reflects the desired tool sources, "
+                        "agent declared_purpose, and policies."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
 
     # Output
     if json_output:

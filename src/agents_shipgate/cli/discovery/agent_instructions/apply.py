@@ -19,6 +19,8 @@ Status enum:
 - ``skipped_ambiguous`` — multiple/mismatched markers; refused to guess.
 - ``skipped_user_modified`` — cursor MDC file content does not match any
   shipped render; refused to overwrite.
+- ``skipped_symlink`` — the host path is a symlink; refused to follow it
+  outside the workspace.
 - ``skipped_directory_template`` — the directory form
   ``.github/PULL_REQUEST_TEMPLATE/`` exists; v1 only handles the file form.
 
@@ -65,6 +67,7 @@ _SKIPPED_STATUSES = frozenset(
         "skipped_newer_version",
         "skipped_ambiguous",
         "skipped_user_modified",
+        "skipped_symlink",
         "skipped_directory_template",
     }
 )
@@ -140,7 +143,10 @@ def render_targets(workspace: Path, requested: Iterable[str]) -> list[TargetOutc
     outcomes: list[TargetOutcome] = []
     for name in requested:
         spec = SPECS[name]
-        path = (workspace / spec.relative_path).resolve()
+        # Lexical join only — never resolve(). Resolving would follow a
+        # symlink at the host path and report a path outside the workspace,
+        # which would mislead callers in the dry-run JSON.
+        path = workspace / spec.relative_path
         outcomes.append(
             TargetOutcome(
                 name=name,
@@ -160,6 +166,11 @@ def _resolve_pr_template_path(workspace: Path) -> tuple[Path, str | None]:
 
     Returns (path, error_status). On ambiguity the path is the canonical lower
     form and ``error_status`` is the status enum to surface.
+
+    Case-insensitive filesystems (macOS APFS, Windows NTFS) report the same
+    inode for both casings — ``Path.samefile`` collapses them so we do not
+    falsely report ``skipped_ambiguous`` when only one PR template actually
+    exists on disk.
     """
     upper = workspace / PR_TEMPLATE_UPPER
     lower = workspace / PR_TEMPLATE_LOWER
@@ -169,7 +180,16 @@ def _resolve_pr_template_path(workspace: Path) -> tuple[Path, str | None]:
     upper_exists = upper.is_file()
     lower_exists = lower.is_file()
     if upper_exists and lower_exists:
-        # Pick the one that contains our marker; if neither does, ambiguous.
+        try:
+            same = upper.samefile(lower)
+        except OSError:
+            same = False
+        if same:
+            # Same inode (case-insensitive FS) — there is only one file on
+            # disk. Use the lowercase canonical path for output stability.
+            return lower, None
+        # Two genuinely distinct files. Pick the one with our marker; if
+        # neither has it, refuse with skipped_ambiguous.
         for candidate in (lower, upper):
             try:
                 if b"agents-shipgate:start" in candidate.read_bytes():
@@ -185,6 +205,19 @@ def _resolve_pr_template_path(workspace: Path) -> tuple[Path, str | None]:
 def _apply_managed_block_target(name: str, path: Path) -> TargetOutcome:
     inner = _rendered_inner(name)
     preamble = H1_PREAMBLES.get(name, "")
+    # Refuse to follow symlinks. ``path.exists()`` would follow a dangling
+    # symlink and mutate whatever it points to (potentially outside the
+    # workspace). ``is_symlink()`` checks the link itself, not the target.
+    if path.is_symlink():
+        return TargetOutcome(
+            name=name,
+            path=str(path),
+            status="skipped_symlink",
+            message=(
+                f"{path} is a symlink; refusing to follow it. "
+                "Replace the symlink with a regular file before re-running."
+            ),
+        )
     if not path.exists():
         # Compose H1 preamble (if any) + managed block from a virtual empty
         # host. ``upsert`` handles the empty-host case for us.
@@ -265,6 +298,16 @@ def _apply_cursor(path: Path) -> TargetOutcome:
     rendered = render_cursor_file()
     rendered_bytes = rendered.encode("utf-8")
     rendered_sha = hashlib.sha256(rendered_bytes).hexdigest()
+    if path.is_symlink():
+        return TargetOutcome(
+            name="cursor",
+            path=str(path),
+            status="skipped_symlink",
+            message=(
+                f"{path} is a symlink; refusing to follow it. "
+                "Replace the symlink with a regular file before re-running."
+            ),
+        )
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(rendered_bytes)
@@ -328,7 +371,7 @@ def apply_agent_instructions(
                 outcomes.append(
                     TargetOutcome(
                         name=name,
-                        path=str((workspace / PR_TEMPLATE_DIR).resolve()),
+                        path=str(workspace / PR_TEMPLATE_DIR),
                         status="skipped_directory_template",
                         message=(
                             f"{workspace / PR_TEMPLATE_DIR} directory present; "
@@ -342,7 +385,7 @@ def apply_agent_instructions(
                 outcomes.append(
                     TargetOutcome(
                         name=name,
-                        path=str(path.resolve()),
+                        path=str(path),
                         status="skipped_ambiguous",
                         message=(
                             f"Both {workspace / PR_TEMPLATE_LOWER} and "
@@ -353,7 +396,10 @@ def apply_agent_instructions(
                 )
                 continue
         else:
-            path = (workspace / spec.relative_path).resolve()
+            # Lexical join — never resolve(). Resolving a symlink target
+            # would write outside the workspace; the per-target helpers
+            # check ``is_symlink`` and refuse before touching the file.
+            path = workspace / spec.relative_path
 
         if name == "cursor":
             outcomes.append(_apply_cursor(path))
