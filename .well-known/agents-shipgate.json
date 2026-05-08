@@ -38,6 +38,8 @@
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
   "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
   "stability_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/STABILITY.md",
+  "triggers_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json",
+  "llms_full_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt",
   "exit_codes": {
     "0": "pass",
     "2": "config_error",

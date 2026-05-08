@@ -1,0 +1,36 @@
+## Agent Release Readiness
+
+This repo uses Agents Shipgate as the static release-readiness preflight for
+AI agent tool surfaces.
+
+Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
+prompts that constrain tool use, permissions, approval policies,
+confirmation policies, CI release gates, or `shipgate.yaml`.
+
+Skip Shipgate for pure docs, tests, formatting, or refactors with no tool or
+policy impact unless the user explicitly asks.
+
+Commands:
+
+```bash
+agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
+agents-shipgate init --workspace . --write --ci --json
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+agents-shipgate apply-patches \
+  --from agents-shipgate-reports/report.json \
+  --confidence high --apply
+```
+
+Always parse `agents-shipgate-reports/report.json`, not Markdown. Use
+`release_decision.decision` as the release signal.
+
+Auto-apply only high-confidence safe patches. Do not auto-assert approval,
+confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
+surface those as human review items.
+
+Before committing, ensure `.gitignore` includes:
+
+```gitignore
+agents-shipgate-reports/
+```

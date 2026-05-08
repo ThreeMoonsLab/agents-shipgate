@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+#
+# Benchmark variant: existing shipgate.yaml.
+# Replace {{REPO_NAME}} and the placeholders below with values that match the
+# archetype repo this is being layered onto.
+
+version: "0.1"
+
+project:
+  name: "{{REPO_NAME}}"
+
+agent:
+  name: "{{AGENT_NAME}}"
+  declared_purpose:
+    - "{{ONE_LINE_PURPOSE}}"
+  prohibited_actions: []
+
+environment:
+  target: local
+
+# Edit this list to match the archetype's tool surface. Common shapes:
+#
+# - id: openapi_main
+#   type: openapi
+#   path: openapi.yaml
+#
+# - id: mcp_export
+#   type: mcp
+#   path: mcp/tools.json
+#
+# - id: openai_agents_sdk_main
+#   type: openai_agents_sdk
+#   path: agent.py
+tool_sources:
+  - id: CHANGE_ME
+    type: openapi
+    path: CHANGE_ME.yaml
+
+policies:
+  require_approval_for_tools: []
+  require_confirmation_for_tools: []
+  require_idempotency_for_tools: []
+
+permissions:
+  scopes: []
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

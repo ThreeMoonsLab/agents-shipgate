@@ -1,0 +1,24 @@
+---
+description: Run Agents Shipgate for AI agent tool-surface release readiness.
+globs:
+  - "shipgate.yaml"
+  - "**/*openapi*.yaml"
+  - "**/*openapi*.yml"
+  - "**/*openapi*.json"
+  - "**/*swagger*.yaml"
+  - "**/*swagger*.yml"
+  - "**/*swagger*.json"
+  - "**/*mcp*.json"
+  - "**/*tools*.json"
+  - "**/*.py"
+alwaysApply: false
+---
+
+When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
+permissions, approval policies, or release gates, run Agents Shipgate.
+
+Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
+`release_decision.decision` over legacy severity/status summaries.
+
+Apply only high-confidence safe patches. Do not invent approval, confirmation,
+or idempotency evidence.

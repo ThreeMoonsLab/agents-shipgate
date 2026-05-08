@@ -59,6 +59,10 @@ Documentation = "https://github.com/ThreeMoonsLab/agents-shipgate/wiki"
 Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELOG.md"
 "Agent Instructions" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md"
 "Stability Contract" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md"
+"LLMs.txt" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms.txt"
+"LLMs Full" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt"
+"Trigger Catalog" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json"
+"Well-Known" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json"
 
 [project.optional-dependencies]
 pdf = [
@@ -105,6 +109,7 @@ packages = ["src/agents_shipgate"]
 "samples" = "agents_shipgate/_fixtures"
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
+"docs/triggers.json" = "agents_shipgate/_meta/triggers.json"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

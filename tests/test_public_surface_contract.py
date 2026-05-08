@@ -17,6 +17,7 @@ walk PUBLIC_SURFACES.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import tomllib
@@ -32,6 +33,7 @@ from agents_shipgate.contract import (
 )
 from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.triggers import evaluate, load_triggers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -584,6 +586,194 @@ def test_packet_anchors_match_current_schema(relpath):
             f"v{CURRENT_PACKET_SCHEMA_VERSION}, so the anchor should "
             f"be `#release-evidence-packet-v{expected_anchor_digits}`."
         )
+
+
+# --- Trigger catalog and llms-full.txt drift guards ----------------------
+
+
+_VALID_TRIGGER_ACTIONS = {"run_shipgate", "skip_shipgate", "dry_run"}
+
+
+def _load_triggers_json() -> dict:
+    return json.loads(_read("docs/triggers.json"))
+
+
+def test_triggers_json_loads_via_canonical_loader():
+    """The bundled `agents_shipgate.triggers` module is the canonical
+    loader. If a coding agent reads docs/triggers.json directly and
+    reaches a different verdict than this loader, that's a drift bug —
+    catch it by exercising the loader during CI."""
+    triggers = load_triggers()
+    assert triggers["schema_version"] == "0.1", (
+        "docs/triggers.json schema_version moved off 0.1; bump the "
+        "test constant deliberately so external consumers are notified."
+    )
+    assert isinstance(triggers.get("rules"), list) and triggers["rules"], (
+        "docs/triggers.json must declare at least one rule."
+    )
+    for rule in triggers["rules"]:
+        assert rule["action"] in _VALID_TRIGGER_ACTIONS, (
+            f"rule {rule['id']!r} has unknown action {rule['action']!r}; "
+            f"allowed: {sorted(_VALID_TRIGGER_ACTIONS)}."
+        )
+        assert rule.get("when"), f"rule {rule['id']!r} missing `when` clause."
+        assert rule.get("agents_md_row"), (
+            f"rule {rule['id']!r} missing `agents_md_row`; the row text "
+            "is what the contract test pins against AGENTS.md prose."
+        )
+
+
+def test_triggers_json_rule_rows_appear_verbatim_in_agents_md():
+    """Every `agents_md_row` value in docs/triggers.json must appear
+    verbatim in AGENTS.md. Catches the failure mode where the prose
+    table gets reworded but triggers.json is left behind."""
+    triggers = _load_triggers_json()
+    agents_md = _read("AGENTS.md")
+    seen: set[str] = set()
+    for rule in triggers["rules"]:
+        row = rule["agents_md_row"]
+        if row in seen:
+            continue
+        seen.add(row)
+        assert row in agents_md, (
+            f"rule {rule['id']!r} declares agents_md_row "
+            f"{row!r}, but that text does not appear verbatim in "
+            "AGENTS.md. Re-sync docs/triggers.json and the AGENTS.md "
+            "trigger table."
+        )
+
+
+def test_triggers_evaluator_smoke():
+    """Sanity-check the evaluator for the canonical positive and
+    negative cases. Prevents a regression where rule semantics drift
+    silently — e.g. the docs-only negative case starts firing
+    `run_shipgate`."""
+    docs_only = evaluate(paths=["README.md", "docs/index.md"])
+    assert docs_only["run_shipgate"] is False, (
+        "Docs-only PR must not trigger Shipgate; "
+        f"got {docs_only!r}."
+    )
+    mcp_change = evaluate(paths=["tools/my_mcp.json"])
+    assert mcp_change["run_shipgate"] is True, (
+        "MCP export change must trigger Shipgate; "
+        f"got {mcp_change!r}."
+    )
+    decorator = evaluate(
+        paths=["agent.py"],
+        diff_text="+@function_tool\n+def search(): ...",
+    )
+    assert decorator["run_shipgate"] is True, (
+        "@function_tool decorator addition must trigger Shipgate; "
+        f"got {decorator!r}."
+    )
+
+
+def test_well_known_links_to_triggers_and_llms_full():
+    """`.well-known/agents-shipgate.json` is the discovery hub — it
+    must point at the trigger catalog and llms-full.txt so coding
+    agents can reach them in one fetch from the well-known URL."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+    triggers_url = data.get("triggers_url", "")
+    assert triggers_url.endswith("/docs/triggers.json"), (
+        f".well-known/agents-shipgate.json must declare triggers_url "
+        f"ending in /docs/triggers.json; got {triggers_url!r}."
+    )
+    llms_full_url = data.get("llms_full_url", "")
+    assert llms_full_url.endswith("/llms-full.txt"), (
+        f".well-known/agents-shipgate.json must declare llms_full_url "
+        f"ending in /llms-full.txt; got {llms_full_url!r}."
+    )
+
+
+def test_llms_txt_advertises_triggers_and_llms_full():
+    """llms.txt is the short fan-out for AI search; it must list the
+    trigger catalog and llms-full URLs so they are discoverable from
+    the canonical entry point."""
+    text = _read("llms.txt")
+    assert "docs/triggers.json" in text, (
+        "llms.txt must reference docs/triggers.json so coding agents "
+        "discover the machine-readable trigger catalog."
+    )
+    assert "llms-full.txt" in text, (
+        "llms.txt must reference llms-full.txt so coding agents that "
+        "prefer one document over chasing links can find it."
+    )
+
+
+def _import_build_llms_full():
+    spec = importlib.util.spec_from_file_location(
+        "build_llms_full", REPO_ROOT / "scripts" / "build-llms-full.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not import scripts/build-llms-full.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_llms_full_is_up_to_date():
+    """llms-full.txt is generated by `scripts/build-llms-full.py`. A PR
+    that touches one of the source documents must regenerate the file
+    in the same commit; this test catches PRs that forget."""
+    mod = _import_build_llms_full()
+    expected = mod.render(REPO_ROOT)
+    actual = _read("llms-full.txt")
+    assert actual == expected, (
+        "llms-full.txt is out of date. Re-run "
+        "`python scripts/build-llms-full.py` and commit the result. "
+        "Sources: " + ", ".join(mod.SOURCES)
+    )
+
+
+# --- Prompt mirror enforcement ------------------------------------------
+
+
+_PROMPT_DIR = REPO_ROOT / "prompts"
+_SKILL_PROMPT_DIR = REPO_ROOT / "skills" / "agents-shipgate" / "prompts"
+
+
+_PROMPT_MIRROR_EXCLUDE = {"README.md"}
+
+
+def _prompt_basenames() -> list[str]:
+    return sorted(
+        p.name
+        for p in _PROMPT_DIR.glob("*.md")
+        if p.name not in _PROMPT_MIRROR_EXCLUDE
+    )
+
+
+@pytest.mark.parametrize("basename", _prompt_basenames())
+def test_prompt_is_mirrored_to_skill(basename):
+    """Every `prompts/*.md` must have a byte-identical mirror under
+    `skills/agents-shipgate/prompts/`. The skill bundle is what
+    Claude Code installs and pins to a release; if a prompt drifts
+    between the two locations, agents installed via the skill see
+    stale guidance."""
+    main = (_PROMPT_DIR / basename).read_text(encoding="utf-8")
+    skill_path = _SKILL_PROMPT_DIR / basename
+    assert skill_path.is_file(), (
+        f"prompts/{basename} has no mirror at "
+        f"skills/agents-shipgate/prompts/{basename}. Copy it over so "
+        "the bundled skill stays in sync."
+    )
+    skill = skill_path.read_text(encoding="utf-8")
+    assert main == skill, (
+        f"prompts/{basename} and "
+        f"skills/agents-shipgate/prompts/{basename} have diverged. "
+        "Re-sync them — they must be byte-identical."
+    )
+
+
+def test_decide_shipgate_relevance_prompt_exists():
+    """The relevance-decision prompt is the entry point for coding
+    agents that haven't decided whether to run Shipgate yet — its
+    presence is contractual."""
+    assert (_PROMPT_DIR / "decide-shipgate-relevance.md").is_file(), (
+        "prompts/decide-shipgate-relevance.md is missing. This prompt "
+        "applies docs/triggers.json to a PR diff and is the gateway "
+        "into the rest of the prompt library."
+    )
 
 
 @pytest.mark.parametrize(

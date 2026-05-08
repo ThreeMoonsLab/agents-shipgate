@@ -144,12 +144,19 @@ repo's machine-readable contracts quickly.
 
 Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Claude Code, Codex, Cursor, Aider) reading this repo:
 
+- **[`llms.txt`](llms.txt)** — short index of every machine-readable surface, one fetch.
+- **[`llms-full.txt`](llms-full.txt)** — long-form concatenation of `AGENTS.md` + recipes + checks + concepts + autofix policy, in one document. Built by `scripts/build-llms-full.py`.
+- **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
+- **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to propose `agents-shipgate detect`. Schema is stable for `0.x`.
+- **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)** — copyable snippets for adding Shipgate trigger rules to downstream agent repos
 - **[`docs/agent-adoption-harness.md`](docs/agent-adoption-harness.md)** — manual protocol for checking whether coding agents discover and use Shipgate
+- **[`benchmark/`](benchmark/)** — frozen archetypes, prompts, setup variants, and a public leaderboard CSV. Closes the loop on adoption-readiness changes.
+- **[`docs/zero-install.md`](docs/zero-install.md)** — single-file detector, `uvx`, and GitHub Action paths for evaluating Shipgate without a local install.
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents

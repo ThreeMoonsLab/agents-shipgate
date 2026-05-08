@@ -174,6 +174,18 @@ Do NOT use it for:
 | Pure read-only doc/test changes with no manifest impact | Skip |
 | Refactor with no behavior change to tools or policies | Skip (or dry-run only) |
 
+Two implicit triggers also fire even when no row above matches:
+
+- **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
+- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, or `google-adk` can change AST extraction even without app-code edits.
+
+A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To verify a path list locally:
+
+```bash
+python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md
+python -m agents_shipgate.triggers --list-rules --json
+```
+
 **Stop conditions.** Stop and do not run `init` only when **all** of these hold:
 
 - `agents-shipgate detect --json` returns `is_agent_project: false`, AND
@@ -399,6 +411,7 @@ Exit codes (stable):
 
 Prebuilt prompts for common workflows live in [`prompts/`](prompts/):
 
+- [`decide-shipgate-relevance.md`](prompts/decide-shipgate-relevance.md) — apply [`docs/triggers.json`](docs/triggers.json) to decide whether Shipgate should run at all
 - [`add-shipgate-to-repo.md`](prompts/add-shipgate-to-repo.md) — bootstrap a repo
 - [`fix-top-finding.md`](prompts/fix-top-finding.md) — iterate on a single finding
 - [`recommend-fixes.md`](prompts/recommend-fixes.md) — walk all active findings and surface targeted fix recommendations across the four autofix-policy classes

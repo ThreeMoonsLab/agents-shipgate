@@ -1,0 +1,22 @@
+## Agents Shipgate
+
+For agent tool-surface or release-policy changes, run:
+
+```bash
+agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+```
+
+Read `agents-shipgate-reports/report.json` and summarize:
+
+- `release_decision.decision`
+- blocker count
+- review item count
+- top critical/high findings
+- safe patches applied
+- findings requiring human review
+
+Use `apply-patches --confidence high --apply` only for high-confidence safe
+patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
+changes require human review.

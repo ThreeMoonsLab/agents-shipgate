@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "0.1",
+  "name": "agents-shipgate-triggers",
+  "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent that has not yet adopted Shipgate can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate detect`. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
+  "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
+  "documentation_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md",
+  "default_command": "agents-shipgate detect --workspace . --json",
+  "predicate_vocabulary": {
+    "glob": "Any changed file in the PR matches the glob (relative to repo root). Globstar `**` matches zero or more path segments; `*` matches within a segment; brace expansion is not supported.",
+    "diff_contains": "The unified diff (added or modified lines) of this PR contains the literal string. Use only with stable token forms — decorator names, package names, function calls.",
+    "file_present": "The named path exists in the working tree at the head commit, regardless of whether this PR changed it.",
+    "file_absent": "The named path does NOT exist in the working tree at the head commit.",
+    "every_file_matches": "Every changed file in this PR matches the single glob. False on an empty PR.",
+    "none_match_glob": "No changed file matches any of the listed globs.",
+    "any_of": "Logical OR over a list of nested predicates.",
+    "all_of": "Logical AND over a list of nested predicates.",
+    "detect_returns": "Result of `agents-shipgate detect --workspace . --json` matches the given `key: value` pair (`is_agent_project: false`, `suggested_sources: []`, etc.). Used in `stop_conditions` only.",
+    "user_did_not_request": "The user did not explicitly ask for a Shipgate run in their prompt. Used in `stop_conditions` only."
+  },
+  "rules": [
+    {
+      "id": "TRIGGER-MCP-EXPORT-CHANGED",
+      "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
+      "when": {
+        "any_of": [
+          {"glob": "**/*mcp*.json"},
+          {"glob": ".agents-shipgate/*.json"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "MCP exports declare a tool surface; changes need a tool-use readiness check.",
+      "command": "agents-shipgate detect --workspace . --json"
+    },
+    {
+      "id": "TRIGGER-OPENAPI-SPEC-CHANGED",
+      "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
+      "when": {
+        "any_of": [
+          {"glob": "**/*openapi*.yaml"},
+          {"glob": "**/*openapi*.yml"},
+          {"glob": "**/*openapi*.json"},
+          {"glob": "**/*swagger*.yaml"},
+          {"glob": "**/*swagger*.yml"},
+          {"glob": "**/*swagger*.json"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "OpenAPI specs define HTTP-tool surfaces; scope coverage and side-effect classification depend on them.",
+      "command": "agents-shipgate detect --workspace . --json"
+    },
+    {
+      "id": "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED",
+      "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
+      "when": {
+        "any_of": [
+          {"glob": "tools/*openai*tools*.json"},
+          {"glob": "tools/*anthropic*tools*.json"},
+          {"glob": "tools/anthropic-tools.json"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Static tool inventories for the OpenAI and Anthropic Messages APIs are first-class tool sources."
+    },
+    {
+      "id": "TRIGGER-FUNCTION-TOOL-DECORATOR",
+      "agents_md_row": "Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK)",
+      "when": {
+        "any_of": [
+          {"diff_contains": "@function_tool"},
+          {"diff_contains": "@tool"},
+          {"diff_contains": "FunctionTool("}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "`@function_tool` / `@tool` (LangChain, CrewAI, OpenAI Agents SDK) and ADK `FunctionTool(...)` add or modify the tools the agent can call."
+    },
+    {
+      "id": "TRIGGER-PROMPTS-OR-POLICIES",
+      "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
+      "when": {
+        "any_of": [
+          {"glob": "prompts/**"},
+          {"glob": "policies/**"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces."
+    },
+    {
+      "id": "TRIGGER-SHIPGATE-MANIFEST",
+      "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
+      "when": {"glob": "shipgate.yaml"},
+      "action": "run_shipgate",
+      "rationale": "The manifest is the source of truth for the release gate."
+    },
+    {
+      "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
+      "agents_md_row": "Adds/edits `.github/workflows/agents-shipgate.yml` or related CI",
+      "when": {
+        "any_of": [
+          {"glob": ".github/workflows/agents-shipgate.yml"},
+          {"glob": ".github/workflows/agents-shipgate.yaml"},
+          {"diff_contains": "ThreeMoonsLab/agents-shipgate"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "CI gate changes touch the release-readiness path itself."
+    },
+    {
+      "id": "TRIGGER-EXISTING-MANIFEST-PRESENT",
+      "agents_md_row": "Repo already opted in (shipgate.yaml present in the workspace)",
+      "when": {"file_present": "shipgate.yaml"},
+      "action": "run_shipgate",
+      "rationale": "Repo already opted in; run on every PR even when this PR doesn't directly touch the manifest."
+    },
+    {
+      "id": "TRIGGER-FRAMEWORK-VERSION-BUMP",
+      "agents_md_row": "(Optional) Refactor or framework upgrade that may shift the extracted tool surface",
+      "when": {
+        "any_of": [
+          {"diff_contains": "openai-agents"},
+          {"diff_contains": "langchain"},
+          {"diff_contains": "crewai"},
+          {"diff_contains": "google-adk"}
+        ]
+      },
+      "action": "dry_run",
+      "rationale": "Framework dependency bumps can shift the extracted tool surface; dry-run is a defensive no-cost check."
+    },
+    {
+      "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+      "agents_md_row": "Pure read-only doc/test changes with no manifest impact",
+      "when": {
+        "all_of": [
+          {"every_file_matches": "**/*.md"},
+          {"none_match_glob": [
+            "shipgate.yaml",
+            "**/*tools*.json",
+            "**/*mcp*.json",
+            "**/*openapi*.yaml",
+            "**/*openapi*.yml",
+            "**/*openapi*.json",
+            "prompts/**",
+            "policies/**"
+          ]}
+        ]
+      },
+      "action": "skip_shipgate",
+      "rationale": "Docs-only PR; no tool surface impact."
+    }
+  ],
+  "stop_conditions": {
+    "description": "Stop and do not propose Shipgate when ALL of these hold (mirrors AGENTS.md \"Stop conditions\" prose).",
+    "all_of": [
+      {"detect_returns": "is_agent_project: false"},
+      {"detect_returns": "suggested_sources: []"},
+      {"file_absent": "shipgate.yaml"},
+      {"user_did_not_request": true}
+    ]
+  },
+  "actions": {
+    "run_shipgate": "Propose `agents-shipgate detect --json` as the next step; if `is_agent_project` or `suggested_sources` is non-trivial, follow with `init --write --ci` and `scan`.",
+    "dry_run": "Propose a non-mutating scan only — do not write a manifest if one does not already exist.",
+    "skip_shipgate": "Do not propose Shipgate. Recommend other appropriate checks for the PR."
+  }
+}

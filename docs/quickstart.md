@@ -2,6 +2,17 @@
 
 A 60-second introduction to agents-shipgate for developers and AI coding agents.
 
+## Zero-install: is this even relevant?
+
+Coding agents reading a fresh repo can answer "is this an agent project?" in one fetch, no install needed:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+  | python3 - --workspace . --json
+```
+
+If `is_agent_project: true` (or `suggested_sources` is non-empty), continue with the install below. If `is_agent_project: false` and `suggested_sources: []`, Shipgate is not the right tool for this repo — see [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
+
 ## Install
 
 ```bash
@@ -13,6 +24,7 @@ Alternatives if `pipx` is unavailable:
 ```bash
 python -m pip install agents-shipgate     # global pip
 uv tool install agents-shipgate            # via uv
+uvx agents-shipgate --help                 # one-shot via uv, no permanent install
 python -m agents_shipgate --help           # run from a pip install without PATH
 ```
 
