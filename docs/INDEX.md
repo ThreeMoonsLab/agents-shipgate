@@ -27,7 +27,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.2.json`](packet-schema.v0.2.json) — JSON Schema for the Release Evidence Packet
+- [`packet-schema.v0.3.json`](packet-schema.v0.3.json) — JSON Schema for the Release Evidence Packet
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 
 ## Examples
@@ -51,10 +51,16 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 ## For agents
 
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow (`detect → init → scan → apply-patches`)
+- [`agent-contract-current.md`](agent-contract-current.md) — current statement of which `report.json` fields agents and CI integrations should read
+- [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer for `report.json`; walks the file in the order a new consumer should read it
+- [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — what an agent may do mechanically vs. what must defer to a human reviewer
+- [`autofix-policy.md`](autofix-policy.md) — which findings are safe to apply, which need review, and how `apply-patches --confidence` filters them
 - [`diagnostics.md`](diagnostics.md) — ranked next-action diagnostics surfaced by `detect`, `doctor`, and structured-error JSON
 - [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md) — copyable `AGENTS.md`, `CLAUDE.md`, Cursor, PR template, and advisory workflow snippets for downstream repos
+- [`agents/use-with-claude-code.md`](agents/use-with-claude-code.md) — install the `/shipgate` slash command and `agents-shipgate` skill in your agent project
+- [`agents/use-with-codex.md`](agents/use-with-codex.md) — drop the canonical `AGENTS.md` snippet in for OpenAI Codex
+- [`agents/use-with-cursor.md`](agents/use-with-cursor.md) — drop the auto-attach `.cursor/rules/agents-shipgate.mdc` rule in for Cursor
 - [`agent-adoption-harness.md`](agent-adoption-harness.md) — manual protocol for measuring whether coding agents discover and use Shipgate
-- [`autofix-policy.md`](autofix-policy.md) — which findings are safe to apply, which need review, and how `apply-patches --confidence` filters them
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
 - [`../AGENTS.md`](../AGENTS.md) — agent-facing instructions
 - [`../CLAUDE.md`](../CLAUDE.md) — Claude Code-specific notes

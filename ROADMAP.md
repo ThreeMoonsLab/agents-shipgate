@@ -2,9 +2,10 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-Agents Shipgate is preparing the `v0.8.0` release. Releases `v0.2` through
-`v0.7` are complete and retained here as release history. Active public
-planning starts with the v0.8 release-decision close-out.
+Agents Shipgate is preparing the `v0.10.0` release. Releases `v0.2` through
+`v0.8` are complete and retained here as release history. Active public
+planning continues with incremental source-provenance enrichment after the
+v0.8 release-decision close-out.
 
 ## Completed
 
@@ -117,29 +118,29 @@ can decide what's safe to auto-fix.
   byte-parity test enforces dual-copy synchrony between
   `prompts/` and `skills/agents-shipgate/prompts/`.
 
-## Open
-
 ### v0.8.0 Release Decision Engine
 
-Goal: close v0.8 around a baseline-aware release decision over agent tool
+Closed v0.8 around a baseline-aware release decision over agent tool
 surfaces, not broader framework or runtime surface area.
 
-- Make `release_decision.decision` the recommended release-gating signal for
+- Made `release_decision.decision` the recommended release-gating signal for
   JSON consumers, CLI output, Markdown, PR comments, and GitHub Action
   outputs.
-- Preserve `summary.status` as baseline-blind compatibility for v0.7
+- Preserved `summary.status` as baseline-blind compatibility for v0.7
   consumers.
-- Keep the verdict path deterministic and static: no LLM calls, agent
+- Kept the verdict path deterministic and static: no LLM calls, agent
   execution, MCP connections, network access, runtime inventory, telemetry, or
   new framework adapters in the v0.8 close-out.
-- Harden real-repo detection so local/private state, virtualenv fixture
+- Hardened real-repo detection so local/private state, virtualenv fixture
   installs, generated reports, and gitignored worktrees do not create false
   framework or source signals.
-- Keep Tool-Use Readiness as the public wedge: OpenAI Agents SDK, MCP exports,
+- Kept Tool-Use Readiness as the public wedge: OpenAI Agents SDK, MCP exports,
   and OpenAPI specs are the clearest first path; other supported frameworks
   remain documented inputs.
 
-### v0.8.x Source-Provenance Enrichment (incremental)
+## Open
+
+### Source-Provenance Enrichment (incremental)
 
 Once we have origin (file path, line index for JSONL, list index for
 arrays) threaded through finding evidence, expand the patch generator

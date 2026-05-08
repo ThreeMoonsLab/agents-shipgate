@@ -1,0 +1,5 @@
+high_risk_auto_approval_exclusions:
+  - tool: issue_refund
+    reason: financial refund actions remain manually approved
+    owner: support-ops
+

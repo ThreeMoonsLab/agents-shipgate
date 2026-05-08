@@ -1,14 +1,24 @@
 import json
 from pathlib import Path
+from types import UnionType
+from typing import Union, get_args, get_origin
 
 import click
 import pytest
+from pydantic import BaseModel
 from typer.main import get_command
 from typer.testing import CliRunner
 
+from agents_shipgate import __version__
 from agents_shipgate.checks import registry
 from agents_shipgate.cli.main import _safe_output_name, app
-from agents_shipgate.core.models import ToolSurfaceDiffSummary
+from agents_shipgate.contract import (
+    CONTRACT_VERSION,
+    GATING_SIGNAL,
+    MANUAL_REVIEW_SIGNALS,
+)
+from agents_shipgate.core.models import ReadinessReport, ToolSurfaceDiffSummary
+from agents_shipgate.packet.models import EvidencePacket
 
 runner = CliRunner()
 
@@ -28,7 +38,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.8.0" in result.output
+    assert "Agents Shipgate 0.10.0" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -105,7 +115,123 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.8.0"
+    assert result.output.strip() == "Agents Shipgate 0.10.0"
+
+
+def test_cli_contract_json_outputs_runtime_contract():
+    result = runner.invoke(app, ["contract", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    # Key order is part of the agent-facing contract payload.
+    assert list(payload) == [
+        "contract_version",
+        "cli_version",
+        "report_schema_version",
+        "packet_schema_version",
+        "gating_signal",
+        "manual_review_signals",
+    ]
+    assert payload == {
+        "contract_version": CONTRACT_VERSION,
+        "cli_version": __version__,
+        "report_schema_version": str(
+            ReadinessReport.model_fields["report_schema_version"].default
+        ),
+        "packet_schema_version": str(
+            EvidencePacket.model_fields["packet_schema_version"].default
+        ),
+        "gating_signal": GATING_SIGNAL,
+        "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
+    }
+
+
+def test_contract_manual_review_signals_resolve_to_model_fields():
+    for signal in MANUAL_REVIEW_SIGNALS:
+        if signal.startswith("packet."):
+            root_model = EvidencePacket
+            segments = signal.split(".")[1:]
+        else:
+            root_model = ReadinessReport
+            segments = signal.split(".")
+        _assert_field_path_resolves(root_model, segments, signal)
+
+
+def test_cli_contract_text_outputs_key_values():
+    result = runner.invoke(app, ["contract"])
+
+    assert result.exit_code == 0, result.output
+    assert CONTRACT_VERSION in result.output
+    assert __version__ in result.output
+    assert (
+        str(ReadinessReport.model_fields["report_schema_version"].default)
+        in result.output
+    )
+    assert (
+        str(EvidencePacket.model_fields["packet_schema_version"].default)
+        in result.output
+    )
+    assert GATING_SIGNAL in result.output
+
+
+def _assert_field_path_resolves(
+    root_model: type[BaseModel],
+    segments: list[str],
+    signal: str,
+) -> None:
+    model = root_model
+    for index, raw_segment in enumerate(segments):
+        is_array = raw_segment.endswith("[]")
+        field_name = raw_segment.removesuffix("[]")
+        assert field_name in model.model_fields, (
+            f"{signal!r} references missing field {field_name!r} on "
+            f"{model.__name__}"
+        )
+        if index == len(segments) - 1:
+            return
+        annotation = model.model_fields[field_name].annotation
+        model = (
+            _list_item_model(annotation, signal, field_name)
+            if is_array
+            else _model_annotation(annotation, signal, field_name)
+        )
+
+
+def _list_item_model(
+    annotation: object,
+    signal: str,
+    field_name: str,
+) -> type[BaseModel]:
+    annotation = _unwrap_optional(annotation)
+    assert get_origin(annotation) is list, (
+        f"{signal!r} marks {field_name!r} as an array field, but it is "
+        f"{annotation!r}"
+    )
+    args = get_args(annotation)
+    assert args, f"{signal!r} array field {field_name!r} has no item type"
+    return _model_annotation(args[0], signal, field_name)
+
+
+def _model_annotation(
+    annotation: object,
+    signal: str,
+    field_name: str,
+) -> type[BaseModel]:
+    annotation = _unwrap_optional(annotation)
+    assert isinstance(annotation, type) and issubclass(annotation, BaseModel), (
+        f"{signal!r} traverses through {field_name!r}, but it resolves to "
+        f"{annotation!r}, not a Pydantic model"
+    )
+    return annotation
+
+
+def _unwrap_optional(annotation: object) -> object:
+    origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
 
 
 def test_cli_scan_help_hides_deferred_flags():

@@ -289,6 +289,20 @@ workflow that records approvals and overrides while the agent is exercised.
 Keep the files local to the manifest directory; paths outside that directory
 are rejected.
 
+HITL evidence findings are evidence gaps, not runtime-control conclusions.
+Missing local evidence does not prove an approval, override, exclusion, or
+promotion control is absent. Present local evidence does not certify runtime
+enforcement. Reports and packets include `source_provenance[]` entries so a
+reviewer can trace each HITL evidence source back to local files:
+
+- `type`: `approval_trace`, `override_log`, `high_risk_exclusion`,
+  `promotion_criteria`, or `manifest_requirement`
+- `ref`: relative local path, or the manifest filename
+- `location`: `ref#<json-pointer>`; whole-file sources use `path#`
+- `status`: `requirement_only`, `expected_but_absent`, `source_load_failed`,
+  `loaded`, or `loaded_with_warnings`
+- `detail`: deterministic local context, with no timestamps or absolute paths
+
 `approval_traces` are JSON arrays or JSONL. They use the same normalized trace
 fields as OpenAI API traces:
 

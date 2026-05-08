@@ -6,7 +6,13 @@ from typing import Any
 
 from agents_shipgate.config.schema import ArtifactPathConfig, ValidationConfig
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import ValidationArtifacts
+from agents_shipgate.core.models import (
+    HitlProvenanceStatus,
+    HitlProvenanceType,
+    HitlSourceProvenance,
+    ValidationArtifacts,
+    sorted_hitl_source_provenance,
+)
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -33,6 +39,7 @@ def load_validation_artifacts(
         evidence.approval_traces,
         base_dir,
         artifacts.warnings,
+        artifacts.source_provenance,
     )
     artifacts.approval_trace_files.extend(files)
     artifacts.approval_traces.extend(traces)
@@ -41,6 +48,7 @@ def load_validation_artifacts(
         evidence.override_logs,
         base_dir,
         artifacts.warnings,
+        artifacts.source_provenance,
     )
     artifacts.override_log_files.extend(files)
     artifacts.override_events.extend(events)
@@ -49,6 +57,7 @@ def load_validation_artifacts(
         evidence.high_risk_exclusions,
         base_dir,
         artifacts.warnings,
+        artifacts.source_provenance,
     )
     artifacts.high_risk_exclusion_files.extend(files)
     artifacts.high_risk_auto_approval_exclusions.extend(exclusions)
@@ -57,9 +66,13 @@ def load_validation_artifacts(
         evidence.promotion_criteria,
         base_dir,
         artifacts.warnings,
+        artifacts.source_provenance,
     )
     artifacts.promotion_criteria_files.extend(files)
     artifacts.promotion_criteria.extend(criteria)
+    artifacts.source_provenance[:] = sorted_hitl_source_provenance(
+        artifacts.source_provenance
+    )
 
     return artifacts
 
@@ -68,15 +81,26 @@ def _load_approval_traces(
     refs: list[ArtifactPathConfig],
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     traces: list[dict[str, Any]] = []
     for ref in refs:
-        loaded = _load_stream_items(ref, base_dir, warnings, "approval trace")
+        warning_count = len(warnings)
+        loaded = _load_stream_items(
+            ref,
+            base_dir,
+            warnings,
+            provenance,
+            "approval trace",
+            provenance_type="approval_trace",
+        )
         if loaded is None:
             continue
         path, items = loaded
-        files.append(_display_path(path, base_dir))
+        display = _display_path(path, base_dir)
+        files.append(display)
+        normalized_count = 0
         for item in items:
             normalized = normalize_trace_event(item)
             if normalized is None:
@@ -86,6 +110,17 @@ def _load_approval_traces(
                 )
                 continue
             traces.append(normalized)
+            normalized_count += 1
+        _append_provenance(
+            provenance,
+            type="approval_trace",
+            ref=display,
+            location=f"{display}#",
+            status="loaded_with_warnings"
+            if len(warnings) > warning_count
+            else "loaded",
+            detail=f"normalized approval trace events: {normalized_count}",
+        )
     return files, traces
 
 
@@ -93,15 +128,26 @@ def _load_override_logs(
     refs: list[ArtifactPathConfig],
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     events: list[dict[str, Any]] = []
     for ref in refs:
-        loaded = _load_stream_items(ref, base_dir, warnings, "override log")
+        warning_count = len(warnings)
+        loaded = _load_stream_items(
+            ref,
+            base_dir,
+            warnings,
+            provenance,
+            "override log",
+            provenance_type="override_log",
+        )
         if loaded is None:
             continue
         path, items = loaded
-        files.append(_display_path(path, base_dir))
+        display = _display_path(path, base_dir)
+        files.append(display)
+        normalized_count = 0
         for item in items:
             normalized = normalize_override_event(item)
             if normalized is None:
@@ -111,6 +157,17 @@ def _load_override_logs(
                 )
                 continue
             events.append(normalized)
+            normalized_count += 1
+        _append_provenance(
+            provenance,
+            type="override_log",
+            ref=display,
+            location=f"{display}#",
+            status="loaded_with_warnings"
+            if len(warnings) > warning_count
+            else "loaded",
+            detail=f"normalized override events: {normalized_count}",
+        )
     return files, events
 
 
@@ -148,11 +205,20 @@ def _load_high_risk_exclusions(
     refs: list[ArtifactPathConfig],
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     exclusions: list[dict[str, Any]] = []
     for ref in refs:
-        loaded = _load_declarative_object(ref, base_dir, warnings, "high-risk exclusions")
+        warning_count = len(warnings)
+        loaded = _load_declarative_object(
+            ref,
+            base_dir,
+            warnings,
+            provenance,
+            "high-risk exclusions",
+            provenance_type="high_risk_exclusion",
+        )
         if loaded is None:
             continue
         path, data = loaded
@@ -162,7 +228,9 @@ def _load_high_risk_exclusions(
                 "validation: high-risk exclusions file must contain "
                 f"high_risk_auto_approval_exclusions: {ref.path}"
             )
-        files.append(_display_path(path, base_dir))
+        display = _display_path(path, base_dir)
+        files.append(display)
+        normalized_count = 0
         for entry in raw_entries:
             normalized = _normalize_exclusion(entry)
             if normalized is None:
@@ -172,6 +240,20 @@ def _load_high_risk_exclusions(
                 )
                 continue
             exclusions.append(normalized)
+            normalized_count += 1
+        _append_provenance(
+            provenance,
+            type="high_risk_exclusion",
+            ref=display,
+            location=f"{display}#/high_risk_auto_approval_exclusions",
+            status="loaded_with_warnings"
+            if len(warnings) > warning_count
+            else "loaded",
+            detail=(
+                "high-risk auto-approval exclusion entries: "
+                f"{normalized_count}"
+            ),
+        )
     return files, exclusions
 
 
@@ -179,16 +261,33 @@ def _load_promotion_criteria(
     refs: list[ArtifactPathConfig],
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     criteria: list[dict[str, Any]] = []
     for ref in refs:
-        loaded = _load_declarative_object(ref, base_dir, warnings, "promotion criteria")
+        loaded = _load_declarative_object(
+            ref,
+            base_dir,
+            warnings,
+            provenance,
+            "promotion criteria",
+            provenance_type="promotion_criteria",
+        )
         if loaded is None:
             continue
         path, data = loaded
-        files.append(_display_path(path, base_dir))
+        display = _display_path(path, base_dir)
+        files.append(display)
         criteria.append(data)
+        _append_provenance(
+            provenance,
+            type="promotion_criteria",
+            ref=display,
+            location=f"{display}#",
+            status="loaded",
+            detail="loaded HITL promotion criteria",
+        )
     return files, criteria
 
 
@@ -196,7 +295,10 @@ def _load_stream_items(
     ref: ArtifactPathConfig,
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
     label: str,
+    *,
+    provenance_type: HitlProvenanceType,
 ) -> tuple[Path, list[dict[str, Any]]] | None:
     path = resolve_input_path(base_dir, ref.path)
     try:
@@ -206,6 +308,14 @@ def _load_stream_items(
         if not ref.optional:
             raise
         warnings.append(f"validation: optional {label} artifact {ref.path!r} failed to load.")
+        _append_provenance(
+            provenance,
+            type=provenance_type,
+            ref=ref.path,
+            location=f"{ref.path}#",
+            status="source_load_failed",
+            detail=f"optional {label} source failed to load",
+        )
         return None
     return path, items
 
@@ -214,7 +324,10 @@ def _load_declarative_object(
     ref: ArtifactPathConfig,
     base_dir: Path,
     warnings: list[str],
+    provenance: list[HitlSourceProvenance],
     label: str,
+    *,
+    provenance_type: HitlProvenanceType,
 ) -> tuple[Path, dict[str, Any]] | None:
     path = resolve_input_path(base_dir, ref.path)
     try:
@@ -228,6 +341,14 @@ def _load_declarative_object(
         if not ref.optional:
             raise
         warnings.append(f"validation: optional {label} artifact {ref.path!r} failed to load.")
+        _append_provenance(
+            provenance,
+            type=provenance_type,
+            ref=ref.path,
+            location=f"{ref.path}#",
+            status="source_load_failed",
+            detail=f"optional {label} source failed to load",
+        )
         return None
     return path, data
 
@@ -314,3 +435,24 @@ def _display_path(path: Path, base_dir: Path) -> str:
         return path.resolve().relative_to(base_dir.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
+
+
+def _append_provenance(
+    provenance: list[HitlSourceProvenance],
+    *,
+    type: HitlProvenanceType,
+    ref: str,
+    location: str,
+    status: HitlProvenanceStatus,
+    detail: str,
+) -> None:
+    provenance.append(
+        HitlSourceProvenance(
+            type=type,
+            ref=ref,
+            location=location,
+            status=status,
+            detail=detail,
+        )
+    )
+

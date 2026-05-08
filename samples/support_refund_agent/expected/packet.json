@@ -316,6 +316,9 @@
     ],
     "human_review_recommended": true,
     "is_configured": true,
+    "provenance_mode": "fresh_scan",
+    "runtime_control_disclaimer": "HITL evidence is local review evidence only. Missing local evidence does not prove a runtime control is absent, and present local evidence does not certify runtime enforcement.",
+    "source_provenance": [],
     "status": "covered",
     "trace_findings": []
   },
@@ -399,7 +402,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.2",
+  "packet_schema_version": "0.3",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",

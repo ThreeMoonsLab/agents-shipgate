@@ -23,6 +23,7 @@ approval and idempotency findings on `stripe.create_refund`.
 | [`simple_anthropic_agent`](simple_anthropic_agent/) | Anthropic Messages API tool-use artifacts. |
 | [`google_adk_agent`](google_adk_agent/) | Google ADK Python and YAML config. |
 | [`hitl_evidence_agent`](hitl_evidence_agent/) | HITL validation evidence gaps for limited auto-approval review posture. |
+| [`hitl_evidence_covered_agent`](hitl_evidence_covered_agent/) | HITL validation evidence with local provenance for limited auto-approval review posture. |
 | [`simple_langchain_agent`](simple_langchain_agent/) | LangChain/LangGraph static Python extraction. |
 | [`simple_crewai_agent`](simple_crewai_agent/) | CrewAI static Python extraction. |
 | [`multi_agent_workspace`](multi_agent_workspace/) | Multiple manifests in one workspace. |

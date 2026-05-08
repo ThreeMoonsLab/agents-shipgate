@@ -267,6 +267,28 @@ def test_sarif_location_prefers_structured_path_and_line():
     assert location["properties"] == {"shipgatePointer": "/paths/~1pets/get"}
 
 
+def test_sarif_location_falls_back_to_legacy_line_when_path_set_but_line_missing():
+    """Hybrid case: a plugin (or a v0.11 JSON input) populates structured
+    ``source.path`` but the line number lives only on the legacy
+    ``source.location = "path:line"`` string. SARIF must still emit the
+    region — picking the structured branch and dropping the line would
+    silently strip jump-to-line for code-scanning consumers."""
+    finding = _finding(
+        SourceReference(
+            type="plugin",
+            ref="custom.py:42",
+            location="custom.py:42",
+            path="custom.py",  # structured path set
+            # start_line intentionally missing
+        )
+    )
+    location = _location(finding)
+    assert location is not None
+    assert location["physicalLocation"]["artifactLocation"]["uri"] == "custom.py"
+    # Line came from the legacy location string via _split_location.
+    assert location["physicalLocation"]["region"] == {"startLine": 42}
+
+
 def test_sarif_location_falls_back_to_legacy_split_location():
     """v0.10 AST loaders populate ``source.location = "path:line"`` and
     do not fill the structured fields. SARIF must still produce a region."""

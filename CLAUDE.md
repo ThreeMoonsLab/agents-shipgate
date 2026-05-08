@@ -8,6 +8,7 @@ A few Claude-specific notes:
 
 - `agents-shipgate scan`, `init`, `doctor`, `explain`, `list-checks`, `fixture`, `self-check` are **read-only** with respect to user code; safe to run without confirmation.
 - `agents-shipgate init --write` writes `shipgate.yaml` in the workspace. Confirm before running on an unfamiliar repo.
+- `agents-shipgate init --write --agent-instructions=...` writes/updates `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/agents-shipgate.mdc`, and the PR template via managed-block markers. Idempotent; confirm before running on an unfamiliar repo.
 - `agents-shipgate baseline save` writes one JSON file under `.agents-shipgate/`. Safe to run; reversible.
 
 ## Output handling

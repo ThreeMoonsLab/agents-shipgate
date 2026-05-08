@@ -99,7 +99,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 ## Use in CI
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.8.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.10.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -125,7 +125,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 ## What it produces
 
 - **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.11](docs/report-schema.v0.11.json); gating signal is `release_decision.decision`), SARIF for GitHub code-scanning workflows.
-- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.2](docs/packet-schema.v0.2.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v01).
+- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.3](docs/packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v03).
 
 ## Exit codes
 
@@ -144,6 +144,7 @@ repo's machine-readable contracts quickly.
 
 Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Claude Code, Codex, Cursor, Aider) reading this repo:
 
+- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions

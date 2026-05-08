@@ -30,6 +30,7 @@ from agents_shipgate.core.models import (
     AnthropicArtifacts,
     AuthInfo,
     Finding,
+    HitlSourceProvenance,
     OpenAIApiArtifacts,
     ReadinessReport,
     ReleaseDecision,
@@ -37,6 +38,8 @@ from agents_shipgate.core.models import (
     Tool,
     ToolRiskHint,
     ToolSurfaceDiff,
+    ValidationArtifacts,
+    sorted_hitl_source_provenance,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.packet.disclaimer import (
@@ -113,8 +116,11 @@ def build_packet(
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
     source_warnings: list[str],
+    validation_artifacts: ValidationArtifacts | None = None,
     tool_surface_diff: ToolSurfaceDiff | None = None,
     generated_at: str | None = None,
+    config_ref: str = "shipgate.yaml",
+    hitl_provenance_mode: str = "fresh_scan",
 ) -> EvidencePacket:
     """Build an ``EvidencePacket`` from in-memory scan data.
 
@@ -153,7 +159,14 @@ def build_packet(
         scope_coverage=_build_scope_coverage(manifest, tools, active),
         memory_isolation=MemoryIsolationStatus(),
         human_in_the_loop=_build_human_in_the_loop(
-            release_decision, manifest, api_artifacts, anthropic_artifacts, active
+            release_decision,
+            manifest,
+            api_artifacts,
+            anthropic_artifacts,
+            active,
+            validation_artifacts=validation_artifacts,
+            config_ref=config_ref,
+            provenance_mode=hitl_provenance_mode,
         ),
         dynamic_scenarios=_build_dynamic_scenarios(release_decision, active),
         not_proven=_build_not_proven(findings, source_warnings, tools),
@@ -163,8 +176,9 @@ def build_packet(
 _REBUILT_FROM_REPORT_NOTE = (
     "This packet was rebuilt from report.json without the source manifest. "
     "Declared approval, idempotency, scope, and human-in-the-loop coverage "
-    "in §4/§5/§6/§8 reflect only the gap findings; the manifest's declared "
-    "policy is not preserved in report.json. Re-run "
+    "in §4/§5/§6/§8 reflect only the gap findings; covered HITL provenance "
+    "cannot be reconstructed when no HITL findings were present. The "
+    "manifest's declared policy is not preserved in report.json. Re-run "
     "`agents-shipgate scan` with the source workspace for a full-fidelity "
     "packet."
 )
@@ -210,6 +224,7 @@ def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
         anthropic_artifacts=None,
         source_warnings=list(report.source_warnings),
         tool_surface_diff=report.tool_surface_diff,
+        hitl_provenance_mode="rebuilt_from_findings",
     )
     packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)
     return packet
@@ -714,6 +729,10 @@ def _build_human_in_the_loop(
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
     findings: list[Finding],
+    *,
+    validation_artifacts: ValidationArtifacts | None,
+    config_ref: str,
+    provenance_mode: str,
 ) -> HumanInTheLoopEvidence:
     approval_tools = sorted(
         manifest.policies.approval_tools()
@@ -732,6 +751,19 @@ def _build_human_in_the_loop(
     trace_findings = _findings_with_check(findings, HITL_GAP_CHECKS)
     is_configured = bool(approval_tools or confirmation_tools or manifest.validation)
     human_review_recommended = decision.evidence_coverage.human_review_recommended
+    source_provenance = _hitl_source_provenance(
+        manifest=manifest,
+        findings=trace_findings,
+        validation_artifacts=validation_artifacts,
+        config_ref=config_ref,
+        provenance_mode=provenance_mode,
+    )
+    if provenance_mode == "rebuilt_from_findings":
+        resolved_provenance_mode = (
+            "rebuilt_from_findings" if source_provenance else "unavailable"
+        )
+    else:
+        resolved_provenance_mode = "fresh_scan"
 
     if not is_configured and not human_review_recommended:
         status: SectionStatus = "not_declared"
@@ -749,7 +781,92 @@ def _build_human_in_the_loop(
         approval_required_tools=approval_tools,
         confirmation_required_tools=confirmation_tools,
         trace_findings=_to_decision_items(trace_findings),
+        source_provenance=source_provenance,
+        provenance_mode=resolved_provenance_mode,
     )
+
+
+def _hitl_source_provenance(
+    *,
+    manifest: AgentsShipgateManifest,
+    findings: list[Finding],
+    validation_artifacts: ValidationArtifacts | None,
+    config_ref: str,
+    provenance_mode: str,
+) -> list[HitlSourceProvenance]:
+    if provenance_mode == "rebuilt_from_findings":
+        return sorted_hitl_source_provenance(_provenance_from_findings(findings))
+    items: list[HitlSourceProvenance] = []
+    items.extend(_manifest_validation_provenance(manifest, config_ref))
+    if validation_artifacts is not None:
+        items.extend(validation_artifacts.source_provenance)
+    items.extend(_provenance_from_findings(findings))
+    return sorted_hitl_source_provenance(items)
+
+
+def _manifest_validation_provenance(
+    manifest: AgentsShipgateManifest,
+    config_ref: str,
+) -> list[HitlSourceProvenance]:
+    validation = manifest.validation
+    if validation is None:
+        return []
+    items = [
+        HitlSourceProvenance(
+            type="manifest_requirement",
+            ref=config_ref,
+            location=f"{config_ref}#/validation/mode",
+            status="requirement_only",
+            detail="validation mode is human_in_the_loop",
+        )
+    ]
+    if validation.target_review_posture == "limited_auto_approval":
+        items.append(
+            HitlSourceProvenance(
+                type="manifest_requirement",
+                ref=config_ref,
+                location=f"{config_ref}#/validation/target_review_posture",
+                status="requirement_only",
+                detail="target_review_posture is limited_auto_approval",
+            )
+        )
+    required = validation.required_evidence
+    for flag in (
+        "approval_trace_required",
+        "override_reason_required",
+        "high_risk_auto_approval_exclusion_required",
+    ):
+        if getattr(required, flag) is not True:
+            continue
+        items.append(
+            HitlSourceProvenance(
+                type="manifest_requirement",
+                ref=config_ref,
+                location=f"{config_ref}#/validation/required_evidence/{flag}",
+                status="requirement_only",
+                detail=f"{flag} is true",
+            )
+        )
+    return items
+
+
+def _provenance_from_findings(findings: list[Finding]) -> list[HitlSourceProvenance]:
+    # Rebuilt packets can only recover provenance that was attached to
+    # findings; fresh-scan-only context such as validation/mode remains
+    # unavailable without the source manifest.
+    items: list[HitlSourceProvenance] = []
+    for finding in findings:
+        raw_items = finding.evidence.get("source_provenance")
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            try:
+                items.append(HitlSourceProvenance.model_validate(raw_item))
+            except ValueError:
+                continue
+    return items
 
 
 def _build_dynamic_scenarios(

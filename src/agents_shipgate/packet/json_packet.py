@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.packet.models import EvidencePacket
 
 
@@ -48,8 +49,10 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
 
     ``payload`` may be a parsed dict or a raw JSON string/bytes. A
     v0.1 payloads are upgraded with the default v0.2 tool-surface diff
-    section. Unsupported versions raise ``PacketSchemaError`` so callers
-    can downgrade to a clean error rather than a noisy validation traceback.
+    section, then v0.1/v0.2 payloads are upgraded with the default
+    v0.3 HITL provenance fields. Unsupported versions raise
+    ``PacketSchemaError`` so callers can downgrade to a clean error
+    rather than a noisy validation traceback.
     """
 
     if isinstance(payload, (str, bytes)):
@@ -67,7 +70,7 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.2",
+            "packet_schema_version": "0.3",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -77,12 +80,26 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
                 "notes": ["No tool-surface diff was recorded."],
             },
         }
-    elif version != "0.2":
+        _upgrade_hitl_v03(payload_dict)
+    elif version == "0.2":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.3"}
+        _upgrade_hitl_v03(payload_dict)
+    elif version != "0.3":
         raise PacketSchemaError(
-            f"unsupported packet_schema_version: {version!r}; expected '0.1' or '0.2'"
+            "unsupported packet_schema_version: "
+            f"{version!r}; expected '0.1', '0.2', or '0.3'"
         )
 
     try:
         return EvidencePacket.model_validate(payload_dict)
     except ValidationError as exc:
         raise PacketSchemaError(f"packet.json failed validation: {exc}") from exc
+
+
+def _upgrade_hitl_v03(payload: dict[str, Any]) -> None:
+    hitl = payload.get("human_in_the_loop")
+    if not isinstance(hitl, dict):
+        return
+    hitl.setdefault("runtime_control_disclaimer", HITL_RUNTIME_CONTROL_DISCLAIMER)
+    hitl.setdefault("source_provenance", [])
+    hitl.setdefault("provenance_mode", "unavailable")

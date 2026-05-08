@@ -4,6 +4,13 @@ Use these snippets in repos that contain tool-using AI agents. They make
 Agents Shipgate visible to coding agents working in that target repo, not only
 to agents reading the Agents Shipgate source repo.
 
+> The CLI plants these snippets for you. Run
+> `agents-shipgate init --write --agent-instructions=all` (or pass a subset
+> like `--agent-instructions=agents-md,cursor`) to emit them into managed
+> `<!-- agents-shipgate:start -->` blocks. Idempotent — safe to rerun. The raw
+> content below is the canonical reference and the source the renderers in
+> `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lift from.
+
 ## When To Run
 
 Run Agents Shipgate when a repo or PR changes:
@@ -38,6 +45,7 @@ Commands:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
 agents-shipgate init --workspace . --write --ci --json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 agents-shipgate apply-patches \
@@ -68,6 +76,7 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 

@@ -19,6 +19,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
+| `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
@@ -37,6 +38,27 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`) |
+
+### Runtime contract JSON
+
+`agents-shipgate contract --json` emits the installed CLI's local contract.
+Only the JSON form is stable; human-readable output is informational and may
+change in any minor release. The command is local-only: it does not scan a
+workspace, write files, call tools, perform network checks, or look up releases.
+
+Stable JSON fields:
+
+- `contract_version` — version of the contract-command payload shape.
+- `cli_version` — installed Agents Shipgate version.
+- `report_schema_version` — current report schema version from
+  `ReadinessReport`.
+- `packet_schema_version` — current packet schema version from
+  `EvidencePacket`.
+- `gating_signal` — always `release_decision.decision` in this contract.
+- `manual_review_signals[]` — stable report/packet fields an agent should read
+  when surfacing human review work.
+
+Signal paths use dotted notation; `[]` denotes an array field.
 
 ### JSON report fields (stable)
 
@@ -108,6 +130,7 @@ Where `canonical_evidence`:
 - Sorts dict keys recursively
 - Sorts list items by JSON repr
 - **Excludes** the `default_severity` audit-evidence key (so applying `severity_overrides` does not change identity)
+- **Excludes** the `source_provenance` evidence key (so adding local HITL provenance does not rotate existing baselines or suppressions)
 
 Fingerprints are stable across runs on the same input. They are the identity primitive used by suppressions and baselines.
 
@@ -143,12 +166,14 @@ enable a surface diff and emit a disabled diff note instead.
 The diff is static evidence only. It does not fetch branches in the CLI,
 infer runtime routing, execute tools, or change release gating.
 
-### Release Evidence Packet (v0.2)
+### Release Evidence Packet (v0.3)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.2.json`](docs/packet-schema.v0.2.json). Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.3.json`](docs/packet-schema.v0.3.json). Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, capability_intent, high_risk_surface, tool_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
+- `human_in_the_loop.runtime_control_disclaimer` is always present and applies to covered and gap states: local HITL evidence is not runtime-enforcement proof.
+- `human_in_the_loop.source_provenance[]` is deterministic, local-only provenance for validation evidence when available. Packets rebuilt from `report.json` may set `provenance_mode: "unavailable"` when no finding-level provenance survived.
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
 - `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
 - The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.

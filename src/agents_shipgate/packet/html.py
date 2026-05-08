@@ -423,6 +423,11 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
         "<li>Human review recommended: "
         f"{'yes' if section.human_review_recommended else 'no'}</li>"
     )
+    parts.append(
+        f"<li>Provenance mode: "
+        f"<code>{escape(section.provenance_mode)}</code></li>"
+    )
+    parts.append(f"<li>{escape(section.runtime_control_disclaimer)}</li>")
     parts.append("</ul>")
     if section.approval_required_tools:
         parts.append("<h3>Approval-required tools</h3><ul>")
@@ -442,6 +447,28 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
                 f"({escape(item.severity)}): {escape(item.title)}</li>"
             )
         parts.append("</ul>")
+    if section.source_provenance:
+        parts.append("<h3>Source provenance</h3>")
+        parts.append(
+            "<table><thead><tr><th>Type</th><th>Status</th>"
+            "<th>Source</th><th>Location</th><th>Detail</th>"
+            "</tr></thead><tbody>"
+        )
+        for item in section.source_provenance:
+            parts.append(
+                f"<tr><td>{escape(item.type)}</td>"
+                f"<td>{escape(item.status)}</td>"
+                f"<td><code>{escape(item.ref)}</code></td>"
+                f"<td><code>{escape(item.location)}</code></td>"
+                f"<td>{escape(item.detail)}</td></tr>"
+            )
+        parts.append("</tbody></table>")
+    elif section.provenance_mode == "unavailable":
+        parts.append(
+            "<p>HITL source provenance is unavailable in this packet. "
+            "Re-run <code>agents-shipgate scan</code> with the source "
+            "workspace for full-fidelity provenance.</p>"
+        )
     if not section.is_configured and not section.human_review_recommended:
         parts.append(
             "<p>No human-in-the-loop evidence configured — see §10.</p>"

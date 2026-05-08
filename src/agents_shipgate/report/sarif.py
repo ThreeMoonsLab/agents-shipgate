@@ -126,6 +126,15 @@ def _location(finding: Finding) -> dict[str, Any] | None:
         line = source.start_line
         end_line = source.end_line
         start_column = source.start_column
+        # Hybrid case: structured ``path`` set but no ``start_line`` (e.g.
+        # MCP / OpenAI JSON inputs in v0.11, or a plugin that populates
+        # `path` but leaves the line on the legacy ``path:line`` string).
+        # Fall back to ``_split_location`` rather than dropping the
+        # SARIF region; otherwise reviewers lose jump-to-line.
+        if line is None:
+            legacy = source.location or source.ref
+            if legacy:
+                _, line = _split_location(legacy)
     else:
         uri = source.location or source.ref
         if not uri:

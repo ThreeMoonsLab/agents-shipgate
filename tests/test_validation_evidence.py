@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -14,10 +15,13 @@ from agents_shipgate.config.schema import (
     ValidationEvidenceConfig,
 )
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.findings import finding_fingerprint
+from agents_shipgate.core.models import Finding
 from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.report.json_report import report_json_payload
 
 SAMPLE = Path("samples/hitl_evidence_agent/shipgate.yaml")
+COVERED_SAMPLE = Path("samples/hitl_evidence_covered_agent/shipgate.yaml")
 
 
 def test_validation_manifest_block_accepts_defaults(tmp_path):
@@ -182,6 +186,76 @@ def test_validation_loader_optional_malformed_jsonl_warns(tmp_path):
         warning.startswith("validation: optional override log")
         for warning in artifacts.warnings
     )
+    assert artifacts.source_provenance[0].status == "source_load_failed"
+    assert artifacts.source_provenance[0].type == "override_log"
+
+
+def test_source_provenance_does_not_change_fingerprint():
+    base = Finding(
+        check_id="SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
+        title="No local approval trace evidence found for issue_refund",
+        severity="high",
+        category="evidence",
+        tool_name="issue_refund",
+        evidence={
+            "tool_name": "issue_refund",
+            "required": "approval_trace_required",
+            "reason": "file_missing",
+            "trace_files": [],
+            "approved_tools": [],
+        },
+        recommendation="Add local approval trace evidence.",
+    )
+    with_provenance = base.model_copy(deep=True)
+    with_provenance.evidence["source_provenance"] = [
+        {
+            "type": "approval_trace",
+            "ref": "shipgate.yaml",
+            "location": "shipgate.yaml#/validation/evidence/approval_traces",
+            "status": "expected_but_absent",
+            "detail": "no local approval trace source declared",
+        }
+    ]
+
+    assert finding_fingerprint(with_provenance) == finding_fingerprint(base)
+
+
+def test_optional_missing_validation_source_adds_load_failed_provenance(tmp_path):
+    _write_project(
+        tmp_path,
+        validation_block="""
+validation:
+  mode: human_in_the_loop
+  required_evidence:
+    approval_trace_required: true
+  evidence:
+    approval_traces:
+      - path: validation/missing-approval-traces.jsonl
+        optional: true
+""",
+    )
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding = next(
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING"
+    )
+    assert exit_code == 0
+    assert finding.evidence["reason"] == "file_missing"
+    assert any("optional approval trace" in warning for warning in report.source_warnings)
+    provenance = finding.evidence["source_provenance"]
+    assert any(
+        item["type"] == "approval_trace"
+        and item["status"] == "source_load_failed"
+        for item in provenance
+    )
 
 
 @pytest.mark.parametrize(
@@ -245,8 +319,13 @@ validation:
     )
     assert exit_code == 0
     assert approval.evidence["reason"] == "no_trace_events"
+    assert (
+        approval.title
+        == "Loaded local approval trace evidence has no recorded events for issue_refund"
+    )
     assert approval.evidence["trace_files"] == ["validation/approval-traces.jsonl"]
     assert override.evidence["reason"] == "no_override_events"
+    assert override.title == "Loaded local override evidence has no recorded events"
     assert override.evidence["events_missing_reason"] == []
 
 
@@ -380,6 +459,32 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
     assert "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING" in rule_ids
 
 
+def test_hitl_evidence_covered_sample_reports_provenance(tmp_path):
+    report, exit_code = run_scan(
+        config_path=COVERED_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert exit_code == 0
+    assert not any(finding.check_id.startswith("SHIP-EVIDENCE-") for finding in report.findings)
+    packet = json.loads((tmp_path / "packet.json").read_text(encoding="utf-8"))
+    hitl = packet["human_in_the_loop"]
+    assert hitl["status"] == "covered"
+    assert hitl["provenance_mode"] == "fresh_scan"
+    assert hitl["runtime_control_disclaimer"].startswith("HITL evidence is local")
+    provenance = hitl["source_provenance"]
+    assert {
+        "approval_trace",
+        "override_log",
+        "high_risk_exclusion",
+        "promotion_criteria",
+        "manifest_requirement",
+    } <= {item["type"] for item in provenance}
+    assert all(not item["ref"].startswith("/") for item in provenance)
+
+
 def test_hitl_evidence_sample_outputs_are_deterministic(tmp_path):
     out = tmp_path / "reports"
     run_scan(
@@ -401,6 +506,36 @@ def test_hitl_evidence_sample_outputs_are_deterministic(tmp_path):
     )
 
     assert first_report == (out / "report.json").read_text(encoding="utf-8")
+    assert first_packet == (out / "packet.json").read_text(encoding="utf-8")
+    assert first_packet_md == (out / "packet.md").read_text(encoding="utf-8")
+    assert first_packet_html == (out / "packet.html").read_text(encoding="utf-8")
+
+
+def test_hitl_evidence_covered_packet_ignores_source_mtime(tmp_path):
+    out = tmp_path / "reports"
+    run_scan(
+        config_path=COVERED_SAMPLE,
+        output_dir=out,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    first_packet = (out / "packet.json").read_text(encoding="utf-8")
+    first_packet_md = (out / "packet.md").read_text(encoding="utf-8")
+    first_packet_html = (out / "packet.html").read_text(encoding="utf-8")
+
+    source = COVERED_SAMPLE.parent / "validation" / "approval-traces.jsonl"
+    stat = source.stat()
+    try:
+        os.utime(source, (stat.st_atime + 10, stat.st_mtime + 10))
+        run_scan(
+            config_path=COVERED_SAMPLE,
+            output_dir=out,
+            formats=["json"],
+            ci_mode="advisory",
+        )
+    finally:
+        os.utime(source, (stat.st_atime, stat.st_mtime))
+
     assert first_packet == (out / "packet.json").read_text(encoding="utf-8")
     assert first_packet_md == (out / "packet.md").read_text(encoding="utf-8")
     assert first_packet_html == (out / "packet.html").read_text(encoding="utf-8")

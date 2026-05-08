@@ -7,6 +7,12 @@ of run state, includes these four lines in §10.
 
 from __future__ import annotations
 
+from agents_shipgate.core.disclaimers import (
+    HITL_RUNTIME_CONTROL_DISCLAIMER as _HITL_RUNTIME_CONTROL_DISCLAIMER,
+)
+
+HITL_RUNTIME_CONTROL_DISCLAIMER = _HITL_RUNTIME_CONTROL_DISCLAIMER
+
 PACKET_NON_PROOF_HEADLINE = (
     "Agents Shipgate is a static release-readiness scanner. The packet "
     "below is derived from a scan; it does not, by itself, prove the "

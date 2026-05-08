@@ -399,6 +399,8 @@ def _append_human_in_the_loop(
         "- Human review recommended: "
         f"{'yes' if section.human_review_recommended else 'no'}"
     )
+    lines.append(f"- Provenance mode: `{_escape(section.provenance_mode)}`")
+    lines.append(f"- {_escape(section.runtime_control_disclaimer)}")
     lines.append("")
     if section.approval_required_tools:
         lines.append("### Approval-required tools")
@@ -420,6 +422,27 @@ def _append_human_in_the_loop(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
                 f"{_escape(item.title)}"
             )
+        lines.append("")
+    if section.source_provenance:
+        lines.append("### Source provenance")
+        lines.append("")
+        lines.append("| Type | Status | Source | Location | Detail |")
+        lines.append("|---|---|---|---|---|")
+        for item in section.source_provenance:
+            lines.append(
+                f"| {_escape_table_cell(item.type)} "
+                f"| {_escape_table_cell(item.status)} "
+                f"| `{_escape_table_cell(item.ref)}` "
+                f"| `{_escape_table_cell(item.location)}` "
+                f"| {_escape_table_cell(item.detail)} |"
+            )
+        lines.append("")
+    elif section.provenance_mode == "unavailable":
+        lines.append(
+            "- HITL source provenance is unavailable in this packet. "
+            "Re-run `agents-shipgate scan` with the source workspace for "
+            "full-fidelity provenance."
+        )
         lines.append("")
     if (
         not section.is_configured

@@ -23,6 +23,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
@@ -64,7 +65,7 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.2"
+    assert packet.packet_schema_version == "0.3"
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):
@@ -174,6 +175,8 @@ def test_human_in_the_loop_reads_human_review_recommended(tmp_path):
     # The fixture has a low-confidence tool and source warning, which
     # makes evidence_coverage recommend human review.
     assert section.human_review_recommended is True
+    assert section.runtime_control_disclaimer == HITL_RUNTIME_CONTROL_DISCLAIMER
+    assert section.provenance_mode == "fresh_scan"
 
 
 def test_dynamic_scenarios_surfaces_human_review_findings(tmp_path):
@@ -317,6 +320,47 @@ def test_load_packet_json_rejects_invalid_json():
         load_packet_json("not-json")
 
 
+def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = "0.2"
+    hitl = payload["human_in_the_loop"]
+    hitl.pop("runtime_control_disclaimer", None)
+    hitl.pop("source_provenance", None)
+    hitl.pop("provenance_mode", None)
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.3"
+    assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
+        HITL_RUNTIME_CONTROL_DISCLAIMER
+    )
+    assert upgraded.human_in_the_loop.source_provenance == []
+    assert upgraded.human_in_the_loop.provenance_mode == "unavailable"
+
+
+def test_load_packet_json_upgrades_v01_to_v03(tmp_path):
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = "0.1"
+    payload.pop("tool_surface_diff")
+    hitl = payload["human_in_the_loop"]
+    hitl.pop("runtime_control_disclaimer", None)
+    hitl.pop("source_provenance", None)
+    hitl.pop("provenance_mode", None)
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.3"
+    assert upgraded.tool_surface_diff.status == "not_declared"
+    assert upgraded.tool_surface_diff.enabled is False
+    assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
+        HITL_RUNTIME_CONTROL_DISCLAIMER
+    )
+    assert upgraded.human_in_the_loop.source_provenance == []
+    assert upgraded.human_in_the_loop.provenance_mode == "unavailable"
+
+
 def test_evidence_packet_cli_accepts_report_json(tmp_path):
     """Regression for PR #43 review: a CI-archived ``report.json`` must
     produce a (degraded) packet via ``evidence-packet --from``. The
@@ -372,6 +416,63 @@ def test_evidence_packet_from_report_marks_degradation_in_json(tmp_path):
     # degradation does not affect §1).
     assert payload["release_decision"]["decision"] == "blocked"
     assert payload["release_decision"]["verdict"] == "BLOCKED"
+
+
+def test_evidence_packet_from_report_rebuilds_hitl_gap_provenance(tmp_path):
+    scan_out = tmp_path / "scan"
+    run_scan(
+        config_path=Path("samples/hitl_evidence_agent/shipgate.yaml"),
+        output_dir=scan_out,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(scan_out / "report.json"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    hitl = payload["human_in_the_loop"]
+    assert hitl["provenance_mode"] == "rebuilt_from_findings"
+    assert any(
+        item["status"] == "expected_but_absent"
+        for item in hitl["source_provenance"]
+    )
+
+
+def test_evidence_packet_from_report_marks_covered_hitl_provenance_unavailable(tmp_path):
+    scan_out = tmp_path / "scan"
+    run_scan(
+        config_path=Path("samples/hitl_evidence_covered_agent/shipgate.yaml"),
+        output_dir=scan_out,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(scan_out / "report.json"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    hitl = payload["human_in_the_loop"]
+    assert hitl["provenance_mode"] == "unavailable"
+    assert hitl["source_provenance"] == []
 
 
 def test_evidence_packet_from_clean_report_does_not_invent_scope_gaps(tmp_path):
@@ -466,7 +567,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.2"
+    assert reloaded.packet_schema_version == "0.3"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
@@ -597,7 +698,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.2"
+    assert payload["packet_schema_version"] == "0.3"
     assert payload["run_id"] == packet.run_id
 
 
