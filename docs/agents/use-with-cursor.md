@@ -46,10 +46,12 @@ Do **not** edit the `description:` field unless you mean to change what Cursor's
 
 Open Cursor in the project. Two checks:
 
-1. Open `shipgate.yaml` (or any matching tool source) in the editor and start a chat. Confirm Cursor shows the `agents-shipgate` rule as auto-attached in the rule list.
-2. In a fresh chat, ask "add release-readiness checks for this agent" without saying the word "shipgate." Cursor should run `agents-shipgate detect --workspace . --json` per the rule and proceed to the canonical 4-call flow.
+1. Open `shipgate.yaml` (or any matching tool source — an MCP/OpenAPI spec, a tools JSON, a `.py` file in the agent) in the editor and start a chat. Confirm Cursor shows the `agents-shipgate` rule as auto-attached in the rule list.
+2. In the same chat, with the matching file still in context (open in the editor or referenced via `@filename`), ask "add release-readiness checks for this agent" without saying the word "shipgate." Cursor should run `agents-shipgate detect --workspace . --json` per the rule and proceed to the canonical 4-call flow.
 
-If both happen, you are done.
+The rule's `alwaysApply: false` setting means it only fires when a matching file is in chat context. A chat with no matching file referenced will not auto-attach the rule — that is the intended behavior, not a bug.
+
+If both checks pass, you are done.
 
 ---
 
