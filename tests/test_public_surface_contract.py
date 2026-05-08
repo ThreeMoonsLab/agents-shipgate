@@ -69,6 +69,33 @@ PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
 SHIPGATE_VERSION_INPUT_PATTERN = re.compile(
     r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"
 )
+# Surfaces that name the *latest released* version inline (not as an
+# Action / pip / shipgate_version pin) and must move with the package
+# version on every bump. Each entry is a (path, regex) pair where the
+# regex's first capture group is the version literal to compare against
+# pyproject.toml. The regexes are anchored to surrounding phrasing so
+# historical version mentions in the same file (e.g. ROADMAP.md's
+# release-history list, faq.md's older v0.x narrative) are not matched.
+VERSION_LITERAL_TARGETS = (
+    (
+        ".github/ISSUE_TEMPLATE/bug_report.yml",
+        re.compile(r"placeholder:\s*\"v(\d+\.\d+\.\d+)\""),
+    ),
+    (
+        "docs/distribution.md",
+        re.compile(
+            r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"
+        ),
+    ),
+    (
+        "docs/faq.md",
+        re.compile(r"v(\d+\.\d+\.\d+) is the latest released version"),
+    ),
+    (
+        "ROADMAP.md",
+        re.compile(r"preparing the\s+`v(\d+\.\d+\.\d+)`\s+release"),
+    ),
+)
 # Forbidden public/display forms. Word boundaries on both sides keep
 # "Agents Shipgate" (canonical) from matching.
 FORBIDDEN_NAME_PATTERN = re.compile(
@@ -481,6 +508,31 @@ def test_shipgate_version_inputs_match_pyproject_version(relpath):
             f"'{found}'; pyproject.toml says {expected}.\n  line: "
             f"{line.strip()!r}"
         )
+
+
+@pytest.mark.parametrize("relpath,pattern", VERSION_LITERAL_TARGETS)
+def test_version_literals_match_pyproject_version(relpath, pattern):
+    """Plain release-version literals on these public surfaces (the
+    bug-report placeholder, distribution.md's release-tag list,
+    faq.md's 'latest released version' line, ROADMAP.md's lead
+    paragraph) must move with pyproject.toml on every bump. The
+    Action / pip / shipgate_version pin tests don't catch these
+    because the literals aren't pins."""
+    expected = _load_pyproject_version()
+    text = _read(relpath)
+    match = pattern.search(text)
+    assert match, (
+        f"{relpath} no longer contains the expected version-literal "
+        f"phrase ({pattern.pattern!r}). Either the surface was rewritten "
+        "(update VERSION_LITERAL_TARGETS to match the new phrasing) or "
+        "the literal was dropped entirely."
+    )
+    assert match.group(1) == expected, (
+        f"{relpath} names release version v{match.group(1)} in "
+        f"public copy; pyproject.toml says v{expected}. Bump the "
+        "literal in this file or align pyproject.toml.\n  match: "
+        f"{match.group(0)!r}"
+    )
 
 
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
