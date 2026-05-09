@@ -6,7 +6,12 @@ from pathlib import Path
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import SEVERITY_ORDER
-from agents_shipgate.core.models import DeclaredIntention, Finding, ReadinessReport
+from agents_shipgate.core.models import (
+    DeclaredIntention,
+    Finding,
+    Misalignment,
+    ReadinessReport,
+)
 
 DISCLAIMER = (
     "Agents Shipgate is an advisory release-readiness scanner. It does not certify "
@@ -244,11 +249,14 @@ def _append_capability_intent_diff(
     lines.append("")
 
     lines.extend(["Policy/control gaps:", ""])
+    findings_by_id = {finding.id: finding for finding in report.findings if finding.id}
     for misalignment in report.misalignments[: CAPABILITY_DIFF_MARKDOWN_LIMITS["misalignments"]]:
         tool = f" [{misalignment.tool_name}]" if misalignment.tool_name else ""
+        provenance = _misalignment_provenance(misalignment, findings_by_id)
         lines.append(
             f"- {misalignment.severity.upper()} {_safe_markdown_text(misalignment.kind)}"
             f"{_safe_markdown_text(tool)}: {_safe_markdown_text(misalignment.gap)}"
+            f"{provenance}"
         )
         lines.append(
             "  Requires: "
@@ -289,6 +297,30 @@ def _append_capability_intent_diff(
     else:
         lines.append("- No additional validation scenarios suggested.")
     lines.append("")
+
+
+def _misalignment_provenance(
+    misalignment: Misalignment,
+    findings_by_id: dict[str, Finding],
+) -> str:
+    """Return ``" (at path:line)"`` for the first ref with provenance, else ``""``.
+
+    Walks ``misalignment.finding_refs`` in declaration order and returns the
+    first one whose finding has a ``source.path`` set. Reviewers want one
+    jump target per misalignment; listing every ref bloats the diff.
+    """
+    for ref in misalignment.finding_refs:
+        finding = findings_by_id.get(ref)
+        if finding is None or finding.source is None:
+            continue
+        path = finding.source.path
+        if not path:
+            continue
+        line = finding.source.start_line
+        if line is not None:
+            return f" (at {_safe_markdown_text(path)}:{line})"
+        return f" (at {_safe_markdown_text(path)})"
+    return ""
 
 
 def _append_more_line(lines: list[str], total: int, limit: int) -> None:

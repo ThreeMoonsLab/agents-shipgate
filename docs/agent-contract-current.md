@@ -12,9 +12,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.10` — [`docs/report-schema.v0.10.json`](report-schema.v0.10.json)
+- Current report schema: `0.11` — [`docs/report-schema.v0.11.json`](report-schema.v0.11.json)
 - Current packet schema: `0.3` — [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
-- Frozen-reference report schemas: [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
@@ -47,6 +47,10 @@ The tool-surface diff fields (v0.10+), explanatory only — never a release-gate
 - `tool_surface_facts.{tools, scopes, controls, policies}` — current static facts about the tool surface.
 - `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` — what changed vs. a base ref. Disabled diffs render as `enabled: false` with a `notes` reason; the release decision is unaffected.
 
+Source provenance fields on `findings[].source` (v0.11+), additive and optional:
+
+- `path`, `start_line`, `end_line`, `start_column`, `pointer` — manifest-relative file path, 1-based line/column, and RFC 6901 JSON pointer for the offending tool. Populated for OpenAPI, MCP, OpenAI tool artifacts, and Anthropic tool artifacts when the source is YAML. JSON inputs carry `path` and `pointer` but no line in v0.11.
+
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v03).
 In packet schema `0.3`, `human_in_the_loop.runtime_control_disclaimer`
 clarifies that local HITL evidence is not runtime-enforcement proof, and
@@ -61,6 +65,11 @@ available.
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.10.json`](report-schema.v0.10.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.11.json`](report-schema.v0.11.json) — machine-validatable JSON Schema for the current report.
 - [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
+
+## See also
+
+- [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer that walks the JSON in the order a new consumer should read it; complements this field index.
+- [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — what an agent may assert mechanically vs. what must defer to a human reviewer when surfacing findings from `report.json`.

@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.9",
+  "report_schema_version": "0.11",
   "run_id": "agents_shipgate_3716da0eb0ec2fad",
-  "manifest_dir": "<REPO>/samples/support_refund_agent",
+  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/zealous-bell-c327f7/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -920,6 +920,352 @@
     "wildcard_tools": 1,
     "missing_descriptions": 0
   },
+  "tool_surface_facts": {
+    "tools": [
+      {
+        "name": "gmail.send_customer_email",
+        "source_type": "mcp",
+        "source_id": "support_mcp_tools",
+        "source_ref": ".agents-shipgate/mcp-tools.json",
+        "risk_tags": [
+          "customer_communication",
+          "external_write",
+          "financial_action"
+        ],
+        "auth_scopes": [
+          "gmail:send"
+        ],
+        "owner": "support-platform",
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "1201ca4a4af18ded",
+          "description": "758d672523382e30",
+          "input_schema": "dd8b475436e95ea3",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "2cf78ed8690bc21f",
+          "annotations": "5f182f4baa6c10e4"
+        }
+      },
+      {
+        "name": "refund_status_lookup",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+        "risk_tags": [
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "6012fde675dd16b6",
+          "description": "940ad7ab55754d04",
+          "input_schema": "2d600b7e6c6a4372",
+          "output_schema": "ca671d8025782919",
+          "parameters": "b69f679534ba2724",
+          "annotations": "079cf93735dee8d9"
+        }
+      },
+      {
+        "name": "send_email_preview",
+        "source_type": "sdk_function",
+        "source_id": "openai_sdk_static",
+        "source_ref": "agents/refund_agent.py",
+        "risk_tags": [
+          "customer_communication",
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "medium",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "0d8ddf92f97ab9ea",
+          "description": "633bde65d5a93ace",
+          "input_schema": "d08a530492104e7a",
+          "output_schema": "38a346cadbd38205",
+          "parameters": "a7568f8e2ec80072",
+          "annotations": "44136fa355b3678a"
+        }
+      },
+      {
+        "name": "shopify.cancel_order",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
+        "risk_tags": [
+          "destructive",
+          "write"
+        ],
+        "auth_scopes": [
+          "shopify:orders:write"
+        ],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "bbe4382e1273e2a7",
+          "description": "d4358ef3b867cc0a",
+          "input_schema": "1ec62f1798326388",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "04c25a6ce8bb2fa0",
+          "annotations": "eb30f71bb7c72479"
+        }
+      },
+      {
+        "name": "stripe.create_refund",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+        "risk_tags": [
+          "external_write",
+          "financial_action",
+          "write"
+        ],
+        "auth_scopes": [
+          "stripe:refunds:write"
+        ],
+        "owner": "payments-platform",
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "d4a5154c9015f880",
+          "description": "820b85024c3c358b",
+          "input_schema": "f69ae81c160387a4",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "752f1d4ed732df84",
+          "annotations": "98980a21205428e2"
+        }
+      },
+      {
+        "name": "support.search_kb",
+        "source_type": "mcp",
+        "source_id": "support_mcp_tools",
+        "source_ref": ".agents-shipgate/mcp-tools.json",
+        "risk_tags": [
+          "financial_action",
+          "read_only"
+        ],
+        "auth_scopes": [
+          "support:kb:read"
+        ],
+        "owner": "support-platform",
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "1201ca4a4af18ded",
+          "description": "70deb71f7b8433c0",
+          "input_schema": "9a810444c8478131",
+          "output_schema": "ff419ebbeba438f6",
+          "parameters": "9f678bc441491dd0",
+          "annotations": "cf523edd766050d6"
+        }
+      },
+      {
+        "name": "wildcard_mcp_tools.*",
+        "source_type": "mcp",
+        "source_id": "wildcard_mcp_tools",
+        "source_ref": ".agents-shipgate/wildcard-tools.json",
+        "risk_tags": [],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "eb3c07f3ee88bf82",
+          "description": "e2599399bd9c0f3e",
+          "input_schema": "44136fa355b3678a",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "4f53cda18c2baa0c",
+          "annotations": "691ae41e79efee45"
+        }
+      },
+      {
+        "name": "zendesk.update_ticket",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
+        "risk_tags": [
+          "write"
+        ],
+        "auth_scopes": [
+          "zendesk:tickets:write"
+        ],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "6b33be7d107e067f",
+          "description": "e986ca83ed69da2f",
+          "input_schema": "c226dcbe5844e715",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "d4f2af573401d8d9",
+          "annotations": "2f7045fbd16904d7"
+        }
+      }
+    ],
+    "scopes": [
+      {
+        "scope": "stripe:*",
+        "kind": "manifest_declared",
+        "tool_names": [],
+        "broad": true
+      },
+      {
+        "scope": "zendesk:tickets:read",
+        "kind": "manifest_declared",
+        "tool_names": [],
+        "broad": false
+      },
+      {
+        "scope": "zendesk:tickets:write",
+        "kind": "manifest_declared",
+        "tool_names": [],
+        "broad": false
+      },
+      {
+        "scope": "gmail:send",
+        "kind": "tool_required",
+        "tool_names": [
+          "gmail.send_customer_email"
+        ],
+        "broad": false
+      },
+      {
+        "scope": "shopify:orders:write",
+        "kind": "tool_required",
+        "tool_names": [
+          "shopify.cancel_order"
+        ],
+        "broad": false
+      },
+      {
+        "scope": "stripe:refunds:write",
+        "kind": "tool_required",
+        "tool_names": [
+          "stripe.create_refund"
+        ],
+        "broad": false
+      },
+      {
+        "scope": "support:kb:read",
+        "kind": "tool_required",
+        "tool_names": [
+          "support.search_kb"
+        ],
+        "broad": false
+      },
+      {
+        "scope": "zendesk:tickets:write",
+        "kind": "tool_required",
+        "tool_names": [
+          "zendesk.update_ticket"
+        ],
+        "broad": false
+      }
+    ],
+    "controls": [
+      {
+        "kind": "approval_policy",
+        "tool": "shopify.cancel_order",
+        "source": "manifest",
+        "reason": "destructive_customer_action"
+      },
+      {
+        "kind": "confirmation_policy",
+        "tool": "shopify.cancel_order",
+        "source": "manifest",
+        "reason": null
+      },
+      {
+        "kind": "idempotency_evidence",
+        "tool": "shopify.cancel_order",
+        "source": "manifest",
+        "reason": null
+      }
+    ],
+    "policies": [
+      {
+        "kind": "policy.approval",
+        "key": "shopify.cancel_order",
+        "value_hash": "957f649ef5c85c96",
+        "summary": "destructive_customer_action"
+      },
+      {
+        "kind": "policy.confirmation",
+        "key": "shopify.cancel_order",
+        "value_hash": "660524d2d094b5af",
+        "summary": null
+      },
+      {
+        "kind": "policy.idempotency",
+        "key": "shopify.cancel_order",
+        "value_hash": "660524d2d094b5af",
+        "summary": null
+      },
+      {
+        "kind": "risk_override",
+        "key": "refund_status_lookup",
+        "value_hash": "80f3c5a5910bbf07",
+        "summary": "read_only, financial_action"
+      },
+      {
+        "kind": "risk_override",
+        "key": "stripe.create_refund",
+        "value_hash": "690abef7a00c028d",
+        "summary": "external_write, financial_action"
+      },
+      {
+        "kind": "suppression",
+        "key": "SHIP-SCHEMA-BROAD-FREE-TEXT:support.search_kb",
+        "value_hash": "e18375f35e6bf45d",
+        "summary": "Search query intentionally accepts free text."
+      }
+    ]
+  },
+  "tool_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "tools_added": 0,
+      "tools_removed": 0,
+      "tools_changed": 0,
+      "new_scopes": 0,
+      "removed_scopes": 0,
+      "new_high_risk_effects": 0,
+      "removed_high_risk_effects": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "policy_drift_items": 0,
+      "new_findings": 0,
+      "resolved_findings": 0,
+      "unchanged_findings": 0,
+      "accepted_debt": 0
+    },
+    "tools": [],
+    "high_risk_effects": [],
+    "scopes": [],
+    "controls": [],
+    "metadata_changes": [],
+    "policy_drift": [],
+    "finding_deltas": {
+      "new_findings": [],
+      "resolved_findings": [],
+      "unchanged_findings": [],
+      "accepted_debt": []
+    },
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ]
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {},
@@ -972,7 +1318,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 97,
+        "start_column": 5,
+        "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy.",
       "suppressed": false,
@@ -1001,7 +1351,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 142,
+        "start_column": 5,
+        "pointer": "/paths/~1tickets~1{ticket_id}/patch"
       },
       "recommendation": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters.",
       "suppressed": false,
@@ -1030,7 +1384,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Constrain gmail.send_customer_email.body with an enum, structured schema, or narrower field-specific parameters.",
       "suppressed": false,
@@ -1128,7 +1484,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 116,
+        "start_column": 5,
+        "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "recommendation": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements.",
       "suppressed": false,
@@ -1166,7 +1526,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements.",
       "suppressed": false,
@@ -1204,7 +1566,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Add the required scopes for gmail.send_customer_email to permissions.scopes or narrow the tool's declared auth requirements.",
       "suppressed": false,
@@ -1237,7 +1601,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 97,
+        "start_column": 5,
+        "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
@@ -1269,7 +1637,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Remove gmail.send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
@@ -1302,7 +1672,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 97,
+        "start_column": 5,
+        "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Declare an approval policy for stripe.create_refund or remove this tool from the release.",
       "suppressed": false,
@@ -1335,7 +1709,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 97,
+        "start_column": 5,
+        "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release.",
       "suppressed": false,
@@ -1367,7 +1745,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Declare a user confirmation policy for gmail.send_customer_email or remove this action from the release.",
       "suppressed": false,
@@ -1400,7 +1780,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 97,
+        "start_column": 5,
+        "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund.",
       "suppressed": false,
@@ -1432,7 +1816,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/mcp-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for gmail.send_customer_email.",
       "suppressed": false,
@@ -1464,7 +1850,11 @@
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
-        "location": null
+        "location": null,
+        "path": "specs/support-tools.openapi.yaml",
+        "start_line": 116,
+        "start_column": 5,
+        "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "suppressed": false,
@@ -1522,8 +1912,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "<TMP>/report.md",
-    "json": "<TMP>/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpet_6tskf/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpet_6tskf/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

@@ -29,6 +29,12 @@ from agents_shipgate.cli.discovery import (
     render_manifest_template,
     write_ci_workflow,
 )
+from agents_shipgate.cli.discovery.agent_instructions import (
+    InvalidSelector,
+    apply_agent_instructions,
+    parse_selector,
+)
+from agents_shipgate.cli.discovery.agent_instructions.targets import SPECS as _AI_SPECS
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.fixture import fixture_app
@@ -453,6 +459,22 @@ def init(
             "calls ThreeMoonsLab/agents-shipgate."
         ),
     ),
+    agent_instructions: str | None = typer.Option(
+        None,
+        "--agent-instructions",
+        help=(
+            "Render or write agent-instruction snippets for the target repo. "
+            "Pass --agent-instructions=all for every target, "
+            "--agent-instructions=agents-md,cursor for a subset, or "
+            "--agent-instructions=none to opt out. "
+            "Without --write, snippets are printed to stdout (or returned in "
+            "--json). With --write, snippets are written to AGENTS.md, "
+            "CLAUDE.md, .cursor/rules/agents-shipgate.mdc, and the PR template "
+            "via managed `<!-- agents-shipgate:start -->` markers (idempotent "
+            "and safe to rerun). Strict CI and baselines remain opt-in human "
+            "decisions; this flag only emits advisory guidance."
+        ),
+    ),
 ) -> None:
     """Draft a starter shipgate.yaml from a workspace.
 
@@ -462,6 +484,37 @@ def init(
     """
     workspace_resolved = workspace.resolve()
     target = workspace / "shipgate.yaml"
+
+    # Parse --agent-instructions selector early so invalid input fails before
+    # any filesystem mutation. ``None`` = flag absent.
+    requested_targets: list[str] | None
+    if agent_instructions is None:
+        requested_targets = None
+    else:
+        try:
+            requested_targets = parse_selector(agent_instructions)
+        except InvalidSelector as exc:
+            typer.echo(str(exc), err=True)
+            _emit_agent_mode_error(
+                "config_error",
+                message=str(exc),
+                next_action=(
+                    "Pass --agent-instructions=all, --agent-instructions=none, "
+                    "or a comma-separated subset."
+                ),
+                next_actions=[
+                    NextAction(
+                        kind="command",
+                        command="agents-shipgate init --agent-instructions=all",
+                        why=str(exc),
+                        expects=(
+                            "Snippets render for every supported target "
+                            "(AGENTS.md, CLAUDE.md, Cursor rule, PR template)."
+                        ),
+                    ).model_dump(mode="json")
+                ],
+            )
+            raise typer.Exit(2) from exc
 
     if minimal:
         template = render_manifest_template(workspace_resolved)
@@ -541,30 +594,16 @@ def init(
     manifest_status = "not_attempted"
     manifest_exit = 0
     manifest_message: str | None = None
+    manifest_skip_pending = False
     if write:
         if target.exists():
             manifest_status = "skipped_existing"
             manifest_exit = 2
             manifest_message = f"Config already exists: {target}"
-            _emit_agent_mode_error(
-                "config_already_exists",
-                path=str(target),
-                next_action=f"Edit {target}",
-                next_actions=[
-                    NextAction(
-                        kind="edit",
-                        path=str(target),
-                        why=(
-                            f"{target} already exists. Edit it directly or "
-                            "remove it before re-running init --write."
-                        ),
-                        expects=(
-                            "Manifest reflects the desired tool sources, "
-                            "agent declared_purpose, and policies."
-                        ),
-                    ).model_dump(mode="json")
-                ],
-            )
+            # Defer the agent-mode error emit. When --agent-instructions is
+            # set the user's primary intent is refreshing snippets, and an
+            # already-existing manifest is informational, not a failure.
+            manifest_skip_pending = True
         else:
             target.write_text(template, encoding="utf-8")
             manifest_status = "written"
@@ -581,6 +620,51 @@ def init(
         }
         if result.cross_reference_path is not None:
             workflow_outcome["cross_reference_path"] = result.cross_reference_path
+
+    # Agent-instructions action — independent of manifest and workflow actions.
+    agent_instructions_outcome: dict[str, object] | None = None
+    agent_instructions_exit = 0
+    agent_instructions_targets: list[object] = []
+    if requested_targets is not None:
+        ai_result = apply_agent_instructions(
+            workspace_resolved, requested_targets, write=write
+        )
+        agent_instructions_outcome = ai_result.to_json()
+        agent_instructions_exit = ai_result.exit_code
+        agent_instructions_targets = list(ai_result.targets)
+
+    # Idempotency reconciliation: when --agent-instructions selects at least
+    # one real target AND the manifest already exists, treat the manifest
+    # action as already-done so `init --write --agent-instructions=<target>`
+    # is safe to rerun (the advertised refresh command). The manifest_status
+    # field still reports "skipped_existing" so callers can detect.
+    #
+    # `=none` parses to an empty list — no instruction action runs, so this
+    # accommodation does NOT apply and manifest skip remains exit 2 (matches
+    # plain `init --write`).
+    if requested_targets and manifest_status == "skipped_existing":
+        manifest_exit = 0
+        manifest_skip_pending = False
+    if manifest_skip_pending:
+        _emit_agent_mode_error(
+            "config_already_exists",
+            path=str(target),
+            next_action=f"Edit {target}",
+            next_actions=[
+                NextAction(
+                    kind="edit",
+                    path=str(target),
+                    why=(
+                        f"{target} already exists. Edit it directly or "
+                        "remove it before re-running init --write."
+                    ),
+                    expects=(
+                        "Manifest reflects the desired tool sources, "
+                        "agent declared_purpose, and policies."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
 
     # Output
     if json_output:
@@ -601,10 +685,23 @@ def init(
             payload["auto_detected"] = auto_detected
         if workflow_outcome is not None:
             payload["workflow"] = workflow_outcome
+        if agent_instructions_outcome is not None:
+            payload["agent_instructions"] = agent_instructions_outcome
         typer.echo(json.dumps(payload, indent=2))
     else:
         if not write:
-            typer.echo(template)
+            if requested_targets is not None:
+                # Manifest + each requested target, separated by section headers
+                # so the output is unambiguous.
+                typer.echo("--- shipgate.yaml ---")
+                typer.echo(template)
+                for outcome in agent_instructions_targets:
+                    relative = _AI_SPECS[outcome.name].relative_path
+                    typer.echo("")
+                    typer.echo(f"--- {relative} ---")
+                    typer.echo(outcome.rendered or "")
+            else:
+                typer.echo(template)
         else:
             if manifest_status == "written":
                 typer.echo(manifest_message)
@@ -622,9 +719,43 @@ def init(
                 else sys.stdout
             )
             print(workflow_outcome["message"], file=stream)
+        if write and agent_instructions_targets:
+            for outcome in agent_instructions_targets:
+                stream = sys.stderr if outcome.status.startswith("skipped") else sys.stdout
+                if outcome.message:
+                    print(outcome.message, file=stream)
 
-    if manifest_exit:
-        raise typer.Exit(manifest_exit)
+    # Surface a structured next_action JSON line for the rank-1 skipped target
+    # so coding-agent callers can route to a fix without scraping stdout. Gated
+    # on AGENTS_SHIPGATE_AGENT_MODE=1 by `_emit_agent_mode_error` itself.
+    if agent_instructions_exit:
+        first_skip = next(
+            (t for t in agent_instructions_targets if t.status.startswith("skipped")),
+            None,
+        )
+        if first_skip is not None:
+            _emit_agent_mode_error(
+                "config_already_exists",
+                path=first_skip.path,
+                message=first_skip.message,
+                next_action=f"Edit {first_skip.path}",
+                next_actions=[
+                    NextAction(
+                        kind="edit",
+                        path=first_skip.path,
+                        why=first_skip.message
+                        or f"{first_skip.path} is in a state we will not overwrite.",
+                        expects=(
+                            "After resolving, re-run "
+                            f"`agents-shipgate init --write --agent-instructions={first_skip.name}`."
+                        ),
+                    ).model_dump(mode="json")
+                ],
+            )
+
+    final_exit = max(manifest_exit, agent_instructions_exit)
+    if final_exit:
+        raise typer.Exit(final_exit)
 
 
 def _validate_manifest_text(text: str) -> None:

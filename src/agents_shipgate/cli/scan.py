@@ -860,13 +860,24 @@ def _run_id(
                 # run_id whether `--suggest-patches` is set or not, and
                 # whether v0.7 metadata is present or not.
                 exclude={
-                    "id",
-                    "baseline_status",
-                    "patches",
-                    "autofix_safe",
-                    "requires_human_review",
-                    "suggested_patch_kind",
-                    "docs_url",
+                    "id": True,
+                    "baseline_status": True,
+                    "patches": True,
+                    "autofix_safe": True,
+                    "requires_human_review": True,
+                    "suggested_patch_kind": True,
+                    "docs_url": True,
+                    # v0.11 provenance fields are excluded so YAML line
+                    # drift cannot churn run_id; the legacy
+                    # type/ref/location strings stay in the hash so
+                    # existing run_ids remain stable.
+                    "source": {
+                        "path": True,
+                        "start_line": True,
+                        "end_line": True,
+                        "start_column": True,
+                        "pointer": True,
+                    },
                 },
                 exclude_none=False,
             )

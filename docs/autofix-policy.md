@@ -193,12 +193,18 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 
 ## See also
 
+- [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — the
+  *behavioral* counterpart to this *mechanical* page. What an agent may
+  assert in a PR comment or review summary, beyond which patches
+  `apply-patches` will run.
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent
   workflows, including the soft-stop rule for `detect`.
+- [`report-reading-for-agents.md`](report-reading-for-agents.md) —
+  reader's primer for `report.json`.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.10.json`](report-schema.v0.10.json) — current JSON
+- [`report-schema.v0.11.json`](report-schema.v0.11.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

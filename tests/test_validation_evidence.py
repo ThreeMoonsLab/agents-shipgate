@@ -22,6 +22,13 @@ from agents_shipgate.report.json_report import report_json_payload
 
 SAMPLE = Path("samples/hitl_evidence_agent/shipgate.yaml")
 COVERED_SAMPLE = Path("samples/hitl_evidence_covered_agent/shipgate.yaml")
+REPORT_SOURCE_PROVENANCE_KEYS = {
+    "path",
+    "start_line",
+    "end_line",
+    "start_column",
+    "pointer",
+}
 
 
 def test_validation_manifest_block_accepts_defaults(tmp_path):
@@ -426,7 +433,7 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
         ci_mode="advisory",
     )
     payload = report_json_payload(report)
-    schema = json.loads(Path("docs/report-schema.v0.10.json").read_text(encoding="utf-8"))
+    schema = json.loads(Path("docs/report-schema.v0.11.json").read_text(encoding="utf-8"))
 
     assert exit_code == 0
     assert payload["summary"]["critical_count"] == 0
@@ -449,6 +456,15 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
         if finding["check_id"] == "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING"
     )
     assert override_finding["evidence"]["events_missing_reason"] == []
+    assert all(
+        REPORT_SOURCE_PROVENANCE_KEYS.isdisjoint(item)
+        for finding in payload["findings"]
+        for item in finding["evidence"].get("source_provenance", [])
+    )
+    assert all(
+        REPORT_SOURCE_PROVENANCE_KEYS.isdisjoint(item)
+        for item in packet["human_in_the_loop"]["source_provenance"]
+    )
 
     sarif = json.loads((tmp_path / "report.sarif").read_text(encoding="utf-8"))
     rule_ids = {
@@ -483,6 +499,7 @@ def test_hitl_evidence_covered_sample_reports_provenance(tmp_path):
         "manifest_requirement",
     } <= {item["type"] for item in provenance}
     assert all(not item["ref"].startswith("/") for item in provenance)
+    assert all(REPORT_SOURCE_PROVENANCE_KEYS.isdisjoint(item) for item in provenance)
 
 
 def test_hitl_evidence_sample_outputs_are_deterministic(tmp_path):

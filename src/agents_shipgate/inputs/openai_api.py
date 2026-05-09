@@ -17,8 +17,11 @@ from agents_shipgate.core.models import (
     Tool,
 )
 from agents_shipgate.inputs.common import (
+    iter_tool_items,
     load_structured_file,
+    load_structured_file_with_positions,
     load_text_file,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -51,36 +54,57 @@ def load_openai_api_artifacts(
         )
 
     for tool_ref in config.tools:
-        data = _load_required_or_optional(tool_ref, base_dir, artifacts.warnings, "tools")
-        if data is None:
+        loaded = _load_required_or_optional_with_positions(
+            tool_ref, base_dir, artifacts.warnings, "tools"
+        )
+        if loaded is None:
             continue
+        data, positions = loaded
         artifacts.tool_files.append(
             _display_path(_resolve(base_dir, tool_ref.path), base_dir)
         )
-        for index, item in enumerate(_tool_items(data)):
+        if not isinstance(data, (list, dict)):
+            raise InputParseError(
+                "OpenAI API tools artifact must be an object or list"
+            )
+        relative_path = manifest_relative_path(tool_ref.path, base_dir)
+        for original_index, pointer, item in iter_tool_items(data):
+            # Empty pointer ("") is a valid RFC 6901 root-document pointer
+            # (singleton object form). Use ``is not None`` to keep the
+            # root case from being skipped.
+            pos = positions.lookup(pointer) if pointer is not None else None
             tool = _tool_from_openai_function(
                 item,
-                source_ref=f"{tool_ref.path}#{index}",
+                source_ref=f"{tool_ref.path}#{original_index}",
                 fallback_name=None,
                 warnings=artifacts.warnings,
+                source_path=relative_path,
+                source_pointer=pointer,
+                source_position=pos,
             )
             if tool:
                 tools.append(tool)
 
     for schema_ref in config.function_schemas:
-        data = _load_required_or_optional(
+        loaded = _load_required_or_optional_with_positions(
             schema_ref, base_dir, artifacts.warnings, "function_schemas"
         )
-        if data is None:
+        if loaded is None:
             continue
+        data, positions = loaded
         artifacts.tool_files.append(
             _display_path(_resolve(base_dir, schema_ref.path), base_dir)
         )
+        # `function_schemas` files are a single function definition, so
+        # the natural pointer is the root-document pointer ("").
         tool = _tool_from_openai_function(
             data,
             source_ref=schema_ref.path,
             fallback_name=schema_ref.name,
             warnings=artifacts.warnings,
+            source_path=manifest_relative_path(schema_ref.path, base_dir),
+            source_pointer="",
+            source_position=positions.lookup(""),
         )
         if tool:
             tools.append(tool)
@@ -181,6 +205,22 @@ def _load_required_or_optional(
         return None
 
 
+def _load_required_or_optional_with_positions(
+    ref: ArtifactPathConfig,
+    base_dir: Path,
+    warnings: list[str],
+    kind: str,
+):
+    path = _resolve(base_dir, ref.path)
+    try:
+        return load_structured_file_with_positions(path)
+    except InputParseError:
+        if not ref.optional:
+            raise
+        warnings.append(f"Optional OpenAI API {kind} artifact {ref.path!r} failed to load.")
+        return None
+
+
 def _merge_policy_rules(
     target: dict[str, Any],
     incoming: dict[str, Any],
@@ -256,23 +296,15 @@ def _load_trace_sample(
         return None
 
 
-def _tool_items(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict):
-        tools = data.get("tools")
-        if isinstance(tools, list):
-            return [item for item in tools if isinstance(item, dict)]
-        return [data]
-    raise InputParseError("OpenAI API tools artifact must be an object or list")
-
-
 def _tool_from_openai_function(
     data: dict[str, Any],
     *,
     source_ref: str,
     fallback_name: str | None,
     warnings: list[str],
+    source_path: str | None = None,
+    source_pointer: str | None = None,
+    source_position: tuple[int, int] | None = None,
 ) -> Tool | None:
     function = data.get("function") if isinstance(data.get("function"), dict) else data
     if not isinstance(function, dict):
@@ -303,6 +335,13 @@ def _tool_from_openai_function(
     if warning:
         warnings.append(warning)
 
+    source_start_line: int | None = None
+    source_start_column: int | None = None
+    if source_position is not None:
+        source_start_line, source_start_column = source_position
+    # `source_location` stays None: it participates in `run_id` and
+    # v0.10 OpenAPI tools never set it. The structured fields below
+    # carry the line/pointer for reviewers.
     return Tool(
         id=stable_tool_id(name),
         name=name,
@@ -310,6 +349,10 @@ def _tool_from_openai_function(
         source_type="openai_api",
         source_id="openai_api",
         source_ref=source_ref,
+        source_path=source_path,
+        source_start_line=source_start_line,
+        source_start_column=source_start_column,
+        source_pointer=source_pointer,
         input_schema=parameters,
         parameters=schema_to_parameters(parameters),
         annotations={

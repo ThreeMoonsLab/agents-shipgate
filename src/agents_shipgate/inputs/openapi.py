@@ -9,7 +9,10 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
     HTTP_METHODS,
-    load_structured_file,
+    PositionIndex,
+    json_pointer_escape,
+    load_structured_file_with_positions,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -23,7 +26,7 @@ MAX_SCHEMA_RESOLVE_NODES = 5000
 def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:
     assert source.path is not None
     path = resolve_input_path(base_dir, source.path)
-    document = load_structured_file(path)
+    document, positions = load_structured_file_with_positions(path)
     if not isinstance(document, dict):
         raise InputParseError(f"OpenAPI file must contain an object: {path}")
     if "openapi" not in document:
@@ -53,10 +56,12 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     document=document,
                     source=source,
                     source_ref=source.path,
+                    source_path=manifest_relative_path(source.path, base_dir),
                     api_path=str(api_path),
                     method=method_lower,
                     operation=operation,
                     path_parameters=path_parameters,
+                    positions=positions,
                 )
             except (RecursionError, MemoryError):
                 raise
@@ -90,10 +95,12 @@ def _operation_to_tool(
     document: dict[str, Any],
     source: ToolSourceConfig,
     source_ref: str | None,
+    source_path: str | None,
     api_path: str,
     method: str,
     operation: dict[str, Any],
     path_parameters: list[Any],
+    positions: PositionIndex,
 ) -> Tool:
     operation_id = operation.get("operationId") or _operation_name(method, api_path)
     request_schema = _extract_request_schema(document, operation)
@@ -107,13 +114,29 @@ def _operation_to_tool(
     annotations["path"] = api_path
     auth_type, scopes = _extract_security(document, operation)
 
+    pointer = f"/paths/{json_pointer_escape(api_path)}/{method}"
+    pos = positions.lookup(pointer)
+    source_start_line: int | None = None
+    source_start_column: int | None = None
+    if pos is not None:
+        source_start_line, source_start_column = pos
+
+    # Note: `source_location` intentionally stays None for OpenAPI tools.
+    # The legacy `path:line` string participates in `run_id` (see
+    # `cli/scan.py:_run_id`), and v0.10 OpenAPI tools never set it.
+    # Reviewers get the line via the structured `source_start_line` /
+    # `source_pointer` fields; SARIF prefers those over the legacy string.
     return Tool(
         id=stable_tool_id(str(operation_id)),
         name=str(operation_id),
         description=description or None,
         source_type="openapi",
         source_id=source.id,
-        source_ref=f"{source_ref}#/paths/{_json_pointer_escape(api_path)}/{method}",
+        source_ref=f"{source_ref}#{pointer}",
+        source_path=source_path,
+        source_start_line=source_start_line,
+        source_start_column=source_start_column,
+        source_pointer=pointer,
         input_schema=input_schema,
         output_schema=_extract_response_schema(document, operation),
         parameters=schema_to_parameters(input_schema),
@@ -318,7 +341,3 @@ def _operation_name(method: str, path: str) -> str:
     safe_path = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
     safe_path = safe_path.replace("-", "_") or "root"
     return f"{method}_{safe_path}"
-
-
-def _json_pointer_escape(value: str) -> str:
-    return value.replace("~", "~0").replace("/", "~1")

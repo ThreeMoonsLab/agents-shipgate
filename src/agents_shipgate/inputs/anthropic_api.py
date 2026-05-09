@@ -53,8 +53,11 @@ from agents_shipgate.core.models import (
     ToolRiskHint,
 )
 from agents_shipgate.inputs.common import (
+    iter_tool_items,
     load_structured_file,
+    load_structured_file_with_positions,
     load_text_file,
+    manifest_relative_path,
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
@@ -128,18 +131,33 @@ def load_anthropic_artifacts(
         )
 
     for tool_ref in config.tools:
-        data = _load_required_or_optional(tool_ref, base_dir, artifacts.warnings, "tools")
-        if data is None:
+        loaded = _load_required_or_optional_with_positions(
+            tool_ref, base_dir, artifacts.warnings, "tools"
+        )
+        if loaded is None:
             continue
+        data, positions = loaded
         artifacts.tool_files.append(
             _display_path(_resolve(base_dir, tool_ref.path), base_dir)
         )
-        for index, item in enumerate(_tool_items(data)):
+        if not isinstance(data, (list, dict)):
+            raise InputParseError(
+                "Anthropic tools artifact must be an object or list"
+            )
+        relative_path = manifest_relative_path(tool_ref.path, base_dir)
+        for original_index, pointer, item in iter_tool_items(data):
+            # Empty pointer ("") is a valid RFC 6901 root-document pointer
+            # (singleton object form). Use ``is not None`` to keep the
+            # root case from being skipped.
+            pos = positions.lookup(pointer) if pointer is not None else None
             tool = _tool_from_anthropic_definition(
                 item,
-                source_ref=f"{tool_ref.path}#{index}",
+                source_ref=f"{tool_ref.path}#{original_index}",
                 warnings=artifacts.warnings,
                 skipped_server_tools=artifacts.skipped_server_tools,
+                source_path=relative_path,
+                source_pointer=pointer,
+                source_position=pos,
             )
             if tool:
                 tools.append(tool)
@@ -191,6 +209,22 @@ def _load_required_or_optional(
         return None
 
 
+def _load_required_or_optional_with_positions(
+    ref: ArtifactPathConfig,
+    base_dir: Path,
+    warnings: list[str],
+    kind: str,
+):
+    path = _resolve(base_dir, ref.path)
+    try:
+        return load_structured_file_with_positions(path)
+    except InputParseError:
+        if not ref.optional:
+            raise
+        warnings.append(f"Optional Anthropic {kind} artifact {ref.path!r} failed to load.")
+        return None
+
+
 def _merge_policy_rules(
     target: dict[str, Any],
     incoming: dict[str, Any],
@@ -228,23 +262,15 @@ def _merge_list_values(existing: list[Any], incoming: list[Any]) -> list[Any]:
     return merged
 
 
-def _tool_items(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict):
-        tools = data.get("tools")
-        if isinstance(tools, list):
-            return [item for item in tools if isinstance(item, dict)]
-        return [data]
-    raise InputParseError("Anthropic tools artifact must be an object or list")
-
-
 def _tool_from_anthropic_definition(
     data: dict[str, Any],
     *,
     source_ref: str,
     warnings: list[str],
     skipped_server_tools: list[dict[str, Any]],
+    source_path: str | None = None,
+    source_pointer: str | None = None,
+    source_position: tuple[int, int] | None = None,
 ) -> Tool | None:
     if "function" in data and isinstance(data.get("function"), dict):
         warnings.append(
@@ -339,6 +365,13 @@ def _tool_from_anthropic_definition(
             )
         )
 
+    source_start_line: int | None = None
+    source_start_column: int | None = None
+    if source_position is not None:
+        source_start_line, source_start_column = source_position
+    # `source_location` stays None: legacy `path:line` strings live in
+    # the `run_id` hash and v0.10 Anthropic tools never set it. The
+    # structured fields below carry the line/pointer for reviewers.
     return Tool(
         id=stable_tool_id(name),
         name=name,
@@ -346,6 +379,10 @@ def _tool_from_anthropic_definition(
         source_type="anthropic_api",
         source_id="anthropic",
         source_ref=source_ref,
+        source_path=source_path,
+        source_start_line=source_start_line,
+        source_start_column=source_start_column,
+        source_pointer=source_pointer,
         input_schema=input_schema,
         parameters=schema_to_parameters(input_schema),
         annotations=annotations,

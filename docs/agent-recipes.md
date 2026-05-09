@@ -255,6 +255,10 @@ up with an explicit edit.
 
 ## Reference
 
+- [`docs/agent-autofix-boundary.md`](agent-autofix-boundary.md) — what
+  an agent may do mechanically vs. what must defer to a human reviewer.
+- [`docs/report-reading-for-agents.md`](report-reading-for-agents.md) —
+  reader's primer for `agents-shipgate-reports/report.json`.
 - [`docs/checks.md`](checks.md) — full check catalog with rationale
 - [`docs/autofix-policy.md`](autofix-policy.md) — which findings are
   safe to apply, which need review, and how `apply-patches --confidence`

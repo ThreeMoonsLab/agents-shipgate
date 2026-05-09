@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.9",
+  "report_schema_version": "0.11",
   "run_id": "agents_shipgate_d07e1421099084ae",
-  "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
+  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/zealous-bell-c327f7/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -151,7 +151,7 @@
         "baseline_status": null
       },
       {
-        "id": "fp_1b64e136ace3472a_dacf6678",
+        "id": "fp_1b64e136ace3472a_d6a46917",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "high",
@@ -159,7 +159,7 @@
         "baseline_status": null
       },
       {
-        "id": "fp_1b64e136ace3472a_fe9f9e46",
+        "id": "fp_1b64e136ace3472a_6f6fb033",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "medium",
@@ -260,8 +260,8 @@
       "included_reason": "referenced_by_high_finding",
       "control_status": "missing",
       "related_findings": [
-        "fp_1b64e136ace3472a_dacf6678",
-        "fp_1b64e136ace3472a_fe9f9e46",
+        "fp_1b64e136ace3472a_6f6fb033",
+        "fp_1b64e136ace3472a_d6a46917",
         "fp_245bcdb96d8220e2",
         "fp_28483a22a9ed40cb",
         "fp_2bf957380e89863f",
@@ -291,8 +291,8 @@
       "control_status": "missing",
       "related_findings": [
         "fp_07538ba8f9532359",
-        "fp_1b64e136ace3472a_dacf6678",
-        "fp_1b64e136ace3472a_fe9f9e46",
+        "fp_1b64e136ace3472a_6f6fb033",
+        "fp_1b64e136ace3472a_d6a46917",
         "fp_28483a22a9ed40cb",
         "fp_29e718b3bbde0e7d",
         "fp_4466eb2871434dc5",
@@ -483,7 +483,7 @@
       "release_implication": "Release review metadata is incomplete or stale."
     },
     {
-      "id": "mis_d6c4843e01a26cda",
+      "id": "mis_c80d2e2f4661491f",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "create_refund",
@@ -495,14 +495,14 @@
         "int_788db5032dd9f920"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_dacf6678"
+        "fp_1b64e136ace3472a_d6a46917"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_b3af478e081484dc",
+      "id": "mis_52f48247d1434df6",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -514,7 +514,7 @@
         "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_dacf6678"
+        "fp_1b64e136ace3472a_d6a46917"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
@@ -646,7 +646,7 @@
       "release_implication": "Downstream release behavior may depend on under-specified output."
     },
     {
-      "id": "mis_8e1d935b9d84c71d",
+      "id": "mis_88989ea886afdc7a",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -658,14 +658,14 @@
         "int_788db5032dd9f920"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_fe9f9e46"
+        "fp_1b64e136ace3472a_6f6fb033"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_227dcda26ec582d2",
+      "id": "mis_9f0bda1dc36d1c1e",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "send_customer_email",
@@ -677,7 +677,7 @@
         "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_fe9f9e46"
+        "fp_1b64e136ace3472a_6f6fb033"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
@@ -825,20 +825,20 @@
       ]
     },
     {
-      "id": "scn_291536635b1248f1",
+      "id": "scn_1d07ffd93e9104e8",
       "scenario_type": "prompt_scope_alignment",
       "title": "Prompt and tool-surface alignment",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "The agent instructions match the enabled write and high-risk capabilities.",
       "source_misalignments": [
-        "mis_227dcda26ec582d2",
-        "mis_8e1d935b9d84c71d",
-        "mis_b3af478e081484dc",
-        "mis_d6c4843e01a26cda"
+        "mis_52f48247d1434df6",
+        "mis_88989ea886afdc7a",
+        "mis_9f0bda1dc36d1c1e",
+        "mis_c80d2e2f4661491f"
       ],
       "source_findings": [
-        "fp_1b64e136ace3472a_dacf6678",
-        "fp_1b64e136ace3472a_fe9f9e46"
+        "fp_1b64e136ace3472a_6f6fb033",
+        "fp_1b64e136ace3472a_d6a46917"
       ]
     },
     {
@@ -894,6 +894,137 @@
     "wildcard_tools": 0,
     "missing_descriptions": 0
   },
+  "tool_surface_facts": {
+    "tools": [
+      {
+        "name": "create_refund",
+        "source_type": "openai_api",
+        "source_id": "openai_api",
+        "source_ref": "tools/openai-tools.json#0",
+        "risk_tags": [
+          "financial_action",
+          "write"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "5dddd9f75b8eb2ea",
+          "description": "fb12f7872a674987",
+          "input_schema": "9561276de0c33e97",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "44a8779bddd17673",
+          "annotations": "b174b47174ef30c9"
+        }
+      },
+      {
+        "name": "send_customer_email",
+        "source_type": "openai_api",
+        "source_id": "openai_api",
+        "source_ref": "tools/openai-tools.json#1",
+        "risk_tags": [
+          "customer_communication",
+          "external_write",
+          "write"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "807611892edf5a95",
+          "description": "ee19de778df82402",
+          "input_schema": "7f338b10444374a7",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "1619348eb18a1cf5",
+          "annotations": "ba3a0c73a6473f23"
+        }
+      }
+    ],
+    "scopes": [],
+    "controls": [
+      {
+        "kind": "approval_policy",
+        "tool": "create_refund",
+        "source": "openai_api",
+        "reason": null
+      },
+      {
+        "kind": "confirmation_policy",
+        "tool": "send_customer_email",
+        "source": "openai_api",
+        "reason": null
+      }
+    ],
+    "policies": [
+      {
+        "kind": "openai_api.policy",
+        "key": "approval_required",
+        "value_hash": "ba8d9404fc5000c6",
+        "summary": "1 item(s)"
+      },
+      {
+        "kind": "openai_api.policy",
+        "key": "confirmation_required",
+        "value_hash": "3df05dc53da445e8",
+        "summary": "1 item(s)"
+      },
+      {
+        "kind": "openai_api.policy",
+        "key": "retry_policy",
+        "value_hash": "281f57fc0b4cc3f3",
+        "summary": "1 key(s)"
+      },
+      {
+        "kind": "openai_api.policy",
+        "key": "tool_output_schemas",
+        "value_hash": "7582a64869aa9702",
+        "summary": "1 key(s)"
+      }
+    ]
+  },
+  "tool_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "tools_added": 0,
+      "tools_removed": 0,
+      "tools_changed": 0,
+      "new_scopes": 0,
+      "removed_scopes": 0,
+      "new_high_risk_effects": 0,
+      "removed_high_risk_effects": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "policy_drift_items": 0,
+      "new_findings": 0,
+      "resolved_findings": 0,
+      "unchanged_findings": 0,
+      "accepted_debt": 0
+    },
+    "tools": [],
+    "high_risk_effects": [],
+    "scopes": [],
+    "controls": [],
+    "metadata_changes": [],
+    "policy_drift": [],
+    "finding_deltas": {
+      "new_findings": [],
+      "resolved_findings": [],
+      "unchanged_findings": [],
+      "accepted_debt": []
+    },
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ]
+  },
   "api_surface": {
     "prompt_file_count": 1,
     "tool_file_count": 1,
@@ -925,7 +1056,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Add a maximum bound to create_refund.amount or document an equivalent limit in the tool policy.",
       "suppressed": false,
@@ -954,7 +1087,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Constrain send_customer_email.message with an enum, structured schema, or narrower field-specific parameters.",
       "suppressed": false,
@@ -985,7 +1120,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
       "suppressed": false,
@@ -1017,7 +1154,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
       "suppressed": false,
@@ -1049,7 +1188,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
@@ -1082,7 +1223,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "suppressed": false,
@@ -1114,7 +1257,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
       "suppressed": false,
@@ -1147,7 +1292,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for send_customer_email.",
       "suppressed": false,
@@ -1184,7 +1331,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "suppressed": false,
@@ -1219,7 +1368,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "suppressed": false,
@@ -1268,7 +1419,7 @@
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-structured-output-readiness"
     },
     {
-      "id": "fp_1b64e136ace3472a_dacf6678",
+      "id": "fp_1b64e136ace3472a_d6a46917",
       "fingerprint": "fp_1b64e136ace3472a",
       "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
@@ -1299,7 +1450,7 @@
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch"
     },
     {
-      "id": "fp_1b64e136ace3472a_fe9f9e46",
+      "id": "fp_1b64e136ace3472a_6f6fb033",
       "fingerprint": "fp_1b64e136ace3472a",
       "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "title": "Prompt lacks approval/confirmation language for high-risk tools",
@@ -1379,7 +1530,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Declare success_fields and failure_fields for create_refund in openai_api policy rules.",
       "suppressed": false,
@@ -1413,7 +1566,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Add idempotency evidence for create_refund or avoid retrying this side effect.",
       "suppressed": false,
@@ -1448,7 +1603,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
       "suppressed": false,
@@ -1509,7 +1666,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#0",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "suppressed": false,
@@ -1542,7 +1701,9 @@
       "source": {
         "type": "openai_api",
         "ref": "tools/openai-tools.json#1",
-        "location": null
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "suppressed": false,
@@ -1565,8 +1726,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "<TMP>/report.md",
-    "json": "<TMP>/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpav6470l2/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpav6470l2/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

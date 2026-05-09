@@ -90,6 +90,12 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
+  `--agent-instructions=all` (or a comma-separated subset of
+  `agents-md,claude-md,cursor,pr-template`) renders agent-facing snippets to
+  stdout; combined with `--write` it commits them to the target repo via
+  managed `<!-- agents-shipgate:start -->` markers (idempotent — safe to
+  rerun). Strict CI and baselines remain opt-in human decisions; the flag
+  emits advisory guidance only.
 - **`scan --suggest-patches`** — attaches Patch objects to every active
   finding. `Finding.patches` is absent without the flag.
 - **`apply-patches`** — file-grouped, dry-run by default. Containment-
@@ -225,9 +231,11 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current; emitted reports carry `report_schema_version: "0.10"`). Older reports validate against [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current; emitted reports carry `report_schema_version: "0.11"`). Older reports validate against [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
+
+For a step-by-step reader's primer with anti-patterns and concrete code rewrites, see [`docs/report-reading-for-agents.md`](docs/report-reading-for-agents.md).
 
 ### Task 3 · Suppress a finding with a reason
 
@@ -278,9 +286,9 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (current).
-Older reports (`report_schema_version: "0.9"`) validate against the
-frozen [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json).
+[`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current).
+Older reports (`report_schema_version: "0.10"`) validate against the
+frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
 
 ### How do I add a new check?
@@ -316,7 +324,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
+| Report schema (current) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
+| Report schema (v0.10 frozen reference) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
 | Report schema (v0.9 frozen reference) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
@@ -389,6 +398,8 @@ Exit codes (stable):
 
 ## What you can't do (intentionally)
 
+This section is the **CLI's** invariants. For the **agent's** behavioral boundary — what an agent driving Shipgate may assert in PR comments and review summaries — see [`docs/agent-autofix-boundary.md`](docs/agent-autofix-boundary.md).
+
 - The CLI does not modify user code; it only reads.
 - The CLI does not connect to MCP servers; it reads exported JSON only.
 - Tool sources outside the manifest directory are rejected (path traversal containment).
@@ -425,7 +436,13 @@ PR templates, and advisory CI. Use
 [`docs/agent-adoption-harness.md`](docs/agent-adoption-harness.md) to evaluate
 whether coding agents discover and use Shipgate without being prompted by name.
 
-Claude Code: a `/shipgate` slash command lives at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md), and an auto-discoverable skill lives at [`skills/agents-shipgate/`](skills/agents-shipgate/) (named `agents-shipgate` to avoid colliding with the slash command — Claude Code lets a same-named skill preempt a command). The skill bundles the recipes in [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and a starter advisory CI workflow at [`skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml`](skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml); when you change anything in [`prompts/`](prompts/) or `examples/github-actions/01-advisory-pr-comment.yml`, sync the bundled copy. To install both surfaces into your own agent project, see [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md).
+### Editor / agent integrations
+
+Per-agent install guides for dropping Shipgate into your own agent project:
+
+- [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) — install the `/shipgate` slash command and `agents-shipgate` auto-discoverable skill. Source surfaces ship at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) and [`skills/agents-shipgate/`](skills/agents-shipgate/) (named `agents-shipgate` to avoid colliding with the slash command — Claude Code lets a same-named skill preempt a command). The skill bundles the recipes in [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and a starter advisory CI workflow at [`skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml`](skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml); when you change anything in [`prompts/`](prompts/) or `examples/github-actions/01-advisory-pr-comment.yml`, sync the bundled copy.
+- [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md) — drop the canonical `AGENTS.md` snippet (from [`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)) into your repo. Codex reads `AGENTS.md` natively. Codex Skills (`.agents/skills/<name>/SKILL.md` repo-scoped or `$HOME/.agents/skills/<name>/SKILL.md` user-scoped; invoked with `/skills` or `$<name>`) are also supported, but this repo does not currently ship a Codex skill bundle — the parallel to [`skills/agents-shipgate/`](skills/agents-shipgate/) has not been authored. The `AGENTS.md` snippet is the minimal on-ramp that works today.
+- [`docs/agents/use-with-cursor.md`](docs/agents/use-with-cursor.md) — drop the canonical `.cursor/rules/agents-shipgate.mdc` auto-attach rule (from [`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)) into your repo. The rule fires whenever a chat touches `shipgate.yaml`, an MCP/OpenAPI spec, a tool JSON, or a `.py` file.
 
 ---
 

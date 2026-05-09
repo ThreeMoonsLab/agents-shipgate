@@ -128,7 +128,7 @@ Common errors and fixes:
 ## Verification before reporting success
 
 - `agents-shipgate-reports/report.json` exists and parses as JSON
-- `report.json` carries `report_schema_version: "0.10"` (or higher) and a non-empty `manifest_dir`
+- `report.json` carries `report_schema_version: "0.11"` (or higher) and a non-empty `manifest_dir`
 - `report.json` carries a non-null `release_decision.decision` — this is the field to surface to the user
 - `shipgate.yaml` has no `CHANGE_ME` values (comments containing the literal `CHANGE_ME` are informational and OK)
 - `.gitignore` contains `agents-shipgate-reports/` (or equivalent)

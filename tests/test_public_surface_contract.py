@@ -45,8 +45,8 @@ CURRENT_PACKET_SCHEMA_VERSION = str(
     EvidencePacket.model_fields["packet_schema_version"].default
 )
 CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
-# v0.9 became a frozen reference once main shipped v0.10 (tool-surface diff).
-LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9)\.json")
+# v0.10 became a frozen reference once main shipped v0.11 (source provenance).
+LEGACY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.(?:7|8|9|10)\.json")
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
 LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2)\.json")

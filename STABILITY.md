@@ -79,6 +79,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`
 - `findings[].tool_name` (string or null)
 - `findings[].source.{type, ref, location}` (when available)
+- `findings[].source.{path, start_line, end_line, start_column, pointer}` (v0.11+) — minimal source provenance for the common tool-source loaders (OpenAPI, MCP, OpenAI tool artifacts, Anthropic tool artifacts). Optional and additive: keys are emitted only when the loader populates them. Reviewers can use `path` + `start_line` to jump to evidence; `pointer` is an RFC 6901 JSON pointer into the source file. JSON inputs do not carry line numbers in v0.11.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
