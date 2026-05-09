@@ -440,23 +440,14 @@
       "additionalProperties": true,
       "properties": {
         "agent_action": {
-          "anyOf": [
-            {
-              "enum": [
-                "auto_apply",
-                "propose_patch_for_review",
-                "escalate_to_human",
-                "suppress_with_reason",
-                "informational"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
+          "enum": [
+            "auto_apply",
+            "propose_patch_for_review",
+            "escalate_to_human",
+            "suppress_with_reason",
+            "informational"
           ],
-          "default": null,
-          "title": "Agent Action"
+          "type": "string"
         },
         "agent_id": {
           "anyOf": [
@@ -692,6 +683,7 @@
         }
       },
       "required": [
+        "agent_action",
         "baseline_status",
         "category",
         "check_id",
@@ -2420,15 +2412,7 @@
       "type": "object"
     },
     "agent_summary": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/AgentSummary"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/AgentSummary"
     },
     "anthropic_surface": {
       "anyOf": [
@@ -2669,6 +2653,7 @@
   },
   "required": [
     "agent",
+    "agent_summary",
     "capability_facts",
     "declared_intentions",
     "environment",

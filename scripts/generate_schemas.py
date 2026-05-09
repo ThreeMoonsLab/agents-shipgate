@@ -117,6 +117,13 @@ def write_report_schema() -> None:
             "loaded_plugins",
             "tool_inventory",
             "source_warnings",
+            # v0.12: agent_summary is the deterministic top-level
+            # summary block. The Pydantic model marks it Optional so
+            # older test helpers can construct minimal reports — but
+            # every emitted report runs build_report() which always
+            # populates it. Mark required at the schema level so a
+            # payload missing the field fails validation.
+            "agent_summary",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -134,6 +141,12 @@ def write_report_schema() -> None:
     # validation and silently violate the v0.8 contract.
     properties["release_decision"] = {"$ref": "#/$defs/ReleaseDecision"}
     properties["release_consequence"] = {"$ref": "#/$defs/ReleaseConsequence"}
+    # v0.12: tighten agent_summary the same way as release_decision —
+    # Optional in Python for back-compat, required + non-nullable on
+    # the wire. Without this override the schema emits
+    # `anyOf: [AgentSummary, null]`, which would let a payload silently
+    # ship with `agent_summary: null` and violate the v0.12 contract.
+    properties["agent_summary"] = {"$ref": "#/$defs/AgentSummary"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
@@ -155,8 +168,28 @@ def write_report_schema() -> None:
                 "recommendation",
                 "suppressed",
                 "baseline_status",
+                # v0.12: deterministic projection field. Optional in
+                # Python (so test helpers can construct minimal Findings)
+                # but required + non-nullable on the wire — every
+                # emitted report runs annotate_remediation which sets it.
+                "agent_action",
             ]
         )
+        # v0.12: tighten agent_action to the inline enum shape (no
+        # null). Pydantic emits `anyOf: [{enum, type: string}, null]`
+        # for the Optional model field; on the wire we promise the
+        # field is always a real enum value. AgentAction is a Literal,
+        # not a BaseModel, so we cannot $ref it — inline the enum.
+        finding_props = defs["Finding"].setdefault("properties", {})
+        from typing import get_args as _get_args
+
+        from agents_shipgate.core.models import AgentAction as _AgentAction
+
+        if "agent_action" in finding_props:
+            finding_props["agent_action"] = {
+                "type": "string",
+                "enum": list(_get_args(_AgentAction)),
+            }
     if "LoadedPolicyPack" in defs:
         defs["LoadedPolicyPack"]["required"] = sorted(
             ["id", "name", "path", "rule_count"]

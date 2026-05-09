@@ -211,6 +211,7 @@ def build_agent_summary(
     *,
     findings: list[Finding],
     release_decision: ReleaseDecision | None,
+    json_report_path: str | None = None,
 ) -> AgentSummary:
     """Construct the top-level ``agent_summary`` block.
 
@@ -218,6 +219,16 @@ def build_agent_summary(
     per-finding ``agent_action`` values. Surfaces the same numbers a
     coding agent would otherwise compute by traversing arrays — same
     inputs, same output, no agent-side aggregation needed.
+
+    ``json_report_path`` is the actual on-disk path of the emitted JSON
+    report (from ``ReadinessReport.generated_reports['json']``). It is
+    threaded in so ``first_recommended_action.command`` can name the
+    real path the user just wrote — not the default. When the scan ran
+    without JSON output (no path available), the action falls back to
+    ``kind: "info"`` with a parameterised hint instead of a command,
+    so we never emit an apply-patches invocation pointing at a file
+    that doesn't exist or — worse — at a stale default-path report
+    from a previous run.
     """
     if release_decision is None:
         verdict: str = "passed"
@@ -264,6 +275,7 @@ def build_agent_summary(
         auto_appliable=auto_appliable,
         needs_review=needs_review,
         active_findings=active_findings,
+        json_report_path=json_report_path,
     )
 
     return AgentSummary(
@@ -283,25 +295,47 @@ def _build_first_recommended_action(
     auto_appliable: int,
     needs_review: int,
     active_findings: list[Finding],
+    json_report_path: str | None,
 ) -> AgentSummaryAction | None:
     """Deterministic next-step picker for ``agent_summary``.
 
     Order (highest impact first):
-    1. Auto-applicable patches available → propose ``apply-patches``.
-    2. Verdict is blocked → propose surfacing the top blocker for review.
-    3. Verdict is review_required → propose review of the top finding.
+    1. Auto-applicable patches available → propose ``apply-patches``,
+       but only as a ``command`` action when we know the actual JSON
+       report path (so the command never points at the wrong file).
+       Otherwise emit ``kind: "info"`` with a parameterised hint.
+    2. Verdict is blocked → surface the top blocker for review.
+    3. Verdict is review_required → walk the top review item.
     4. Verdict is passed → no action (None).
     """
     if auto_appliable > 0:
+        why = (
+            f"{auto_appliable} finding(s) carry high-confidence patches "
+            "safe to apply without human review."
+        )
+        if json_report_path:
+            return AgentSummaryAction(
+                kind="command",
+                command=(
+                    f"agents-shipgate apply-patches --from "
+                    f"{json_report_path} --confidence high --apply"
+                ),
+                why=why,
+            )
+        # No JSON output on this scan: emit an info action that names
+        # the canonical pattern so the agent runs apply-patches against
+        # *their* report, not the default path. The user-facing reports
+        # path is stable enough (`agents-shipgate-reports/report.json`
+        # is the default) that we mention it in the why-text, but as
+        # documentation, not a literal command the agent might dispatch.
         return AgentSummaryAction(
-            kind="command",
-            command=(
-                "agents-shipgate apply-patches --from "
-                "agents-shipgate-reports/report.json --confidence high --apply"
-            ),
+            kind="info",
+            command=None,
             why=(
-                f"{auto_appliable} finding(s) carry high-confidence patches "
-                "safe to apply without human review."
+                f"{why} Re-run the scan with --format json (default path "
+                "is agents-shipgate-reports/report.json), then: "
+                "agents-shipgate apply-patches --from <report.json> "
+                "--confidence high --apply."
             ),
         )
 
@@ -496,10 +530,13 @@ def build_report(
     )
     # v0.12: agent_summary is the deterministic projection of
     # release_decision + per-finding agent_action. Built last so it
-    # picks up everything else.
+    # picks up everything else. The JSON report path is threaded in
+    # so first_recommended_action.command names the real on-disk
+    # path the user just wrote (not the default — see #57 review P1.1).
     report.agent_summary = build_agent_summary(
         findings=findings,
         release_decision=report.release_decision,
+        json_report_path=generated_reports.get("json"),
     )
     return report
 

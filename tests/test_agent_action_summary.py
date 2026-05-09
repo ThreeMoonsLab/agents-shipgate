@@ -287,6 +287,7 @@ def test_build_agent_summary_blocked_recommends_apply_when_auto_appliable():
             blockers=["SHIP-POLICY-APPROVAL-MISSING"],
             reason="1 active finding blocks release.",
         ),
+        json_report_path="/abs/agents-shipgate-reports/report.json",
     )
     assert summary.verdict == "blocked"
     assert summary.blocker_count == 1
@@ -295,6 +296,53 @@ def test_build_agent_summary_blocked_recommends_apply_when_auto_appliable():
     assert summary.first_recommended_action is not None
     assert summary.first_recommended_action.kind == "command"
     assert "apply-patches" in (summary.first_recommended_action.command or "")
+
+
+def test_first_recommended_action_uses_actual_json_report_path():
+    """When the scan wrote its JSON to a custom path (e.g. via
+    ``scan --out custom-reports``), the recommended apply-patches
+    command must name THAT path — not the default. Regression for
+    PR #57 review P1.1: hardcoding `agents-shipgate-reports/report.json`
+    routed agents at the wrong file (or, worse, at a stale default-path
+    report from a previous run)."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=_make_release_decision(decision="passed"),
+        json_report_path="/abs/custom-out/report.json",
+    )
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "command"
+    assert summary.first_recommended_action.command == (
+        "agents-shipgate apply-patches --from "
+        "/abs/custom-out/report.json --confidence high --apply"
+    )
+
+
+def test_first_recommended_action_falls_back_to_info_without_json_path():
+    """When the scan didn't emit a JSON report (e.g. markdown-only),
+    we cannot promise a command pointing at a real file. The action
+    falls back to ``kind: "info"`` with no command, naming the
+    canonical pattern in why-text instead. Catches a regression where
+    the hardcoded default sneaks back in."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=_make_release_decision(decision="passed"),
+        json_report_path=None,
+    )
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    assert "apply-patches" in summary.first_recommended_action.why
 
 
 def test_build_agent_summary_blocked_without_auto_appliable_surfaces_top_blocker():
@@ -447,3 +495,80 @@ def test_v12_schema_declares_agent_action_and_summary():
         f"v0.12 schema agent_action enum diverged from contract: "
         f"{declared_values!r}"
     )
+
+
+def test_v12_schema_requires_agent_summary_and_agent_action_non_nullable():
+    """The v0.12 schema must REQUIRE both fields and reject ``null`` —
+    otherwise the contract that "every emitted report carries them"
+    is unenforceable. Regression for PR #57 review P1.2: the original
+    schema generator omitted both from required lists and emitted
+    `anyOf: [..., null]` for each, so a payload with the fields
+    stripped or set to null would silently validate."""
+    import json
+    from pathlib import Path
+
+    import jsonschema
+    import pytest as _pytest
+
+    repo_root = Path(__file__).resolve().parent.parent
+    schema = json.loads(
+        (repo_root / "docs" / "report-schema.v0.12.json").read_text("utf-8")
+    )
+    assert "agent_summary" in schema["required"], (
+        "v0.12 schema must list agent_summary as required."
+    )
+    finding_required = set(schema["$defs"]["Finding"]["required"])
+    assert "agent_action" in finding_required, (
+        "v0.12 schema must list findings[].agent_action as required."
+    )
+    # Direct $ref form (or the inline-enum form) — neither permits null.
+    summary_schema = schema["properties"]["agent_summary"]
+    assert "type" not in summary_schema or summary_schema.get("type") != "null"
+    assert summary_schema == {"$ref": "#/$defs/AgentSummary"}, (
+        "agent_summary must be a direct $ref (no anyOf with null) so "
+        "null payloads are rejected at the schema level."
+    )
+    action_schema = schema["$defs"]["Finding"]["properties"]["agent_action"]
+    assert "anyOf" not in action_schema, (
+        "agent_action must be inlined as the enum directly (no anyOf "
+        "with null), otherwise null payloads would silently pass."
+    )
+
+    # End-to-end: a payload with either field missing must fail
+    # validation. We construct a minimal payload from a real scan and
+    # mutate it.
+    from agents_shipgate.cli.scan import run_scan
+
+    sample = repo_root / "samples" / "support_refund_agent" / "shipgate.yaml"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        run_scan(
+            config_path=sample,
+            output_dir=out,
+            formats=["json"],
+            ci_mode="advisory",
+        )
+        payload = json.loads((out / "report.json").read_text("utf-8"))
+
+    # Real payload validates.
+    jsonschema.validate(payload, schema)
+
+    # Strip agent_summary → must fail.
+    stripped_summary = {k: v for k, v in payload.items() if k != "agent_summary"}
+    with _pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(stripped_summary, schema)
+
+    # Strip agent_action from one finding → must fail.
+    stripped_action = json.loads(json.dumps(payload))
+    if stripped_action["findings"]:
+        del stripped_action["findings"][0]["agent_action"]
+        with _pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(stripped_action, schema)
+
+    # Set agent_summary to null → must fail.
+    null_summary = json.loads(json.dumps(payload))
+    null_summary["agent_summary"] = None
+    with _pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(null_summary, schema)
