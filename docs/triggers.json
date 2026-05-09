@@ -11,7 +11,7 @@
     "diff_contains": "The unified diff (added or modified lines) of this PR contains the literal string. Use only with stable token forms — decorator names, package names, function calls.",
     "file_present": "The named path exists in the working tree at the head commit, regardless of whether this PR changed it.",
     "file_absent": "The named path does NOT exist in the working tree at the head commit.",
-    "every_file_matches": "Every changed file in this PR matches the single glob. False on an empty PR.",
+    "every_file_matches": "Every changed file in this PR matches at least one of the listed globs (or the single glob, if a string). False on an empty PR.",
     "none_match_glob": "No changed file matches any of the listed globs.",
     "any_of": "Logical OR over a list of nested predicates.",
     "all_of": "Logical AND over a list of nested predicates.",
@@ -133,7 +133,16 @@
       "agents_md_row": "Pure read-only doc/test changes with no manifest impact",
       "when": {
         "all_of": [
-          {"every_file_matches": "**/*.md"},
+          {"every_file_matches": [
+            "**/*.md",
+            "tests/**",
+            "test/**",
+            "**/tests/**",
+            "**/test/**",
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/conftest.py"
+          ]},
           {"none_match_glob": [
             "shipgate.yaml",
             "**/*tools*.json",
@@ -147,7 +156,7 @@
         ]
       },
       "action": "skip_shipgate",
-      "rationale": "Docs-only PR; no tool surface impact."
+      "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' — a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate."
     }
   ],
   "stop_conditions": {

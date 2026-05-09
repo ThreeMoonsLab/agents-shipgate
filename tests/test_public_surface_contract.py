@@ -689,6 +689,104 @@ def test_triggers_skip_beats_run_on_docs_only_with_decorator_in_prose():
     )
 
 
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ["tests/test_foo.py"],
+        ["tests/conftest.py"],
+        ["src/pkg/test_module.py"],
+        ["src/pkg/module_test.py"],
+        ["tests/test_a.py", "tests/test_b.py", "tests/conftest.py"],
+        ["README.md", "tests/test_foo.py", "docs/index.md"],
+    ],
+    ids=[
+        "single-test-file",
+        "conftest",
+        "test-prefix-py",
+        "test-suffix-py",
+        "multi-test",
+        "mixed-docs-and-tests",
+    ],
+)
+def test_triggers_test_only_diff_with_decorator_skips(paths):
+    """Test-only diffs (or test+doc diffs) that incidentally contain
+    `@function_tool` in fixtures or assertions must skip — the
+    AGENTS.md row says "Pure read-only doc/test changes" and the
+    catalog must honor 'test'. Catches a regression where the rule
+    only matches `**/*.md` and tests slip through."""
+    result = evaluate(
+        paths=paths,
+        diff_text=(
+            "+@function_tool\n+def stub(): pass  # used in fixtures"
+        ),
+    )
+    assert result["run_shipgate"] is False, (
+        f"Test-only paths {paths!r} with @function_tool in diff must "
+        f"NOT trigger Shipgate; got {result!r}."
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-DOCS-ONLY-NEGATIVE" in matched_ids, (
+        "Expected TRIGGER-DOCS-ONLY-NEGATIVE to fire on test-only "
+        f"PR; got matched_rules={result['matched_rules']!r}."
+    )
+
+
+def test_triggers_code_plus_test_does_not_skip():
+    """A PR that mixes a real code change with a test file is NOT
+    test-only and should follow the run rules. Negative case for the
+    docs-only-negative rule's `every_file_matches` list expansion."""
+    result = evaluate(
+        paths=["src/agent.py", "tests/test_agent.py"],
+        diff_text="+@function_tool\n+def search(): ...",
+    )
+    assert result["run_shipgate"] is True, (
+        "Code+test mix with @function_tool must trigger Shipgate; "
+        f"got {result!r}."
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-DOCS-ONLY-NEGATIVE" not in matched_ids, (
+        "TRIGGER-DOCS-ONLY-NEGATIVE must NOT fire when a non-doc, "
+        f"non-test file is in the change set; got {result!r}."
+    )
+
+
+def test_every_file_matches_predicate_accepts_list():
+    """The `every_file_matches` predicate must accept either a string
+    or a list (any-of within the predicate). Pin the contract so a
+    refactor doesn't silently revert to string-only."""
+    from agents_shipgate.triggers import _eval_predicate
+
+    # Single glob (string form)
+    assert _eval_predicate(
+        {"every_file_matches": "**/*.md"},
+        paths=["README.md", "docs/x.md"],
+        diff_text="",
+        manifest_present=False,
+        detect_result=None,
+        user_requested=False,
+    ) is True
+
+    # List form: every path matches at least one glob in the list
+    assert _eval_predicate(
+        {"every_file_matches": ["**/*.md", "tests/**"]},
+        paths=["README.md", "tests/test_foo.py"],
+        diff_text="",
+        manifest_present=False,
+        detect_result=None,
+        user_requested=False,
+    ) is True
+
+    # List form: a path matching no glob in the list returns False
+    assert _eval_predicate(
+        {"every_file_matches": ["**/*.md", "tests/**"]},
+        paths=["README.md", "src/agent.py"],
+        diff_text="",
+        manifest_present=False,
+        detect_result=None,
+        user_requested=False,
+    ) is False
+
+
 def test_triggers_force_run_beats_skip_when_manifest_present():
     """A docs-only PR in a repo that already has a `shipgate.yaml`
     must STILL trigger Shipgate — the manifest's existence is the
@@ -726,6 +824,72 @@ def test_triggers_dry_run_sets_dry_run_recommended():
         "Expected TRIGGER-FRAMEWORK-VERSION-BUMP in matched_rules so "
         "callers can see the rationale; got "
         f"matched_rules={result['matched_rules']!r}."
+    )
+
+
+def _init_git_repo(tmp_path: Path) -> None:
+    """Initialize an empty git repo at `tmp_path` with one commit so
+    `git diff HEAD` works. Used by the --git-diff helper tests."""
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(tmp_path)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path),
+         "-c", "user.email=test@example.com",
+         "-c", "user.name=test",
+         "commit", "-q", "--allow-empty", "-m", "init"],
+        check=True,
+    )
+
+
+def test_git_diff_bare_includes_staged_changes(tmp_path, monkeypatch):
+    """Bare `--git-diff` (no revspec) must capture staged changes via
+    `git diff HEAD`. The earlier implementation used plain `git diff`,
+    which only sees unstaged changes — a staged `@function_tool`
+    addition would silently miss the decorator rule even though the
+    prompt advertises bare flag for 'uncommitted changes'."""
+    import subprocess
+
+    from agents_shipgate.triggers import _git_diff_context
+
+    _init_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "agent.py").write_text(
+        "@function_tool\ndef foo(): pass\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "agent.py"], check=True)
+
+    paths, diff_text = _git_diff_context(None)
+    assert "agent.py" in paths, (
+        f"Staged file missing from --git-diff paths: {paths!r}"
+    )
+    assert "@function_tool" in diff_text, (
+        f"Staged content missing from --git-diff diff_text: {diff_text!r}"
+    )
+
+
+def test_git_diff_bare_includes_untracked_paths(tmp_path, monkeypatch):
+    """Bare `--git-diff` must surface untracked file paths so that
+    glob rules (e.g. `**/*mcp*.json`) can fire on a brand-new file
+    the user hasn't `git add`ed yet. Untracked file *content* is NOT
+    in the diff body — that limitation is documented in the prompt."""
+    from agents_shipgate.triggers import _git_diff_context
+
+    _init_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "new_mcp.json").write_text('{"tools":[]}', encoding="utf-8")
+
+    paths, diff_text = _git_diff_context(None)
+    assert "new_mcp.json" in paths, (
+        f"Untracked file missing from --git-diff paths: {paths!r}"
+    )
+    assert "new_mcp.json" not in diff_text, (
+        "Untracked file content must NOT appear in diff_text "
+        f"(by design — see prompt's documented limitation); got "
+        f"{diff_text!r}"
     )
 
 

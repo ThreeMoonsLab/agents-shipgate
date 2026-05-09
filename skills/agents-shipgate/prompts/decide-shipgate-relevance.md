@@ -43,9 +43,14 @@ the rules to the changed file list.
    python -m agents_shipgate.triggers \
        --git-diff origin/main...HEAD --json
    ```
-   For uncommitted changes pass `--git-diff` with no revspec. If your
-   repo already has a manifest, also pass `--manifest-present` so the
-   `force_run` rule can fire.
+   For uncommitted changes pass `--git-diff` with no revspec — that
+   runs `git diff HEAD` (covers BOTH staged and unstaged tracked
+   changes) plus `git ls-files --others --exclude-standard` to add
+   untracked file paths. Untracked files contribute paths only; their
+   content is not in `diff_text`, so `diff_contains` rules won't fire
+   on a brand-new file until you `git add` it (or pass `--diff-text`
+   manually). If your repo already has a manifest, also pass
+   `--manifest-present` so the `force_run` rule can fire.
    The output shape is `{run_shipgate, dry_run_recommended,
    matched_rules, stop_conditions_fired, rationale, schema_version}`.
 
@@ -124,13 +129,24 @@ matter.
   `matched_rules` must come from `triggers.json`.
 - Do **not** treat the **negative control** ("update docs only") as a
   reason to propose Shipgate. The `TRIGGER-DOCS-ONLY-NEGATIVE` rule
-  fires `skip_shipgate` for a reason.
+  fires `skip_shipgate` for a reason — and it covers test-only PRs
+  too, not just `*.md`.
+- Do **not** propose `agents-shipgate init --write` on a `dry_run`-only
+  match. `dry_run_recommended: true` justifies a non-mutating `scan`
+  against an existing manifest, nothing more.
+- Do **not** rely on bare `--git-diff` for brand-new untracked files
+  to fire `diff_contains` rules. Bare flag covers tracked changes
+  (staged + unstaged) and untracked file *paths*, but not untracked
+  file *content*. `git add` first, or pass `--diff-text` explicitly.
 
 ## Verification before reporting
 
-- Output is valid JSON with the exact keys `run_shipgate`,
-  `matched_rules`, `rationale`.
+- Output is valid JSON with the keys `run_shipgate`,
+  `dry_run_recommended`, `matched_rules`, `rationale`.
 - Every `matched_rules[].id` exists in the loaded `triggers.json`.
 - If `run_shipgate: true`, the next-step command is named.
-- If `run_shipgate: false`, no Shipgate command appears anywhere in
-  your reply.
+- If `run_shipgate: false` AND `dry_run_recommended: true`, exactly
+  one Shipgate command appears (a non-mutating `scan` against an
+  existing manifest) — never `init --write`.
+- If `run_shipgate: false` AND `dry_run_recommended: false`, no
+  Shipgate command appears anywhere in your reply.

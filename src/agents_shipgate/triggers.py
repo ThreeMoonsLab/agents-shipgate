@@ -166,7 +166,12 @@ def _eval_predicate(
     if "every_file_matches" in pred:
         if not paths:
             return False
-        return all(_glob_match(pred["every_file_matches"], p) for p in paths)
+        patterns = pred["every_file_matches"]
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        return all(
+            any(_glob_match(g, p) for g in patterns) for p in paths
+        )
     if "none_match_glob" in pred:
         globs = pred["none_match_glob"]
         if isinstance(globs, str):
@@ -319,20 +324,43 @@ def evaluate(
 def _git_diff_context(revspec: str | None) -> tuple[list[str], str]:
     """Read changed paths and the unified-diff body from ``git diff``.
 
-    ``revspec`` is the value passed to ``--git-diff`` — pass an empty
-    string for uncommitted changes (``git diff`` with no revspec) or
-    something like ``origin/main...HEAD`` for a PR-style diff. Returns
-    ``([paths], diff_text)``.
+    ``revspec`` semantics:
+
+    - Non-empty (e.g. ``"origin/main...HEAD"``): PR-style diff.
+      ``git diff [--name-only] <revspec>``.
+    - Empty string (bare ``--git-diff``): all uncommitted tracked
+      changes against ``HEAD`` — includes BOTH staged and unstaged
+      edits. Untracked file *paths* (newly-`git add`-able files that
+      aren't yet `git add`ed) are appended to the path list via
+      ``git ls-files --others --exclude-standard``; their content is
+      NOT captured in ``diff_text`` because reading arbitrary unstaged
+      files into memory is risky.
+
+    Returns ``([paths], diff_text)``.
     """
-    args_names = ["git", "diff", "--name-only"]
-    args_body = ["git", "diff"]
     if revspec:
-        args_names.append(revspec)
-        args_body.append(revspec)
-    names = subprocess.run(args_names, capture_output=True, text=True, check=True)
-    body = subprocess.run(args_body, capture_output=True, text=True, check=True)
+        names_cmd = ["git", "diff", "--name-only", revspec]
+        body_cmd = ["git", "diff", revspec]
+    else:
+        names_cmd = ["git", "diff", "HEAD", "--name-only"]
+        body_cmd = ["git", "diff", "HEAD"]
+    names = subprocess.run(names_cmd, capture_output=True, text=True, check=True)
+    body = subprocess.run(body_cmd, capture_output=True, text=True, check=True)
     paths = [line for line in names.stdout.splitlines() if line.strip()]
-    return paths, body.stdout
+    diff_text = body.stdout
+
+    if not revspec:
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        for line in untracked.stdout.splitlines():
+            stripped = line.strip()
+            if stripped and stripped not in paths:
+                paths.append(stripped)
+    return paths, diff_text
 
 
 def _read_paths_from_stdin() -> list[str]:
