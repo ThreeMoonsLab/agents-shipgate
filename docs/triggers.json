@@ -111,8 +111,8 @@
       "id": "TRIGGER-EXISTING-MANIFEST-PRESENT",
       "agents_md_row": "Repo already opted in (shipgate.yaml present in the workspace)",
       "when": {"file_present": "shipgate.yaml"},
-      "action": "run_shipgate",
-      "rationale": "Repo already opted in; run on every PR even when this PR doesn't directly touch the manifest."
+      "action": "force_run",
+      "rationale": "Repo already opted in; run on every PR — including docs-only — because the manifest's existence is the operational opt-in. `force_run` overrides any `skip_shipgate` rule that would otherwise fire (e.g. a docs-only PR in an opted-in repo)."
     },
     {
       "id": "TRIGGER-FRAMEWORK-VERSION-BUMP",
@@ -160,8 +160,17 @@
     ]
   },
   "actions": {
-    "run_shipgate": "Propose `agents-shipgate detect --json` as the next step; if `is_agent_project` or `suggested_sources` is non-trivial, follow with `init --write --ci` and `scan`.",
-    "dry_run": "Propose a non-mutating scan only — do not write a manifest if one does not already exist.",
-    "skip_shipgate": "Do not propose Shipgate. Recommend other appropriate checks for the PR."
-  }
+    "force_run": "Propose Shipgate unconditionally. Overrides `skip_shipgate` rules — used when the repo has explicitly opted in (e.g. existing `shipgate.yaml`) and every PR should be checked.",
+    "run_shipgate": "Propose `agents-shipgate detect --json` as the next step; if `is_agent_project` or `suggested_sources` is non-trivial, follow with `init --write --ci` and `scan`. Does NOT win over `skip_shipgate` — a docs-only PR that incidentally mentions a tool decorator stays skipped.",
+    "skip_shipgate": "Do not propose Shipgate. Beats `run_shipgate` (but loses to `force_run`). Recommend other appropriate checks for the PR.",
+    "dry_run": "Advisory: `run_shipgate` stays false but `dry_run_recommended` is true in the evaluator output. Callers may propose a non-mutating scan; never propose `init --write` based on `dry_run` alone."
+  },
+  "action_precedence": [
+    "stop_conditions (block everything)",
+    "force_run (overrides skip)",
+    "skip_shipgate (overrides run)",
+    "run_shipgate",
+    "dry_run (sets dry_run_recommended; run_shipgate stays false)",
+    "no rules matched (skip)"
+  ]
 }

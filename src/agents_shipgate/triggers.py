@@ -22,12 +22,31 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 _TRIGGERS_FILENAME = "triggers.json"
+
+# Action precedence for the evaluator. Highest first:
+#
+#   stop_conditions → skip
+#   force_run       → run (used by TRIGGER-EXISTING-MANIFEST-PRESENT;
+#                     overrides skip because an opted-in repo always runs)
+#   skip_shipgate   → skip (a docs-only PR with no opt-in cannot be
+#                     overridden by a brittle diff_contains match)
+#   run_shipgate    → run
+#   dry_run         → skip+dry_run_recommended (advisory, not a run)
+#   no rules        → skip
+ACTION_FORCE_RUN = "force_run"
+ACTION_RUN = "run_shipgate"
+ACTION_SKIP = "skip_shipgate"
+ACTION_DRY_RUN = "dry_run"
+VALID_ACTIONS = frozenset(
+    {ACTION_FORCE_RUN, ACTION_RUN, ACTION_SKIP, ACTION_DRY_RUN}
+)
 
 
 def load_triggers() -> dict[str, Any]:
@@ -194,14 +213,18 @@ def evaluate(
     - ``run_shipgate`` (bool) — final verdict.
     - ``matched_rules`` (list) — every rule whose ``when`` clause fired.
     - ``stop_conditions_fired`` (bool) — whether the explicit stop
-      block held; this overrides any matched ``run_shipgate`` rule.
+      block held; this beats every rule action.
+    - ``dry_run_recommended`` (bool) — true when a ``dry_run`` rule
+      fired and no ``run_shipgate``/``force_run``/``skip_shipgate``
+      rule did. Callers that want to be helpful can propose a
+      non-mutating ``scan`` even though ``run_shipgate`` is false.
     - ``rationale`` (str) — single-sentence explanation.
     - ``schema_version`` (str) — the trigger catalog's schema version.
 
-    ``run_shipgate`` is true when at least one ``run_shipgate`` rule
-    fires, no ``skip_shipgate`` rule fires, and ``stop_conditions`` does
-    not hold. ``dry_run`` rules do not by themselves flip the verdict
-    but appear in ``matched_rules`` so callers can choose to act on them.
+    Action precedence (highest first): ``stop_conditions`` → skip;
+    ``force_run`` → run (overrides skip; used by manifest-present);
+    ``skip_shipgate`` → skip (beats ``run_shipgate``); ``run_shipgate``
+    → run; ``dry_run`` → skip + ``dry_run_recommended``.
     """
     if triggers is None:
         triggers = load_triggers()
@@ -239,22 +262,44 @@ def evaluate(
     )
 
     actions = [m["action"] for m in matched]
-    has_run = any(a == "run_shipgate" for a in actions)
-    has_skip = any(a == "skip_shipgate" for a in actions)
+    has_force_run = any(a == ACTION_FORCE_RUN for a in actions)
+    has_skip = any(a == ACTION_SKIP for a in actions)
+    has_run = any(a == ACTION_RUN for a in actions)
+    has_dry_run = any(a == ACTION_DRY_RUN for a in actions)
 
+    dry_run_recommended = False
     if stop_fired:
         run = False
         rationale = (
             "Stop conditions hold (detect classifies as non-agent, "
             "no manifest, user did not explicitly request a scan)."
         )
-    elif has_skip and not has_run:
-        run = False
-        rationale = "skip_shipgate rule(s) matched and no run_shipgate rule fired."
-    elif has_run:
-        run_count = sum(1 for a in actions if a == "run_shipgate")
+    elif has_force_run:
+        forcing = [m["id"] for m in matched if m["action"] == ACTION_FORCE_RUN]
         run = True
+        rationale = (
+            "force_run rule(s) overrode any skip: "
+            f"{', '.join(forcing)}."
+        )
+    elif has_skip:
+        run = False
+        skipping = [m["id"] for m in matched if m["action"] == ACTION_SKIP]
+        rationale = (
+            "skip_shipgate rule(s) matched (beats run_shipgate): "
+            f"{', '.join(skipping)}."
+        )
+    elif has_run:
+        run = True
+        run_count = sum(1 for a in actions if a == ACTION_RUN)
         rationale = f"{run_count} run_shipgate rule(s) matched."
+    elif has_dry_run:
+        run = False
+        dry_run_recommended = True
+        dry = [m["id"] for m in matched if m["action"] == ACTION_DRY_RUN]
+        rationale = (
+            "dry_run rule(s) matched (advisory, no manifest write): "
+            f"{', '.join(dry)}."
+        )
     else:
         run = False
         rationale = (
@@ -263,11 +308,31 @@ def evaluate(
 
     return {
         "run_shipgate": run,
+        "dry_run_recommended": dry_run_recommended,
         "matched_rules": matched,
         "stop_conditions_fired": stop_fired,
         "rationale": rationale,
         "schema_version": triggers.get("schema_version"),
     }
+
+
+def _git_diff_context(revspec: str | None) -> tuple[list[str], str]:
+    """Read changed paths and the unified-diff body from ``git diff``.
+
+    ``revspec`` is the value passed to ``--git-diff`` — pass an empty
+    string for uncommitted changes (``git diff`` with no revspec) or
+    something like ``origin/main...HEAD`` for a PR-style diff. Returns
+    ``([paths], diff_text)``.
+    """
+    args_names = ["git", "diff", "--name-only"]
+    args_body = ["git", "diff"]
+    if revspec:
+        args_names.append(revspec)
+        args_body.append(revspec)
+    names = subprocess.run(args_names, capture_output=True, text=True, check=True)
+    body = subprocess.run(args_body, capture_output=True, text=True, check=True)
+    paths = [line for line in names.stdout.splitlines() if line.strip()]
+    return paths, body.stdout
 
 
 def _read_paths_from_stdin() -> list[str]:
@@ -311,7 +376,23 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help=(
             "Optional unified-diff body. Used for `diff_contains` "
-            "predicates (e.g. matching `@function_tool`)."
+            "predicates (e.g. matching `@function_tool`). Ignored when "
+            "--git-diff is also passed."
+        ),
+    )
+    parser.add_argument(
+        "--git-diff",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="REVSPEC",
+        help=(
+            "Read changed paths AND the unified-diff body from "
+            "`git diff [REVSPEC]`. Bare flag uses uncommitted changes; "
+            "pass a revspec like `origin/main...HEAD` for a PR-style "
+            "diff. Overrides positional paths, stdin paths, and "
+            "--diff-text. Required for diff_contains rules to fire "
+            "(e.g. @function_tool decorators)."
         ),
     )
     parser.add_argument(
@@ -339,10 +420,23 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 0
 
-    paths = args.paths or _read_paths_from_stdin()
+    if args.git_diff is not None:
+        try:
+            paths, diff_text = _git_diff_context(args.git_diff)
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            print(
+                f"--git-diff failed: {exc}. Run from a git checkout, or "
+                "pass paths and --diff-text manually.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        paths = args.paths or _read_paths_from_stdin()
+        diff_text = args.diff_text
+
     result = evaluate(
         paths=paths,
-        diff_text=args.diff_text,
+        diff_text=diff_text,
         manifest_present=args.manifest_present,
         user_requested=args.user_requested,
         triggers=triggers,

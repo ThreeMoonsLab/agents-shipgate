@@ -591,7 +591,7 @@ def test_packet_anchors_match_current_schema(relpath):
 # --- Trigger catalog and llms-full.txt drift guards ----------------------
 
 
-_VALID_TRIGGER_ACTIONS = {"run_shipgate", "skip_shipgate", "dry_run"}
+_VALID_TRIGGER_ACTIONS = {"run_shipgate", "skip_shipgate", "dry_run", "force_run"}
 
 
 def _load_triggers_json() -> dict:
@@ -665,6 +665,87 @@ def test_triggers_evaluator_smoke():
     assert decorator["run_shipgate"] is True, (
         "@function_tool decorator addition must trigger Shipgate; "
         f"got {decorator!r}."
+    )
+
+
+def test_triggers_skip_beats_run_on_docs_only_with_decorator_in_prose():
+    """A README-only diff that incidentally mentions `@tool` (e.g.
+    documentation prose, a code block, or a quoted Action URL) must
+    NOT trigger Shipgate. `skip_shipgate` beats `run_shipgate`;
+    otherwise the docs-only-negative rule is dead in practice."""
+    result = evaluate(
+        paths=["README.md"],
+        diff_text="+ Use @tool to register handlers (see ThreeMoonsLab/agents-shipgate)",
+    )
+    assert result["run_shipgate"] is False, (
+        "Docs-only PR with prose-mentioned @tool must NOT trigger "
+        f"Shipgate; got {result!r}."
+    )
+    matched_actions = {m["action"] for m in result["matched_rules"]}
+    assert "skip_shipgate" in matched_actions, (
+        "Expected the docs-only negative rule to fire alongside the "
+        "decorator/Action rules; otherwise the precedence isn't being "
+        f"exercised. Got matched_rules={result['matched_rules']!r}."
+    )
+
+
+def test_triggers_force_run_beats_skip_when_manifest_present():
+    """A docs-only PR in a repo that already has a `shipgate.yaml`
+    must STILL trigger Shipgate — the manifest's existence is the
+    operational opt-in, and `force_run` overrides any incidental
+    `skip_shipgate` match."""
+    result = evaluate(paths=["README.md"], manifest_present=True)
+    assert result["run_shipgate"] is True, (
+        "Docs-only PR with manifest present must trigger Shipgate "
+        f"via TRIGGER-EXISTING-MANIFEST-PRESENT; got {result!r}."
+    )
+    matched_actions = {m["action"] for m in result["matched_rules"]}
+    assert "force_run" in matched_actions, (
+        "Expected force_run action to fire when shipgate.yaml is "
+        f"present; got matched_rules={result['matched_rules']!r}."
+    )
+
+
+def test_triggers_dry_run_sets_dry_run_recommended():
+    """A framework version bump (only `dry_run` rule fires) must
+    surface `dry_run_recommended: true` instead of being reported as
+    'no rules matched'. Otherwise the dry_run rule is dead in
+    practice."""
+    result = evaluate(
+        paths=["requirements.txt"],
+        diff_text="-langchain==0.2.0\n+langchain==0.3.0\n",
+    )
+    assert result["run_shipgate"] is False, (
+        f"dry_run alone should not flip run_shipgate; got {result!r}."
+    )
+    assert result["dry_run_recommended"] is True, (
+        f"Expected dry_run_recommended=True; got {result!r}."
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-FRAMEWORK-VERSION-BUMP" in matched_ids, (
+        "Expected TRIGGER-FRAMEWORK-VERSION-BUMP in matched_rules so "
+        "callers can see the rationale; got "
+        f"matched_rules={result['matched_rules']!r}."
+    )
+
+
+def test_triggers_existing_manifest_rule_uses_force_run():
+    """Pin the action of `TRIGGER-EXISTING-MANIFEST-PRESENT` to
+    `force_run` (not `run_shipgate`). Reverting this in triggers.json
+    would silently re-introduce the bug where a docs-only PR in an
+    opted-in repo gets skipped."""
+    triggers = _load_triggers_json()
+    rule = next(
+        (r for r in triggers["rules"] if r["id"] == "TRIGGER-EXISTING-MANIFEST-PRESENT"),
+        None,
+    )
+    assert rule is not None, (
+        "TRIGGER-EXISTING-MANIFEST-PRESENT must remain in the catalog."
+    )
+    assert rule["action"] == "force_run", (
+        "TRIGGER-EXISTING-MANIFEST-PRESENT must use action='force_run' "
+        "so it overrides skip_shipgate. The semantics rely on this "
+        f"specific action; got action={rule['action']!r}."
     )
 
 
