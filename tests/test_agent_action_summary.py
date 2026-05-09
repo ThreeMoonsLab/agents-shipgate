@@ -594,6 +594,86 @@ def test_v12_schema_declares_agent_action_and_summary():
     )
 
 
+def test_v12_schema_requires_full_agent_summary_shape():
+    """The v0.12 contract documents `agent_summary.{verdict, headline,
+    blocker_count, review_item_count, auto_appliable_patches,
+    needs_human_review, first_recommended_action}` and requires every
+    one of those keys on the wire. AgentSummaryAction must require
+    `kind`, `command` (nullable), and `why`. Earlier the schema
+    generator only inherited Pydantic's auto-required (fields without
+    defaults), which let payloads ship with the count fields stripped
+    (#57 review P2)."""
+    import json
+    from pathlib import Path
+
+    import jsonschema
+    import pytest as _pytest
+
+    repo_root = Path(__file__).resolve().parent.parent
+    schema = json.loads(
+        (repo_root / "docs" / "report-schema.v0.12.json").read_text("utf-8")
+    )
+
+    summary_required = set(schema["$defs"]["AgentSummary"]["required"])
+    expected_summary = {
+        "verdict",
+        "headline",
+        "blocker_count",
+        "review_item_count",
+        "auto_appliable_patches",
+        "needs_human_review",
+        "first_recommended_action",
+    }
+    assert summary_required == expected_summary, (
+        f"AgentSummary.required diverged from the documented contract.\n"
+        f"  expected: {sorted(expected_summary)}\n"
+        f"  got:      {sorted(summary_required)}"
+    )
+
+    action_required = set(schema["$defs"]["AgentSummaryAction"]["required"])
+    expected_action = {"kind", "command", "why"}
+    assert action_required == expected_action, (
+        f"AgentSummaryAction.required diverged from the documented contract "
+        f"(it must require kind, command — nullable — and why).\n"
+        f"  expected: {sorted(expected_action)}\n"
+        f"  got:      {sorted(action_required)}"
+    )
+
+    # End-to-end: stripping any required key from agent_summary or
+    # from a populated first_recommended_action must fail validation.
+    from agents_shipgate.cli.scan import run_scan
+
+    sample = repo_root / "samples" / "support_refund_agent" / "shipgate.yaml"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        run_scan(
+            config_path=sample,
+            output_dir=out,
+            formats=["json"],
+            ci_mode="advisory",
+            suggest_patches=True,
+        )
+        payload = json.loads((out / "report.json").read_text("utf-8"))
+
+    jsonschema.validate(payload, schema)  # baseline: real payload validates
+
+    for key in expected_summary:
+        bad = json.loads(json.dumps(payload))
+        del bad["agent_summary"][key]
+        with _pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(bad, schema)
+
+    fra = payload["agent_summary"].get("first_recommended_action")
+    if fra is not None:
+        for key in expected_action:
+            bad = json.loads(json.dumps(payload))
+            del bad["agent_summary"]["first_recommended_action"][key]
+            with _pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate(bad, schema)
+
+
 def test_v12_schema_requires_agent_summary_and_agent_action_non_nullable():
     """The v0.12 schema must REQUIRE both fields and reject ``null`` —
     otherwise the contract that "every emitted report carries them"

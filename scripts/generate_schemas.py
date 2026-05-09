@@ -190,6 +190,40 @@ def write_report_schema() -> None:
                 "type": "string",
                 "enum": list(_get_args(_AgentAction)),
             }
+    # v0.12: tighten the AgentSummary block. Pydantic auto-detects
+    # required only for fields without defaults (verdict, headline);
+    # but every field below is populated by `build_agent_summary` on
+    # every emitted report, so all of them belong in the required
+    # list. `first_recommended_action` is required as a key
+    # (always present) but nullable (None on `passed` verdict with no
+    # auto-apply path).
+    if "AgentSummary" in defs:
+        defs["AgentSummary"]["required"] = sorted(
+            [
+                "verdict",
+                "headline",
+                "blocker_count",
+                "review_item_count",
+                "auto_appliable_patches",
+                "needs_human_review",
+                "first_recommended_action",
+            ]
+        )
+    # v0.12: AgentSummaryAction must require `kind`, `command`, and
+    # `why` whenever it appears (i.e. when first_recommended_action
+    # is non-null). `command` is required as a KEY but nullable as a
+    # VALUE — `kind: "info"` actions carry `command: null` while
+    # `kind: "command"` actions carry the actual CLI string. Pydantic
+    # auto-required only includes `why` because the other two have
+    # defaults.
+    if "AgentSummaryAction" in defs:
+        defs["AgentSummaryAction"]["required"] = sorted(
+            [
+                "kind",
+                "command",
+                "why",
+            ]
+        )
     if "LoadedPolicyPack" in defs:
         defs["LoadedPolicyPack"]["required"] = sorted(
             ["id", "name", "path", "rule_count"]

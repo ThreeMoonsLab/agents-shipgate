@@ -50,8 +50,13 @@
         }
       },
       "required": [
-        "verdict",
-        "headline"
+        "auto_appliable_patches",
+        "blocker_count",
+        "first_recommended_action",
+        "headline",
+        "needs_human_review",
+        "review_item_count",
+        "verdict"
       ],
       "title": "AgentSummary",
       "type": "object"
@@ -87,6 +92,8 @@
         }
       },
       "required": [
+        "command",
+        "kind",
         "why"
       ],
       "title": "AgentSummaryAction",

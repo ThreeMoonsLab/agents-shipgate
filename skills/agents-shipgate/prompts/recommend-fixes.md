@@ -22,11 +22,16 @@ You are working in a repo with `shipgate.yaml` already in place and want a coord
    | (skip) | `informational` | `suppressed == true` | Already-suppressed findings; show counts only. |
 
    For one-fetch counts read the top-level `agent_summary` block (v0.12+):
-   `agent_summary.auto_appliable_patches` is the bucket-A count;
-   `agent_summary.needs_human_review` is buckets C+D combined; the
-   bucket-B count is the active-finding total minus those minus
-   informational. Use `agent_summary.first_recommended_action.command`
-   as your default suggestion when bucket A is non-empty.
+   `agent_summary.auto_appliable_patches` is the bucket-A count, and
+   `agent_summary.needs_human_review` is buckets B + C + D combined
+   (every active finding the user must weigh in on before applying —
+   medium/low-confidence patches AND escalations). To split bucket B
+   from bucket C+D you have to walk `findings[].agent_action` —
+   agent_summary deliberately does not disaggregate them, since the
+   distinction is an implementation detail of the patch-confidence
+   policy rather than a release-gate signal. Use
+   `agent_summary.first_recommended_action.command` as your default
+   suggestion when bucket A is non-empty.
 
 3. **Build a recommendation card per finding.** For each, present:
    - `check_id`, `title`, `severity`, `tool_name`, `confidence`
