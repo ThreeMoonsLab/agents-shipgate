@@ -251,11 +251,24 @@ def build_agent_summary(
         blocker_count = 0
         review_item_count = 0
         reason = "No release decision computed."
+        evidence_recommended = False
     else:
         verdict = release_decision.decision
         blocker_count = len(release_decision.blockers)
         review_item_count = len(release_decision.review_items)
         reason = (release_decision.reason or "").strip()
+        # `evidence_coverage.human_review_recommended` is the
+        # release-decision signal that says "this is review_required
+        # because the scan saw only low-confidence/static evidence,
+        # not because any specific finding needs fixing." In that
+        # case we want to surface the evidence-coverage reason
+        # (rather than the unhelpful "0 review items flagged" text)
+        # and route the agent toward gathering better evidence
+        # (#57 review P2: evidence-only review_required).
+        evidence_recommended = bool(
+            release_decision.evidence_coverage
+            and release_decision.evidence_coverage.human_review_recommended
+        )
 
     active_findings = [f for f in findings if not f.suppressed]
     auto_appliable = sum(
@@ -320,14 +333,26 @@ def build_agent_summary(
             # review" — appending it would directly contradict the
             # action-driven headline (#57 review P1).
             append_reason = False
+        elif evidence_recommended:
+            # Evidence-coverage-driven review: no actionable findings,
+            # but the scan saw only low-confidence/static evidence and
+            # the release_decision wants a human to weigh in. Surface
+            # the reason directly — it carries the only useful
+            # explanation. Falling back to "0 review items flagged"
+            # would lose the most important context (#57 review P2).
+            headline = (
+                reason
+                if reason
+                else "Human review recommended: low-confidence evidence."
+            )
+            append_reason = False  # already in headline
         else:
-            # Rare edge case: review_items has only informational/suppressed
-            # actions. Surface the underlying review_item_count so the
-            # headline isn't a contradiction.
+            # Even rarer fallback: review_required without any of the
+            # above signals. Surface review_item_count so the
+            # headline isn't a self-contradiction.
             headline = (
                 f"{review_item_count} review item(s) flagged for release review."
             )
-            # Same contradiction risk as the auto-applicable-only branch.
             append_reason = False
         if blocker_count:
             headline += f" ({blocker_count} blocker(s) detected.)"
@@ -350,6 +375,8 @@ def build_agent_summary(
         review_item_count=review_item_count,
         active_findings=active_findings,
         json_report_path=json_report_path,
+        evidence_recommended=evidence_recommended,
+        evidence_reason=reason if evidence_recommended else "",
     )
 
     return AgentSummary(
@@ -371,6 +398,8 @@ def _build_first_recommended_action(
     review_item_count: int,
     active_findings: list[Finding],
     json_report_path: str | None,
+    evidence_recommended: bool = False,
+    evidence_reason: str = "",
 ) -> AgentSummaryAction | None:
     """Deterministic next-step picker for ``agent_summary``.
 
@@ -436,6 +465,33 @@ def _build_first_recommended_action(
         )
 
     if verdict == "review_required":
+        # Evidence-coverage-driven review: no specific finding to walk;
+        # the release_decision is asking for human attention because
+        # the scan saw only low-confidence/static evidence. Return an
+        # info action that names the situation so first_recommended_action
+        # is non-null and useful in this case (#57 review P2).
+        if (
+            evidence_recommended
+            and needs_review == 0
+            and auto_appliable == 0
+        ):
+            base = (
+                evidence_reason
+                or "Static-only scan with low-confidence evidence; "
+                "human review recommended."
+            )
+            return AgentSummaryAction(
+                kind="info",
+                command=None,
+                why=(
+                    f"{base} Surface this to the user and discuss whether "
+                    "to gather better evidence (e.g. add MCP/OpenAPI "
+                    "inputs, eval traces) or accept the static-only "
+                    "review posture; no machine-applicable fix is "
+                    "available."
+                ),
+            )
+
         top = _top_active_finding(active_findings)
         if top is None:
             return None

@@ -259,6 +259,8 @@ def _make_release_decision(
     blockers: list[str] | None = None,
     review_items: list[str] | None = None,
     reason: str = "",
+    evidence_human_review_recommended: bool = False,
+    evidence_level: str = "static",
 ) -> ReleaseDecision:
     """Helper that builds a ReleaseDecision with the minimum fields the
     summary builder reads."""
@@ -279,8 +281,8 @@ def _make_release_decision(
         blockers=[item(c) for c in blockers],
         review_items=[item(c) for c in review_items],
         evidence_coverage=EvidenceCoverageDecision(
-            level="static",
-            human_review_recommended=False,
+            level=evidence_level,
+            human_review_recommended=evidence_human_review_recommended,
             source_warning_count=0,
             low_confidence_tool_count=0,
         ),
@@ -458,6 +460,62 @@ def test_needs_human_review_counts_propose_patch_for_review():
     assert "Walk the 2 review item" in summary.first_recommended_action.why, (
         f"Action why-text must include the corrected count; got "
         f"{summary.first_recommended_action.why!r}"
+    )
+
+
+def test_evidence_only_review_surfaces_reason_and_info_action():
+    """A `review_required` verdict that's driven by
+    `evidence_coverage.human_review_recommended` (no actionable
+    findings; the scan saw only low-confidence/static evidence) used
+    to emit `0 review item(s) flagged for release review.` and a null
+    first_recommended_action — losing the only useful piece of
+    information available, namely the release_decision.reason
+    explaining WHY review is recommended (#57 review P2).
+
+    The new behavior: the headline IS the reason text, and
+    first_recommended_action is an info action that names the
+    situation and gives the agent a concrete remediation path
+    (gather better evidence vs. accept static-only posture)."""
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=_make_release_decision(
+            decision="review_required",
+            review_items=[],
+            reason=(
+                "Static-only scan with low-confidence evidence; "
+                "human review recommended."
+            ),
+            evidence_human_review_recommended=True,
+            evidence_level="mixed",
+        ),
+        json_report_path="/abs/r.json",
+    )
+    assert summary.verdict == "review_required"
+    assert summary.review_item_count == 0
+    assert summary.needs_human_review == 0
+    assert summary.auto_appliable_patches == 0
+    # Headline must contain the actual reason, NOT the placeholder
+    # "0 review item(s) flagged" text that the old branch produced.
+    assert summary.headline == (
+        "Static-only scan with low-confidence evidence; "
+        "human review recommended."
+    ), f"Headline lost the evidence-coverage reason: {summary.headline!r}"
+    assert "0 review item" not in summary.headline, (
+        "Headline must not fall back to the unhelpful "
+        f"'0 review item(s) flagged' text: {summary.headline!r}"
+    )
+    # Action must be a non-null info action explaining the situation
+    # AND offering a remediation path.
+    assert summary.first_recommended_action is not None, (
+        "Evidence-only review_required must surface a non-null "
+        "first_recommended_action so the agent has somewhere to go."
+    )
+    assert summary.first_recommended_action.kind == "info"
+    why = summary.first_recommended_action.why
+    assert "low-confidence evidence" in why
+    assert "MCP/OpenAPI" in why or "eval traces" in why, (
+        f"Action why must point at concrete evidence-gathering paths; "
+        f"got {why!r}"
     )
 
 
