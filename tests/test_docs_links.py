@@ -124,26 +124,27 @@ def test_index_lists_current_schema():
     )
 
 
-def test_no_other_doc_falsely_advertises_an_older_schema_as_current():
-    """Other agent-facing docs must not call an older schema 'current'.
-    The contract-test pattern at tests/test_public_surface_contract.py
-    already covers PUBLIC_SURFACES; this test extends the guard to a
-    handful of secondary docs that were missed in PR #57 (INDEX.md,
-    examples.md, baseline.md, autofix-policy.md). Catches "doc drift
-    after a schema bump" failures earlier than CI would surface them
-    via downstream test fixtures."""
+def test_no_doc_falsely_advertises_an_older_schema_as_current():
+    """No file under ``docs/`` may advertise an older report schema as
+    "current". The contract-test pattern at
+    tests/test_public_surface_contract.py covers PUBLIC_SURFACES; this
+    test extends the guard to **every** Markdown file under ``docs/``.
+
+    Earlier hand-curated lists missed `docs/overview.md` and
+    `docs/ai-search-summary.md` (#57 review P3), forcing two more
+    drift fixes. Walking the full tree closes that loophole — adding
+    a new doc that mentions the schema cannot bypass the guard."""
     current = _current_report_schema_version()
-    secondary_docs = (
-        "INDEX.md",
-        "examples.md",
-        "baseline.md",
-        "autofix-policy.md",
-    )
     older_minor = re.compile(r"report-schema\.v0\.(?P<minor>\d+)\.json")
     current_minor = int(current.split(".")[1])
 
-    for relpath in secondary_docs:
-        text = (DOCS_DIR / relpath).read_text(encoding="utf-8")
+    # Schema files themselves (`docs/report-schema.v0.X.json`) and
+    # private adoption notes are excluded; everything else under
+    # ``docs/`` is scanned.
+    failures: list[str] = []
+    for path in DOCS_DIR.rglob("*.md"):
+        relpath = path.relative_to(DOCS_DIR).as_posix()
+        text = path.read_text(encoding="utf-8")
         for match in older_minor.finditer(text):
             mentioned = int(match.group("minor"))
             if mentioned >= current_minor:
@@ -158,11 +159,17 @@ def test_no_other_doc_falsely_advertises_an_older_schema_as_current():
                 marker in context
                 for marker in ("frozen", "legacy", "older", "pre-v")
             ):
-                raise AssertionError(
-                    f"docs/{relpath} mentions report-schema.v0.{mentioned}.json "
-                    "near the word 'current' without a frozen/legacy/older "
-                    f"marker. Current schema is v{current}; bump the doc."
+                failures.append(
+                    f"docs/{relpath}: report-schema.v0.{mentioned}.json "
+                    "near the word 'current' without a "
+                    "frozen/legacy/older marker"
                 )
+
+    assert not failures, (
+        "Doc drift: the following docs mention an older report schema as "
+        f"'current' (runtime is v{current}). Bump them or add a "
+        "frozen/legacy marker:\n  - " + "\n  - ".join(failures)
+    )
 
 
 def test_trust_model_documents_bounded_git_discovery_exception():

@@ -345,6 +345,103 @@ def test_first_recommended_action_falls_back_to_info_without_json_path():
     assert "apply-patches" in summary.first_recommended_action.why
 
 
+def test_first_recommended_action_command_is_shell_safe():
+    """The advertised command must round-trip through ``shlex.split``
+    even when the JSON report path contains spaces (common on macOS
+    when the user has spaces in directory names — e.g.
+    ``/Users/.../My Project/agents-shipgate-reports/report.json``).
+    Without ``shlex.quote``, the path splits at the spaces and
+    apply-patches receives garbage --from arguments
+    (#57 review P2)."""
+    import shlex as _shlex
+
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    awkward_path = "/tmp/shipgate review/custom reports/report.json"
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=_make_release_decision(decision="passed"),
+        json_report_path=awkward_path,
+    )
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "command"
+    parts = _shlex.split(summary.first_recommended_action.command or "")
+    # `--from <PATH>` must round-trip exactly
+    assert "--from" in parts
+    from_idx = parts.index("--from")
+    assert parts[from_idx + 1] == awkward_path, (
+        f"Path with spaces did not round-trip through shlex.split. "
+        f"Got args={parts!r}"
+    )
+
+
+def test_needs_human_review_counts_propose_patch_for_review():
+    """`needs_human_review` must count BOTH escalate_to_human and
+    propose_patch_for_review findings. Earlier the count was scoped
+    to escalate_to_human only — silently under-counting medium/low
+    confidence patches that the user must explicitly confirm before
+    applying. release_decision routes both into review_items, so the
+    agent_summary number must agree (#57 review P1)."""
+    propose = _make_finding(
+        check_id="SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        severity="high",
+        agent_action="propose_patch_for_review",
+    )
+    escalate = _make_finding(
+        check_id="SHIP-DOC-MISSING-DESCRIPTION",
+        severity="medium",
+        agent_action="escalate_to_human",
+    )
+    summary = build_agent_summary(
+        findings=[propose, escalate],
+        release_decision=_make_release_decision(
+            decision="review_required",
+            review_items=[propose.check_id, escalate.check_id],
+            reason="2 review items.",
+        ),
+    )
+    assert summary.needs_human_review == 2, (
+        f"needs_human_review must include propose_patch_for_review; "
+        f"got {summary.needs_human_review} for findings "
+        f"{[f.agent_action for f in [propose, escalate]]}."
+    )
+    # The first_recommended_action's why-text uses needs_human_review
+    # for the count when no auto-apply path applies. Pin so the count
+    # in prose stays in sync with the field.
+    assert summary.first_recommended_action is not None
+    assert "Walk the 2 review item" in summary.first_recommended_action.why, (
+        f"Action why-text must include the corrected count; got "
+        f"{summary.first_recommended_action.why!r}"
+    )
+
+
+def test_needs_human_review_only_finding_is_propose_patch_for_review():
+    """The reviewer's exact repro: a single propose_patch_for_review
+    finding with verdict review_required must surface count=1 (not 0)
+    and the action text must say 'Walk the 1 review item' (not 'Walk
+    the 0 review item(s)')."""
+    propose = _make_finding(
+        check_id="SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        severity="high",
+        agent_action="propose_patch_for_review",
+    )
+    summary = build_agent_summary(
+        findings=[propose],
+        release_decision=_make_release_decision(
+            decision="review_required",
+            review_items=[propose.check_id],
+            reason="1 review item.",
+        ),
+    )
+    assert summary.needs_human_review == 1
+    assert summary.review_item_count == 1
+    assert summary.first_recommended_action is not None
+    assert "Walk the 1 review item" in summary.first_recommended_action.why
+
+
 def test_build_agent_summary_blocked_without_auto_appliable_surfaces_top_blocker():
     blocker = _make_finding(
         check_id="SHIP-POLICY-APPROVAL-MISSING",

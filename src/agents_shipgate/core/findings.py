@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 from collections import Counter, defaultdict
 
 from agents_shipgate.ci.release_decision import build_release_decision
@@ -245,8 +246,18 @@ def build_agent_summary(
     auto_appliable = sum(
         1 for f in active_findings if f.agent_action == "auto_apply"
     )
+    # `needs_human_review` covers every active finding the user has to
+    # weigh in on before release: full escalations (no machine path)
+    # PLUS proposed patches that ship at medium/low confidence and
+    # require an explicit `--apply` after the user reviews the diff.
+    # Earlier this counted only `escalate_to_human`, which silently
+    # under-counted propose_patch_for_review findings — release_decision
+    # already routes both into review_items, so the agent_summary
+    # number must agree (#57 review P1).
     needs_review = sum(
-        1 for f in active_findings if f.agent_action == "escalate_to_human"
+        1
+        for f in active_findings
+        if f.agent_action in {"escalate_to_human", "propose_patch_for_review"}
     )
 
     # Headline: short, one-sentence statement that names the verdict and
@@ -314,11 +325,18 @@ def _build_first_recommended_action(
             "safe to apply without human review."
         )
         if json_report_path:
+            # shlex.quote so paths with spaces (e.g. macOS
+            # "/Users/.../My Project/agents-shipgate-reports/report.json")
+            # round-trip through shlex.split unchanged. Without the
+            # quote, the advertised command splits at the spaces and
+            # apply-patches receives garbage --from arguments
+            # (#57 review P2).
+            quoted_path = shlex.quote(json_report_path)
             return AgentSummaryAction(
                 kind="command",
                 command=(
                     f"agents-shipgate apply-patches --from "
-                    f"{json_report_path} --confidence high --apply"
+                    f"{quoted_path} --confidence high --apply"
                 ),
                 why=why,
             )
