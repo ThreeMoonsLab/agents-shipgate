@@ -19,7 +19,7 @@ curl -sSL -o shipgate-detect.py \
 python3 shipgate-detect.py --workspace . --json
 ```
 
-Output mirrors `agents-shipgate detect --json` (plus a `script_version` field):
+The script's output is a **structural subset** of `agents-shipgate detect --json`. It carries the canonical `DetectResult` fields (which is what the verdict — "is this an agent project?" — depends on) plus a `script_version` distinguisher. It does **not** carry the CLI's `diagnostics[]` or `next_actions[]` arrays — those require the full install.
 
 ```json
 {
@@ -33,7 +33,7 @@ Output mirrors `agents-shipgate detect --json` (plus a `script_version` field):
 }
 ```
 
-The script and the canonical CLI are pinned to structural parity by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py) — same `is_agent_project`, same fired frameworks, same suggested sources for every sample in `samples/`.
+The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
 
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 

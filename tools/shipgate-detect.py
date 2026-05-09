@@ -13,15 +13,23 @@ Usage::
         | python3 - --workspace . --json
 
 Output mirrors :class:`agents_shipgate.cli.discovery.signals.DetectResult`
-plus a ``script_version`` field that distinguishes this script from the
-canonical CLI. The public-surface contract test pins the verdict against
-``agents-shipgate detect --json`` on every sample in ``samples/``, so the
-two cannot drift.
+plus a ``script_version`` field. It is a **structural subset** of the
+canonical ``agents-shipgate detect --json`` output, NOT a drop-in
+replacement: the CLI also emits ``diagnostics[]`` and ``next_actions[]``
+arrays (the diagnostic engine), which are intentionally out of scope for
+the zero-install path. The contract test pins the verdict — ``is_agent_project``,
+fired frameworks, suggested sources — against the CLI on every sample in
+``samples/``, so the two cannot drift on the load-bearing fields.
 
-Intentional simplifications vs. the canonical CLI: no git-ls-files fast
-path; descriptive (not byte-identical) evidence strings; absolute scores
-may differ by ±0.5 in edge cases. The verdict and detected framework set
-match.
+Intentional simplifications vs. the canonical CLI:
+
+- No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
+  not in scope for stdlib-only / zero-install).
+- No git-ls-files fast path; ``os.walk`` only.
+- Descriptive (not byte-identical) ``evidence`` strings.
+- Absolute scores may differ by ±0.5 in edge cases.
+
+The verdict and detected framework set match.
 """
 from __future__ import annotations
 

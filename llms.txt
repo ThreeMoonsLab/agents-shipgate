@@ -90,7 +90,7 @@
 - Website discovery metadata: https://threemoonslab.com/.well-known/agents-shipgate.json
 - Trigger catalog (machine-readable mirror of the AGENTS.md trigger table): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json
 - Long-form agent reference (AGENTS.md + recipes + checks + concepts + autofix policy concatenated): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt
-- Zero-install detector (stdlib-only Python; same JSON shape as `agents-shipgate detect --json`): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py
+- Zero-install detector (stdlib-only Python; same structural verdict as `agents-shipgate detect --json` — emits the canonical `DetectResult` fields plus `script_version`, but NOT the CLI's `diagnostics` or `next_actions` arrays): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py
 - Zero-install paths overview (single-file detector, uvx, GitHub Action): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/zero-install.md
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.10.json

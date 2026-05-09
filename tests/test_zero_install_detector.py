@@ -85,6 +85,31 @@ def test_script_path_exists():
     )
 
 
+def test_script_does_not_claim_drop_in_parity(script_module):
+    """The script is documented as a structural subset of
+    ``agents-shipgate detect --json``, NOT a drop-in replacement.
+    Specifically, the canonical CLI emits ``diagnostics[]`` and
+    ``next_actions[]`` arrays; the zero-install script does not.
+
+    Pin the absence so docs/zero-install.md, llms.txt, and the script's
+    docstring stay accurate. If we ever decide to ship a stdlib-only
+    diagnostic engine, update those wording surfaces in the same PR
+    that flips this test."""
+    result = script_module.detect(SAMPLES_ROOT / "support_refund_agent")
+    assert "diagnostics" not in result, (
+        "The zero-install script must not emit `diagnostics[]` — it's "
+        "documented as a structural subset of the canonical CLI. If "
+        "you add this field, update the docstring in "
+        "tools/shipgate-detect.py, docs/zero-install.md, and llms.txt "
+        "to match."
+    )
+    assert "next_actions" not in result, (
+        "The zero-install script must not emit `next_actions[]` — see "
+        "the docstring in tools/shipgate-detect.py for the rationale "
+        "(diagnostic engine is out of scope for the zero-install path)."
+    )
+
+
 def test_script_emits_canonical_top_level_keys(script_module):
     """The script's JSON output must carry the same top-level keys as
     DetectResult, plus ``script_version`` to distinguish it from the
