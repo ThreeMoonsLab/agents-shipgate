@@ -260,23 +260,53 @@ def build_agent_summary(
         if f.agent_action in {"escalate_to_human", "propose_patch_for_review"}
     )
 
-    # Headline: short, one-sentence statement that names the verdict and
-    # the headline counts. Agents are free to compute richer headlines;
-    # this is the deterministic baseline.
+    # Headline: short, one-sentence statement that names the verdict
+    # and the action-driven counts. The two populations differ:
+    # `review_item_count` mirrors `release_decision.review_items`
+    # (severity-driven; can include medium-severity auto_apply
+    # findings), while `needs_human_review` counts only findings whose
+    # `agent_action` requires human input. The headline uses
+    # `needs_human_review` for the "require human review" wording so a
+    # review_required verdict with only auto-applicable findings reads
+    # honestly as "auto-applicable; none require human input" instead
+    # of falsely claiming N findings need review.
     if verdict == "blocked":
         headline = (
             f"{blocker_count} active finding(s) block release"
-            + (f"; {review_item_count} review item(s) accepted as debt." if review_item_count else ".")
+            + (
+                f"; {review_item_count} review item(s) accepted as debt."
+                if review_item_count
+                else "."
+            )
         )
     elif verdict == "review_required":
-        headline = (
-            f"{review_item_count} finding(s) require human review"
-            + (f"; {blocker_count} blocker(s) detected." if blocker_count else ".")
-        )
+        if needs_review > 0:
+            head = f"{needs_review} finding(s) require human review"
+            if auto_appliable > 0:
+                head += f"; {auto_appliable} also auto-applicable"
+            headline = head + "."
+        elif auto_appliable > 0:
+            headline = (
+                f"{auto_appliable} auto-applicable finding(s) flagged for "
+                "release review; none require human input beyond apply-patches."
+            )
+        else:
+            # Rare edge case: review_items has only informational/suppressed
+            # actions. Surface the underlying review_item_count so the
+            # headline isn't a contradiction.
+            headline = (
+                f"{review_item_count} review item(s) flagged for release review."
+            )
+        if blocker_count:
+            headline += f" ({blocker_count} blocker(s) detected.)"
     else:
         headline = (
             "Release ready"
-            + (f" ({review_item_count} review item(s) accepted as debt)." if review_item_count else ".")
+            + (
+                f" ({review_item_count} review item(s) accepted as debt)."
+                if review_item_count
+                else "."
+            )
         )
     if reason and len(headline) + len(reason) + 4 < 240:
         headline = f"{headline} {reason}" if reason.endswith(".") else f"{headline} {reason}."
@@ -285,6 +315,7 @@ def build_agent_summary(
         verdict=verdict,
         auto_appliable=auto_appliable,
         needs_review=needs_review,
+        review_item_count=review_item_count,
         active_findings=active_findings,
         json_report_path=json_report_path,
     )
@@ -305,6 +336,7 @@ def _build_first_recommended_action(
     verdict: str,
     auto_appliable: int,
     needs_review: int,
+    review_item_count: int,
     active_findings: list[Finding],
     json_report_path: str | None,
 ) -> AgentSummaryAction | None:
@@ -375,11 +407,17 @@ def _build_first_recommended_action(
         top = _top_active_finding(active_findings)
         if top is None:
             return None
+        # Prefer the action-driven count when there are findings that
+        # need human input. Fall back to the severity-driven
+        # review_item_count when needs_review is 0 — otherwise the
+        # text would read "Walk the 0 review item(s)" even though the
+        # release decision has flagged something for review.
+        visible = needs_review if needs_review > 0 else review_item_count
         return AgentSummaryAction(
             kind="info",
             command=None,
             why=(
-                f"Walk the {needs_review} review item(s) starting with "
+                f"Walk the {visible} review item(s) starting with "
                 f"{top.check_id}; release is allowed but the human "
                 "reviewer should weigh in."
             ),

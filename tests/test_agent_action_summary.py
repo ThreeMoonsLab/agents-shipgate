@@ -418,6 +418,52 @@ def test_needs_human_review_counts_propose_patch_for_review():
     )
 
 
+def test_review_required_with_only_auto_apply_does_not_claim_human_review():
+    """A medium-severity auto_apply finding (e.g. a stale suppression)
+    lands in release_decision.review_items via the severity rule, so
+    the verdict is `review_required`. But its agent_action is
+    `auto_apply`, so `needs_human_review` is correctly 0. The headline
+    must reflect that — the previous wording falsely claimed
+    'N finding(s) require human review' even when N==0
+    (#57 review P1).
+
+    The two counts (`review_item_count`, `needs_human_review`) track
+    different populations and can diverge; the contract doc documents
+    that explicitly. The headline now uses `needs_human_review` for
+    the human-review wording with an explicit 'auto-applicable'
+    fallback when the action-driven count is 0."""
+    auto_only = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+        autofix_safe=True,
+        requires_human_review=False,
+    )
+    summary = build_agent_summary(
+        findings=[auto_only],
+        release_decision=_make_release_decision(
+            decision="review_required",
+            review_items=[auto_only.check_id],
+            reason="1 review item.",
+        ),
+        json_report_path="/abs/r.json",
+    )
+    assert summary.verdict == "review_required"
+    assert summary.review_item_count == 1
+    assert summary.auto_appliable_patches == 1
+    assert summary.needs_human_review == 0
+    # Headline must NOT claim findings require human review when
+    # needs_human_review is 0.
+    assert "require human review" not in summary.headline, (
+        f"Headline falsely claimed human review needed when "
+        f"needs_human_review is 0: {summary.headline!r}"
+    )
+    assert "auto-applicable" in summary.headline, (
+        f"Headline must explicitly mention auto-applicable findings "
+        f"in this branch: {summary.headline!r}"
+    )
+
+
 def test_needs_human_review_only_finding_is_propose_patch_for_review():
     """The reviewer's exact repro: a single propose_patch_for_review
     finding with verdict review_required must surface count=1 (not 0)
