@@ -9,6 +9,35 @@ from agents_shipgate.core.patches import Patch
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["low", "medium", "high"]
 BaselineStatus = Literal["new", "matched", "resolved"]
+# v0.12: per-finding agent action enum.
+#
+# Deterministic projection of the existing `patches`, `autofix_safe`, and
+# `requires_human_review` fields. Lets a coding agent read one canonical
+# field instead of synthesizing an action from four. See
+# :func:`agents_shipgate.core.findings.derive_agent_action` for the
+# exact decision tree.
+#
+# - ``auto_apply`` — `apply-patches --confidence high` will resolve
+#   cleanly. The finding has at least one non-manual patch and every
+#   patch is high-confidence.
+# - ``propose_patch_for_review`` — non-manual patch attached, but at
+#   least one patch is medium- or low-confidence. The agent should ask
+#   the user before `--apply`.
+# - ``escalate_to_human`` — no machine-applicable patch (manual-only or
+#   ``patches`` empty/absent with a check that requires human review).
+# - ``suppress_with_reason`` — reserved for future check classes that
+#   explicitly mark themselves as suppressible. Not emitted by the
+#   built-in deterministic projection in v0.12; schema accepts the
+#   value so callers can extend without a schema bump.
+# - ``informational`` — no action required (suppressed finding, or
+#   non-actionable advisory).
+AgentAction = Literal[
+    "auto_apply",
+    "propose_patch_for_review",
+    "escalate_to_human",
+    "suppress_with_reason",
+    "informational",
+]
 
 
 def parse_severity(value: str) -> Severity:
@@ -219,6 +248,12 @@ class Finding(BaseModel):
     requires_human_review: bool | None = None
     suggested_patch_kind: str | None = None
     docs_url: str | None = None
+    # v0.12: deterministic agent_action projection. Set by
+    # `annotate_remediation` after the v0.7 fields above are populated.
+    # Stays None on synthetic findings constructed for tests that don't
+    # exercise the remediation path (kept Python-optional for back-compat;
+    # the JSON Schema requires the field on emitted reports).
+    agent_action: AgentAction | None = None
 
 
 class ReportSummary(BaseModel):
@@ -848,11 +883,46 @@ class LoadedPolicyPack(BaseModel):
     rule_count: int
 
 
+class AgentSummaryAction(BaseModel):
+    """A single recommended next step shaped for direct agent consumption.
+
+    Mirrors the ``next_actions[]`` shape used elsewhere in the contract
+    (kind/command/why) so callers that already handle diagnostic
+    next_actions can reuse the same renderer here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["command", "info"] = "command"
+    command: str | None = None
+    why: str
+
+
+class AgentSummary(BaseModel):
+    """Top-level summary block shaped for one-fetch agent consumption.
+
+    Deterministic projection of (``release_decision``, ``findings[].agent_action``).
+    A coding agent that wants the headline numbers can read this block
+    instead of traversing arrays. All fields are derived; this block
+    cannot disagree with the underlying data.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["blocked", "review_required", "passed"]
+    headline: str
+    blocker_count: int = 0
+    review_item_count: int = 0
+    auto_appliable_patches: int = 0
+    needs_human_review: int = 0
+    first_recommended_action: AgentSummaryAction | None = None
+
+
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.11"
+    report_schema_version: str = "0.12"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -890,6 +960,11 @@ class ReadinessReport(BaseModel):
     loaded_plugins: list[dict[str, Any]] = Field(default_factory=list)
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
+    # v0.12: top-level agent summary. Deterministic projection of
+    # release_decision + findings[].agent_action. Optional at Python
+    # level so older test helpers can construct minimal reports;
+    # build_report() always populates it for emitted scans.
+    agent_summary: AgentSummary | None = None
 
 
 class LoadedToolSource(BaseModel):

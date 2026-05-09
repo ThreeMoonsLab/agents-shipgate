@@ -867,6 +867,13 @@ def _run_id(
                     "requires_human_review": True,
                     "suggested_patch_kind": True,
                     "docs_url": True,
+                    # v0.12 derived enrichment: same exclusion rule as
+                    # the v0.7 remediation fields above. agent_action is
+                    # a deterministic projection of those fields, so
+                    # excluding them already implies it should be
+                    # excluded — but make it explicit so a future
+                    # contributor doesn't have to trace the projection.
+                    "agent_action": True,
                     # v0.11 provenance fields are excluded so YAML line
                     # drift cannot churn run_id; the legacy
                     # type/ref/location strings stay in the hash so

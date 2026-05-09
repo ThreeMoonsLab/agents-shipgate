@@ -11,14 +11,22 @@ You are working in a repo with `shipgate.yaml` already in place and want a coord
    ```
    Read `agents-shipgate-reports/report.json`. Verify `report_schema_version` is `"0.8"` or higher. Filter `findings[]` to entries with `"suppressed": false`.
 
-2. **Bucket each active finding into one of four classes.** Use the per-Finding fields (the catalog values are worst-case; per-Finding fields tell the truth for this scan). The buckets come from [`docs/autofix-policy.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/autofix-policy.md):
+2. **Bucket each active finding into one of four classes.** Read `agent_action` (v0.12+; deterministic projection of patches/autofix/human-review fields) to bucket each active finding directly. If `agent_action` is missing (older v0.11 or earlier reports), fall back to the legacy three-field check shown in the right column. The buckets correspond to [`docs/autofix-policy.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/autofix-policy.md):
 
-   | Bucket | Detect by | Example check IDs |
-   |---|---|---|
-   | **A. Safe auto-fix** | `autofix_safe == true` | `SHIP-MANIFEST-STALE-{SUPPRESSION,POLICY,RISK-OVERRIDE}` when the match is unique |
-   | **B. Medium-confidence config fix** | `autofix_safe == false` AND `suggested_patch_kind` ∈ `{set_pointer, append_pointer, remove_pointer}` | `SHIP-AUTH-SCOPE-COVERAGE-MISSING` |
-   | **C. Manual** | `suggested_patch_kind == "manual"` | Documentation, schema bounds, owner gaps, ADK/LangChain/CrewAI metadata, and the never-auto-fix trace findings |
-   | **D. No patch emitted** | `suggested_patch_kind == "none"` | The generator emitted nothing — but the finding can still be high/critical (e.g. low-confidence inventory). Treat as **human triage**, not informational. |
+   | Bucket | `agent_action` (v0.12+) | Legacy fallback (v0.11 or earlier) | Example check IDs |
+   |---|---|---|---|
+   | **A. Safe auto-fix** | `auto_apply` | `autofix_safe == true` | `SHIP-MANIFEST-STALE-{SUPPRESSION,POLICY,RISK-OVERRIDE}` when the match is unique |
+   | **B. Medium-confidence config fix** | `propose_patch_for_review` | `autofix_safe == false` AND `suggested_patch_kind` ∈ `{set_pointer, append_pointer, remove_pointer}` | `SHIP-AUTH-SCOPE-COVERAGE-MISSING` |
+   | **C. Manual** | `escalate_to_human` (with `suggested_patch_kind == "manual"`) | `suggested_patch_kind == "manual"` | Documentation, schema bounds, owner gaps, ADK/LangChain/CrewAI metadata, and the never-auto-fix trace findings |
+   | **D. No patch emitted** | `escalate_to_human` (with `suggested_patch_kind == "none"`) | `suggested_patch_kind == "none"` | The generator emitted nothing — but the finding can still be high/critical (e.g. low-confidence inventory). Treat as **human triage**, not informational. |
+   | (skip) | `informational` | `suppressed == true` | Already-suppressed findings; show counts only. |
+
+   For one-fetch counts read the top-level `agent_summary` block (v0.12+):
+   `agent_summary.auto_appliable_patches` is the bucket-A count;
+   `agent_summary.needs_human_review` is buckets C+D combined; the
+   bucket-B count is the active-finding total minus those minus
+   informational. Use `agent_summary.first_recommended_action.command`
+   as your default suggestion when bucket A is non-empty.
 
 3. **Build a recommendation card per finding.** For each, present:
    - `check_id`, `title`, `severity`, `tool_name`, `confidence`
@@ -63,7 +71,7 @@ You are working in a repo with `shipgate.yaml` already in place and want a coord
 
 ## Verification
 
-- A fresh `report.json` exists, validates as `report_schema_version: "0.8"` (or higher), and was generated with `--suggest-patches`.
+- A fresh `report.json` exists, validates as `report_schema_version: "0.8"` (or higher; v0.12+ exposes `agent_action` and `agent_summary`), and was generated with `--suggest-patches`.
 - Each presented card cites a concrete location: `target_file` + `pointer` for non-manual patches, `instructions` verbatim for manual patches, file path + parameter name from `evidence`/`source` for bucket D.
 - If Bucket A patches were applied: re-scan shows lower active counts AND the previously-failing fingerprints are absent from the new `report.json`.
 - If only B/C/D were surfaced: counts are unchanged (expected); the user has a clear list of next actions.

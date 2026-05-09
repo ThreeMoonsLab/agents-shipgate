@@ -8,11 +8,15 @@ from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.models import (
+    AgentAction,
+    AgentSummary,
+    AgentSummaryAction,
     BaselineSummary,
     CheckMetadata,
     Finding,
     LoadedPolicyPack,
     ReadinessReport,
+    ReleaseDecision,
     ReportSummary,
     Severity,
     Tool,
@@ -146,7 +150,199 @@ def annotate_remediation(
         finding.requires_human_review = requires_human_review
         finding.suggested_patch_kind = suggested_patch_kind
         finding.docs_url = catalog_doc_url
+        finding.agent_action = derive_agent_action(finding)
     return findings
+
+
+def derive_agent_action(finding: Finding) -> AgentAction:
+    """Project ``finding`` to a single ``AgentAction`` enum value.
+
+    Deterministic projection of (``patches``, ``autofix_safe``,
+    ``requires_human_review``). The strategy proposal in
+    ``docs/agent-adoption-strategy.md`` §7 G10 sketched an algorithm
+    that ordered ``requires_human_review`` before the medium/low
+    confidence check, but that mapped non-manual medium-confidence
+    patches to ``escalate_to_human`` even though the value's defined
+    semantic ("no machine-applicable patch; needs human judgment")
+    excludes that case. We deviate by checking confidence on the first
+    non-manual patch BEFORE falling through to escalate, which keeps
+    the value definitions consistent with the projection.
+
+    The ``suppress_with_reason`` value is reserved for future check
+    classes that explicitly mark themselves as suppressible. The
+    built-in projection does not emit it.
+    """
+    if finding.suppressed:
+        return "informational"
+
+    patches = finding.patches
+
+    # No patch list (no --suggest-patches) or empty patch list:
+    # nothing machine-applicable. Route on the catalog flags.
+    if not patches:
+        if finding.requires_human_review:
+            return "escalate_to_human"
+        return "informational"
+
+    first = patches[0]
+    if first.kind == "manual":
+        return "escalate_to_human"
+
+    first_confidence = getattr(first, "confidence", None)
+    if first_confidence == "high" and finding.autofix_safe:
+        return "auto_apply"
+
+    # Non-manual patch with non-high confidence → propose for review.
+    # We deviate from the strategy doc's strict algorithm here (see
+    # docstring): the patch IS machine-applicable, so it shouldn't
+    # escalate, even when requires_human_review is True (which it
+    # always is in this branch — autofix_safe demands all-high).
+    if first_confidence in {"medium", "low"}:
+        return "propose_patch_for_review"
+
+    # All other non-manual states (including the rare case where a
+    # non-manual patch carries no confidence): conservative escalate.
+    if finding.requires_human_review:
+        return "escalate_to_human"
+    return "informational"
+
+
+def build_agent_summary(
+    *,
+    findings: list[Finding],
+    release_decision: ReleaseDecision | None,
+) -> AgentSummary:
+    """Construct the top-level ``agent_summary`` block.
+
+    Deterministic projection of ``release_decision`` plus the
+    per-finding ``agent_action`` values. Surfaces the same numbers a
+    coding agent would otherwise compute by traversing arrays — same
+    inputs, same output, no agent-side aggregation needed.
+    """
+    if release_decision is None:
+        verdict: str = "passed"
+        blocker_count = 0
+        review_item_count = 0
+        reason = "No release decision computed."
+    else:
+        verdict = release_decision.decision
+        blocker_count = len(release_decision.blockers)
+        review_item_count = len(release_decision.review_items)
+        reason = (release_decision.reason or "").strip()
+
+    active_findings = [f for f in findings if not f.suppressed]
+    auto_appliable = sum(
+        1 for f in active_findings if f.agent_action == "auto_apply"
+    )
+    needs_review = sum(
+        1 for f in active_findings if f.agent_action == "escalate_to_human"
+    )
+
+    # Headline: short, one-sentence statement that names the verdict and
+    # the headline counts. Agents are free to compute richer headlines;
+    # this is the deterministic baseline.
+    if verdict == "blocked":
+        headline = (
+            f"{blocker_count} active finding(s) block release"
+            + (f"; {review_item_count} review item(s) accepted as debt." if review_item_count else ".")
+        )
+    elif verdict == "review_required":
+        headline = (
+            f"{review_item_count} finding(s) require human review"
+            + (f"; {blocker_count} blocker(s) detected." if blocker_count else ".")
+        )
+    else:
+        headline = (
+            "Release ready"
+            + (f" ({review_item_count} review item(s) accepted as debt)." if review_item_count else ".")
+        )
+    if reason and len(headline) + len(reason) + 4 < 240:
+        headline = f"{headline} {reason}" if reason.endswith(".") else f"{headline} {reason}."
+
+    first_action = _build_first_recommended_action(
+        verdict=verdict,
+        auto_appliable=auto_appliable,
+        needs_review=needs_review,
+        active_findings=active_findings,
+    )
+
+    return AgentSummary(
+        verdict=verdict,  # type: ignore[arg-type]
+        headline=headline,
+        blocker_count=blocker_count,
+        review_item_count=review_item_count,
+        auto_appliable_patches=auto_appliable,
+        needs_human_review=needs_review,
+        first_recommended_action=first_action,
+    )
+
+
+def _build_first_recommended_action(
+    *,
+    verdict: str,
+    auto_appliable: int,
+    needs_review: int,
+    active_findings: list[Finding],
+) -> AgentSummaryAction | None:
+    """Deterministic next-step picker for ``agent_summary``.
+
+    Order (highest impact first):
+    1. Auto-applicable patches available → propose ``apply-patches``.
+    2. Verdict is blocked → propose surfacing the top blocker for review.
+    3. Verdict is review_required → propose review of the top finding.
+    4. Verdict is passed → no action (None).
+    """
+    if auto_appliable > 0:
+        return AgentSummaryAction(
+            kind="command",
+            command=(
+                "agents-shipgate apply-patches --from "
+                "agents-shipgate-reports/report.json --confidence high --apply"
+            ),
+            why=(
+                f"{auto_appliable} finding(s) carry high-confidence patches "
+                "safe to apply without human review."
+            ),
+        )
+
+    if verdict == "blocked":
+        top = _top_active_finding(active_findings)
+        if top is None:
+            return None
+        return AgentSummaryAction(
+            kind="info",
+            command=None,
+            why=(
+                f"Surface {top.check_id} on {top.tool_name or 'agent'} to "
+                "the user; release is blocked and no auto-applicable patch "
+                "is available."
+            ),
+        )
+
+    if verdict == "review_required":
+        top = _top_active_finding(active_findings)
+        if top is None:
+            return None
+        return AgentSummaryAction(
+            kind="info",
+            command=None,
+            why=(
+                f"Walk the {needs_review} review item(s) starting with "
+                f"{top.check_id}; release is allowed but the human "
+                "reviewer should weigh in."
+            ),
+        )
+
+    return None
+
+
+def _top_active_finding(findings: list[Finding]) -> Finding | None:
+    """Pick the highest-severity active finding (ties broken by check_id)."""
+    if not findings:
+        return None
+    return min(
+        findings, key=lambda f: (SEVERITY_ORDER.get(f.severity, 99), f.check_id)
+    )
 
 
 def _derive_from_patches(patches: list) -> tuple[bool, bool, str]:
@@ -297,6 +493,13 @@ def build_report(
         ci_mode=ci_mode,
         fail_on=fail_on,
         new_findings_only=new_findings_only,
+    )
+    # v0.12: agent_summary is the deterministic projection of
+    # release_decision + per-finding agent_action. Built last so it
+    # picks up everything else.
+    report.agent_summary = build_agent_summary(
+        findings=findings,
+        release_decision=report.release_decision,
     )
     return report
 

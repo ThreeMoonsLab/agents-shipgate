@@ -231,7 +231,7 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 
-The full schema is at [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current; emitted reports carry `report_schema_version: "0.11"`). Older reports validate against [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (current; emitted reports carry `report_schema_version: "0.12"`). v0.12 adds the per-finding `agent_action` enum and the top-level `agent_summary` block — both deterministic projections of existing fields, so callers that don't read them stay correct. Older reports validate against [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
 
@@ -286,7 +286,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (current).
+[`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -324,7 +324,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
+| Report schema (current) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
+| Report schema (v0.11 frozen reference) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
 | Report schema (v0.10 frozen reference) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
 | Report schema (v0.9 frozen reference) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |

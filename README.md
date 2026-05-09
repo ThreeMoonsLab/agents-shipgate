@@ -124,7 +124,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.11](docs/report-schema.v0.11.json); gating signal is `release_decision.decision`), SARIF for GitHub code-scanning workflows.
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.12](docs/report-schema.v0.12.json); gating signal is `release_decision.decision`; v0.12 adds per-finding `agent_action` and top-level `agent_summary`), SARIF for GitHub code-scanning workflows.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with ten always-present sections (release decision, capability/intent, high-risk surface, approval coverage, idempotency risk, scope coverage, memory isolation, human-in-the-loop, dynamic scenarios, not_proven). Governed by [packet schema v0.3](docs/packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v03).
 
 ## Exit codes
@@ -160,7 +160,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.11"`). v0.11 adds optional source provenance keys on `findings[].source`; read `release_decision.decision` for release gating in new consumers.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.12"`). v0.12 adds the per-finding `agent_action` enum and the top-level `agent_summary` block. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next step.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -335,7 +335,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, and static Google ADK/LangChain/CrewAI inputs; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.11"` (additive over v0.10's tool-surface facts/diff fields, adding optional source provenance keys on `findings[].source`) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.12"` (additive over v0.11's source provenance fields, adding the per-finding `agent_action` enum and top-level `agent_summary` block) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -400,7 +400,7 @@ contact details.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.11](docs/report-schema.v0.11.json)
+- [JSON report schema v0.12](docs/report-schema.v0.12.json)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)

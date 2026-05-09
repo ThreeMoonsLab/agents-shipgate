@@ -24,6 +24,7 @@ REPORT_SCHEMA_V08 = Path("docs/report-schema.v0.8.json")
 REPORT_SCHEMA_V09 = Path("docs/report-schema.v0.9.json")
 REPORT_SCHEMA_V10 = Path("docs/report-schema.v0.10.json")
 REPORT_SCHEMA_V11 = Path("docs/report-schema.v0.11.json")
+REPORT_SCHEMA_V12 = Path("docs/report-schema.v0.12.json")
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -105,7 +106,7 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
     assert "loaded_plugins" in payload
     assert payload["loaded_plugins"] == []
     assert payload["schema_version"] == "0.1"
-    assert payload["report_schema_version"] == "0.11"
+    assert payload["report_schema_version"] == "0.12"
     assert "release_decision" in payload
     assert payload["release_decision"]["decision"] in {
         "blocked",
@@ -461,10 +462,10 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v11_schema(tmp_path):
-    """v0.11 schema adds optional source provenance keys on
-    findings[].source. Emitted reports must validate against the v0.11
-    schema."""
+def test_json_report_validates_against_v12_schema(tmp_path):
+    """v0.12 schema adds the per-finding `agent_action` enum and the
+    top-level `agent_summary` block on top of v0.11's source-provenance
+    fields. Emitted reports must validate against the v0.12 schema."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -473,7 +474,7 @@ def test_json_report_validates_against_v11_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V11.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V12.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -513,6 +514,19 @@ def test_v10_schema_file_is_frozen():
     """v0.10 schema file stays parseable and pinned to const "0.10"."""
     schema = json.loads(REPORT_SCHEMA_V10.read_text(encoding="utf-8"))
     assert schema["properties"]["report_schema_version"] == {"const": "0.10"}
+
+
+def test_v11_schema_file_is_frozen():
+    """v0.11 schema file stays parseable and pinned to const "0.11".
+    Excludes v0.12 additive fields (agent_action / agent_summary)."""
+    schema = json.loads(REPORT_SCHEMA_V11.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.11"}
+    assert "agent_summary" not in schema.get("required", [])
+    assert "agent_summary" not in schema.get("properties", {})
+    finding_props = schema.get("$defs", {}).get("Finding", {}).get("properties", {})
+    assert "agent_action" not in finding_props, (
+        "v0.11 schema must not declare agent_action; it ships in v0.12."
+    )
 
 
 def test_v07_schema_preserves_nested_required_lists():
@@ -717,8 +731,8 @@ def test_v10_schema_requires_release_decision_and_diffs():
     } <= diff_required
 
 
-def test_v11_schema_rejects_null_release_decision_and_consequence(tmp_path):
-    """A v0.11 payload with null release blocks MUST fail validation.
+def test_v12_schema_rejects_null_release_decision_and_consequence(tmp_path):
+    """A v0.12 payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
     `anyOf: [ReleaseDecision, null]` and silently accepted null."""
     import jsonschema
@@ -731,7 +745,7 @@ def test_v11_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V11.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V12.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.
