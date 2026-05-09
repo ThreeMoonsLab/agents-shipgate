@@ -8,7 +8,12 @@ You are working in a repo with `shipgate.yaml` already in place. Run a scan and 
    ```bash
    agents-shipgate scan -c shipgate.yaml --ci-mode advisory
    ```
-   Read `agents-shipgate-reports/report.json`. For v0.12+ reports the easy path is `agent_summary.first_recommended_action.why` — when the verdict is `blocked` or `review_required` it names the top finding's `check_id` and `tool_name` directly. Otherwise pick the entry with the highest severity (`critical > high > medium > low > info`) that has `"suppressed": false`.
+   Read `agents-shipgate-reports/report.json`. For v0.12+ reports the easy path is `agent_summary.first_recommended_action.why` — for most `blocked`/`review_required` verdicts it names the top finding's `check_id` and `tool_name` directly. Two exceptions to expect:
+
+   - **Evidence-coverage-driven `review_required`** (low-confidence/static evidence; no specific finding to fix). The action's `why` describes the evidence situation and recommends gathering MCP/OpenAPI inputs or eval traces — there is no `check_id` to parse out. If you see "low-confidence evidence" or "static-only" in the why-text, follow that guidance instead of looking for a top finding.
+   - **`auto_appliable_patches > 0`**. The action proposes `apply-patches`; the why-text names the apply-patches command, not a specific finding. Walk `findings[]` for the actual top entry.
+
+   Fall back to picking the entry with the highest severity (`critical > high > medium > low > info`) and `"suppressed": false` whenever the action doesn't name a finding directly.
 
 2. **Look up the check definition.**
    ```bash

@@ -210,11 +210,14 @@ def derive_agent_action(finding: Finding) -> AgentAction:
     if first_confidence == "high" and finding.autofix_safe:
         return "auto_apply"
 
-    # Non-manual patch with non-high confidence → propose for review.
-    # The patch IS machine-applicable, so it shouldn't escalate even
-    # when requires_human_review is True (which it always is in this
-    # branch — autofix_safe demands all-high).
-    if first_confidence in {"medium", "low"}:
+    # Any non-manual patch with declared confidence (high, medium, or
+    # low) is machine-applicable, so the verdict is propose-for-review
+    # — including high-confidence patches in mixed lists where a
+    # ManualPatch sibling disqualified `autofix_safe`. The enum's
+    # `escalate_to_human` definition is "no machine-applicable patch",
+    # which doesn't fit this case; routing it to escalate would
+    # contradict the documented semantics (#57 review P3).
+    if first_confidence in {"high", "medium", "low"}:
         return "propose_patch_for_review"
 
     # Rare: non-manual patch carries no confidence. Conservative escalate.

@@ -250,6 +250,44 @@ def test_derive_agent_action_all_manual_patches_escalate():
     assert derive_agent_action(finding) == "escalate_to_human"
 
 
+def test_derive_agent_action_mixed_high_confidence_with_manual_proposes_review():
+    """A high-confidence non-manual patch alongside a ManualPatch maps
+    to `propose_patch_for_review` — NOT `escalate_to_human`. The
+    enum's `escalate_to_human` definition is "no machine-applicable
+    patch", but this case HAS a machine-applicable patch (the
+    high-confidence non-manual one); `autofix_safe` is False only
+    because of the manual sibling. Pinned by #57 review P3.
+
+    Operationally the agent should propose `apply-patches --confidence
+    high` (which will run the high-confidence patch and skip the
+    manual one) AND surface the manual instructions to the user —
+    that's exactly the propose-for-review semantic."""
+    manual = ManualPatch(instructions="Walk through this.")
+    high_auto = SetPointerPatch(
+        target_file="/abs/shipgate.yaml",
+        pointer="/x",
+        value="y",
+        target_format="yaml",
+        confidence="high",
+        rationale="OK",
+        target_sha256="0" * 64,
+    )
+
+    # Both orderings produce the same verdict (order-invariant)
+    for patches in ([manual, high_auto], [high_auto, manual]):
+        finding = _make_finding(
+            patches=patches,
+            autofix_safe=False,  # disqualified by the Manual sibling
+            requires_human_review=True,
+        )
+        assert derive_agent_action(finding) == "propose_patch_for_review", (
+            f"[{','.join(p.kind for p in patches)}] mapped to the wrong "
+            "verdict — high-confidence non-manual patches in mixed lists "
+            "are machine-applicable, so escalate_to_human contradicts "
+            "the enum prose."
+        )
+
+
 # --- build_agent_summary contract --------------------------------------
 
 
