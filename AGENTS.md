@@ -132,7 +132,7 @@ Config error: Config file not found: missing.yaml
 {"error": "config_error", "message": "...", "next_action": "agents-shipgate detect --workspace . --json", "next_actions": [{"kind": "command", "command": "agents-shipgate detect --workspace . --json", "why": "..."}, {"kind": "command", "command": "agents-shipgate init --workspace . --write", "why": "..."}]}
 ```
 
-The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `other_error`, `internal_error`, `malformed_patch`.
+The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`.
 
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
 
@@ -266,13 +266,24 @@ agents-shipgate scan -c shipgate.yaml \
 
 Strict mode fails CI only on **new** findings (those not in the baseline).
 
-### Task 5 · Explain a finding
+### Task 5 · Explain a check or a specific finding
+
+For static catalog metadata about a check ID (rationale, fires-when, recommendation):
 
 ```bash
 agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING --json
 ```
 
 Returns the full `CheckMetadata` with `id`, `category`, `default_severity`, `description`, `rationale`, `fires_when`, `evidence_fields`, `recommendation`.
+
+For a contextual explanation tied to a specific finding from a real scan (catalog metadata + the finding's evidence + a 3–5 sentence templated prose summary):
+
+```bash
+agents-shipgate explain-finding fp_<fingerprint> \
+    --from agents-shipgate-reports/report.json --json
+```
+
+Returns the canonical Finding fields plus `metadata` (CheckMetadata for the check_id) and `explanation` — a deterministic prose summary suitable for direct quotation in a PR comment or chat reply. The companion prompt is [`prompts/explain-finding-to-user.md`](prompts/explain-finding-to-user.md).
 
 ---
 
@@ -356,6 +367,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
+| `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
@@ -427,6 +439,7 @@ Prebuilt prompts for common workflows live in [`prompts/`](prompts/):
 - [`add-shipgate-to-repo.md`](prompts/add-shipgate-to-repo.md) — bootstrap a repo
 - [`fix-top-finding.md`](prompts/fix-top-finding.md) — iterate on a single finding
 - [`recommend-fixes.md`](prompts/recommend-fixes.md) — walk all active findings and surface targeted fix recommendations across the four autofix-policy classes
+- [`explain-finding-to-user.md`](prompts/explain-finding-to-user.md) — translate one finding into 3–5 sentences of user-facing prose; companion to `agents-shipgate explain-finding`
 - [`stabilize-strict-mode.md`](prompts/stabilize-strict-mode.md) — tune → baseline → promote
 - [`triage-false-positive.md`](prompts/triage-false-positive.md) — override vs suppress decision
 - [`upgrade-shipgate-version.md`](prompts/upgrade-shipgate-version.md) — bump agents-shipgate version safely (regenerate baseline if needed)
