@@ -159,15 +159,27 @@ def derive_agent_action(finding: Finding) -> AgentAction:
     """Project ``finding`` to a single ``AgentAction`` enum value.
 
     Deterministic projection of (``patches``, ``autofix_safe``,
-    ``requires_human_review``). The strategy proposal in
-    ``docs/agent-adoption-strategy.md`` §7 G10 sketched an algorithm
-    that ordered ``requires_human_review`` before the medium/low
-    confidence check, but that mapped non-manual medium-confidence
-    patches to ``escalate_to_human`` even though the value's defined
-    semantic ("no machine-applicable patch; needs human judgment")
-    excludes that case. We deviate by checking confidence on the first
-    non-manual patch BEFORE falling through to escalate, which keeps
-    the value definitions consistent with the projection.
+    ``requires_human_review``). Order-invariant: the result depends
+    on the SET of patches, not on their list ordering. The first
+    non-manual patch's confidence drives the verdict, mirroring
+    :func:`_derive_from_patches` (which derives ``suggested_patch_kind``
+    from the first non-manual patch). Earlier this function used
+    ``patches[0]`` directly, so a finding with
+    ``[ManualPatch, medium SetPointerPatch]`` mapped to
+    ``escalate_to_human`` while
+    ``[medium SetPointerPatch, ManualPatch]`` mapped to
+    ``propose_patch_for_review`` despite identical patch content
+    (#57 review P2).
+
+    The strategy proposal in ``docs/agent-adoption-strategy.md`` §7
+    G10 sketched an algorithm that ordered ``requires_human_review``
+    before the medium/low confidence check, but that mapped non-manual
+    medium-confidence patches to ``escalate_to_human`` even though the
+    value's defined semantic ("no machine-applicable patch; needs
+    human judgment") excludes that case. We deviate by checking
+    confidence on the first non-manual patch BEFORE falling through
+    to escalate, keeping the value definitions consistent with the
+    projection.
 
     The ``suppress_with_reason`` value is reserved for future check
     classes that explicitly mark themselves as suppressible. The
@@ -185,24 +197,27 @@ def derive_agent_action(finding: Finding) -> AgentAction:
             return "escalate_to_human"
         return "informational"
 
-    first = patches[0]
-    if first.kind == "manual":
+    # Pick the first non-manual patch (order-invariant: every patch
+    # generator produces a stable order, but the agent_action verdict
+    # should depend on the set, not on which manual patch happened to
+    # land first). All-manual lists fall through to escalate.
+    non_manual = [p for p in patches if p.kind != "manual"]
+    if not non_manual:
         return "escalate_to_human"
 
+    first = non_manual[0]
     first_confidence = getattr(first, "confidence", None)
     if first_confidence == "high" and finding.autofix_safe:
         return "auto_apply"
 
     # Non-manual patch with non-high confidence → propose for review.
-    # We deviate from the strategy doc's strict algorithm here (see
-    # docstring): the patch IS machine-applicable, so it shouldn't
-    # escalate, even when requires_human_review is True (which it
-    # always is in this branch — autofix_safe demands all-high).
+    # The patch IS machine-applicable, so it shouldn't escalate even
+    # when requires_human_review is True (which it always is in this
+    # branch — autofix_safe demands all-high).
     if first_confidence in {"medium", "low"}:
         return "propose_patch_for_review"
 
-    # All other non-manual states (including the rare case where a
-    # non-manual patch carries no confidence): conservative escalate.
+    # Rare: non-manual patch carries no confidence. Conservative escalate.
     if finding.requires_human_review:
         return "escalate_to_human"
     return "informational"
@@ -270,6 +285,16 @@ def build_agent_summary(
     # review_required verdict with only auto-applicable findings reads
     # honestly as "auto-applicable; none require human input" instead
     # of falsely claiming N findings need review.
+    # `release_decision.reason` is severity-driven and can contradict
+    # an action-driven headline (e.g. when only-auto-applicable
+    # findings are flagged for release review, the reason often reads
+    # "1 finding requires human review" — the opposite of what
+    # agent_summary needs to say). We therefore skip the reason append
+    # in branches where the headline already explains the agent-level
+    # situation in agent-driven terms; we keep the append in branches
+    # where the reason adds non-overlapping context (like blocker
+    # counts).
+    append_reason = True
     if verdict == "blocked":
         headline = (
             f"{blocker_count} active finding(s) block release"
@@ -290,6 +315,11 @@ def build_agent_summary(
                 f"{auto_appliable} auto-applicable finding(s) flagged for "
                 "release review; none require human input beyond apply-patches."
             )
+            # Suppress the severity-driven reason here. release_decision
+            # likely says something like "N finding(s) require human
+            # review" — appending it would directly contradict the
+            # action-driven headline (#57 review P1).
+            append_reason = False
         else:
             # Rare edge case: review_items has only informational/suppressed
             # actions. Surface the underlying review_item_count so the
@@ -297,6 +327,8 @@ def build_agent_summary(
             headline = (
                 f"{review_item_count} review item(s) flagged for release review."
             )
+            # Same contradiction risk as the auto-applicable-only branch.
+            append_reason = False
         if blocker_count:
             headline += f" ({blocker_count} blocker(s) detected.)"
     else:
@@ -308,7 +340,7 @@ def build_agent_summary(
                 else "."
             )
         )
-    if reason and len(headline) + len(reason) + 4 < 240:
+    if append_reason and reason and len(headline) + len(reason) + 4 < 240:
         headline = f"{headline} {reason}" if reason.endswith(".") else f"{headline} {reason}."
 
     first_action = _build_first_recommended_action(

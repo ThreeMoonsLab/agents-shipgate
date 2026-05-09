@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import get_args
 
+import pytest
+
 from agents_shipgate.core.findings import (
     build_agent_summary,
     derive_agent_action,
@@ -184,22 +186,63 @@ def test_derive_agent_action_low_confidence_non_manual():
     assert derive_agent_action(finding) == "propose_patch_for_review"
 
 
-def test_derive_agent_action_mixed_manual_and_non_manual():
-    """Manual is the FIRST patch → escalate_to_human (per the docstring's
-    'kind of the first non-manual patch' — but here the first IS manual,
-    so we can't propose anything machine-applicable as the headline)."""
+@pytest.mark.parametrize(
+    "patch_order_id, build_patches",
+    [
+        (
+            "manual_first",
+            lambda manual, auto: [manual, auto],
+        ),
+        (
+            "auto_first",
+            lambda manual, auto: [auto, manual],
+        ),
+    ],
+)
+def test_derive_agent_action_is_order_invariant_for_mixed_patches(
+    patch_order_id, build_patches
+):
+    """A finding with the same SET of patches must produce the same
+    `agent_action` regardless of patch ordering. Earlier this routed
+    by `patches[0].kind` directly, so `[ManualPatch, medium SetPointer]`
+    mapped to `escalate_to_human` while `[medium SetPointer, ManualPatch]`
+    mapped to `propose_patch_for_review` despite identical content
+    (#57 review P2). The fix: use the first NON-manual patch — same
+    rule `_derive_from_patches` uses for `suggested_patch_kind`."""
+    manual = ManualPatch(instructions="Walk through this.")
+    auto = SetPointerPatch(
+        target_file="/abs/shipgate.yaml",
+        pointer="/x",
+        value="y",
+        target_format="yaml",
+        confidence="medium",
+        rationale="OK",
+        target_sha256="0" * 64,
+    )
+    finding = _make_finding(
+        patches=build_patches(manual, auto),
+        autofix_safe=False,
+        requires_human_review=True,
+    )
+    # Mixed manual + non-manual medium-confidence patch: the non-manual
+    # patch IS machine-applicable, so the verdict should be propose-
+    # for-review regardless of ordering.
+    assert derive_agent_action(finding) == "propose_patch_for_review", (
+        f"Order {patch_order_id!r}: derive_agent_action returned the "
+        "wrong verdict; mixed manual/non-manual patches must depend on "
+        "the SET, not the list order."
+    )
+
+
+def test_derive_agent_action_all_manual_patches_escalate():
+    """A finding whose patches are all ManualPatch → escalate_to_human.
+    Pinned alongside the order-invariance test so the new logic
+    (`[p for p in patches if p.kind != "manual"]` is empty) doesn't
+    silently break this case."""
     finding = _make_finding(
         patches=[
-            ManualPatch(instructions="Walk through this."),
-            SetPointerPatch(
-                target_file="/abs/shipgate.yaml",
-                pointer="/x",
-                value="y",
-                target_format="yaml",
-                confidence="high",
-                rationale="OK",
-                target_sha256="0" * 64,
-            ),
+            ManualPatch(instructions="Step 1."),
+            ManualPatch(instructions="Step 2."),
         ],
         autofix_safe=False,
         requires_human_review=True,
@@ -424,14 +467,15 @@ def test_review_required_with_only_auto_apply_does_not_claim_human_review():
     the verdict is `review_required`. But its agent_action is
     `auto_apply`, so `needs_human_review` is correctly 0. The headline
     must reflect that — the previous wording falsely claimed
-    'N finding(s) require human review' even when N==0
-    (#57 review P1).
+    'N finding(s) require human review' even when N==0 (#57 review P1).
 
-    The two counts (`review_item_count`, `needs_human_review`) track
-    different populations and can diverge; the contract doc documents
-    that explicitly. The headline now uses `needs_human_review` for
-    the human-review wording with an explicit 'auto-applicable'
-    fallback when the action-driven count is 0."""
+    The release_decision.reason text that the runtime emits in this
+    case is severity-driven and reads like "1 finding requires human
+    review before shipping." Appending it after the action-aware
+    headline reintroduces the same contradiction. We must NOT append
+    the reason in this branch — pinned by using the realistic reason
+    text below (#57 review P1 round 2; the previous test stubbed the
+    reason as a benign string and missed the regression)."""
     auto_only = _make_finding(
         check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
         severity="medium",
@@ -444,7 +488,11 @@ def test_review_required_with_only_auto_apply_does_not_claim_human_review():
         release_decision=_make_release_decision(
             decision="review_required",
             review_items=[auto_only.check_id],
-            reason="1 review item.",
+            # Realistic — this is the shape release_decision.py emits
+            # when a medium-severity finding makes the verdict
+            # review_required. If we re-allow appending, the headline
+            # becomes self-contradictory.
+            reason="1 finding requires human review before shipping.",
         ),
         json_report_path="/abs/r.json",
     )
@@ -453,10 +501,14 @@ def test_review_required_with_only_auto_apply_does_not_claim_human_review():
     assert summary.auto_appliable_patches == 1
     assert summary.needs_human_review == 0
     # Headline must NOT claim findings require human review when
-    # needs_human_review is 0.
+    # needs_human_review is 0 — even after the reason append.
     assert "require human review" not in summary.headline, (
         f"Headline falsely claimed human review needed when "
         f"needs_human_review is 0: {summary.headline!r}"
+    )
+    assert "requires human review" not in summary.headline, (
+        f"Headline contains contradictory reason append from "
+        f"release_decision.reason: {summary.headline!r}"
     )
     assert "auto-applicable" in summary.headline, (
         f"Headline must explicitly mention auto-applicable findings "

@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.11",
+  "report_schema_version": "0.12",
   "run_id": "agents_shipgate_3716da0eb0ec2fad",
-  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/zealous-bell-c327f7/samples/support_refund_agent",
+  "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1035,7 +1035,7 @@
           "description": "820b85024c3c358b",
           "input_schema": "f69ae81c160387a4",
           "output_schema": "44136fa355b3678a",
-          "parameters": "752f1d4ed732df84",
+          "parameters": "65ef27a9a4246c6e",
           "annotations": "98980a21205428e2"
         }
       },
@@ -1289,7 +1289,9 @@
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/wildcard-tools.json",
-        "location": null
+        "location": null,
+        "path": ".agents-shipgate/wildcard-tools.json",
+        "pointer": "/wildcard"
       },
       "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
       "suppressed": false,
@@ -1298,7 +1300,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-wildcard-tools"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-wildcard-tools",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_ab60b01cb53cfcbe",
@@ -1331,7 +1334,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-missing-bounds"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-missing-bounds",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_ff2f028953d1c220",
@@ -1364,7 +1368,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_acd63b899d49aa1c",
@@ -1395,7 +1400,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_85f8513ad72cd9ea",
@@ -1425,7 +1431,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-freeform-output"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-freeform-output",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_d27325cbdbbf5483",
@@ -1455,7 +1462,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-manifest-broad-scope"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-manifest-broad-scope",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_83852fbd6b440524",
@@ -1497,7 +1505,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "append_pointer",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_d8e6d1865dae97cc",
@@ -1537,7 +1546,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "append_pointer",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_1f6cfd6b7daa9b7c",
@@ -1577,7 +1587,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "append_pointer",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_12985c36a06026de",
@@ -1614,7 +1625,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_e090c62e390e70ab",
@@ -1648,7 +1660,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_f092940f62fbb012",
@@ -1685,7 +1698,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-approval-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-approval-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_a62ca2fd9a68a1d1",
@@ -1722,7 +1736,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-confirmation-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-confirmation-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_8e08a4fe6b0917f6",
@@ -1756,7 +1771,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-confirmation-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-confirmation-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_dac8011e14c53777",
@@ -1793,7 +1809,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_0f8aaa912d589cf0",
@@ -1827,7 +1844,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_fd2577850cef1f87",
@@ -1863,7 +1881,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing",
+      "agent_action": "escalate_to_human"
     },
     {
       "id": "fp_39b9ae878f343d1b",
@@ -1898,7 +1917,8 @@
       "autofix_safe": false,
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-unused-scope"
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-unused-scope",
+      "agent_action": "escalate_to_human"
     }
   ],
   "recommended_actions": [
@@ -1912,8 +1932,10 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpet_6tskf/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpet_6tskf/report.json"
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_jy4lwh_/report.json",
+    "packet_md": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_jy4lwh_/packet.md",
+    "packet_json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_jy4lwh_/packet.json",
+    "packet_html": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_jy4lwh_/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2047,5 +2069,18 @@
   ],
   "source_warnings": [
     "MCP source declares wildcard tool exposure"
-  ]
+  ],
+  "agent_summary": {
+    "verdict": "blocked",
+    "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt. 2 active findings block release.",
+    "blocker_count": 2,
+    "review_item_count": 16,
+    "auto_appliable_patches": 0,
+    "needs_human_review": 18,
+    "first_recommended_action": {
+      "kind": "info",
+      "command": null,
+      "why": "Surface SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund to the user; release is blocked and no auto-applicable patch is available."
+    }
+  }
 }
