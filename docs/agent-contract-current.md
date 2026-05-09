@@ -54,8 +54,8 @@ Source provenance fields on `findings[].source` (v0.11+), additive and optional:
 Per-finding `agent_action` enum (v0.12+), deterministic projection — read this **first** when deciding what to do with a finding so you don't have to synthesize an action from `patches`/`autofix_safe`/`requires_human_review`/`suggested_patch_kind`:
 
 - `auto_apply` — `apply-patches --confidence high` will resolve cleanly. Every patch is non-manual and high-confidence.
-- `propose_patch_for_review` — non-manual patch attached, but at least one patch is medium- or low-confidence. Ask the user before `--apply`.
-- `escalate_to_human` — no machine-applicable patch (manual-only or `patches` empty/absent with a check that requires human review).
+- `propose_patch_for_review` — at least one non-manual patch is attached and machine-applicable, but the full patch set is not auto-safe. Two shapes land here: (a) every non-manual patch is medium- or low-confidence, and (b) a high-confidence non-manual patch sits alongside one or more `ManualPatch` siblings (the non-manual is safe to apply, but the manual instructions still need a human). In both cases the agent should ask the user before `--apply` and surface any manual instructions verbatim.
+- `escalate_to_human` — no machine-applicable patch. Either every patch is `ManualPatch`, or `patches` is empty/absent and the check requires human review.
 - `suppress_with_reason` — reserved for future check classes that explicitly mark themselves as suppressible. Not emitted by the v0.12 deterministic projection; the schema accepts it so callers can extend.
 - `informational` — no action required (suppressed finding or non-actionable advisory).
 
