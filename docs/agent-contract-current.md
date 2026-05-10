@@ -89,11 +89,13 @@ agents-shipgate explain-finding <FINGERPRINT> \
     --from agents-shipgate-reports/report.json --json
 ```
 
-The payload mirrors the canonical Finding fields plus:
+The payload is the full `Finding` shape (every field on `findings[]` in `report.json`, including `source`, `patches`, `confidence`, `agent_id`, etc.) overlaid with three derived fields:
 
 - `metadata` — full `CheckMetadata` for the check_id (rationale, fires_when, evidence_fields, docs_url) when the check is in the catalog; null for unknown ids (third-party plugins, future checks).
 - `explanation` — a deterministic 3–5 sentence prose summary suitable for direct quotation. Names the affected tool, the severity, the recommended fix, and an action-aware closing sentence keyed to `agent_action`. Same inputs always produce the same output.
-- `source_report` — absolute path to the report file the explanation was sourced from; round-trippable for caching and audit.
+- `source_report` — **absolute** path (always; relative `--from` values are resolved before serialization) to the report file the explanation was sourced from; round-trippable for caching and audit.
+
+`explain-finding` requires `report_schema_version >= 0.12` because the action-aware explanation depends on per-finding `agent_action`. Pre-v0.12 reports are rejected with `input_parse_error` and a `next_action` pointing at the canonical scan command. The Pydantic `ReadinessReport` model is intentionally looser than this command's contract (so test fixtures can construct minimal findings); the version gate is what enforces v0.12 semantics on emitted reports.
 
 Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-finding-to-user.md). Use it when you need to translate a finding for a human who has never read the Shipgate docs. Keep `agents-shipgate explain <CHECK_ID>` for static catalog metadata (no specific finding); use `explain-finding` whenever you have a fingerprint and want the evidence-tied prose.
 

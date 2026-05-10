@@ -33,26 +33,40 @@ from agents_shipgate.core.models import Finding
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_MANIFEST = REPO_ROOT / "samples" / "support_refund_agent" / "shipgate.yaml"
 
-CANONICAL_PAYLOAD_KEYS = frozenset(
+# Core fields the payload MUST contain. The payload is now built from
+# `Finding.model_dump()` plus three derived fields, so the full set
+# expands automatically when Finding gains new fields. Pin the contract
+# as a "must contain" subset rather than an exact match — that's what
+# downstream agents actually depend on.
+REQUIRED_PAYLOAD_KEYS = frozenset(
     {
+        # Core finding identity
         "fingerprint",
         "id",
         "check_id",
         "title",
         "severity",
         "category",
+        # Tool linkage
         "tool_name",
         "tool_id",
+        "agent_id",
+        # Evidence and remediation
         "evidence",
+        "source",
+        "patches",
+        "confidence",
         "recommendation",
         "agent_action",
         "autofix_safe",
         "requires_human_review",
         "suggested_patch_kind",
         "docs_url",
+        # Suppression / baseline
         "suppressed",
         "suppression_reason",
         "baseline_status",
+        # Derived overlay (not in the Finding model)
         "metadata",
         "explanation",
         "source_report",
@@ -76,21 +90,136 @@ def _scan_into(tmp_path: Path) -> tuple[Path, list[dict]]:
 
 
 def test_happy_path_payload_shape(tmp_path):
-    """A real scan + fingerprint produces a payload with exactly the
-    documented keys and a non-empty explanation."""
+    """A real scan + fingerprint produces a payload that contains every
+    documented key and a non-empty explanation. The payload mirrors the
+    full `Finding` shape (via `model_dump`) plus the derived overlay
+    (`metadata`, `explanation`, `source_report`), so future additive
+    Finding fields flow through without a breaking schema change."""
     report_path, findings = _scan_into(tmp_path)
     fp = next(f["fingerprint"] for f in findings if not f["suppressed"])
     payload = explain_finding_payload(fingerprint=fp, report_path=report_path)
 
-    assert set(payload) == CANONICAL_PAYLOAD_KEYS, (
-        f"explain-finding payload diverged from documented keys.\n"
-        f"  expected: {sorted(CANONICAL_PAYLOAD_KEYS)}\n"
+    missing = REQUIRED_PAYLOAD_KEYS - set(payload)
+    assert not missing, (
+        f"explain-finding payload missing required keys: {sorted(missing)}.\n"
+        f"  required: {sorted(REQUIRED_PAYLOAD_KEYS)}\n"
         f"  got:      {sorted(payload)}"
     )
     assert payload["fingerprint"] == fp
     assert payload["explanation"], "Explanation must be non-empty."
     assert payload["check_id"]
-    assert payload["source_report"] == str(report_path)
+
+
+def test_payload_mirrors_full_finding_shape(tmp_path):
+    """The payload must include `source`, `patches`, `confidence`, and
+    `agent_id` — fields that earlier hand-picking dropped. The
+    explain-finding contract says the payload mirrors canonical Finding
+    fields; this pins that promise so a future refactor that
+    re-introduces hand-picking trips a regression (#58 review P2.1)."""
+    report_path, findings = _scan_into(tmp_path)
+    # Pick a finding that actually has patches (the support_refund
+    # sample has several when scanned with --suggest-patches).
+    fp = next(
+        f["fingerprint"] for f in findings if f.get("patches")
+    )
+    payload = explain_finding_payload(fingerprint=fp, report_path=report_path)
+
+    for field in ("source", "patches", "confidence", "agent_id"):
+        assert field in payload, (
+            f"Payload must include `{field}` — earlier hand-picking "
+            f"dropped this field. Got: {sorted(payload)!r}"
+        )
+    # `patches` should round-trip from the original finding (non-empty
+    # for this sample).
+    raw = next(f for f in findings if f["fingerprint"] == fp)
+    assert payload["patches"] == raw["patches"]
+
+
+def test_source_report_is_absolute(tmp_path):
+    """`source_report` is documented as an absolute path. A relative
+    `--from` (e.g. the canonical default
+    `agents-shipgate-reports/report.json`) must resolve to absolute
+    before round-tripping into the payload (#58 review P3)."""
+    report_path, findings = _scan_into(tmp_path)
+    fp = next(f["fingerprint"] for f in findings if f["fingerprint"])
+
+    # Force a relative path that points at the same file.
+    import os
+
+    relative = Path(os.path.relpath(report_path, Path.cwd()))
+    payload = explain_finding_payload(fingerprint=fp, report_path=relative)
+
+    assert Path(payload["source_report"]).is_absolute(), (
+        f"source_report must be absolute; got {payload['source_report']!r}"
+    )
+    # And it should point at the same file (resolved).
+    assert Path(payload["source_report"]).resolve() == report_path.resolve()
+
+
+def test_pre_v012_report_is_rejected(tmp_path):
+    """A v0.11-shaped report (lacking per-finding `agent_action`) must
+    be rejected by `explain-finding` — the v0.12 contract says the
+    explanation is action-aware, and silently accepting a stale report
+    would yield `agent_action: null` and drop that sentence
+    (#58 review P2.2)."""
+    v11_payload = {
+        "schema_version": "0.1",
+        "report_schema_version": "0.11",
+        "run_id": "r",
+        "manifest_dir": "/tmp",
+        "project": {},
+        "agent": {},
+        "environment": {},
+        "summary": {
+            "status": "review_required",
+            "critical_count": 0,
+            "high_count": 1,
+            "medium_count": 0,
+            "low_count": 0,
+            "info_count": 0,
+            "suppressed_count": 0,
+            "human_review_recommended": False,
+            "evidence_coverage": "static",
+        },
+        "tool_surface": {"total_tools": 0, "high_risk_tools": 0},
+        "findings": [
+            {
+                "id": "fp_test",
+                "fingerprint": "fp_test",
+                "check_id": "SHIP-DOC-MISSING-DESCRIPTION",
+                "title": "t",
+                "severity": "medium",
+                "category": "documentation",
+                "evidence": {},
+                "confidence": "medium",
+                "recommendation": "r",
+                "suppressed": False,
+            }
+        ],
+        "recommended_actions": [],
+        "generated_reports": {},
+    }
+    stale_path = tmp_path / "stale.json"
+    stale_path.write_text(json.dumps(v11_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"requires report_schema_version >= 0\.12"):
+        explain_finding_payload(
+            fingerprint="fp_test", report_path=stale_path
+        )
+
+
+def test_missing_schema_version_is_rejected(tmp_path):
+    """A `report.json` without a `report_schema_version` string fails
+    cleanly — preferable to a downstream KeyError or a Pydantic
+    validation barrage."""
+    bad_payload = {"run_id": "r", "findings": []}
+    path = tmp_path / "no-version.json"
+    path.write_text(json.dumps(bad_payload), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError, match=r"agents-shipgate report\.json"
+    ):
+        explain_finding_payload(fingerprint="fp_x", report_path=path)
 
 
 def test_metadata_populated_for_known_check_ids(tmp_path):

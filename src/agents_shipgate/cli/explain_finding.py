@@ -31,6 +31,23 @@ from agents_shipgate.core.models import (
     ReadinessReport,
 )
 
+_MIN_SUPPORTED_SCHEMA = "0.12"
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    """Parse a `MAJOR.MINOR` schema version into a comparable tuple.
+
+    Raises ``ValueError`` for malformed strings so the CLI maps the
+    failure to ``input_parse_error`` (exit 3) rather than a 500-style
+    crash."""
+    try:
+        return tuple(int(part) for part in value.split("."))
+    except (AttributeError, ValueError) as exc:
+        raise ValueError(
+            f"invalid report_schema_version: {value!r}"
+        ) from exc
+
+
 _AGENT_ACTION_GUIDANCE: dict[AgentAction, str] = {
     "auto_apply": (
         "This finding has a high-confidence machine-applicable patch "
@@ -57,12 +74,22 @@ _AGENT_ACTION_GUIDANCE: dict[AgentAction, str] = {
 }
 
 
-def _load_report(path: Path) -> ReadinessReport:
-    """Load and validate ``report.json`` from disk.
+def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
+    """Load, version-gate, and validate ``report.json`` from disk.
 
-    Returns a fully-typed :class:`ReadinessReport`. Raises ``ValueError``
-    with a structured message on any failure mode (missing, malformed
-    JSON, schema-invalid).
+    Returns ``(report, raw_payload)``: the typed
+    :class:`ReadinessReport` plus the raw dict (for pass-through fields
+    that the Pydantic model may strip). Raises ``ValueError`` with a
+    structured message on any failure mode (missing, malformed JSON,
+    schema-invalid, or pre-v0.12 schema version).
+
+    Pydantic's ``ReadinessReport`` is intentionally looser than
+    ``docs/report-schema.v0.12.json`` (e.g. ``Finding.agent_action``
+    is ``Optional`` so test fixtures can construct minimal findings).
+    Without the explicit version gate, ``explain-finding`` would
+    silently accept a v0.11 report and return ``"agent_action": null``
+    in the payload, contradicting the v0.12 contract that the
+    explanation is action-aware (#58 review P2.2).
     """
     if not path.is_file():
         raise ValueError(f"report file not found: {path}")
@@ -76,8 +103,24 @@ def _load_report(path: Path) -> ReadinessReport:
         raise ValueError(f"report is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("report JSON must be an object")
+
+    version = payload.get("report_schema_version")
+    if not isinstance(version, str):
+        raise ValueError(
+            "input must be an agents-shipgate report.json with a "
+            "string `report_schema_version`."
+        )
+    if _version_tuple(version) < _version_tuple(_MIN_SUPPORTED_SCHEMA):
+        raise ValueError(
+            f"explain-finding requires report_schema_version "
+            f">= {_MIN_SUPPORTED_SCHEMA} (got {version!r}). The "
+            "v0.12 schema added the per-finding `agent_action` enum "
+            "that this command depends on. Re-scan with the current "
+            "CLI: `agents-shipgate scan -c shipgate.yaml --format json`."
+        )
+
     try:
-        return ReadinessReport.model_validate(payload)
+        return ReadinessReport.model_validate(payload), payload
     except ValidationError as exc:
         raise ValueError(f"report.json failed validation: {exc}") from exc
 
@@ -165,16 +208,32 @@ def explain_finding_payload(
     """Build the deterministic payload for ``explain-finding --json``.
 
     Pure function: takes a fingerprint and a report path, returns a
-    serialisable dict. Raises ``ValueError`` on missing fingerprint
-    or unparseable report. Importable from tests.
+    serialisable dict. Raises ``ValueError`` on missing report or
+    pre-v0.12 schema; raises :class:`FingerprintNotFound` when the
+    fingerprint doesn't match any finding in the report.
+
+    Payload shape: every canonical ``Finding`` field (via
+    :meth:`pydantic.BaseModel.model_dump`) plus three derived fields:
+
+    - ``metadata`` — full :class:`CheckMetadata` for ``check_id``
+      (None for unknown ids, e.g. third-party plugins).
+    - ``explanation`` — deterministic 3–5 sentence prose summary.
+    - ``source_report`` — absolute path to the report file the
+      explanation was sourced from.
+
+    Earlier this function returned only a hand-picked subset of
+    Finding fields, dropping ``source``, ``patches``, ``confidence``,
+    and ``agent_id``. The action-aware sentence in the prose
+    explicitly tells agents to surface manual instructions, but with
+    ``patches`` missing they had to re-fetch the report — so the
+    payload now mirrors the full Finding by default (#58 review P2.1).
     """
-    report = _load_report(report_path)
+    report, _raw_payload = _load_report(report_path)
     target = next(
         (f for f in report.findings if f.fingerprint == fingerprint),
         None,
     )
     if target is None:
-        # Suggest a close match by fingerprint prefix.
         all_fps = [f.fingerprint or "" for f in report.findings]
         close = get_close_matches(fingerprint, all_fps, n=1)
         suggestion = close[0] if close else None
@@ -184,31 +243,21 @@ def explain_finding_payload(
     catalog_lookup = {c.id: c for c in catalog}
     metadata = catalog_lookup.get(target.check_id)
 
-    return {
-        "fingerprint": target.fingerprint,
-        "id": target.id,
-        "check_id": target.check_id,
-        "title": target.title,
-        "severity": target.severity,
-        "category": target.category,
-        "tool_name": target.tool_name,
-        "tool_id": target.tool_id,
-        "evidence": target.evidence,
-        "recommendation": target.recommendation,
-        "agent_action": target.agent_action,
-        "autofix_safe": target.autofix_safe,
-        "requires_human_review": target.requires_human_review,
-        "suggested_patch_kind": target.suggested_patch_kind,
-        "docs_url": target.docs_url,
-        "suppressed": target.suppressed,
-        "suppression_reason": target.suppression_reason,
-        "baseline_status": target.baseline_status,
-        "metadata": (
-            metadata.model_dump(mode="json") if metadata is not None else None
-        ),
-        "explanation": _render_explanation(target, metadata),
-        "source_report": str(report_path),
-    }
+    # Mirror the canonical Finding shape via model_dump so future
+    # additive fields (e.g. v0.13 source-provenance enrichments)
+    # flow through automatically. Overlay the three derived fields.
+    payload = target.model_dump(mode="json")
+    payload["metadata"] = (
+        metadata.model_dump(mode="json") if metadata is not None else None
+    )
+    payload["explanation"] = _render_explanation(target, metadata)
+    # `source_report` is documented as an absolute path. Resolve here
+    # so a relative `--from` value (e.g. the documented default
+    # `agents-shipgate-reports/report.json`) round-trips correctly
+    # for downstream tooling that expects a stable, machine-routable
+    # path (#58 review P3).
+    payload["source_report"] = str(report_path.resolve())
+    return payload
 
 
 class FingerprintNotFound(LookupError):
