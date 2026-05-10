@@ -22,6 +22,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` (v0.12+) | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
 | `agents-shipgate fixture list` | `--json` |

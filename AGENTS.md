@@ -85,6 +85,14 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
     --confidence high --apply
 ```
 
+Or chain all four in one call:
+
+```bash
+agents-shipgate bootstrap --json
+```
+
+`bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
+
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
   means stop early.
 - **`init`** — auto-detects by default. `--ci` writes
@@ -368,6 +376,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |

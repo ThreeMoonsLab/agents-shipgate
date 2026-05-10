@@ -14,6 +14,7 @@ from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
+from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.diagnostics import (
     NextAction,
@@ -81,6 +82,14 @@ app.command(
         "into md, html, and/or pdf."
     ),
 )(_evidence_packet_command)
+app.command(
+    "bootstrap",
+    help=(
+        "Run the canonical 4-call adoption flow in one command: "
+        "detect → init --write --ci → scan --suggest-patches → "
+        "apply-patches --confidence high."
+    ),
+)(_bootstrap_command)
 app.command(
     "explain-finding",
     help=(
