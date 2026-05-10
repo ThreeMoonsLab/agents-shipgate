@@ -1,0 +1,26 @@
+# DELIBERATELY INVALID — do not copy. See README.md.
+# Expected error:
+#   ConfigError: checks.ignore.0.reason: suppression reason is required
+version: "0.1"
+
+project:
+  name: empty-suppression-reason
+
+agent:
+  name: empty-reason-agent
+  declared_purpose:
+    - illustrate the empty-reason validation failure
+
+environment:
+  target: local
+
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+
+checks:
+  ignore:
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: legacy_search
+      reason: ""              # rejected — reason must be non-empty

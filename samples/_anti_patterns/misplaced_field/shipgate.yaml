@@ -1,0 +1,23 @@
+# DELIBERATELY INVALID — do not copy. See README.md.
+# Expected error:
+#   ConfigError: declared_purpose: Extra inputs are not permitted
+#
+# `declared_purpose` belongs under `agent`, not at the root.
+version: "0.1"
+
+project:
+  name: misplaced-field
+
+declared_purpose:                  # WRONG — root-level. Must nest under `agent`.
+  - this should live under agent
+
+agent:
+  name: misplaced-field-agent
+
+environment:
+  target: local
+
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json

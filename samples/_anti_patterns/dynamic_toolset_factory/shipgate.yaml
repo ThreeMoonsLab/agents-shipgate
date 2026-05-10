@@ -1,0 +1,22 @@
+# DELIBERATELY DEMONSTRATES A SCAN FINDING — do not copy. See README.md.
+# Expected behavior:
+#   verdict: review_required
+#   finding: SHIP-INVENTORY-NOT-ENUMERABLE (high)
+#   reason: factory.py wraps tools at runtime; static AST sees zero tools.
+version: "0.1"
+
+project:
+  name: dynamic-toolset-factory
+
+agent:
+  name: dynamic-toolset-agent
+  declared_purpose:
+    - illustrate factory-pattern tool wrapping that hides tools from static AST
+
+environment:
+  target: local
+
+tool_sources:
+  - id: agent
+    type: openai_agents_sdk
+    path: factory.py
