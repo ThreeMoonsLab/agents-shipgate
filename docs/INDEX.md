@@ -22,6 +22,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
 - [`report-schema.v0.12.json`](report-schema.v0.12.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.12"`, which adds the per-finding `agent_action` enum and the top-level `agent_summary` block)
+- [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
+- [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
 - [`report-schema.v0.11.json`](report-schema.v0.11.json) — frozen v0.11 reference schema; pre-v0.12 reports validate against this
 - [`report-schema.v0.10.json`](report-schema.v0.10.json) — frozen v0.10 reference schema; pre-v0.11 reports validate against this
 - [`report-schema.v0.9.json`](report-schema.v0.9.json) — frozen v0.9 reference schema; pre-v0.10 reports validate against this

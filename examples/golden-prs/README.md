@@ -18,4 +18,8 @@ Examples:
 - [`openapi-support-agent`](openapi-support-agent/) - OpenAPI support/refund
   API surface.
 
+For the **artifact** a coding agent produces after running the flow (the
+PR comment / chat reply, not the recipe to run Shipgate), see
+[`golden-pr-from-coding-agent.md`](golden-pr-from-coding-agent.md).
+
 These are documentation examples, not new framework adapters.

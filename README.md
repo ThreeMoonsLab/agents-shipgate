@@ -201,6 +201,7 @@ Top findings:
 The fastest way to understand what changes for a reviewer: walk through a Golden PR. Each one ships a sample manifest, the resulting report, the release decision, and the recommended PR-comment summary an agent should post.
 
 - [`openai-agents-sdk-refund-agent`](examples/golden-prs/openai-agents-sdk-refund-agent/README.md) — refund agent adds `stripe.create_refund`. Shipgate decides `blocked` because approval policy and idempotency evidence are missing. Includes the recommended Markdown PR-comment template.
+- [`golden-pr-from-coding-agent.md`](examples/golden-prs/golden-pr-from-coding-agent.md) — the *artifact* a coding agent should produce after running the canonical 4-call flow: PR comment, structured `agent_summary`, applied diff, review-item table.
 - [`mcp-only-tool-server`](examples/golden-prs/mcp-only-tool-server/README.md) — MCP server with no Python framework imports; demonstrates the MCP-only adoption path.
 - [`openapi-support-agent`](examples/golden-prs/openapi-support-agent/README.md) — OpenAPI-described tool surface; shows scope-coverage findings.
 
