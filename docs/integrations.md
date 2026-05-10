@@ -163,3 +163,42 @@ stage('Agents Shipgate') {
   }
 }
 ```
+
+## Pre-commit hook (local)
+
+Run Agents Shipgate locally on every commit that touches a tool-surface artifact. Two equivalent setups:
+
+**Canonical** (let `pre-commit` manage the install):
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/ThreeMoonsLab/agents-shipgate
+    rev: v0.10.0
+    hooks:
+      - id: agents-shipgate
+```
+
+**Local** (agents-shipgate already on PATH):
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: agents-shipgate
+        name: Agents Shipgate release-readiness gate
+        entry: agents-shipgate scan -c shipgate.yaml --ci-mode advisory
+        language: system
+        pass_filenames: false
+        files: |
+          (?x)^(
+            shipgate\.yaml|
+            .*tools.*\.json|
+            .*mcp.*\.json|
+            .*openapi.*\.(yaml|yml|json)|
+            prompts/.*|
+            policies/.*
+          )$
+```
+
+The hook fires only when a staged change touches the same artifact set as the AGENTS.md trigger table (mirror of [`docs/triggers.json`](triggers.json)). See [`examples/pre-commit/`](../examples/pre-commit/) for the canonical hook definition and a longer write-up on advisory vs. strict modes.
