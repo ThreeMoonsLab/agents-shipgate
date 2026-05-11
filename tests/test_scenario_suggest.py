@@ -292,7 +292,8 @@ def test_scenario_suggest_rejects_bad_inputs(tmp_path):
     ]
     for args in cases:
         result = runner.invoke(app, args)
-        assert result.exit_code == 2, (args, result.output)
+        # input_parse_error → exit 3 (docs/errors.json, docs/trust-model.md).
+        assert result.exit_code == 3, (args, result.output)
 
 
 def test_scenario_suggest_accepts_future_minor_report_schema(tmp_path):
@@ -319,7 +320,8 @@ def test_scenario_suggest_agent_mode_error_includes_next_action(tmp_path, monkey
         ["scenario", "suggest", "--from", str(tmp_path / "missing.json")],
     )
 
-    assert result.exit_code == 2
+    # input_parse_error → exit 3 (docs/errors.json, docs/trust-model.md).
+    assert result.exit_code == 3
     json_lines = [
         line for line in (result.output or "").splitlines() if line.startswith("{")
     ]
