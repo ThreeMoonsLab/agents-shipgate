@@ -74,6 +74,12 @@ baseline summary and do not fail CI.
 | `SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING` | medium | A LangChain/LangGraph function tool lacks static description or parameter metadata. |
 | `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A CrewAI tool surface cannot be statically enumerated and no explicit inventory is declared. |
 | `SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING` | medium | A CrewAI function/class tool lacks static description or parameter metadata. |
+| `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | An n8n tool surface uses runtime, unresolved, wildcard, or uninventoried custom exposure. |
+| `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` | high/medium | An n8n MCP Client Tool exposes `All` or `All Except` tools without an explicit inventory. |
+| `SHIP-N8N-AI-TOOL-METADATA-MISSING` | medium | An n8n AI-exposed tool lacks static description or parameter metadata. |
+| `SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING` | high | Production-like n8n workflows reference credentials without declared credential stubs. |
+| `SHIP-N8N-EVAL-COVERAGE-MISSING` | medium | Production-like n8n workflows are present without declared eval files. |
+| `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` | high | n8n workflow JSON contains a secret-like value; evidence is redacted. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -344,6 +350,48 @@ A CrewAI `@tool` function or `BaseTool` subclass lacks a static description or
 parameter metadata. Add descriptions, `_run` annotations, or same-file Pydantic
 `args_schema` metadata.
 
+### SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+An n8n workflow uses a runtime expression in a tool name, an unresolved
+Call-Workflow target, wildcard MCP Server/Client exposure, or an uninventoried
+community/custom tool node. Provide a local n8n/MCP inventory or replace the
+dynamic exposure with a static allowlist. This is high severity in every
+environment because static release evidence cannot prove the actual tool
+inventory.
+
+### SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED
+
+An n8n MCP Client Tool exposes `All` or `All Except` tools without a local
+inventory. Select explicit MCP tools or provide a local MCP inventory for
+release review. The severity is environment-sensitive because the selector is
+easy to narrow before production, while production-like use increases blast
+radius.
+
+### SHIP-N8N-AI-TOOL-METADATA-MISSING
+
+An n8n AI-exposed tool lacks a static description or parameter metadata. Add
+tool descriptions, `$fromAI()` metadata, workflow input schemas, or explicit
+inventory metadata.
+
+### SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING
+
+Production-like n8n workflows reference credentials but no local credential
+stubs are declared. Declare source-control credential stubs so reviewers can
+see credential types without seeing secret values.
+
+### SHIP-N8N-EVAL-COVERAGE-MISSING
+
+n8n workflows target `production_like` or `production` without declared eval
+files. Add eval artifacts that cover expected responses and tool-use
+trajectories.
+
+### SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER
+
+An n8n workflow parameter, node note, `pinData` entry, or `staticData` entry
+contains a secret-like value. Evidence includes only the source reference,
+stable pointer, and secret kind; it never includes the matched secret value or
+a verifier hash for that value.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -453,3 +501,27 @@ tool surfaces produce source warnings and framework findings unless explicit
 local tool inventory inputs are provided. CrewAI prebuilt `crewai_tools.*Tool()`
 references are emitted as low-confidence stubs and warnings; they do not by
 themselves produce the dynamic-tools finding.
+
+## n8n Static Extraction
+
+n8n extraction reads only local workflow JSON exports/source-control files and
+optional local stubs or evidence artifacts declared under `n8n:`. It does not
+call a live n8n instance, run `n8n`, execute workflows, decrypt credentials,
+connect to MCP endpoints, execute code nodes, or fetch network resources.
+
+The adapter enumerates AI Agent tool sub-nodes, MCP Client Tool selections,
+MCP Server Trigger exposed tools, Call n8n Workflow Tool entrypoints, Custom
+Code Tool nodes, HTTP Request Tool nodes, and explicit inventories when those
+surfaces are statically visible. Workflow triggers such as Webhook and Chat
+Trigger are recorded as ingress evidence, not as tools.
+
+Inactive workflows (`active: false`) are recorded as workflow evidence but are
+not normalized as live tool or ingress surfaces; their workflow JSON is still
+scanned for secret-like values. Workflow tags, error-workflow settings, and
+node execution controls such as retry/continue-on-fail are preserved as
+review metadata when present.
+
+Credential names, workflow/node names, code bodies, request bodies, headers,
+pinned data, static data, node notes, variable values, execution payloads, and
+detected secrets are redacted or omitted from reports. Credential types and
+credential IDs may be preserved as local release evidence.

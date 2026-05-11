@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -31,6 +32,39 @@ ANTHROPIC_TOOL_PATTERNS = (
 ANTHROPIC_POLICY_PATTERNS = (
     "policies/*anthropic*.yaml",
     "policies/anthropic-policy.yaml",
+)
+N8N_WORKFLOW_PATTERNS = (
+    "workflows/*.json",
+    "workflows/**/*.json",
+    "n8n/*.json",
+    "n8n/**/*.json",
+    "*workflow*.json",
+)
+N8N_CREDENTIAL_STUB_PATTERNS = (
+    "credentials/*.json",
+    "credentials/**/*.json",
+    "n8n/credentials/*.json",
+    "n8n/credentials/**/*.json",
+)
+N8N_VARIABLE_STUB_PATTERNS = (
+    "variables.json",
+    "variables/*.json",
+    "variables/**/*.json",
+    "n8n/variables.json",
+    "n8n/variables/*.json",
+    "n8n/variables/**/*.json",
+)
+N8N_DATA_TABLE_SCHEMA_PATTERNS = (
+    "data-tables/*.json",
+    "data-tables/**/*.json",
+    "n8n/data-tables/*.json",
+    "n8n/data-tables/**/*.json",
+)
+N8N_EVAL_SET_PATTERNS = (
+    "evaluations/*.json",
+    "evaluations/**/*.json",
+    "n8n/evaluations/*.json",
+    "n8n/evaluations/**/*.json",
 )
 SKIP_DIRS = {
     ".agents-private",
@@ -225,6 +259,58 @@ def discover_anthropic_artifacts(workspace: Path) -> dict[str, list[str]]:
         "tools": _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS),
         "policy_rules": _discover_patterns(workspace, ANTHROPIC_POLICY_PATTERNS),
     }
+
+
+def discover_n8n_artifacts(workspace: Path) -> dict[str, list[str]]:
+    return {
+        "workflows": _discover_n8n_workflows(workspace),
+        "credential_stubs": _discover_patterns(workspace, N8N_CREDENTIAL_STUB_PATTERNS),
+        "variable_stubs": _discover_patterns(workspace, N8N_VARIABLE_STUB_PATTERNS),
+        "data_table_schemas": _discover_patterns(
+            workspace,
+            N8N_DATA_TABLE_SCHEMA_PATTERNS,
+        ),
+        "eval_sets": _discover_patterns(workspace, N8N_EVAL_SET_PATTERNS),
+    }
+
+
+def _discover_n8n_workflows(workspace: Path) -> list[str]:
+    found: list[str] = []
+    seen: set[Path] = set()
+    for path in _candidate_files_matching(workspace, N8N_WORKFLOW_PATTERNS):
+        if path in seen:
+            continue
+        seen.add(path)
+        if _looks_like_n8n_workflow(path):
+            found.append(_relative(path, workspace))
+    return sorted(found)
+
+
+def _looks_like_n8n_workflow(path: Path) -> bool:
+    if path.suffix.lower() != ".json":
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    candidates = data if isinstance(data, list) else [data]
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        nodes = item.get("nodes")
+        connections = item.get("connections")
+        if not isinstance(nodes, list) or not isinstance(connections, dict):
+            continue
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_type = node.get("type")
+            if isinstance(node_type, str) and (
+                node_type.startswith("n8n-nodes-")
+                or node_type.startswith("@n8n/n8n-nodes-")
+            ):
+                return True
+    return False
 
 
 def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:

@@ -882,6 +882,62 @@ class CrewAiArtifacts(BaseModel):
         }
 
 
+class N8nArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    workflow_files: list[str] = Field(default_factory=list)
+    credential_stub_files: list[str] = Field(default_factory=list)
+    variable_stub_files: list[str] = Field(default_factory=list)
+    data_table_schema_files: list[str] = Field(default_factory=list)
+    execution_sample_files: list[str] = Field(default_factory=list)
+    eval_files: list[str] = Field(default_factory=list)
+    tool_inventory_files: list[str] = Field(default_factory=list)
+    workflows: list[dict[str, Any]] = Field(default_factory=list)
+    ai_agents: list[dict[str, Any]] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_server_triggers: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_server_exposed_tools: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_client_tools: list[dict[str, Any]] = Field(default_factory=list)
+    workflow_tools: list[dict[str, Any]] = Field(default_factory=list)
+    code_tools: list[dict[str, Any]] = Field(default_factory=list)
+    http_tools: list[dict[str, Any]] = Field(default_factory=list)
+    community_tools: list[dict[str, Any]] = Field(default_factory=list)
+    dynamic_tool_surfaces: list[dict[str, Any]] = Field(default_factory=list)
+    ingress: list[dict[str, Any]] = Field(default_factory=list)
+    credential_refs: list[dict[str, Any]] = Field(default_factory=list)
+    credential_stubs: list[dict[str, Any]] = Field(default_factory=list)
+    human_review_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    secret_exposures: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        return {
+            "workflow_file_count": len(self.workflow_files),
+            "workflow_count": len(self.workflows),
+            "ai_agent_count": len(self.ai_agents),
+            "tool_count": len(self.tools),
+            "mcp_server_trigger_count": len(self.mcp_server_triggers),
+            "mcp_server_exposed_tool_count": len(self.mcp_server_exposed_tools),
+            "mcp_client_tool_count": len(self.mcp_client_tools),
+            "workflow_tool_count": len(self.workflow_tools),
+            "code_tool_count": len(self.code_tools),
+            "http_tool_count": len(self.http_tools),
+            "community_tool_count": len(self.community_tools),
+            "dynamic_tool_surface_count": len(self.dynamic_tool_surfaces),
+            "ingress_count": len(self.ingress),
+            "credential_ref_count": len(self.credential_refs),
+            "credential_stub_file_count": len(self.credential_stub_files),
+            "variable_stub_file_count": len(self.variable_stub_files),
+            "data_table_schema_file_count": len(self.data_table_schema_files),
+            "execution_sample_file_count": len(self.execution_sample_files),
+            "eval_file_count": len(self.eval_files),
+            "tool_inventory_file_count": len(self.tool_inventory_files),
+            "secret_exposure_count": len(self.secret_exposures),
+            "human_review_node_count": len(self.human_review_nodes),
+            "warnings": self.warnings,
+        }
+
+
 class LoadedPolicyPack(BaseModel):
     id: str
     name: str

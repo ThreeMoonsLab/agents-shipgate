@@ -21,6 +21,7 @@ from pathlib import Path
 
 from agents_shipgate.cli.discovery.artifacts import (
     discover_anthropic_artifacts,
+    discover_n8n_artifacts,
     discover_openai_api_artifacts,
 )
 from agents_shipgate.cli.discovery.signals import DetectResult
@@ -73,8 +74,9 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
     tool_source_lines, used_python_frameworks = _tool_sources_block(workspace, detect_result)
     anthropic_lines = _anthropic_block(workspace, detect_result)
     openai_lines = _openai_api_block(workspace, detect_result)
+    n8n_lines = _n8n_block(workspace, detect_result)
 
-    if not tool_source_lines and not anthropic_lines and not openai_lines:
+    if not tool_source_lines and not anthropic_lines and not openai_lines and not n8n_lines:
         # Schema requires ≥ 1 of tool_sources / openai_api / anthropic /
         # google_adk / langchain / crewai. Empty workspace → emit a
         # CHANGE_ME stub identical to the legacy --minimal template's
@@ -96,6 +98,10 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
 
     if openai_lines:
         lines.extend(openai_lines)
+        lines.append("")
+
+    if n8n_lines:
+        lines.extend(n8n_lines)
         lines.append("")
 
     lines.extend(_policies_block())
@@ -265,6 +271,47 @@ def _openai_api_block(workspace: Path, detect_result: DetectResult) -> list[str]
         for path in artifacts["policy_rules"]:
             lines.append(f"    - path: {path}")
     return lines
+
+
+def _n8n_block(workspace: Path, detect_result: DetectResult) -> list[str]:
+    artifacts = discover_n8n_artifacts(workspace)
+    if not artifacts["workflows"] and not any(
+        framework.type == "n8n" for framework in detect_result.frameworks
+    ):
+        return []
+    lines = ["n8n:"]
+    _append_artifact_paths(
+        lines,
+        "workflows",
+        artifacts["workflows"],
+        placeholder="CHANGE_ME.json",
+    )
+    _append_artifact_paths(lines, "credential_stubs", artifacts["credential_stubs"])
+    _append_artifact_paths(lines, "variable_stubs", artifacts["variable_stubs"])
+    _append_artifact_paths(
+        lines,
+        "data_table_schemas",
+        artifacts["data_table_schemas"],
+    )
+    lines.append("  execution_samples: []")
+    _append_artifact_paths(lines, "eval_sets", artifacts["eval_sets"])
+    lines.append("  tool_inventories: []")
+    return lines
+
+
+def _append_artifact_paths(
+    lines: list[str],
+    key: str,
+    paths: list[str],
+    *,
+    placeholder: str | None = None,
+) -> None:
+    if not paths and placeholder is None:
+        lines.append(f"  {key}: []")
+        return
+    lines.append(f"  {key}:")
+    for path in paths or [placeholder]:
+        lines.append(f"    - path: {path}")
 
 
 def _policies_block() -> list[str]:

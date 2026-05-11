@@ -17,7 +17,7 @@
 
 Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
 OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
-LangChain/LangGraph, CrewAI, and OpenAI API artifacts, then writes a
+LangChain/LangGraph, CrewAI, n8n, and OpenAI API artifacts, then writes a
 deterministic **Tool-Use Readiness Report** before your agent gets
 production-like permissions.
 
@@ -120,6 +120,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 | Google ADK Python and YAML config | Supported |
 | LangChain/LangGraph static Python inputs | Supported |
 | CrewAI static Python inputs | Supported |
+| n8n workflow JSON and source-control stubs | Supported |
 | OpenAI API artifacts | Supported |
 
 ## What it produces

@@ -379,6 +379,62 @@
       "title": "LangChainConfig",
       "type": "object"
     },
+    "N8nConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_stubs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Credential Stubs",
+          "type": "array"
+        },
+        "data_table_schemas": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Data Table Schemas",
+          "type": "array"
+        },
+        "eval_sets": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Eval Sets",
+          "type": "array"
+        },
+        "execution_samples": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Execution Samples",
+          "type": "array"
+        },
+        "tool_inventories": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Tool Inventories",
+          "type": "array"
+        },
+        "variable_stubs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Variable Stubs",
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "title": "N8nConfig",
+      "type": "object"
+    },
     "NamedArtifactPathConfig": {
       "additionalProperties": false,
       "properties": {
@@ -998,6 +1054,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/LangChainConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "n8n": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/N8nConfig"
         },
         {
           "type": "null"

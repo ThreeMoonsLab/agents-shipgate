@@ -702,6 +702,112 @@
     },
     {
       "autofix_safe": false,
+      "category": "n8n",
+      "default_severity": "medium",
+      "description": "n8n AI-exposed tool lacks static metadata.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-ai-tool-metadata-missing",
+      "evidence_fields": [
+        "missing",
+        "source_type"
+      ],
+      "fires_when": "An n8n AI-exposed tool lacks description or static parameter metadata.",
+      "id": "SHIP-N8N-AI-TOOL-METADATA-MISSING",
+      "rationale": "Static review depends on descriptions and parameter schemas because Shipgate does not execute n8n workflows.",
+      "recommendation": "Add n8n tool descriptions, $fromAI() parameter metadata, workflow input schemas, or explicit inventory metadata.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "n8n",
+      "default_severity": "high",
+      "description": "n8n credential stubs are not declared.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-credential-evidence-missing",
+      "evidence_fields": [
+        "credential_ref_count",
+        "credential_stub_file_count"
+      ],
+      "fires_when": "Production-like n8n workflows reference credentials but no local credential stubs are declared.",
+      "id": "SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING",
+      "rationale": "Credential type evidence lets reviewers assess high-risk integrations without exposing secret values.",
+      "recommendation": "Declare local n8n credential stubs.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "n8n",
+      "default_severity": "high",
+      "description": "n8n tool surface cannot be statically enumerated.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-dynamic-tool-surface-not-enumerable",
+      "evidence_fields": [
+        "surface",
+        "explicit_inventory"
+      ],
+      "fires_when": "An n8n workflow has an unresolved DB workflow id, runtime expression in a tool name, wildcard MCP Server/Client exposure without an inventory, or an uninventoried community/custom tool node.",
+      "id": "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "rationale": "Release review needs an explicit local inventory when n8n workflow JSON uses runtime tool names, unresolved workflow references, wildcard MCP exposure, or community tool nodes without static metadata. This is high severity in every environment because static release evidence cannot prove the actual tool inventory.",
+      "recommendation": "Provide explicit local n8n/MCP tool inventory metadata or replace runtime/wildcard n8n tool exposure.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "n8n",
+      "default_severity": "medium",
+      "description": "n8n eval coverage is not declared.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-eval-coverage-missing",
+      "evidence_fields": [
+        "workflow_count",
+        "ai_agent_count",
+        "eval_file_count"
+      ],
+      "fires_when": "n8n inputs target production_like or production and no eval files are declared.",
+      "id": "SHIP-N8N-EVAL-COVERAGE-MISSING",
+      "rationale": "n8n AI workflow releases should include response and tool-trajectory eval evidence before promotion.",
+      "recommendation": "Declare n8n eval files for expected responses and tool-use trajectories.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "n8n",
+      "default_severity": "high",
+      "description": "n8n MCP Client Tool exposes an unfiltered toolset.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-mcp-client-toolset-unfiltered",
+      "evidence_fields": [
+        "source_ref",
+        "node_id",
+        "selection_mode",
+        "explicit_inventory"
+      ],
+      "fires_when": "An n8n MCP Client Tool uses All or All Except selection and no explicit local inventory is declared.",
+      "id": "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED",
+      "rationale": "All-tools and all-except MCP client selections can expose more tools than reviewers expect. The check is environment-sensitive because the selector is straightforward to narrow before production, while production-like use increases blast radius.",
+      "recommendation": "Select an explicit MCP tool allowlist in n8n or provide a local MCP inventory.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "security",
+      "default_severity": "high",
+      "description": "n8n workflow JSON contains a secret-like value.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-secret-in-workflow-parameter",
+      "evidence_fields": [
+        "source_ref",
+        "parameter_pointer",
+        "secret_kind"
+      ],
+      "fires_when": "A static n8n workflow parameter, node note, pinData entry, or staticData entry matches a secret-like token pattern. Evidence is redacted and contains only source location and secret kind, never a secret verifier.",
+      "id": "SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER",
+      "rationale": "Workflow JSON, pinned data, static data, and node notes can be committed or reported; hardcoded secret-like values should be moved into credentials or variables.",
+      "recommendation": "Move secret values into n8n credentials or variables and rotate the exposed value.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "policy",
       "default_severity": "critical",
       "description": "High-risk tool lacks a declared approval policy.",

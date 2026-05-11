@@ -43,6 +43,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     ANTHROPIC_TOOL_PATTERNS,
     MCP_PATTERNS,
     MODEL_CONFIG_PATTERNS,
+    N8N_WORKFLOW_PATTERNS,
     OPENAI_TOOL_PATTERNS,
     OPENAPI_PATTERNS,
     POLICY_RULE_PATTERNS,
@@ -50,6 +51,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     _candidate_files,
     _candidate_files_matching,
     _discover_patterns,
+    _looks_like_n8n_workflow,
     _relative,
 )
 
@@ -105,6 +107,7 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "google_adk": ("google-adk", "google_adk", "google-genai"),
     "anthropic": ("anthropic",),
     "openai_agents_sdk": ("openai-agents", "openai_agents", "agents"),
+    "n8n": ("n8n", "@n8n/n8n-nodes-langchain"),
     # openai_api is artifact-based; package hints aren't meaningful for it.
     "openai_api": (),
 }
@@ -211,6 +214,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         "google_adk": _FrameworkScore(),
         "anthropic": _FrameworkScore(),
         "openai_agents_sdk": _FrameworkScore(),
+        "n8n": _FrameworkScore(),
         # openai_api is the artifact-based OpenAI Messages API surface
         # (manifest.openai_api block). Distinct from openai_agents_sdk
         # (Python @function_tool decorators).
@@ -500,6 +504,7 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         "google_adk": [],
         "anthropic": [],
         "openai_agents_sdk": [],
+        "n8n": [],
         "openai_api": [],
     }
     for path in _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS):
@@ -528,6 +533,10 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai-api test cases: {path}")
         )
+    for path in _discover_patterns(workspace, N8N_WORKFLOW_PATTERNS):
+        full_path = (workspace / path).resolve()
+        if _looks_like_n8n_workflow(full_path):
+            hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}"))
     return hits
 
 
@@ -536,6 +545,7 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
     if not present:
         return {f: [] for f in (
             "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",
+            "n8n",
             "openai_api",
         )}
     # Conventional dirs are weak signals shared across all framework
@@ -551,6 +561,7 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
             "google_adk",
             "anthropic",
             "openai_agents_sdk",
+            "n8n",
             "openai_api",
         )
     }

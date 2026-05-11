@@ -89,8 +89,9 @@ already have:
 | MCP export | You can export the MCP server's tool list to JSON. | `tool_sources[].type: mcp` |
 | OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
 
-Google ADK, LangChain/LangGraph, CrewAI, Anthropic Messages API artifacts, and
-simple OpenAI API artifacts are also supported inputs, but the fastest path is
+Google ADK, LangChain/LangGraph, CrewAI, n8n workflow JSON, Anthropic Messages
+API artifacts, and simple OpenAI API artifacts are also supported inputs, but
+the fastest path is
 to start with the tool surface closest to the release boundary.
 
 **Replace placeholders before scanning.** `init --write --json` returns a

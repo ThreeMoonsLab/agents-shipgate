@@ -177,6 +177,58 @@ comprehensions, loop-built lists, unresolved imported toolkits, or unresolved
 external schema classes remain visible as source warnings and framework
 findings unless an explicit local inventory resolves the surface.
 
+## n8n
+
+n8n support is configured through the top-level `n8n:` block, not through
+`tool_sources`. The adapter reads local workflow JSON exports/source-control
+files and optional stubs only; it does not call a live n8n instance or execute
+workflows.
+
+```yaml
+n8n:
+  workflows:
+    - path: workflows/
+  credential_stubs:
+    - path: credentials/
+  variable_stubs:
+    - path: variables.json
+  data_table_schemas:
+    - path: data-tables/
+  execution_samples:
+    - path: evidence/n8n-executions/
+      optional: true
+  eval_sets:
+    - path: evaluations/
+      optional: true
+  tool_inventories:
+    - path: tools/mcp-tools.json
+      optional: true
+```
+
+Only agent-callable n8n surfaces are normalized into tools: AI Agent tool
+sub-nodes, MCP Client Tool selections, MCP Server Trigger exposed tools, Call
+n8n Workflow Tool entrypoints, Custom Code Tool nodes, HTTP Request Tool nodes,
+and explicit local inventories. Webhook, Chat Trigger, and Manual Trigger nodes
+are recorded as ingress evidence, not tools.
+
+Inactive workflows (`active: false`) are recorded but not treated as live tool
+or ingress surfaces. Workflow JSON is still scanned for secret-like values.
+
+n8n discovery treats one workflow-shaped JSON file as a strong signal and
+auto-initializes an `n8n:` block for that workspace. Standard source-control
+stub paths such as `credentials/`, `variables.json`, `data-tables/`, and
+`evaluations/` are included in generated manifests when present.
+
+n8n workflow tool names are scoped to the workflow file for tool identity, so
+two workflows may both expose a tool called `Lookup Customer` without one
+silently replacing the other. For provenance, treat `source_ref` as
+adapter-specific display text; the structured navigation fields are
+`source_path` plus `source_pointer`.
+
+Human-review nodes such as n8n Send-and-Wait are recorded for reviewer context
+only. They do not satisfy `policies.approval`; high-risk n8n tools need
+explicit policy declarations in the manifest.
+
 ## OpenAI API Artifacts
 
 `openai_api` is for simple API apps that do not have MCP/OpenAPI/SDK tool metadata. It is local-only: Agents Shipgate reads files and never calls OpenAI APIs.

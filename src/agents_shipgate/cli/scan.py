@@ -27,6 +27,7 @@ from agents_shipgate.core.models import (
     GoogleAdkArtifacts,
     LangChainArtifacts,
     LoadedToolSource,
+    N8nArtifacts,
     OpenAIApiArtifacts,
     ReadinessReport,
     Tool,
@@ -118,6 +119,7 @@ def run_scan(
     adk_artifacts = framework_result.adk_artifacts
     langchain_artifacts = framework_result.langchain_artifacts
     crewai_artifacts = framework_result.crewai_artifacts
+    n8n_artifacts = framework_result.n8n_artifacts
     loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
@@ -147,6 +149,8 @@ def run_scan(
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if n8n_artifacts:
+        warnings.extend(n8n_artifacts.warnings)
     if validation_artifacts:
         warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(
@@ -193,6 +197,7 @@ def run_scan(
         adk_artifacts=adk_artifacts,
         langchain_artifacts=langchain_artifacts,
         crewai_artifacts=crewai_artifacts,
+        n8n_artifacts=n8n_artifacts,
         validation_artifacts=validation_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
@@ -270,6 +275,7 @@ def run_scan(
         adk_artifacts,
         langchain_artifacts,
         crewai_artifacts,
+        n8n_artifacts,
     )
     tool_surface_facts = build_tool_surface_facts(
         manifest,
@@ -381,6 +387,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     adk_artifacts = framework_result.adk_artifacts
     langchain_artifacts = framework_result.langchain_artifacts
     crewai_artifacts = framework_result.crewai_artifacts
+    n8n_artifacts = framework_result.n8n_artifacts
     loaded_sources.extend(framework_result.loaded_sources)
     api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
     if api_source:
@@ -400,6 +407,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if n8n_artifacts:
+        warnings.extend(n8n_artifacts.warnings)
     if validation_artifacts:
         warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(manifest, base_dir)
@@ -428,6 +437,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             adk_artifacts,
             langchain_artifacts,
             crewai_artifacts,
+            n8n_artifacts,
         ),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
         "baseline": _default_baseline_status(base_dir),
@@ -548,25 +558,25 @@ def _load_sources(manifest, base_dir: Path, *, verbose: bool) -> list[LoadedTool
 def _flatten_and_deduplicate_tools(
     loaded_sources: list[LoadedToolSource],
 ) -> tuple[list[Tool], list[str]]:
-    by_name: dict[str, Tool] = {}
+    by_id: dict[str, Tool] = {}
     warnings: list[str] = []
     for loaded in loaded_sources:
         for tool in loaded.tools:
-            existing = by_name.get(tool.name)
+            existing = by_id.get(tool.id)
             if not existing:
-                by_name[tool.name] = tool
+                by_id[tool.id] = tool
                 continue
             if _source_priority(tool) > _source_priority(existing):
                 kept, dropped = tool, existing
             else:
                 kept, dropped = existing, tool
-            by_name[tool.name] = _merge_duplicate_tool_metadata(kept, dropped)
+            by_id[tool.id] = _merge_duplicate_tool_metadata(kept, dropped)
             warnings.append(
                 "Duplicate tool name "
                 f"{tool.name!r}; kept {kept.source_type} source {kept.source_id!r} "
                 f"and merged metadata from {dropped.source_type} source {dropped.source_id!r}."
             )
-    return list(by_name.values()), warnings
+    return list(by_id.values()), warnings
 
 
 def _source_priority(tool: Tool) -> int:
@@ -580,12 +590,18 @@ def _source_priority(tool: Tool) -> int:
         "google_adk_inventory": 25,
         "langchain_inventory": 25,
         "crewai_inventory": 25,
+        "n8n_inventory": 25,
         "mcp": 20,
         "google_adk_function": 10,
         "langchain_function": 10,
         "langchain_structured_tool": 10,
         "crewai_function": 10,
         "crewai_class_tool": 10,
+        "n8n_ai_tool": 10,
+        "n8n_workflow_tool": 10,
+        "n8n_code_tool": 10,
+        "n8n_http_tool": 10,
+        "n8n_mcp_client_tool": 10,
         "sdk_function": 10,
         "google_adk_config": 5,
         "crewai_prebuilt_tool": 5,
@@ -904,6 +920,7 @@ def _frameworks_surface(
     adk_artifacts: GoogleAdkArtifacts | None,
     langchain_artifacts: LangChainArtifacts | None = None,
     crewai_artifacts: CrewAiArtifacts | None = None,
+    n8n_artifacts: N8nArtifacts | None = None,
 ) -> dict[str, object]:
     surface: dict[str, object] = {}
     if adk_artifacts:
@@ -912,6 +929,8 @@ def _frameworks_surface(
         surface["langchain"] = langchain_artifacts.surface_summary()
     if crewai_artifacts:
         surface["crewai"] = crewai_artifacts.surface_summary()
+    if n8n_artifacts:
+        surface["n8n"] = n8n_artifacts.surface_summary()
     return surface
 
 

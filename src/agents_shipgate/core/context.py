@@ -10,6 +10,7 @@ from agents_shipgate.core.models import (
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
+    N8nArtifacts,
     OpenAIApiArtifacts,
     Tool,
     ValidationArtifacts,
@@ -27,4 +28,5 @@ class ScanContext:
     adk_artifacts: GoogleAdkArtifacts | None = None
     langchain_artifacts: LangChainArtifacts | None = None
     crewai_artifacts: CrewAiArtifacts | None = None
+    n8n_artifacts: N8nArtifacts | None = None
     validation_artifacts: ValidationArtifacts | None = None
