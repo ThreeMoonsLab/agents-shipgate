@@ -14,7 +14,7 @@ Exit code: `2` (manifest config error).
 
 ## Why this is an anti-pattern
 
-The root manifest schema only allows a fixed set of keys (`version`, `project`, `agent`, `environment`, `tool_sources`, etc.). Putting an `agent`-level field at the root looks plausible — many YAML schemas are permissive — but Pydantic's `extra="forbid"` mode means any unrecognized key fails fast with a typo-friendly suggestion.
+The root manifest schema only allows a fixed set of keys (`version`, `project`, `agent`, `environment`, `tool_sources`, etc.). Putting an `agent`-level field at the root looks plausible — many YAML schemas are permissive — but Pydantic's `extra="forbid"` mode means any unrecognized key fails fast as an extra input.
 
 The fix: nest the field under its owning section.
 
