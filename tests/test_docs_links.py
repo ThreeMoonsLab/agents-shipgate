@@ -211,6 +211,12 @@ def test_target_repo_cursor_globs_cover_shipgate_discovery_names():
     assert '"**/*swagger*.yml"' in text
     assert '"**/*swagger*.json"' in text
     assert '"**/*mcp*.json"' in text
+    assert '".agents-shipgate/*.json"' in text
+    assert '"prompts/**"' in text
+    assert '"policies/**"' in text
+    assert '".github/workflows/agents-shipgate.yml"' in text
+    assert '".github/workflows/agents-shipgate.yaml"' in text
+    assert '"**/*.py"' not in text
 
 
 def test_agent_adoption_harness_is_manual_and_keeps_results_private():

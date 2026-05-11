@@ -8,6 +8,7 @@ decision" sentence, never in any other rendered content.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
@@ -25,6 +26,7 @@ ALL_RENDERERS = {
     "cursor": render_cursor_file,
     "pr-template": render_pr_template,
 }
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_each_renderer_returns_nonempty_string() -> None:
@@ -39,9 +41,39 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
     assert out.startswith("---\n")
     assert "alwaysApply: false" in out
     assert "globs:" in out
-    # Broad globs (per docs/target-repo-agent-snippets.md): OpenAPI, MCP, tools, Python.
-    for token in ("openapi", "swagger", "mcp", "tools", "*.py"):
+    # Path-based trigger globs. Diff-only Python decorator triggers are
+    # intentionally not represented by a broad "**/*.py" Cursor glob.
+    for token in (
+        "openapi",
+        "swagger",
+        "mcp",
+        "tools",
+        ".agents-shipgate",
+        "prompts/**",
+        "policies/**",
+        ".github/workflows/agents-shipgate",
+    ):
         assert token in out
+    assert '"**/*.py"' not in out
+
+
+def test_committed_cursor_rule_matches_renderer() -> None:
+    """The repo-level Cursor rule and the init renderer must not drift."""
+    committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(
+        encoding="utf-8"
+    )
+    assert committed == render_cursor_file()
+
+
+def test_target_repo_cursor_snippet_matches_renderer() -> None:
+    """The copyable docs snippet must match the generated Cursor file."""
+    text = (REPO_ROOT / "docs/target-repo-agent-snippets.md").read_text(
+        encoding="utf-8"
+    )
+    section = text.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[1]
+    start = section.index("```md\n") + len("```md\n")
+    end = section.index("\n```", start)
+    assert section[start:end] + "\n" == render_cursor_file()
 
 
 def test_pr_template_uses_conditional_wording() -> None:

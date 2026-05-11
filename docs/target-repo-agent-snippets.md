@@ -109,18 +109,51 @@ globs:
   - "**/*swagger*.json"
   - "**/*mcp*.json"
   - "**/*tools*.json"
-  - "**/*.py"
+  - ".agents-shipgate/*.json"
+  - "prompts/**"
+  - "policies/**"
+  - ".github/workflows/agents-shipgate.yml"
+  - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
+Default to advisory scans while adopting the gate.
 
 Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
 `release_decision.decision` over legacy severity/status summaries.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.
+
+For one-fetch counts and a deterministic next step, read
+`report.json.agent_summary` (v0.12+): verdict, blocker_count,
+review_item_count, auto_appliable_patches, needs_human_review,
+first_recommended_action.
+
+For per-finding routing read `findings[].agent_action` (v0.12+):
+auto_apply, propose_patch_for_review, escalate_to_human,
+suppress_with_reason, informational. Do not synthesize an action from
+the underlying flags when the enum is present.
+
+To translate a single finding into user-facing prose, run:
+
+  agents-shipgate explain-finding <FINGERPRINT> \
+      --from agents-shipgate-reports/report.json --json
+
+The payload includes the full Finding shape plus `metadata` (catalog
+CheckMetadata) and `explanation` (a deterministic 3–5 sentence prose
+summary). See `prompts/explain-finding-to-user.md` for the
+translation rubric.
+
+References:
+
+- AGENTS.md — agent-facing instructions
+- docs/agent-contract-current.md — current schema versions and field list
+- docs/agent-action-guide.md — per-category recipe for what to DO with a finding
+- docs/upstream-integrations.md — per-framework drop-in (60-second adoption)
+- docs/triggers.json — machine-readable mirror of the trigger table
 ```
 
 ## `.github/pull_request_template.md`

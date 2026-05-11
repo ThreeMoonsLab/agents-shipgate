@@ -10,13 +10,17 @@ globs:
   - "**/*swagger*.json"
   - "**/*mcp*.json"
   - "**/*tools*.json"
+  - ".agents-shipgate/*.json"
   - "prompts/**"
   - "policies/**"
+  - ".github/workflows/agents-shipgate.yml"
+  - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
+Default to advisory scans while adopting the gate.
 
 Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
 `release_decision.decision` over legacy severity/status summaries.

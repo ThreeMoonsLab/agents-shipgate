@@ -1157,3 +1157,29 @@ def test_pre_commit_hook_regex_skips_docs_only_paths():
             "tool-surface artifact and the hook should not fire on it. "
             "Tighten the regex."
         )
+
+
+def test_pre_commit_local_docs_show_same_path_trigger_clauses():
+    """The copy-paste `repo: local` snippet must not lag the root hook.
+
+    Downstream users often copy the local snippet directly instead of using
+    the canonical `repo: https://...` install form, so the documented regex
+    needs the same path-based trigger clauses as `.pre-commit-hooks.yaml`.
+    """
+    text = _read("docs/integrations.md")
+    for clause in (
+        r".*swagger.*\.(yaml|yml|json)",
+        r"\.agents-shipgate/.*\.json",
+        r"\.github/workflows/agents-shipgate\.(yaml|yml)",
+    ):
+        assert clause in text, (
+            "docs/integrations.md local pre-commit snippet is missing "
+            f"{clause!r}; keep it aligned with the root hook regex."
+        )
+
+
+def test_pre_commit_docs_do_not_reference_missing_trigger_subcommand():
+    """`triggers` is a module entry point, not a top-level Typer command."""
+    text = _read(".pre-commit-hooks.yaml")
+    assert "agents-shipgate triggers --diff" not in text
+    assert "python -m agents_shipgate.triggers --git-diff HEAD" in text

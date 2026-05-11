@@ -196,8 +196,11 @@ repos:
             .*tools.*\.json|
             .*mcp.*\.json|
             .*openapi.*\.(yaml|yml|json)|
+            .*swagger.*\.(yaml|yml|json)|
+            \.agents-shipgate/.*\.json|
             prompts/.*|
-            policies/.*
+            policies/.*|
+            \.github/workflows/agents-shipgate\.(yaml|yml)
           )$
 ```
 
