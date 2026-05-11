@@ -66,7 +66,7 @@ The agent-action-guide names the same recovery in its [`inventory` section](http
 
 ## What you'll see
 
-- `agents-shipgate doctor -c shipgate.yaml` reports `unresolved_sources: []` (the file resolves) but `tool_count: 0`.
-- `agents-shipgate detect --json --workspace .` returns `is_agent_project: true` (the SDK import is detected) and lists `factory.py` in the OpenAI Agents SDK framework's `candidate_files`.
+- `agents-shipgate doctor -c shipgate.yaml` reports `unresolved_sources: []` (the file resolves) but `total_tools: 0`. The diagnostic block surfaces `SHIP-DIAG-ZERO-TOOLS` with `next_actions[]` covering the three recovery paths above.
+- `agents-shipgate detect --json --workspace .` returns `is_agent_project: false` and `frameworks: []`. The fixture defines a local `class Agent` rather than importing `from agents import Agent`, so the AST walker sees no SDK import to detect. The `Agent(name="dynamic-toolset-agent")` call is still surfaced as an entry in `agent_name_candidates` (source: `Agent_name_literal`), but that's a weaker signal that doesn't flip `is_agent_project`. This is a deliberate detail of the fixture: anti-pattern samples shouldn't pretend to be real agent projects — they isolate one failure mode at a time, and the failure mode here is *inventory enumeration*, not *project detection*.
 - `report.json.findings[]` contains exactly one high-severity entry: `SHIP-INVENTORY-NOT-ENUMERABLE` with `tool_name: null`.
 - The Release Evidence Packet's §1 verdict is `REVIEW REQUIRED` and §10 (not_proven) explicitly notes that no tool surface was enumerated.
