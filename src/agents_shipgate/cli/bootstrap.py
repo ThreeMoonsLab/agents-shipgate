@@ -112,6 +112,22 @@ def bootstrap_run(
     """
     if env is None:
         env = dict(os.environ)
+    # Pre-flight: workspace must exist and be a directory. Without
+    # this, _run_step's subprocess.run(cwd=...) blows up with
+    # FileNotFoundError before bootstrap can produce a structured
+    # result, leaving callers with a traceback instead of a
+    # routable verdict (#64 review P2).
+    if not workspace.exists() or not workspace.is_dir():
+        return {
+            "verdict": "failed_at_preflight",
+            "stopped": True,
+            "stop_reason": (
+                f"workspace {workspace} does not exist or is not a "
+                "directory. Bootstrap cannot run."
+            ),
+            "steps": [],
+            "release_decision": None,
+        }
     workspace = workspace.resolve()
     manifest_path = workspace / "shipgate.yaml"
 
@@ -129,6 +145,15 @@ def bootstrap_run(
         parse_json=True,
     )
     steps.append(detect_step)
+
+    # Check detect exit code BEFORE the no-agent-surface heuristic.
+    # A nonzero detect with empty stdout yields detect_payload == {},
+    # which trips the heuristic (is_agent_project=false, suggested=[])
+    # and gets reported as "nothing to do" — masking the real failure
+    # (#64 review P2). Check the exit code first so genuine detect
+    # failures route to failed_at_detect.
+    if detect_step["exit_code"] != 0:
+        return _stop_with_failure(steps, detect_step, "detect")
 
     detect_payload = detect_step["payload"] or {}
     is_agent_project = bool(detect_payload.get("is_agent_project"))
@@ -150,9 +175,6 @@ def bootstrap_run(
             "steps": steps,
             "release_decision": None,
         }
-
-    if detect_step["exit_code"] != 0:
-        return _stop_with_failure(steps, detect_step, "detect")
 
     # --- 2. init -----------------------------------------------------
     init_argv = ["init", "--workspace", str(workspace), "--write", "--json"]
@@ -246,9 +268,13 @@ def bootstrap_run(
             parse_json=True,
         )
         steps.append(apply_step)
-        if apply_step["exit_code"] not in (0, 5):
-            # 5 = containment violation in some apply-patches paths;
-            # treat 0 as success, 5 as recoverable-but-noted.
+        if apply_step["exit_code"] != 0:
+            # Any non-zero apply-patches exit is a stop. Exit 5 in
+            # particular is a containment violation — the safety layer
+            # refused to mutate files (e.g. a patch targeted a path
+            # outside the workspace). Letting bootstrap proceed to a
+            # `complete_*` verdict would let an agent claim completion
+            # after the safety gate said NO (#64 review P2).
             return _stop_with_failure(steps, apply_step, "apply-patches")
 
     # --- Verdict -----------------------------------------------------

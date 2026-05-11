@@ -318,3 +318,127 @@ def test_bootstrap_reports_release_decision_verdict_in_summary(tmp_path):
         f"verdict {result['verdict']!r} should mirror "
         f"release_decision.decision {rd['decision']!r}"
     )
+
+
+def test_bootstrap_rejects_missing_workspace_with_structured_failure(tmp_path):
+    """Pre-flight: when --workspace points at a path that doesn't exist
+    (typo, deleted dir, wrong cwd), bootstrap must emit a structured
+    `failed_at_preflight` verdict rather than crashing in subprocess.run
+    with FileNotFoundError. Coding agents need a routable signal."""
+    missing = tmp_path / "definitely-missing"
+    assert not missing.exists()
+
+    result = bootstrap_run(workspace=missing, ci=False, apply=False)
+    assert result["verdict"] == "failed_at_preflight"
+    assert result["stopped"] is True
+    assert "does not exist" in result["stop_reason"]
+    # Steps must be empty — we never got to detect.
+    assert result["steps"] == []
+
+
+def test_bootstrap_rejects_workspace_pointing_at_a_file(tmp_path):
+    """Pre-flight also catches the case where --workspace is a real
+    path but points at a file (e.g. user pointed at shipgate.yaml
+    instead of its parent directory)."""
+    not_a_dir = tmp_path / "config.yaml"
+    not_a_dir.write_text("version: 0.1\n", encoding="utf-8")
+
+    result = bootstrap_run(workspace=not_a_dir, ci=False, apply=False)
+    assert result["verdict"] == "failed_at_preflight"
+    assert result["stopped"] is True
+    assert result["steps"] == []
+
+
+def test_bootstrap_routes_nonzero_detect_to_failed_at_detect(tmp_path, monkeypatch):
+    """When detect exits non-zero with empty stdout, bootstrap must
+    route to `failed_at_detect` rather than fall through to the
+    no-agent-surface heuristic (which would mask the failure as
+    "nothing to do"). The check order matters: exit code FIRST,
+    payload heuristic SECOND (#64 review P2)."""
+    # Build a fake binary command that always exits 1 with empty stdout
+    # but a structured agent-mode stderr line. We patch subprocess.run
+    # at the bootstrap module level so only this test sees the override.
+    from agents_shipgate.cli import bootstrap as bs_module
+
+    real_run = bs_module.subprocess.run
+
+    class FakeCompleted:
+        def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(argv, **kwargs):
+        if "detect" in argv:
+            return FakeCompleted(
+                returncode=1,
+                stdout="",
+                stderr=(
+                    '{"error": "other_error", "message": "detector blew up", '
+                    '"next_action": "file an issue"}\n'
+                ),
+            )
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(bs_module.subprocess, "run", fake_run)
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    result = bootstrap_run(workspace=workspace, ci=False, apply=False)
+    assert result["verdict"] == "failed_at_detect", (
+        f"nonzero detect with empty stdout must NOT fall through to "
+        f"no_agent_surface; got {result['verdict']!r}"
+    )
+    assert result["stopped"] is True
+    # And the stderr's structured kind must be discoverable for the
+    # downstream emit_agent_mode_error path.
+    detect_step = next(s for s in result["steps"] if s["label"] == "detect")
+    assert detect_step["exit_code"] == 1
+    kind, forwarded = _failed_step_error(detect_step)
+    assert kind == "other_error"
+    assert forwarded.get("message") == "detector blew up"
+
+
+def test_bootstrap_stops_on_apply_patches_exit_5_containment_violation(
+    tmp_path, monkeypatch
+):
+    """apply-patches exit 5 = containment violation (the safety layer
+    refused to mutate files). Bootstrap must stop with
+    `failed_at_apply-patches`, not return a `complete_*` verdict —
+    otherwise an agent could report completion after the safety gate
+    said NO (#64 review P2)."""
+    from agents_shipgate.cli import bootstrap as bs_module
+
+    real_run = bs_module.subprocess.run
+
+    class FakeCompleted:
+        def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(argv, **kwargs):
+        if "apply-patches" in argv:
+            return FakeCompleted(
+                returncode=5,
+                stdout="",
+                stderr=(
+                    '{"error": "other_error", "message": '
+                    '"refusing: patch path escapes workspace"}\n'
+                ),
+            )
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(bs_module.subprocess, "run", fake_run)
+
+    workspace = _copy_sample(SIMPLE_OPENAI_API, tmp_path)
+    result = bootstrap_run(workspace=workspace, ci=False, apply=True)
+
+    assert result["verdict"] == "failed_at_apply-patches", (
+        f"apply-patches exit 5 must stop bootstrap; got {result['verdict']!r}"
+    )
+    assert result["stopped"] is True
+    apply_step = next(
+        s for s in result["steps"] if s["label"] == "apply-patches"
+    )
+    assert apply_step["exit_code"] == 5
