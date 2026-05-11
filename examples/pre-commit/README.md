@@ -49,22 +49,36 @@ repos:
             .*tools.*\.json|
             .*mcp.*\.json|
             .*openapi.*\.(yaml|yml|json)|
+            .*swagger.*\.(yaml|yml|json)|
+            \.agents-shipgate/.*\.json|
             prompts/.*|
-            policies/.*
+            policies/.*|
+            \.github/workflows/agents-shipgate\.(yaml|yml)
           )$
 ```
 
 ## When the hook fires
 
-The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) mirrors the [`docs/triggers.json`](../../docs/triggers.json) glob set, so the hook activates only when a staged change touches an actual tool-surface artifact:
+The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) covers every **path-based** trigger from [`docs/triggers.json`](../../docs/triggers.json), so the hook activates when a staged change touches:
 
-- `shipgate.yaml`
-- MCP exports (`*mcp*.json`, `.agents-shipgate/*.json`)
-- OpenAPI/Swagger specs (`*openapi*.{yaml,yml,json}`, `*swagger*.{yaml,yml,json}`)
-- Static tool inventories (`*tools*.json`)
-- Prompts (`prompts/*`) and policies (`policies/*`)
+- `shipgate.yaml` (`TRIGGER-SHIPGATE-MANIFEST`)
+- MCP exports — `**/*mcp*.json`, `.agents-shipgate/*.json` (`TRIGGER-MCP-EXPORT-CHANGED`)
+- OpenAPI/Swagger specs — `**/*openapi*.{yaml,yml,json}`, `**/*swagger*.{yaml,yml,json}` (`TRIGGER-OPENAPI-SPEC-CHANGED`)
+- Static tool inventories — `**/*tools*.json` (`TRIGGER-STATIC-TOOL-INVENTORY-CHANGED`)
+- Prompts and policies — `prompts/**`, `policies/**` (`TRIGGER-PROMPTS-OR-POLICIES`)
+- Shipgate CI workflow — `.github/workflows/agents-shipgate.{yml,yaml}` (`TRIGGER-SHIPGATE-CI-WORKFLOW`, path leg)
 
-A pure docs/test commit doesn't trigger the scan — same semantic as the AGENTS.md trigger table.
+### What the hook can't catch
+
+pre-commit's `files:` regex is purely path-based; it cannot inspect diff content. Two triggers in `docs/triggers.json` are diff-only and therefore **not** covered by this hook:
+
+- `TRIGGER-FUNCTION-TOOL-DECORATOR` — fires when `@function_tool`, `@tool`, or `FunctionTool(` is added to a diff.
+- `TRIGGER-FRAMEWORK-VERSION-BUMP` — fires when `openai-agents`, `langchain`, `crewai`, or `google-adk` appears in a dependency-change diff.
+- `TRIGGER-SHIPGATE-CI-WORKFLOW` also has a diff-only leg (`ThreeMoonsLab/agents-shipgate` string match) that this hook doesn't see.
+
+For full trigger coverage on PRs, rely on the GitHub Action — it runs `agents-shipgate scan` unconditionally on the configured event, so diff content doesn't gate it. For local diff-aware checks, `python -m agents_shipgate.triggers --git-diff HEAD` (or `--diff-text "..."`) evaluates the full catalog against any file set or diff payload.
+
+A pure docs/test commit doesn't trigger the scan — same semantic as the AGENTS.md trigger table (`TRIGGER-DOCS-ONLY-NEGATIVE`).
 
 ## Advisory vs. strict
 

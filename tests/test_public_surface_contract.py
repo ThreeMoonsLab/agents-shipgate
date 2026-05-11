@@ -1049,3 +1049,111 @@ def test_forbidden_display_names_only_in_do_not_use_lists(relpath):
             "`Agents Shipgate` instead.\n  line: "
             f"{line.strip()!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Pre-commit hooks regex vs. docs/triggers.json parity
+# ---------------------------------------------------------------------------
+#
+# The root .pre-commit-hooks.yaml exposes a `files:` regex that covers a
+# subset of docs/triggers.json — specifically the path-based positive
+# triggers (the regex can't match diff-only triggers like
+# TRIGGER-FUNCTION-TOOL-DECORATOR). When the catalog adds a path-based
+# trigger, the hook regex must add a matching pattern; otherwise the docs
+# claim parity that doesn't hold.
+
+# Path-based positive triggers in docs/triggers.json. Each entry maps the
+# trigger ID to a representative path that should match the hook regex.
+# Excludes diff-only triggers (decorator, version bump) and
+# file_present-only triggers (existing manifest), neither of which the
+# hook regex can cover.
+_HOOK_PATH_TRIGGER_FIXTURES = {
+    "TRIGGER-MCP-EXPORT-CHANGED": [
+        "server/mcp-export.json",
+        ".agents-shipgate/cached-mcp.json",
+    ],
+    "TRIGGER-OPENAPI-SPEC-CHANGED": [
+        "api/openapi.yaml",
+        "api/swagger.json",
+    ],
+    "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED": [
+        "tools/openai-tools.json",
+        "tools/anthropic-tools.json",
+    ],
+    "TRIGGER-PROMPTS-OR-POLICIES": [
+        "prompts/system.md",
+        "policies/refund.md",
+    ],
+    "TRIGGER-SHIPGATE-MANIFEST": [
+        "shipgate.yaml",
+    ],
+    "TRIGGER-SHIPGATE-CI-WORKFLOW": [
+        ".github/workflows/agents-shipgate.yml",
+        ".github/workflows/agents-shipgate.yaml",
+    ],
+}
+
+
+def _hook_files_regex() -> re.Pattern[str]:
+    """Extract the canonical `agents-shipgate` hook's `files:` regex
+    from the root .pre-commit-hooks.yaml so the test parses the same
+    pattern pre-commit will at install time."""
+    import yaml
+
+    text = _read(".pre-commit-hooks.yaml")
+    hooks = yaml.safe_load(text)
+    advisory = next(h for h in hooks if h["id"] == "agents-shipgate")
+    pattern = advisory["files"]
+    # pre-commit compiles with re.VERBOSE since the manifest uses `|`
+    # block scalars with comments and whitespace.
+    return re.compile(pattern, re.VERBOSE)
+
+
+def test_pre_commit_hook_regex_covers_every_path_based_trigger():
+    """The hook docs (README, integrations.md, hook file header) claim
+    the `files:` regex covers every path-based trigger in
+    docs/triggers.json. Pin that claim: each representative path for
+    each path-based trigger ID MUST match the regex. If this fails, a
+    new path-based trigger landed in the catalog without a
+    corresponding regex update."""
+    pattern = _hook_files_regex()
+    triggers = _load_triggers_json()
+    catalog_ids = {rule["id"] for rule in triggers["rules"]}
+
+    # Sanity: every fixture id must exist in the catalog. Catches a
+    # silent rename in triggers.json.
+    for trigger_id in _HOOK_PATH_TRIGGER_FIXTURES:
+        assert trigger_id in catalog_ids, (
+            f"Fixture references {trigger_id!r} but docs/triggers.json "
+            "doesn't define it. Either the trigger was renamed, or the "
+            "fixture is stale."
+        )
+
+    for trigger_id, sample_paths in _HOOK_PATH_TRIGGER_FIXTURES.items():
+        for path in sample_paths:
+            assert pattern.match(path), (
+                f"hook `files:` regex does NOT match {path!r} "
+                f"(covers {trigger_id}). Either add a clause to "
+                ".pre-commit-hooks.yaml or narrow the doc claim that "
+                "the regex mirrors docs/triggers.json."
+            )
+
+
+def test_pre_commit_hook_regex_skips_docs_only_paths():
+    """Negative control: the hook must NOT fire on pure docs / tests /
+    config files that aren't tool-surface artifacts. Mirrors the
+    `TRIGGER-DOCS-ONLY-NEGATIVE` rule."""
+    pattern = _hook_files_regex()
+    docs_only_paths = [
+        "README.md",
+        "docs/index.md",
+        "tests/test_foo.py",
+        "src/agents_shipgate/cli/main.py",
+        ".github/workflows/release.yml",  # non-shipgate workflow
+    ]
+    for path in docs_only_paths:
+        assert not pattern.match(path), (
+            f"hook `files:` regex MATCHES {path!r}; that path is not a "
+            "tool-surface artifact and the hook should not fire on it. "
+            "Tighten the regex."
+        )

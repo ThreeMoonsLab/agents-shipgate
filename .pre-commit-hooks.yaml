@@ -5,9 +5,15 @@
 #       rev: v0.10.0
 #       hooks:
 #         - id: <hook id below>
-# Keep the file regex in sync with `docs/triggers.json`'s glob set and the
-# AGENTS.md trigger table so prose, machine-readable, and hook-side triggers
-# all agree. The longer write-up lives in `examples/pre-commit/README.md`.
+#
+# Scope: the `files:` regex below covers every **path-based** trigger from
+# `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
+# inventories, prompts/policies, AND the Shipgate CI workflow files.
+# Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR` and
+# `TRIGGER-FRAMEWORK-VERSION-BUMP`) are not covered here — pre-commit's
+# `files:` regex is purely path-based and cannot inspect diff contents.
+# Use the GitHub Action or `agents-shipgate triggers --diff` for full
+# trigger coverage.
 - id: agents-shipgate
   name: Agents Shipgate release-readiness gate
   description: >
@@ -28,7 +34,8 @@
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
       prompts/.*|
-      policies/.*
+      policies/.*|
+      \.github/workflows/agents-shipgate\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 
@@ -52,7 +59,8 @@
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
       prompts/.*|
-      policies/.*
+      policies/.*|
+      \.github/workflows/agents-shipgate\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 
