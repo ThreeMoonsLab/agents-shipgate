@@ -139,7 +139,7 @@ The agent should also be ready to surface the structured form when asked. This m
 
 - **Severity counts** in the headline come from `agent_summary.{blocker_count, review_item_count, auto_appliable_patches, needs_human_review}`.
 - **Top blockers** come from `release_decision.blockers[]`. For each, run `agents-shipgate explain-finding <FINGERPRINT> --json` to get the metadata + evidence + templated explanation; quote the explanation or rewrite for tone.
-- **Diff blocks** come from the `apply-patches --apply --json` output's `files` array. Render with standard `+`/`-` markers.
+- **Diff blocks** come from the `apply-patches --apply --json` output's `files` object — keyed by file path, with each entry exposing `status`, `patches`, `diff`, `error`. Iterate `Object.entries(out.files)` (or `out["files"].items()` in Python) and render each `diff` with standard `+`/`-` markers.
 - **Review-item table** comes from walking `findings[]` filtered by `release_decision.review_items[].fingerprint`.
 
 ## When the verdict is different
