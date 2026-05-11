@@ -2,6 +2,8 @@
 
 Drop-in [pre-commit](https://pre-commit.com/) hook for running Agents Shipgate locally on every commit that touches a tool-surface artifact.
 
+The canonical hook manifest lives at the **repository root** ([`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml)) — that's where pre-commit looks when a downstream repo points at this project. This directory only contains the longer write-up.
+
 ## Two ways to wire it up
 
 ### A) Canonical form — let pre-commit manage the install
@@ -16,7 +18,17 @@ repos:
       - id: agents-shipgate
 ```
 
-`pre-commit autoupdate` will keep the `rev:` pin current. The hook definition lives in [`./.pre-commit-hooks.yaml`](./.pre-commit-hooks.yaml).
+`pre-commit autoupdate` will keep the `rev:` pin current. pre-commit clones this repo, reads [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) from its root, installs the `agents-shipgate` package, and invokes the binary.
+
+Three hook IDs are exposed from the root manifest:
+
+| Hook ID | Mode | Stage(s) | When it fires |
+|---|---|---|---|
+| `agents-shipgate` | advisory (never blocks) | `pre-commit`, `pre-push` | Any staged tool-surface artifact |
+| `agents-shipgate-strict` | strict (`--fail-on critical`) | `pre-push` | Any staged tool-surface artifact |
+| `agents-shipgate-validate` | manifest doctor only | `pre-commit` | Only `shipgate.yaml` |
+
+Pick one based on whether you want the commit/push to block (`-strict`) or just surface findings (`agents-shipgate`).
 
 ### B) Local form — agents-shipgate already on PATH
 
@@ -44,7 +56,7 @@ repos:
 
 ## When the hook fires
 
-The `files:` regex mirrors the [`docs/triggers.json`](../../docs/triggers.json) glob set, so the hook activates only when a staged change touches an actual tool-surface artifact:
+The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) mirrors the [`docs/triggers.json`](../../docs/triggers.json) glob set, so the hook activates only when a staged change touches an actual tool-surface artifact:
 
 - `shipgate.yaml`
 - MCP exports (`*mcp*.json`, `.agents-shipgate/*.json`)
@@ -56,10 +68,15 @@ A pure docs/test commit doesn't trigger the scan — same semantic as the AGENTS
 
 ## Advisory vs. strict
 
-The default entry runs in `advisory` mode: the hook never blocks the commit. To make Shipgate fail locally before the commit lands, change the entry:
+Use the `agents-shipgate-strict` hook ID for the strict variant, or override the `entry:` in your `.pre-commit-config.yaml`:
 
 ```yaml
-entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical
+repos:
+  - repo: https://github.com/ThreeMoonsLab/agents-shipgate
+    rev: v0.10.0
+    hooks:
+      - id: agents-shipgate
+        entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical
 ```
 
 Pair strict mode with a baseline ([`baseline.md`](../../docs/baseline.md)) so existing accepted findings don't fail every commit.

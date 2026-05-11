@@ -201,4 +201,4 @@ repos:
           )$
 ```
 
-The hook fires only when a staged change touches the same artifact set as the AGENTS.md trigger table (mirror of [`docs/triggers.json`](triggers.json)). See [`examples/pre-commit/`](../examples/pre-commit/) for the canonical hook definition and a longer write-up on advisory vs. strict modes.
+The hook fires only when a staged change touches the same artifact set as the AGENTS.md trigger table (mirror of [`docs/triggers.json`](triggers.json)). The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.

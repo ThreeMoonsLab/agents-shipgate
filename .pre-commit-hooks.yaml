@@ -1,29 +1,67 @@
+# Canonical pre-commit hook manifest. pre-commit reads this file from the
+# repo root when a downstream project uses
+#   repos:
+#     - repo: https://github.com/ThreeMoonsLab/agents-shipgate
+#       rev: v0.10.0
+#       hooks:
+#         - id: <hook id below>
+# Keep the file regex in sync with `docs/triggers.json`'s glob set and the
+# AGENTS.md trigger table so prose, machine-readable, and hook-side triggers
+# all agree. The longer write-up lives in `examples/pre-commit/README.md`.
 - id: agents-shipgate
-  name: Agents Shipgate scan
-  description: Static release-readiness scan for AI agent tool surfaces
-  entry: agents-shipgate
-  args: [scan, --ci-mode, advisory]
+  name: Agents Shipgate release-readiness gate
+  description: >
+    Static release-readiness scan for AI agent tool surfaces. Advisory mode —
+    never blocks the commit. Switch to `agents-shipgate-strict` (or change the
+    `entry:` to `--ci-mode strict`) to fail on critical findings locally.
+  entry: agents-shipgate scan -c shipgate.yaml --ci-mode advisory
   language: python
   pass_filenames: false
+  always_run: false
   stages: [pre-commit, pre-push]
-  files: '(shipgate\.yaml|tools/.*\.json|.*openapi.*\.ya?ml|.*mcp.*\.json|prompts/.*|spec[s]?/.*\.ya?ml)$'
+  files: |
+    (?x)^(
+      shipgate\.yaml|
+      .*tools.*\.json|
+      .*mcp.*\.json|
+      .*openapi.*\.(yaml|yml|json)|
+      .*swagger.*\.(yaml|yml|json)|
+      \.agents-shipgate/.*\.json|
+      prompts/.*|
+      policies/.*
+    )$
+  minimum_pre_commit_version: "3.0.0"
 
 - id: agents-shipgate-strict
-  name: Agents Shipgate scan (strict)
-  description: Strict-mode release-readiness scan; fails on critical findings
-  entry: agents-shipgate
-  args: [scan, --ci-mode, strict, --fail-on, critical]
+  name: Agents Shipgate release-readiness gate (strict)
+  description: >
+    Strict-mode release-readiness scan; fails the hook on critical findings.
+    Pair with a baseline (`docs/baseline.md`) so accepted findings don't
+    block every commit.
+  entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical
   language: python
   pass_filenames: false
+  always_run: false
   stages: [pre-push]
-  files: '(shipgate\.yaml|tools/.*\.json|.*openapi.*\.ya?ml|.*mcp.*\.json|prompts/.*|spec[s]?/.*\.ya?ml)$'
+  files: |
+    (?x)^(
+      shipgate\.yaml|
+      .*tools.*\.json|
+      .*mcp.*\.json|
+      .*openapi.*\.(yaml|yml|json)|
+      .*swagger.*\.(yaml|yml|json)|
+      \.agents-shipgate/.*\.json|
+      prompts/.*|
+      policies/.*
+    )$
+  minimum_pre_commit_version: "3.0.0"
 
 - id: agents-shipgate-validate
   name: Agents Shipgate manifest validate
-  description: Validate shipgate.yaml without running checks
-  entry: agents-shipgate
-  args: [doctor, --json]
+  description: Validate `shipgate.yaml` without running checks.
+  entry: agents-shipgate doctor --json
   language: python
   pass_filenames: false
   stages: [pre-commit]
   files: '^shipgate\.yaml$'
+  minimum_pre_commit_version: "3.0.0"
