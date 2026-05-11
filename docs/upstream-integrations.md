@@ -77,9 +77,6 @@ tool_sources:
   - id: lc
     type: langchain
     path: agent.py
-langchain:
-  tool_inventories:
-    - inventories/langchain-tools.json
 policies:
   require_approval_for_tools: []
   require_confirmation_for_tools: []
@@ -90,7 +87,7 @@ ci:
 **Working fixture**: [`samples/simple_langchain_agent/`](../samples/simple_langchain_agent/).
 
 **Pitfalls**:
-- LangGraph subgraphs and dynamically-built nodes aren't fully visible. Add a `langchain.tool_inventories[]` JSON listing the resolved tools so the inventory check stops failing.
+- LangGraph subgraphs and dynamically-built nodes aren't fully visible. Add `langchain.tool_inventories[]` only after you have written a local JSON inventory; missing non-optional artifact files stop the scan before findings are produced.
 - LangChain ≤ 0.2 patterns (`AgentExecutor` with prebuilt tools) are partially supported; the static surface may show low-confidence extractions.
 
 ## CrewAI (`@tool`, `Agent` / `Crew` / `Task`)
@@ -109,9 +106,6 @@ tool_sources:
   - id: crew
     type: crewai
     path: crew.py
-crewai:
-  tool_inventories:
-    - inventories/crewai-tools.json
 policies:
   require_approval_for_tools: []
 ci:
@@ -121,7 +115,7 @@ ci:
 **Working fixture**: [`samples/simple_crewai_agent/`](../samples/simple_crewai_agent/).
 
 **Pitfalls**:
-- CrewAI's prebuilt-tool registry isn't visible to AST extraction. The `tool_inventories[]` file is the recommended path to high-confidence inventory.
+- CrewAI's prebuilt-tool registry isn't visible to AST extraction. Add `crewai.tool_inventories[]` only after you have written a local JSON inventory; missing non-optional artifact files stop the scan before findings are produced.
 - Multi-agent crews need each `Agent(role=…)` to be statically introspectable; runtime config-driven roles fall back to low confidence.
 
 ## Google ADK (Python + Agent Config YAML)
@@ -140,11 +134,6 @@ tool_sources:
   - id: adk
     type: google_adk
     path: agent.py
-google_adk:
-  eval_sets:
-    - evals/support.eval.json
-  tool_inventories:
-    - inventories/adk-mcp-tools.json
 policies:
   require_approval_for_tools: []
 ci:
@@ -155,7 +144,7 @@ ci:
 
 **Pitfalls**:
 - `OpenAPIToolset(...)` and `McpToolset(...)` need `tool_filter` declared; without it, the toolset counts as "unfiltered" and `SHIP-ADK-MCP-TOOLSET-UNFILTERED` fires high. Add the filter, then point `inventory_path` at a local tool inventory.
-- Production targets need `eval_sets` declared; otherwise `SHIP-ADK-EVAL-COVERAGE-MISSING` fires.
+- Production targets need `google_adk.eval_sets` declared; otherwise `SHIP-ADK-EVAL-COVERAGE-MISSING` fires. Add the block only after the eval file exists, or mark the artifact `optional: true` during bring-up.
 
 ## MCP-only (no Python framework)
 

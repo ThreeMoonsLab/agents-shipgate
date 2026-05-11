@@ -20,7 +20,7 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 
 - `release_decision.decision: "blocked"`
 - 2 blockers on `stripe.create_refund` (missing approval policy, missing idempotency)
-- 14 high / 2 medium review items
+- 14 high / 2 medium release review items; 15 need human review
 - 1 auto-applicable patch (a stale suppression removed by `apply-patches`)
 
 The agent now has to summarize this for the user.
@@ -30,8 +30,8 @@ The agent now has to summarize this for the user.
 ```markdown
 ## Agents Shipgate — release blocked
 
-**Decision**: `blocked` (2 active findings block release; 14 high + 2
-medium review items also flagged.)
+**Decision**: `blocked` (2 active findings block release; 16 review
+items also flagged, 15 of those need human review.)
 
 **Top blockers**:
 1. `stripe.create_refund` — `SHIP-POLICY-APPROVAL-MISSING` (critical).
@@ -50,11 +50,11 @@ medium review items also flagged.)
 - Removed 1 stale suppression entry that referenced a check ID that
   no longer exists in the catalog. Diff shown below.
 
-**What needs your review** (14 high + 2 medium review items): I can
+**What needs your review next** (15 non-blocker review findings): I can
 walk these one-by-one if you want, or you can read
 `agents-shipgate-reports/report.md`. The full machine-readable list
 is at `agents-shipgate-reports/report.json`; the top-level
-`agent_summary` block carries the headline counts.
+`agent_summary` block carries the headline/action counts.
 
 **Reports**:
 - Markdown: `agents-shipgate-reports/report.md`
@@ -101,7 +101,10 @@ way, leaving the entry in place misleads future review.
 
 ## The structured summary (for downstream automation)
 
-The agent should also be ready to surface the structured form when asked. This mirrors `agent_summary` from `report.json`:
+The agent should also be ready to surface the structured form when asked.
+In a real run, copy these fields directly from `agent_summary` in
+`report.json`; the object below shows the expected shape and internally
+consistent counts:
 
 ```json
 {
@@ -110,7 +113,7 @@ The agent should also be ready to surface the structured form when asked. This m
   "blocker_count": 2,
   "review_item_count": 16,
   "auto_appliable_patches": 1,
-  "needs_human_review": 15,
+  "needs_human_review": 17,
   "first_recommended_action": {
     "kind": "command",
     "command": "agents-shipgate apply-patches --from /abs/path/agents-shipgate-reports/report.json --confidence high --apply",
@@ -118,6 +121,11 @@ The agent should also be ready to surface the structured form when asked. This m
   }
 }
 ```
+
+Here, `needs_human_review` includes the 2 blockers plus the 15 review
+items whose `agent_action` requires human input. It is intentionally not
+the same number as `review_item_count`, which mirrors
+`release_decision.review_items`.
 
 ## What the agent did NOT do (and shouldn't have)
 
@@ -137,7 +145,7 @@ The agent should also be ready to surface the structured form when asked. This m
 
 ## What to vary per scan
 
-- **Severity counts** in the headline come from `agent_summary.{blocker_count, review_item_count, auto_appliable_patches, needs_human_review}`.
+- **Summary counts** in the headline come from `agent_summary.{blocker_count, review_item_count, auto_appliable_patches, needs_human_review}`.
 - **Top blockers** come from `release_decision.blockers[]`. For each, run `agents-shipgate explain-finding <FINGERPRINT> --json` to get the metadata + evidence + templated explanation; quote the explanation or rewrite for tone.
 - **Diff blocks** come from the `apply-patches --apply --json` output's `files` object — keyed by file path, with each entry exposing `status`, `patches`, `diff`, `error`. Iterate `Object.entries(out.files)` (or `out["files"].items()` in Python) and render each `diff` with standard `+`/`-` markers.
 - **Review-item table** comes from walking `findings[]` filtered by `release_decision.review_items[].fingerprint`.
