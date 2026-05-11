@@ -217,10 +217,12 @@ def bootstrap_run(
         # (config, input, internal) are hard stops.
         return _stop_with_failure(steps, scan_step, "scan")
 
-    # The report.json will land in the manifest's output.directory or
-    # the conventional `agents-shipgate-reports/`. Try the conventional
-    # path first; fall back to scanning common directories.
-    report_path = _locate_report(workspace)
+    # The report.json lands in `manifest.output.directory` when set, or
+    # the conventional `agents-shipgate-reports/` otherwise. Read the
+    # manifest first so custom output directories are honored AND a
+    # stale `agents-shipgate-reports/report.json` from a previous run
+    # doesn't pre-empt the fresh report (#64 review P1).
+    report_path = _locate_report(workspace, manifest_path)
     release_decision = _read_release_decision(report_path) if report_path else None
 
     # --- 4. apply-patches -------------------------------------------
@@ -290,14 +292,111 @@ def _stop_with_failure(
     }
 
 
-def _locate_report(workspace: Path) -> Path | None:
-    """Find the JSON report scan emitted. Tries the conventional
-    `agents-shipgate-reports/report.json` first; returns None if not
-    found (callers route this to a "no report" verdict)."""
+def _locate_report(workspace: Path, manifest_path: Path) -> Path | None:
+    """Find the JSON report scan emitted.
+
+    Priority order matches scan's actual write path:
+
+    1. The directory the manifest declares as `output.directory`.
+       Relative paths resolve against the manifest's parent directory
+       (the standard scan resolves there too).
+    2. The conventional `agents-shipgate-reports/` under the workspace.
+
+    The manifest-aware path comes first because the alternative —
+    checking the conventional path first — would silently pre-empt a
+    fresh custom-output report with a stale one from a prior run
+    (#64 review P1).
+    """
+    manifest_dir = manifest_path.resolve().parent
+    manifest_output_dir = _read_manifest_output_dir(manifest_path)
+    if manifest_output_dir is not None:
+        if not manifest_output_dir.is_absolute():
+            manifest_output_dir = manifest_dir / manifest_output_dir
+        candidate = manifest_output_dir / "report.json"
+        if candidate.is_file():
+            return candidate
+        # When the manifest pins a directory but the file isn't there,
+        # do NOT fall back to the canonical path. The fresh scan should
+        # have written to the pinned dir; a missing file there is a
+        # real signal (e.g. the scan failed silently or wrote elsewhere
+        # because of a --out override). Falling back risks reading a
+        # stale report from the default location.
+        return None
     canonical = workspace / "agents-shipgate-reports" / "report.json"
     if canonical.is_file():
         return canonical
     return None
+
+
+def _read_manifest_output_dir(manifest_path: Path) -> Path | None:
+    """Read `output.directory` from the manifest if set.
+
+    Uses PyYAML (already a runtime dep). Returns ``None`` when the
+    manifest is unreadable, malformed, or doesn't set the field;
+    callers then fall back to the canonical path.
+    """
+    import yaml
+
+    try:
+        text = manifest_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    output = data.get("output")
+    if not isinstance(output, dict):
+        return None
+    directory = output.get("directory")
+    if isinstance(directory, str) and directory.strip():
+        return Path(directory.strip())
+    return None
+
+
+def _failed_step_error(step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Extract the structured `error` kind and forward fields from a
+    failing step's stderr.
+
+    When ``AGENTS_SHIPGATE_AGENT_MODE=1`` is set in the inherited env
+    (bootstrap inherits the parent env by default), every child step
+    emits a single-line JSON object on stderr describing its error
+    kind. Bootstrap captures that stderr and forwards the underlying
+    kind PLUS the routable fields (`message`, `next_action`,
+    `next_actions`, and kind-specific extras like `suggestion`,
+    `source_report`, `path`, `fingerprint`, `check_id`).
+
+    Returns ``(kind, forward_fields)``. Falls back to
+    ``("other_error", {})`` when no structured JSON line is found
+    (e.g. the env var wasn't set or the step printed prose only).
+    """
+    stderr = step.get("stderr") or ""
+    if not stderr.strip():
+        return "other_error", {}
+    # Scan stderr bottom-up because the structured line is emitted
+    # last; a prose error line may precede it.
+    for line in reversed(stderr.splitlines()):
+        line = line.strip()
+        if not (line.startswith("{") and line.endswith("}")):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = payload.get("error")
+        if not isinstance(kind, str):
+            continue
+        # Forward every routable field except the kind itself (which
+        # we re-emit explicitly) and `verdict` (which bootstrap owns).
+        forward = {
+            k: v
+            for k, v in payload.items()
+            if k not in {"error", "verdict"}
+        }
+        return kind, forward
+    return "other_error", {}
 
 
 def _read_release_decision(report_path: Path) -> dict[str, Any] | None:
@@ -372,11 +471,25 @@ def bootstrap(
         _emit_human_summary(result)
 
     if result["stopped"] and result["verdict"] != "no_agent_surface":
+        # Forward the underlying step's structured error so coding
+        # agents get the same routing they'd get from a manual
+        # invocation (#64 review P2). Bootstrap previously re-emitted
+        # a generic `other_error`, hiding kind-specific next_actions
+        # like input_parse_error's "re-run scan with --suggest-patches"
+        # or unknown_check_id's `suggestion`.
+        failing = next(
+            (s for s in reversed(result["steps"]) if s["exit_code"] != 0),
+            None,
+        )
+        kind, forwarded = (
+            _failed_step_error(failing) if failing else ("other_error", {})
+        )
         emit_agent_mode_error(
-            "other_error",
-            message=result["stop_reason"],
+            kind,
+            failing_step=failing["label"] if failing else None,
             verdict=result["verdict"],
-            next_action="Read the failing step's stderr; re-run that step manually.",
+            stop_reason=result["stop_reason"],
+            **forwarded,
         )
         # Match the failing step's exit code when possible
         for step in reversed(result["steps"]):

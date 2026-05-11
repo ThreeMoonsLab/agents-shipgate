@@ -15,7 +15,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agents_shipgate.cli.bootstrap import bootstrap_run
+from agents_shipgate.cli.bootstrap import (
+    _failed_step_error,
+    _locate_report,
+    bootstrap_run,
+)
 from agents_shipgate.cli.main import app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -155,6 +159,148 @@ def test_bootstrap_no_apply_skips_apply_patches_step(tmp_path):
     result = bootstrap_run(workspace=workspace, ci=False, apply=False)
     labels = [s["label"] for s in result["steps"]]
     assert "apply-patches" not in labels
+
+
+def test_bootstrap_honors_custom_output_directory(tmp_path):
+    """When the manifest sets `output.directory: custom-reports`, scan
+    writes the report there and bootstrap must locate it there too.
+    Earlier `_locate_report` only checked `agents-shipgate-reports/`,
+    so a custom directory produced `verdict: complete_no_report` and
+    silently skipped apply-patches (#64 review P1)."""
+    workspace = _copy_sample(SIMPLE_OPENAI_API, tmp_path)
+    manifest = workspace / "shipgate.yaml"
+    text = manifest.read_text(encoding="utf-8")
+    manifest.write_text(
+        text.replace(
+            "directory: agents-shipgate-reports", "directory: custom-reports"
+        ),
+        encoding="utf-8",
+    )
+
+    result = bootstrap_run(workspace=workspace, ci=False, apply=True)
+    assert result["report_path"], (
+        "Bootstrap must locate the report when output.directory is custom; "
+        f"got result={result!r}"
+    )
+    assert "custom-reports" in result["report_path"], (
+        f"report_path {result['report_path']!r} should be under custom-reports/"
+    )
+    assert result["verdict"] != "complete_no_report"
+    # apply-patches step must have run (no early `complete_no_report` skip)
+    assert any(s["label"] == "apply-patches" for s in result["steps"])
+
+
+def test_bootstrap_does_not_read_stale_canonical_when_manifest_pins_custom(tmp_path):
+    """A stale `agents-shipgate-reports/report.json` from a previous
+    run must NOT override a fresh custom-output report. _locate_report
+    short-circuits on the manifest-pinned path; falling back to the
+    canonical path could read a stale report and apply-patches against
+    the wrong scan."""
+    workspace = _copy_sample(SIMPLE_OPENAI_API, tmp_path)
+    manifest = workspace / "shipgate.yaml"
+    text = manifest.read_text(encoding="utf-8")
+    manifest.write_text(
+        text.replace(
+            "directory: agents-shipgate-reports", "directory: custom-reports"
+        ),
+        encoding="utf-8",
+    )
+    # Plant a stale report at the canonical path.
+    stale_dir = workspace / "agents-shipgate-reports"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    (stale_dir / "report.json").write_text(
+        '{"STALE":true,"report_schema_version":"0.10"}', encoding="utf-8"
+    )
+
+    result = bootstrap_run(workspace=workspace, ci=False, apply=False)
+    assert result["report_path"]
+    assert "custom-reports" in result["report_path"]
+    assert "agents-shipgate-reports" not in result["report_path"], (
+        "Stale canonical-path report leaked into bootstrap's report_path"
+    )
+
+
+def test_locate_report_returns_none_when_manifest_dir_has_no_report(tmp_path):
+    """When the manifest pins a custom directory but the scan didn't
+    write there (e.g. scan was killed before flushing), `_locate_report`
+    returns None rather than silently falling back to the canonical
+    path with a possibly-stale report."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    manifest = workspace / "shipgate.yaml"
+    manifest.write_text(
+        "version: \"0.1\"\n"
+        "project: {name: x}\n"
+        "agent: {name: x, declared_purpose: [test]}\n"
+        "environment: {target: local}\n"
+        "tool_sources: []\n"
+        "output:\n  directory: custom-reports\n",
+        encoding="utf-8",
+    )
+    # Plant a stale report at the canonical path; manifest doesn't
+    # pin canonical so the stale file must NOT be returned.
+    (workspace / "agents-shipgate-reports").mkdir()
+    (workspace / "agents-shipgate-reports" / "report.json").write_text(
+        "{}", encoding="utf-8"
+    )
+    result = _locate_report(workspace, manifest)
+    assert result is None, (
+        f"Expected None when manifest pins a dir without a report; got {result!r}"
+    )
+
+
+def test_failed_step_error_forwards_child_error_kind():
+    """Bootstrap must forward the underlying step's structured error
+    kind and routable fields. A scan-time `input_parse_error` should
+    surface as `error: input_parse_error` in bootstrap's agent-mode
+    output, not as a generic `other_error` that drops the
+    kind-specific `next_actions` (#64 review P2)."""
+    fake_step = {
+        "label": "scan",
+        "exit_code": 3,
+        "stderr": (
+            "Input parsing error: Input file not found: missing.yaml\n"
+            '{"error": "input_parse_error", "message": "Input file not found",'
+            ' "next_action": "agents-shipgate detect --workspace . --json",'
+            ' "next_actions": [{"kind": "command", "command": "x", "why": "y"}]}'
+        ),
+    }
+    kind, forwarded = _failed_step_error(fake_step)
+    assert kind == "input_parse_error"
+    assert forwarded["message"] == "Input file not found"
+    assert forwarded["next_action"] == "agents-shipgate detect --workspace . --json"
+    assert forwarded["next_actions"][0]["command"] == "x"
+
+
+def test_failed_step_error_falls_back_when_stderr_has_no_json():
+    """Without `AGENTS_SHIPGATE_AGENT_MODE=1`, child steps emit prose
+    errors only. Bootstrap then falls back to `other_error` rather
+    than crashing or emitting a malformed kind."""
+    fake_step = {
+        "label": "scan",
+        "exit_code": 3,
+        "stderr": "Input parsing error: missing file (prose only)",
+    }
+    kind, forwarded = _failed_step_error(fake_step)
+    assert kind == "other_error"
+    assert forwarded == {}
+
+
+def test_failed_step_error_skips_lines_without_error_field():
+    """Some commands print multi-line JSON debug output but only the
+    structured-error line carries `error`. The helper must pick the
+    one with `error`, not the first JSON it sees."""
+    fake_step = {
+        "label": "scan",
+        "exit_code": 3,
+        "stderr": (
+            '{"warning": "deprecated flag", "note": "use --new"}\n'
+            'Input parsing error: bad spec\n'
+            '{"error": "input_parse_error", "message": "bad spec"}'
+        ),
+    }
+    kind, _forwarded = _failed_step_error(fake_step)
+    assert kind == "input_parse_error"
 
 
 def test_bootstrap_reports_release_decision_verdict_in_summary(tmp_path):
