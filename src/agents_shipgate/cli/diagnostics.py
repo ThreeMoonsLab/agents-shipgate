@@ -461,8 +461,8 @@ def diagnose_doctor(
                             "`{framework}.tool_inventories[]` JSON listings "
                             "of resolved tools, useful when factories or "
                             "wrappers hide the surface from static AST. See "
-                            "`samples/_anti_patterns/dynamic_toolset_factory/` "
-                            "for the canonical failure mode and recovery."
+                            "`docs/agent-recipes.md` Recipe 2 for the "
+                            "canonical recovery paths."
                         ),
                         expects=(
                             "the matching framework block (e.g. "

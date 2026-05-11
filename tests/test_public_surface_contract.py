@@ -22,10 +22,12 @@ import json
 import re
 import tomllib
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.diagnostics import NextActionKind
 from agents_shipgate.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -678,6 +680,11 @@ def test_errors_json_schema_version_is_pinned():
         assert entry.get("description"), (
             f"errors.json entry {entry['id']!r} missing description."
         )
+
+
+def test_errors_json_next_action_kinds_match_diagnostic_contract():
+    catalog = _load_errors_json()
+    assert set(catalog["next_action_kinds"]) == set(get_args(NextActionKind))
 
 
 def test_triggers_json_loads_via_canonical_loader():
