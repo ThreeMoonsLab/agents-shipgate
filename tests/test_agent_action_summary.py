@@ -34,6 +34,7 @@ from agents_shipgate.core.models import (
     EvidenceCoverageDecision,
     FailPolicy,
     Finding,
+    ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
 )
@@ -833,11 +834,18 @@ def test_v12_schema_requires_full_agent_summary_shape():
         f"  got:      {sorted(action_required)}"
     )
 
-    # End-to-end: stripping any required key from agent_summary or
+    # End-to-end: the current emitted schema still enforces the v0.12
+    # required fields. Stripping any required key from agent_summary or
     # from a populated first_recommended_action must fail validation.
     from agents_shipgate.cli.scan import run_scan
 
     sample = repo_root / "samples" / "support_refund_agent" / "shipgate.yaml"
+    current_version = ReadinessReport.model_fields["report_schema_version"].default
+    current_schema = json.loads(
+        (repo_root / "docs" / f"report-schema.v{current_version}.json").read_text(
+            "utf-8"
+        )
+    )
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
@@ -851,13 +859,13 @@ def test_v12_schema_requires_full_agent_summary_shape():
         )
         payload = json.loads((out / "report.json").read_text("utf-8"))
 
-    jsonschema.validate(payload, schema)  # baseline: real payload validates
+    jsonschema.validate(payload, current_schema)  # baseline: real payload validates
 
     for key in expected_summary:
         bad = json.loads(json.dumps(payload))
         del bad["agent_summary"][key]
         with _pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate(bad, schema)
+            jsonschema.validate(bad, current_schema)
 
     fra = payload["agent_summary"].get("first_recommended_action")
     if fra is not None:
@@ -865,7 +873,7 @@ def test_v12_schema_requires_full_agent_summary_shape():
             bad = json.loads(json.dumps(payload))
             del bad["agent_summary"]["first_recommended_action"][key]
             with _pytest.raises(jsonschema.ValidationError):
-                jsonschema.validate(bad, schema)
+                jsonschema.validate(bad, current_schema)
 
 
 def test_v12_schema_requires_agent_summary_and_agent_action_non_nullable():
@@ -905,12 +913,19 @@ def test_v12_schema_requires_agent_summary_and_agent_action_non_nullable():
         "with null), otherwise null payloads would silently pass."
     )
 
-    # End-to-end: a payload with either field missing must fail
+    # End-to-end: the current emitted schema still enforces the v0.12
+    # required fields. A payload with either field missing must fail
     # validation. We construct a minimal payload from a real scan and
     # mutate it.
     from agents_shipgate.cli.scan import run_scan
 
     sample = repo_root / "samples" / "support_refund_agent" / "shipgate.yaml"
+    current_version = ReadinessReport.model_fields["report_schema_version"].default
+    current_schema = json.loads(
+        (repo_root / "docs" / f"report-schema.v{current_version}.json").read_text(
+            "utf-8"
+        )
+    )
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
@@ -924,19 +939,19 @@ def test_v12_schema_requires_agent_summary_and_agent_action_non_nullable():
         payload = json.loads((out / "report.json").read_text("utf-8"))
 
     # Real payload validates.
-    jsonschema.validate(payload, schema)
+    jsonschema.validate(payload, current_schema)
 
     # Strip agent_summary → must fail.
     stripped_summary = {k: v for k, v in payload.items() if k != "agent_summary"}
     with _pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(stripped_summary, schema)
+        jsonschema.validate(stripped_summary, current_schema)
 
     # Strip agent_action from one finding → must fail.
     stripped_action = json.loads(json.dumps(payload))
     if stripped_action["findings"]:
         del stripped_action["findings"][0]["agent_action"]
         with _pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate(stripped_action, schema)
+            jsonschema.validate(stripped_action, current_schema)
 
     # Set agent_summary to null → must fail.
     null_summary = json.loads(json.dumps(payload))

@@ -35,6 +35,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -132,6 +133,14 @@ class NameCandidate(BaseModel):
     source: str  # "Agent_name_literal" | "ADK_name_field" | "pyproject" | "workspace_dir"
 
 
+class CodexPluginCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["package", "marketplace"]
+    path: str
+    evidence: str
+
+
 class WorkspaceSignals(BaseModel):
     """Minimal workspace state used by diagnostics to discriminate
     negative-control cases (non-agent library, pure-prompt experiment,
@@ -158,6 +167,7 @@ class DetectResult(BaseModel):
     agent_name_candidates: list[NameCandidate] = Field(default_factory=list)
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
+    codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
 
@@ -252,11 +262,12 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     agent_name_candidates = _agent_name_candidates(py_facts, workspace)
     project_name_candidates = _project_name_candidates(workspace)
     suggested_sources = _suggested_sources(workspace)
+    codex_plugin_candidates = _codex_plugin_candidates(workspace)
 
     is_agent_project = bool(detections)
     next_action = (
         f"agents-shipgate init --workspace {workspace}"
-        if is_agent_project
+        if is_agent_project or suggested_sources or codex_plugin_candidates
         else "Workspace does not appear to be an agent project. No action."
     )
 
@@ -278,6 +289,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         agent_name_candidates=agent_name_candidates,
         project_name_candidates=project_name_candidates,
         suggested_sources=suggested_sources,
+        codex_plugin_candidates=codex_plugin_candidates,
         next_action=next_action,
         workspace_signals=workspace_signals,
     )
@@ -607,9 +619,47 @@ def _suggested_sources(workspace: Path) -> list[dict[str, str]]:
             suggested.append({"type": "openapi", "path": rel})
     for pattern in MCP_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
+            if path.name == ".mcp.json":
+                continue
             rel = _relative(path, workspace)
             if rel in seen:
                 continue
             seen.add(rel)
             suggested.append({"type": "mcp", "path": rel})
     return suggested
+
+
+def _codex_plugin_candidates(workspace: Path) -> list[CodexPluginCandidate]:
+    candidates: list[CodexPluginCandidate] = []
+    seen: set[tuple[str, str]] = set()
+    for path in _candidate_files(workspace):
+        if path.name == "plugin.json" and path.parent.name == ".codex-plugin":
+            root = path.parent.parent
+            rel = _relative(root, workspace)
+            key = ("package", rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(
+                CodexPluginCandidate(
+                    mode="package",
+                    path=rel,
+                    evidence=f"Codex plugin manifest: {_relative(path, workspace)}",
+                )
+            )
+        elif path.name == "marketplace.json" and path.parent.as_posix().endswith(
+            ".agents/plugins"
+        ):
+            rel = _relative(path, workspace)
+            key = ("marketplace", rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(
+                CodexPluginCandidate(
+                    mode="marketplace",
+                    path=rel,
+                    evidence=f"Codex plugin marketplace: {rel}",
+                )
+            )
+    return sorted(candidates, key=lambda item: (item.mode, item.path))

@@ -101,6 +101,7 @@ api = "agents_shipgate.checks.api:run"
 adk = "agents_shipgate.checks.adk:run"
 langchain = "agents_shipgate.checks.langchain:run"
 crewai = "agents_shipgate.checks.crewai:run"
+codex_plugin = "agents_shipgate.checks.codex_plugin:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents_shipgate"]

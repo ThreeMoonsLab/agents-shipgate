@@ -323,9 +323,41 @@ def detect(workspace: Path) -> dict[str, Any]:
     seen_paths: set[str] = set()
     for kind, patterns in (("openapi", OPENAPI_PATTERNS), ("mcp", MCP_PATTERNS)):
         for p in _glob(workspace, files, patterns):
+            if Path(p).name == ".mcp.json":
+                continue
             if p not in seen_paths:
                 seen_paths.add(p)
                 suggested.append({"type": kind, "path": p})
+
+    codex_plugin_candidates: list[dict[str, str]] = []
+    seen_codex: set[tuple[str, str]] = set()
+    for path in files:
+        rel = _rel(path, workspace)
+        if path.name == "plugin.json" and path.parent.name == ".codex-plugin":
+            root_rel = _rel(path.parent.parent, workspace)
+            key = ("package", root_rel)
+            if key not in seen_codex:
+                seen_codex.add(key)
+                codex_plugin_candidates.append(
+                    {
+                        "mode": "package",
+                        "path": root_rel,
+                        "evidence": f"Codex plugin manifest: {rel}",
+                    }
+                )
+        elif path.name == "marketplace.json" and path.parent.as_posix().endswith(
+            ".agents/plugins"
+        ):
+            key = ("marketplace", rel)
+            if key not in seen_codex:
+                seen_codex.add(key)
+                codex_plugin_candidates.append(
+                    {
+                        "mode": "marketplace",
+                        "path": rel,
+                        "evidence": f"Codex plugin marketplace: {rel}",
+                    }
+                )
 
     is_agent = bool(detections)
     return {
@@ -334,9 +366,12 @@ def detect(workspace: Path) -> dict[str, Any]:
         "agent_name_candidates": name_candidates,
         "project_name_candidates": project_names,
         "suggested_sources": suggested,
+        "codex_plugin_candidates": sorted(
+            codex_plugin_candidates, key=lambda item: (item["mode"], item["path"])
+        ),
         "next_action": (
             f"agents-shipgate init --workspace {workspace}"
-            if is_agent
+            if is_agent or suggested or codex_plugin_candidates
             else "Workspace does not appear to be an agent project. No action."
         ),
         "workspace_signals": {
@@ -372,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
             print("Suggested sources (artifact-only):")
             for s in result["suggested_sources"]:
                 print(f"- {s['type']}: {s['path']}")
+        if result["codex_plugin_candidates"]:
+            print("Codex plugin candidates:")
+            for c in result["codex_plugin_candidates"]:
+                print(f"- {c['mode']}: {c['path']}")
         return 0
     print("Detected agent project. Frameworks:")
     for fw in result["frameworks"]:

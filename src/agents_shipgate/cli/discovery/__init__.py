@@ -38,6 +38,7 @@ from agents_shipgate.cli.discovery.ci_workflow import (
     write_ci_workflow,
 )
 from agents_shipgate.cli.discovery.signals import (
+    CodexPluginCandidate,
     DetectResult,
     FrameworkDetection,
     NameCandidate,
@@ -50,6 +51,7 @@ __all__ = [
     "ANTHROPIC_POLICY_PATTERNS",
     "ANTHROPIC_TOOL_PATTERNS",
     "CiWorkflowResult",
+    "CodexPluginCandidate",
     "DetectResult",
     "FrameworkDetection",
     "MCP_PATTERNS",

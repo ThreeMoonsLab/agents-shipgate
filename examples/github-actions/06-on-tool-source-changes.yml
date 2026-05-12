@@ -13,6 +13,11 @@ on:
       - '**/*.openapi.yml'
       - '**/*.openapi.json'
       - '**/mcp_tools.json'
+      - '**/.codex-plugin/**'
+      - '**/.agents/plugins/**'
+      - '**/.app.json'
+      - '**/.mcp.json'
+      - '**/SKILL.md'
       - '**/agent.py'
 
 permissions:

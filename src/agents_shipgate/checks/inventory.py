@@ -7,18 +7,19 @@ from agents_shipgate.core.context import ScanContext
 def run(context: ScanContext):
     findings = []
     if not context.tools:
-        findings.append(
-            agent_finding(
-                check_id="SHIP-INVENTORY-NOT-ENUMERABLE",
-                title="Tool surface cannot be enumerated",
-                severity="high",
-                category="inventory",
-                evidence={"tool_sources": [source.id for source in context.manifest.tool_sources]},
-                confidence="high",
-                recommendation="Declare at least one local MCP tools JSON or OpenAPI source with enumerable tools.",
-                context=context,
+        if context.codex_plugin_artifacts is None:
+            findings.append(
+                agent_finding(
+                    check_id="SHIP-INVENTORY-NOT-ENUMERABLE",
+                    title="Tool surface cannot be enumerated",
+                    severity="high",
+                    category="inventory",
+                    evidence={"tool_sources": [source.id for source in context.manifest.tool_sources]},
+                    confidence="high",
+                    recommendation="Declare at least one local MCP tools JSON or OpenAPI source with enumerable tools.",
+                    context=context,
+                )
             )
-        )
     for tool in context.tools:
         if tool.annotations.get("wildcard_tools") is True:
             findings.append(

@@ -104,6 +104,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
+    _append_codex_plugin_surface(lines, report)
     _append_findings_by_category(lines, report.findings)
     _append_inventory(lines, report)
     lines.extend(["", "## Disclaimer", "", DISCLAIMER, ""])
@@ -609,6 +610,41 @@ def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
             for warning in warnings:
                 lines.append(f"- {_safe_markdown_text(warning)}")
             lines.append("")
+
+
+def _append_codex_plugin_surface(lines: list[str], report: ReadinessReport) -> None:
+    surface = report.codex_plugin_surface
+    if surface is None:
+        return
+    lines.extend(
+        [
+            "## Codex Plugin Surface Summary",
+            "",
+            f"- Plugins: {surface.plugin_count}",
+            f"- Marketplaces: {surface.marketplace_count}",
+            f"- Skills: {surface.skill_count}",
+            f"- Apps: {surface.app_count}",
+            f"- MCP server stubs: {surface.mcp_server_stub_count}",
+            f"- Hook stubs: {surface.hook_stub_count}",
+            f"- MCP inventory files: {surface.mcp_inventory_file_count}",
+            "",
+        ]
+    )
+    if surface.plugins:
+        lines.append("Plugins:")
+        lines.append("")
+        for plugin in surface.plugins[:10]:
+            detail = plugin.root_path
+            if plugin.marketplace:
+                detail = f"{detail} via {plugin.marketplace}"
+            lines.append(f"- {_safe_markdown_text(plugin.name)} ({_safe_markdown_text(detail)})")
+        lines.append("")
+    if surface.warnings:
+        lines.append("Codex plugin warnings:")
+        lines.append("")
+        for warning in surface.warnings:
+            lines.append(f"- {_safe_markdown_text(warning)}")
+        lines.append("")
 
 
 def _append_findings_by_category(lines: list[str], findings: list[Finding]) -> None:

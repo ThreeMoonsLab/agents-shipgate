@@ -160,6 +160,17 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         f"(script={script_sources!r}, cli={cli_sources!r})."
     )
 
+    script_codex = sorted(
+        (s["mode"], s["path"]) for s in script_result["codex_plugin_candidates"]
+    )
+    cli_codex = sorted(
+        (s["mode"], s["path"]) for s in cli_result["codex_plugin_candidates"]
+    )
+    assert script_codex == cli_codex, (
+        f"{sample_dir.name}: codex_plugin_candidates diverged "
+        f"(script={script_codex!r}, cli={cli_codex!r})."
+    )
+
     cli_signals = cli_result["workspace_signals"]
     script_signals = script_result["workspace_signals"]
     assert set(script_signals) == set(cli_signals), (

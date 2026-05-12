@@ -32,7 +32,7 @@ from agents_shipgate.core.findings import (
     _REMEDIATION_FALLBACK,
     annotate_remediation,
 )
-from agents_shipgate.core.models import CheckMetadata, Finding
+from agents_shipgate.core.models import CheckMetadata, Finding, ReadinessReport
 from agents_shipgate.core.patches import (
     AppendPointerPatch,
     ManualPatch,
@@ -352,12 +352,10 @@ def test_report_json_payload_carries_new_fields(tmp_path):
             assert key in finding, f"{finding['check_id']} missing {key} in JSON"
 
 
-def test_report_schema_version_is_v12(tmp_path):
-    """Schema version moved from 0.11 to 0.12 per the additive contract
-    in STABILITY.md. v0.12 adds the per-finding `agent_action` enum and
-    the top-level `agent_summary` block — both deterministic projections
-    of existing fields. Old reports validate against their respective
-    schema files."""
+def test_report_schema_version_is_current(tmp_path):
+    """Schema version advances additively while preserving prior frozen
+    schema files. Current reports still include v0.12's agent_action and
+    agent_summary fields, plus newer additive fields."""
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
         output_dir=tmp_path,
@@ -365,13 +363,15 @@ def test_report_schema_version_is_v12(tmp_path):
         ci_mode="advisory",
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert payload["report_schema_version"] == "0.12"
+    assert payload["report_schema_version"] == str(
+        ReadinessReport.model_fields["report_schema_version"].default
+    )
     assert "release_decision" in payload
     assert "misalignments" in payload
     assert "tool_surface_diff" in payload
     assert "agent_summary" in payload, (
-        "v0.12 must emit the top-level agent_summary block."
+        "Current reports must emit the top-level agent_summary block."
     )
     assert all("agent_action" in f for f in payload["findings"]), (
-        "Every finding in a v0.12 report must carry agent_action."
+        "Every finding in a current report must carry agent_action."
     )

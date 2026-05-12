@@ -17,5 +17,5 @@ environment:
 
 tool_sources:
   - id: tools                # any stable identifier
-    type: mcp                # mcp | openapi | openai_agents_sdk | google_adk | langchain | crewai
+    type: mcp                # mcp | openapi | openai_agents_sdk | google_adk | langchain | crewai | codex_plugin
     path: mcp_tools.json     # relative to this manifest's directory

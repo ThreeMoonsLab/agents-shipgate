@@ -17,6 +17,7 @@ MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.review_items",
     "findings[].requires_human_review",
     "summary.human_review_recommended",
+    "codex_plugin_surface",
     "packet.capability_intent.divergence_findings",
     "packet.approval_coverage.gap_findings",
     "packet.idempotency_risk.gap_findings",

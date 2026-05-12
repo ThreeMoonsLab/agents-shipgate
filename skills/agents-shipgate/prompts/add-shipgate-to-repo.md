@@ -1,6 +1,6 @@
 # Prompt · Add Agents Shipgate to a repo
 
-You are working in a repo that may contain an AI agent — likely one of: an MCP server tool list (`*mcp*.json` or `.agents-shipgate/*.json`), an OpenAPI spec the agent calls, a Python file with `@function_tool` / `@tool` decorators (OpenAI Agents SDK, LangChain, CrewAI), a Google ADK agent in `agent.py`, an Anthropic Messages API artifact set under `prompts/`/`tools/anthropic-tools.json`/`policies/anthropic-policy.yaml`, or an OpenAI API artifact set under `prompts/`/`tools/openai-tools.json`/`openai-config.json`.
+You are working in a repo that may contain an AI agent — likely one of: an MCP server tool list (`*mcp*.json` or `.agents-shipgate/*.json`), an OpenAPI spec the agent calls, a Codex plugin package (`.codex-plugin/plugin.json`) or marketplace (`.agents/plugins/marketplace.json`), a Python file with `@function_tool` / `@tool` decorators (OpenAI Agents SDK, LangChain, CrewAI), a Google ADK agent in `agent.py`, an Anthropic Messages API artifact set under `prompts/`/`tools/anthropic-tools.json`/`policies/anthropic-policy.yaml`, or an OpenAI API artifact set under `prompts/`/`tools/openai-tools.json`/`openai-config.json`.
 
 Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn.
 
@@ -34,7 +34,7 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
    ```
    Read the response: `is_agent_project`, `frameworks[]` (per-framework score + evidence + candidate files), `agent_name_candidates[]`, `suggested_sources[]` (MCP/OpenAPI files matched by glob).
 
-   **Stop only when ALL of these hold:** `is_agent_project: false`, `suggested_sources` is empty, no `shipgate.yaml` already exists in the workspace, AND the user did not explicitly request a scan. Otherwise proceed — MCP/OpenAPI tool-surface repos register as `is_agent_project: false` because they have no Python framework imports, but they are valid Shipgate targets and their hits surface as `suggested_sources`.
+   **Stop only when ALL of these hold:** `is_agent_project: false`, `suggested_sources` is empty, `codex_plugin_candidates` is empty, no `shipgate.yaml` already exists in the workspace, AND the user did not explicitly request a scan. Otherwise proceed — MCP/OpenAPI tool-surface repos and Codex plugin package repos register as `is_agent_project: false` because they have no Python framework imports, but they are valid Shipgate targets. MCP/OpenAPI hits surface as `suggested_sources`; Codex plugin hits surface as `codex_plugin_candidates`.
 
 4. **Generate a starter manifest + GitHub Actions workflow:**
    ```bash
@@ -58,7 +58,7 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
    ```bash
    agents-shipgate scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
    ```
-   The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`.
+   The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
 
    **Read these first for release gating (v0.8+):**
    - `release_decision.decision` ∈ `{"blocked", "review_required", "passed"}` — baseline-aware. This is the gating signal.

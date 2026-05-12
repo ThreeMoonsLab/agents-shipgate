@@ -195,6 +195,10 @@ repos:
             shipgate\.yaml|
             .*tools.*\.json|
             .*mcp.*\.json|
+            .*\.codex-plugin/.*|
+            .*\.agents/plugins/.*|
+            .*\.app\.json|
+            (.*/)?SKILL\.md|
             .*openapi.*\.(yaml|yml|json)|
             .*swagger.*\.(yaml|yml|json)|
             \.agents-shipgate/.*\.json|
@@ -204,4 +208,4 @@ repos:
           )$
 ```
 
-The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered — pre-commit's `files:` regex is purely path-based. Use the GitHub Action for full trigger coverage on PRs, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.
+The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex plugin package files (`.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md`), `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered — pre-commit's `files:` regex is purely path-based. Use the GitHub Action for full trigger coverage on PRs, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.

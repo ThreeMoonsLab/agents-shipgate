@@ -107,6 +107,7 @@ DIAG_NO_AGENT_SURFACE = "SHIP-DIAG-NO-AGENT-SURFACE"
 DIAG_NON_AGENT_LIBRARY = "SHIP-DIAG-NON-AGENT-LIBRARY"
 DIAG_PURE_PROMPT_EXPERIMENT = "SHIP-DIAG-PURE-PROMPT-EXPERIMENT"
 DIAG_MCP_OPENAPI_ARTIFACT_ONLY = "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY"
+DIAG_CODEX_PLUGIN_PACKAGE_DETECTED = "SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED"
 DIAG_ZERO_TOOLS = "SHIP-DIAG-ZERO-TOOLS"
 DIAG_DYNAMIC_TOOLSETS_ONLY = "SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY"
 DIAG_MISSING_SOURCE_FILE = "SHIP-DIAG-MISSING-SOURCE-FILE"
@@ -120,6 +121,7 @@ ALL_DIAGNOSTIC_IDS: tuple[str, ...] = (
     DIAG_NON_AGENT_LIBRARY,
     DIAG_PURE_PROMPT_EXPERIMENT,
     DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
+    DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,
     DIAG_ZERO_TOOLS,
     DIAG_DYNAMIC_TOOLSETS_ONLY,
     DIAG_MISSING_SOURCE_FILE,
@@ -228,12 +230,13 @@ def diagnose_detect(
     signals = result.workspace_signals
     is_agent = result.is_agent_project
     has_suggested = bool(result.suggested_sources)
+    has_codex_plugin = bool(result.codex_plugin_candidates)
 
     # If a manifest already exists, none of the *workspace-classification*
     # diagnostics here are interesting — the agent is past detect. Only
     # surface the artifact-only nudge when relevant.
     if not has_manifest:
-        if not is_agent and not has_suggested:
+        if not is_agent and not has_suggested and not has_codex_plugin:
             # Negative-control precedence
             if (
                 signals.has_prompts_dir
@@ -298,7 +301,7 @@ def diagnose_detect(
                     )
                 )
 
-        if not is_agent and has_suggested:
+        if not is_agent and has_suggested and not has_codex_plugin:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
@@ -318,6 +321,33 @@ def diagnose_detect(
                             expects=(
                                 "shipgate.yaml is created with tool_sources "
                                 "prefilled."
+                            ),
+                        )
+                    ],
+                )
+            )
+
+        if not is_agent and has_codex_plugin:
+            diagnostics.append(
+                Diagnostic(
+                    id=DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,
+                    title="Codex plugin package detected without Python framework",
+                    severity="info",
+                    next_actions=[
+                        NextAction(
+                            kind="command",
+                            command=(
+                                f"agents-shipgate init --workspace "
+                                f"{_quote_path(workspace)} --write"
+                            ),
+                            why=(
+                                "Codex plugin packages are valid static "
+                                "Shipgate targets; init writes codex_plugin "
+                                "tool_sources."
+                            ),
+                            expects=(
+                                "shipgate.yaml is created with codex_plugin "
+                                "sources prefilled."
                             ),
                         )
                     ],
@@ -393,7 +423,7 @@ def diagnose_doctor(
         )
 
     # SHIP-DIAG-ZERO-TOOLS — manifest exists but inspect_sources returned 0.
-    if payload.get("total_tools", 0) == 0:
+    if payload.get("total_tools", 0) == 0 and not payload.get("codex_plugin_surface"):
         diagnostics.append(
             Diagnostic(
                 id=DIAG_ZERO_TOOLS,

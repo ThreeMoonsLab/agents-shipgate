@@ -138,7 +138,7 @@ def _tool_sources_block(
     suppress duplicate config blocks downstream)."""
     lines: list[str] = []
     used: set[str] = set()
-    entries: list[tuple[str, str, str]] = []  # (framework, id, path)
+    entries: list[tuple[str, str, str, str | None]] = []  # (type, id, path, mode)
     seen_paths: set[str] = set()
 
     for framework in detect_result.frameworks:
@@ -149,7 +149,7 @@ def _tool_sources_block(
                 continue
             seen_paths.add(candidate)
             entry_id = _source_id_for(framework.type, candidate)
-            entries.append((framework.type, entry_id, candidate))
+            entries.append((framework.type, entry_id, candidate, None))
             used.add(framework.type)
 
     for source in detect_result.suggested_sources:
@@ -158,21 +158,32 @@ def _tool_sources_block(
             continue
         seen_paths.add(path)
         entry_id = _source_id_for(source["type"], path)
-        entries.append((source["type"], entry_id, path))
+        entries.append((source["type"], entry_id, path, None))
+
+    for candidate in detect_result.codex_plugin_candidates:
+        path = candidate.path
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        entry_id = _source_id_for("codex_plugin", path)
+        entries.append(("codex_plugin", entry_id, path, candidate.mode))
 
     if not entries:
         return [], used
 
     lines.append("tool_sources:")
-    for framework_type, entry_id, path in entries:
+    for framework_type, entry_id, path, mode in entries:
         lines.append(f"  - id: {entry_id}")
         lines.append(f"    type: {framework_type}")
         lines.append(f"    path: {path}")
+        if mode is not None:
+            lines.append(f"    mode: {mode}")
     return lines, used
 
 
 def _source_id_for(framework_type: str, path: str) -> str:
-    stem = Path(path).stem.lower().replace("-", "_").replace(".", "_")
+    path_obj = Path(path)
+    stem = (path_obj.stem or path_obj.name or "root").lower().replace("-", "_").replace(".", "_")
     prefix = {
         "langchain": "lc",
         "crewai": "crewai",
@@ -180,6 +191,7 @@ def _source_id_for(framework_type: str, path: str) -> str:
         "openai_agents_sdk": "openai_sdk",
         "mcp": "mcp",
         "openapi": "openapi",
+        "codex_plugin": "codex_plugin",
     }.get(framework_type, framework_type)
     return f"{prefix}_{stem}"
 

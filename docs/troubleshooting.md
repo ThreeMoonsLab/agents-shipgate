@@ -21,6 +21,7 @@ Use this before reading the full manifest schema.
 | Symptom | Diagnostic ID | Fix |
 | --- | --- | --- |
 | `detect --json` returns `is_agent_project: false`, but `suggested_sources` has MCP or OpenAPI files | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | Continue to `init --workspace . --write`; artifact-only repos are valid Shipgate targets. |
+| `detect --json` returns `is_agent_project: false`, but `codex_plugin_candidates` is non-empty | `SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` | Continue to `init --workspace . --write`; Codex plugin repos are valid static Shipgate targets. |
 | `doctor` shows zero tools | `SHIP-DIAG-ZERO-TOOLS` | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source parse warnings, and dynamic toolset warnings. |
 | SDK/framework extractor finds no tools | `SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY` | Add an explicit MCP export, OpenAPI spec, or local tool inventory instead of relying on dynamic code discovery. |
 | `shipgate.yaml` still has `CHANGE_ME` | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS` | Replace `agent.name` and `agent.declared_purpose` from prompt, main agent file, or README context before scanning. |

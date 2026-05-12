@@ -12,6 +12,11 @@ agents_shipgate:
         - "**/*.openapi.yml"
         - "**/*openapi*.json"
         - "**/*mcp*.json"
+        - "**/.codex-plugin/**"
+        - "**/.agents/plugins/**"
+        - "**/.app.json"
+        - "**/.mcp.json"
+        - "**/SKILL.md"
         - "**/*.py"
   script:
     - python -m pip install "agents-shipgate==0.10.0"

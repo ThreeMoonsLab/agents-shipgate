@@ -183,6 +183,7 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 Use it when the user is:
 
 - Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI)
+- Publishing or modifying a Codex plugin package or marketplace entry that declares skills, apps, MCP servers, or hooks
 - Adding a new tool, scope, or policy to an existing agent
 - Preparing an agent for production promotion
 - Wiring a release gate into PR CI
@@ -199,6 +200,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
 | Adds/edits `.github/workflows/agents-shipgate.yml` or related CI | Yes |
@@ -221,10 +223,11 @@ python -m agents_shipgate.triggers --list-rules --json
 
 - `agents-shipgate detect --json` returns `is_agent_project: false`, AND
 - `suggested_sources` is empty (no MCP/OpenAPI hits flowing in as `mcp` or `openapi`), AND
+- `codex_plugin_candidates` is empty (no Codex plugin package or marketplace hits), AND
 - no `shipgate.yaml` already exists in the workspace, AND
 - the user did not explicitly request a scan.
 
-Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos register as `is_agent_project: false` because they have no Python framework imports — but they are valid Shipgate targets and their hits surface as `suggested_sources`. The trigger table above is the authoritative go/no-go.
+Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos and Codex plugin package repos register as `is_agent_project: false` because they have no Python framework imports — but they are valid Shipgate targets. MCP/OpenAPI hits surface as `suggested_sources`; Codex plugin hits surface as `codex_plugin_candidates`. The trigger table above is the authoritative go/no-go.
 
 ---
 
@@ -255,8 +258,9 @@ Other stable top-level fields:
 - `findings[].patches[]` (v0.6+, only when scan ran with `--suggest-patches`)
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
+- `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
 
-The full schema is at [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (current; emitted reports carry `report_schema_version: "0.12"`). v0.12 adds the per-finding `agent_action` enum and the top-level `agent_summary` block — both deterministic projections of existing fields, so callers that don't read them stay correct. Older reports validate against [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (current; emitted reports carry `report_schema_version: "0.13"`). v0.13 adds the `codex_plugin_surface` block over v0.12's per-finding `agent_action` enum and top-level `agent_summary` block. Older reports validate against [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
 
@@ -322,7 +326,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (current).
+[`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -360,7 +364,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
+| Report schema (current) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
+| Report schema (v0.12 frozen reference) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
 | Report schema (v0.11 frozen reference) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
 | Report schema (v0.10 frozen reference) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
 | Report schema (v0.9 frozen reference) | [`docs/report-schema.v0.9.json`](docs/report-schema.v0.9.json) | `0.9` |
@@ -541,17 +546,21 @@ Consume the response to decide whether to proceed. Key fields:
   `project.name` only.
 - `suggested_sources[]` — MCP/OpenAPI files matched by glob. These do
   NOT bump `is_agent_project` on their own.
+- `codex_plugin_candidates[]` — Codex plugin package or marketplace
+  artifacts matched by convention. These also do NOT bump
+  `is_agent_project` on their own.
 
 **Stop condition.** Stop and skip `init` only when ALL of:
 
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
+- `codex_plugin_candidates` is empty, AND
 - no `shipgate.yaml` already exists, AND
 - the user did not explicitly request a scan.
 
-Otherwise proceed. MCP/OpenAPI-only tool-surface repos surface as
-`is_agent_project: false` but should still be onboarded — their
-sources will land in `tool_sources` during `init`.
+Otherwise proceed. MCP/OpenAPI-only tool-surface repos and Codex plugin
+package repos surface as `is_agent_project: false` but should still be
+onboarded — their sources will land in `tool_sources` during `init`.
 
 ### Step 2 · `init --write --ci --json`
 
@@ -785,9 +794,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.12` — [`docs/report-schema.v0.12.json`](report-schema.v0.12.json)
+- Current report schema: `0.13` — [`docs/report-schema.v0.13.json`](report-schema.v0.13.json)
 - Current packet schema: `0.3` — [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
-- Frozen-reference report schemas: [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
@@ -843,6 +852,12 @@ Top-level `agent_summary` block (v0.12+), one-fetch summary shaped for direct ag
 - **`review_item_count` and `needs_human_review` track different populations and can diverge.** A medium-severity stale-suppression finding lands in `release_decision.review_items` (severity rule) but its `agent_action` is `auto_apply` (high-confidence patch attached), so it's counted in `review_item_count` and `auto_appliable_patches` but **not** in `needs_human_review`.
 - `first_recommended_action` — `{kind, command|null, why}`; deterministic next step. `kind: "command"` carries an actual CLI invocation; `kind: "info"` is a "surface this to the user" hint with no command. The agent_summary block is a deterministic projection — same inputs, same output, no agent-side aggregation needed.
 
+Codex plugin surface block (v0.13+), explanatory only — never a release-gate
+input by itself:
+
+- `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` — local static plugin package and marketplace facts.
+- Only explicit MCP inventory tools from `codex_plugins.mcp_tool_inventories` appear in `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in `codex_plugin_surface`.
+
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v03).
 In packet schema `0.3`, `human_in_the_loop.runtime_control_disclaimer`
 clarifies that local HITL evidence is not runtime-enforcement proof, and
@@ -876,7 +891,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.12.json`](report-schema.v0.12.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.13.json`](report-schema.v0.13.json) — machine-validatable JSON Schema for the current report.
 - [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
 
@@ -964,6 +979,12 @@ baseline summary and do not fail CI.
 | `SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING` | medium | A LangChain/LangGraph function tool lacks static description or parameter metadata. |
 | `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A CrewAI tool surface cannot be statically enumerated and no explicit inventory is declared. |
 | `SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING` | medium | A CrewAI function/class tool lacks static description or parameter metadata. |
+| `SHIP-CODEX-PLUGIN-METADATA-MISSING` | medium | A Codex plugin package has incomplete or ambiguous identity metadata. |
+| `SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING` | high | A declared Codex plugin component path is missing or outside the package/workspace. |
+| `SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING` | medium | A Codex plugin marketplace entry lacks installation/authentication policy metadata. |
+| `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
+| `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
+| `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -1233,6 +1254,42 @@ agents bind ad hoc tool lists rather than a consistent toolset abstraction.
 A CrewAI `@tool` function or `BaseTool` subclass lacks a static description or
 parameter metadata. Add descriptions, `_run` annotations, or same-file Pydantic
 `args_schema` metadata.
+
+### SHIP-CODEX-PLUGIN-METADATA-MISSING
+
+A Codex plugin package has incomplete or ambiguous identity metadata. Fill
+`name`, `version`, and `description`; keep the plugin name aligned with the
+package root; and avoid duplicate plugin names across scanned package roots.
+
+### SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING
+
+A Codex plugin component path for skills, MCP servers, apps, or hooks could not
+be loaded. Paths must resolve inside both the plugin package and the manifest
+directory.
+
+### SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING
+
+A marketplace entry lacks `policy.installation`, `policy.authentication`, or
+`category`. Add those fields so coding agents can see installation and
+authentication posture before adoption.
+
+### SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE
+
+A plugin declares an MCP server in `.mcp.json`, but Agents Shipgate does not
+execute MCP commands to discover tools. Provide a local MCP tools inventory via
+`codex_plugins.mcp_tool_inventories`.
+
+### SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE
+
+A plugin declares a connector app in `.app.json`. Connector-backed capabilities
+are externally mediated and are review items unless a local inventory or policy
+artifact documents the effective surface.
+
+### SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING
+
+A `skills/**/SKILL.md` file is missing parseable `name` or `description`
+frontmatter, or duplicates another skill name in the same plugin. Give every
+skill a unique routing name and clear description.
 
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
@@ -1647,7 +1704,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.12.json`](report-schema.v0.12.json) — current JSON
+- [`report-schema.v0.13.json`](report-schema.v0.13.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

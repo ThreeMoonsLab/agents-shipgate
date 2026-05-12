@@ -8,7 +8,8 @@
 #
 # Scope: the `files:` regex below covers every **path-based** trigger from
 # `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
-# inventories, prompts/policies, AND the Shipgate CI workflow files.
+# inventories, Codex plugin package files, prompts/policies, AND the Shipgate
+# CI workflow files.
 # Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR` and
 # `TRIGGER-FRAMEWORK-VERSION-BUMP`) are not covered here — pre-commit's
 # `files:` regex is purely path-based and cannot inspect diff contents.
@@ -30,6 +31,10 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      .*\.codex-plugin/.*|
+      .*\.agents/plugins/.*|
+      .*\.app\.json|
+      (.*/)?SKILL\.md|
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
@@ -55,6 +60,10 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      .*\.codex-plugin/.*|
+      .*\.agents/plugins/.*|
+      .*\.app\.json|
+      (.*/)?SKILL\.md|
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|

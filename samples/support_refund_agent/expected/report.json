@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.12",
-  "run_id": "agents_shipgate_3716da0eb0ec2fad",
+  "report_schema_version": "0.13",
+  "run_id": "agents_shipgate_3f6e9f776047c403",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -1269,6 +1269,7 @@
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {},
+  "codex_plugin_surface": null,
   "baseline": null,
   "findings": [
     {
@@ -1932,10 +1933,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpg0cgayug/report.json",
-    "packet_md": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpg0cgayug/packet.md",
-    "packet_json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpg0cgayug/packet.json",
-    "packet_html": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpg0cgayug/packet.html"
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmphinsqp7c/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

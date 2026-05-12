@@ -33,6 +33,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.models import ReadinessReport
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = REPO_ROOT / "samples"
@@ -41,7 +42,11 @@ REPORT_SCHEMA_V07 = REPO_ROOT / "docs" / "report-schema.v0.7.json"
 REPORT_SCHEMA_V08 = REPO_ROOT / "docs" / "report-schema.v0.8.json"
 REPORT_SCHEMA_V10 = REPO_ROOT / "docs" / "report-schema.v0.10.json"
 REPORT_SCHEMA_V11 = REPO_ROOT / "docs" / "report-schema.v0.11.json"
-REPORT_SCHEMA_V12 = REPO_ROOT / "docs" / "report-schema.v0.12.json"
+REPORT_SCHEMA_CURRENT = (
+    REPO_ROOT
+    / "docs"
+    / f"report-schema.v{ReadinessReport.model_fields['report_schema_version'].default}.json"
+)
 
 REQUIRED_REMEDIATION_KEYS = (
     "autofix_safe",
@@ -140,12 +145,12 @@ def test_report_json_populates_metadata_with_suggest_patches(tmp_path):
 # --- v0.7 schema validation ------------------------------------------------
 
 
-def test_report_json_validates_against_v12_schema_with_patches(tmp_path):
+def test_report_json_validates_against_current_schema_with_patches(tmp_path):
     """v0.7 contract: every active finding has the four remediation
-    fields populated. v0.12 adds the per-finding `agent_action` enum
-    and the top-level `agent_summary` block on top of v0.11's source
-    provenance and v0.10's tool-surface diff fields. Validate against
-    the current v0.12 schema (older schema files stay frozen — see
+    fields populated. Current reports include v0.12's per-finding
+    `agent_action` enum and top-level `agent_summary` block on top of
+    v0.11's source provenance and v0.10's tool-surface diff fields.
+    Validate against the current schema (older schema files stay frozen — see
     test_reports.py::test_v07_schema_file_is_frozen and friends)."""
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
@@ -155,11 +160,11 @@ def test_report_json_validates_against_v12_schema_with_patches(tmp_path):
         suggest_patches=True,
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    schema = json.loads(REPORT_SCHEMA_V12.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_CURRENT.read_text(encoding="utf-8"))
     validate(instance=payload, schema=schema)
 
 
-def test_report_schema_version_is_v12_in_emitted_report(tmp_path):
+def test_report_schema_version_is_current_in_emitted_report(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE_MANIFEST,
         output_dir=tmp_path,
@@ -167,7 +172,9 @@ def test_report_schema_version_is_v12_in_emitted_report(tmp_path):
         ci_mode="advisory",
     )
     payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
-    assert payload["report_schema_version"] == "0.12"
+    assert payload["report_schema_version"] == str(
+        ReadinessReport.model_fields["report_schema_version"].default
+    )
 
 
 # --- Catalog-vs-Finding contract holds in practice -------------------------

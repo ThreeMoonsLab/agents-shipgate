@@ -69,10 +69,11 @@ diagnostics where no command should run.
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate detect --workspace <dir> --json`.                                       |
 | `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
-| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND no manifest. Catch-all negative control.                                                |
+| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND no manifest. Catch-all negative control.               |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |
 | `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`  | info     | Only `prompts/` is present; no Python framework, no tool sources.                                                                                |
 | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | info   | `is_agent_project=false` BUT `suggested_sources` has MCP/OpenAPI entries. Artifact-only repos are valid Shipgate targets.                        |
+| `SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` | info | `is_agent_project=false` BUT Codex plugin package or marketplace artifacts are present. Codex plugin repos are valid Shipgate targets.            |
 | `SHIP-DIAG-ZERO-TOOLS`              | block    | Manifest exists but `doctor` reports `total_tools=0`.                                                                                            |
 | `SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY`   | warn     | `total_tools < 3` AND any of `dynamic_toolset_count` / `dynamic_tool_surface_count` ≥ 1 across ADK / LangChain / CrewAI surfaces.                 |
 | `SHIP-DIAG-MISSING-SOURCE-FILE`     | block    | A required `tool_sources[].path` does not resolve under the manifest directory. (`doctor` no longer raises `InputParseError(3)` for this — see below.) |

@@ -17,6 +17,11 @@ jobs:
               '**/*.openapi.yml' \
               '**/*openapi*.json' \
               '**/*mcp*.json' \
+              '**/.codex-plugin/**' \
+              '**/.agents/plugins/**' \
+              '**/.app.json' \
+              '**/.mcp.json' \
+              '**/SKILL.md' \
               '**/*.py')"
             if [ -z "${changed}" ]; then
               echo "No Agents Shipgate inputs changed; skipping scan."

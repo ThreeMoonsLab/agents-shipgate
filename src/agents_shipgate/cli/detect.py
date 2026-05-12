@@ -64,24 +64,33 @@ def detect(
         typer.echo(json.dumps(payload, indent=2))
         return
 
-    if not result.is_agent_project:
+    if (
+        not result.is_agent_project
+        and not result.suggested_sources
+        and not result.codex_plugin_candidates
+    ):
         typer.echo("Workspace does not appear to be an agent project.")
         typer.echo("No agent framework signals matched the strong-signal threshold.")
         return
 
-    typer.echo("Detected agent project.")
+    typer.echo(
+        "Detected agent project."
+        if result.is_agent_project
+        else "Detected Shipgate-compatible artifact workspace."
+    )
     typer.echo("")
-    typer.echo("Frameworks:")
-    for framework in result.frameworks:
-        typer.echo(
-            f"- {framework.type} (score={framework.score}, "
-            f"confidence={framework.confidence})"
-        )
-        for line in framework.evidence[:5]:
-            typer.echo(f"    · {line}")
-        if len(framework.evidence) > 5:
-            typer.echo(f"    · ... ({len(framework.evidence) - 5} more)")
-    typer.echo("")
+    if result.frameworks:
+        typer.echo("Frameworks:")
+        for framework in result.frameworks:
+            typer.echo(
+                f"- {framework.type} (score={framework.score}, "
+                f"confidence={framework.confidence})"
+            )
+            for line in framework.evidence[:5]:
+                typer.echo(f"    · {line}")
+            if len(framework.evidence) > 5:
+                typer.echo(f"    · ... ({len(framework.evidence) - 5} more)")
+        typer.echo("")
     if result.agent_name_candidates:
         primary = result.agent_name_candidates[0]
         typer.echo(f"Agent name candidate: {primary.value} (source: {primary.source})")
@@ -93,5 +102,10 @@ def detect(
         typer.echo("Suggested tool sources:")
         for source in result.suggested_sources:
             typer.echo(f"- {source['type']}: {source['path']}")
+    if result.codex_plugin_candidates:
+        typer.echo("")
+        typer.echo("Codex plugin candidates:")
+        for candidate in result.codex_plugin_candidates:
+            typer.echo(f"- {candidate.mode}: {candidate.path}")
     typer.echo("")
     typer.echo(f"Next: {result.next_action}")

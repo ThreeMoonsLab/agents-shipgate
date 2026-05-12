@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.12",
-  "run_id": "agents_shipgate_1c4577c21998a147",
+  "report_schema_version": "0.13",
+  "run_id": "agents_shipgate_01d24509531ce681",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
@@ -242,14 +242,12 @@
       ]
     }
   },
+  "codex_plugin_surface": null,
   "baseline": null,
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpiopz_tsg/report.json",
-    "packet_md": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpiopz_tsg/packet.md",
-    "packet_json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpiopz_tsg/packet.json",
-    "packet_html": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpiopz_tsg/packet.html"
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpdtjiouhk/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

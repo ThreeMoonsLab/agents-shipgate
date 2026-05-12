@@ -71,6 +71,7 @@ openai_api:
 - `google_adk`: static Google ADK Python entrypoint or Agent Config YAML.
 - `langchain`: static LangChain/LangGraph Python entrypoint.
 - `crewai`: static CrewAI Python entrypoint.
+- `codex_plugin`: static Codex plugin package or marketplace metadata.
 
 When two sources declare the same tool name, Agents Shipgate keeps the higher-fidelity source, merges non-schema metadata such as annotations, auth scopes, risk hints, and owner, and emits a source warning. Current precedence is OpenAI API artifacts, then OpenAPI, then Google ADK/LangChain/CrewAI inventories, then MCP JSON, then SDK/ADK/LangChain/CrewAI static extraction. Low-confidence framework stubs rank below static custom function/class tools.
 
@@ -176,6 +177,53 @@ Dynamic framework tool surfaces such as `tools=get_tools()`, list
 comprehensions, loop-built lists, unresolved imported toolkits, or unresolved
 external schema classes remain visible as source warnings and framework
 findings unless an explicit local inventory resolves the surface.
+
+## Codex Plugin Artifacts
+
+`codex_plugin` is local-only and static-only. Agents Shipgate parses Codex
+plugin package metadata and companion files, but does not install plugins,
+execute hooks, launch MCP servers, authenticate connectors, call tools, call
+models, or make network requests.
+
+Use `mode: package` when `path` points at a plugin root directory. A direct
+`.codex-plugin/plugin.json` path is accepted for compatibility but normalized
+with a warning; the canonical manifest form is the package root. Use
+`mode: marketplace` when `path` points at `.agents/plugins/marketplace.json`.
+Marketplace entries with `source.source: local` resolve under the manifest
+directory.
+
+```yaml
+tool_sources:
+  - id: browser_plugin
+    type: codex_plugin
+    mode: package
+    path: plugins/browser-use
+
+  - id: repo_marketplace
+    type: codex_plugin
+    mode: marketplace
+    path: .agents/plugins/marketplace.json
+
+codex_plugins:
+  mcp_tool_inventories:
+    - plugin: browser-use
+      server: browser-use
+      path: inventories/browser-use-tools.json
+```
+
+Supported static Codex plugin signals:
+
+- `.codex-plugin/plugin.json` identity and component paths.
+- `skills/**/SKILL.md` frontmatter as instruction metadata, not tools.
+- `.mcp.json` server declarations as non-executed MCP server stubs.
+- `.app.json` connector declarations as app surface stubs.
+- Hook config files referenced by `plugin.json`; literal `command`, `cmd`,
+  `run`, `shell`, or `script` fields are recorded as code-execution hook stubs.
+- Local MCP inventory files declared in `codex_plugins.mcp_tool_inventories`.
+
+Only tools loaded from explicit MCP inventories enter `tool_inventory[]` with
+`source_type: codex_plugin_mcp_inventory`. Apps, hooks, skills, and MCP server
+declarations are reported under `codex_plugin_surface`, not as tools.
 
 ## OpenAI API Artifacts
 

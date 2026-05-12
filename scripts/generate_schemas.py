@@ -110,6 +110,7 @@ def write_report_schema() -> None:
             "tool_surface_facts",
             "tool_surface_diff",
             "frameworks",
+            "codex_plugin_surface",
             "findings",
             "recommended_actions",
             "generated_reports",

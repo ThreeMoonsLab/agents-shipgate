@@ -659,6 +659,11 @@ def test_triggers_evaluator_smoke():
         "MCP export change must trigger Shipgate; "
         f"got {mcp_change!r}."
     )
+    codex_plugin_change = evaluate(paths=["plugins/browser/.codex-plugin/plugin.json"])
+    assert codex_plugin_change["run_shipgate"] is True, (
+        "Codex plugin manifest change must trigger Shipgate; "
+        f"got {codex_plugin_change!r}."
+    )
     decorator = evaluate(
         paths=["agent.py"],
         diff_text="+@function_tool\n+def search(): ...",
@@ -1079,6 +1084,14 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
     "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED": [
         "tools/openai-tools.json",
         "tools/anthropic-tools.json",
+    ],
+    "TRIGGER-CODEX-PLUGIN-CHANGED": [
+        ".codex-plugin/plugin.json",
+        "plugins/browser-use/.codex-plugin/plugin.json",
+        ".agents/plugins/marketplace.json",
+        "plugins/browser-use/.app.json",
+        "plugins/browser-use/.mcp.json",
+        "plugins/browser-use/skills/browser/SKILL.md",
     ],
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",

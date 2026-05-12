@@ -74,6 +74,12 @@ baseline summary and do not fail CI.
 | `SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING` | medium | A LangChain/LangGraph function tool lacks static description or parameter metadata. |
 | `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A CrewAI tool surface cannot be statically enumerated and no explicit inventory is declared. |
 | `SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING` | medium | A CrewAI function/class tool lacks static description or parameter metadata. |
+| `SHIP-CODEX-PLUGIN-METADATA-MISSING` | medium | A Codex plugin package has incomplete or ambiguous identity metadata. |
+| `SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING` | high | A declared Codex plugin component path is missing or outside the package/workspace. |
+| `SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING` | medium | A Codex plugin marketplace entry lacks installation/authentication policy metadata. |
+| `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
+| `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
+| `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -343,6 +349,42 @@ agents bind ad hoc tool lists rather than a consistent toolset abstraction.
 A CrewAI `@tool` function or `BaseTool` subclass lacks a static description or
 parameter metadata. Add descriptions, `_run` annotations, or same-file Pydantic
 `args_schema` metadata.
+
+### SHIP-CODEX-PLUGIN-METADATA-MISSING
+
+A Codex plugin package has incomplete or ambiguous identity metadata. Fill
+`name`, `version`, and `description`; keep the plugin name aligned with the
+package root; and avoid duplicate plugin names across scanned package roots.
+
+### SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING
+
+A Codex plugin component path for skills, MCP servers, apps, or hooks could not
+be loaded. Paths must resolve inside both the plugin package and the manifest
+directory.
+
+### SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING
+
+A marketplace entry lacks `policy.installation`, `policy.authentication`, or
+`category`. Add those fields so coding agents can see installation and
+authentication posture before adoption.
+
+### SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE
+
+A plugin declares an MCP server in `.mcp.json`, but Agents Shipgate does not
+execute MCP commands to discover tools. Provide a local MCP tools inventory via
+`codex_plugins.mcp_tool_inventories`.
+
+### SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE
+
+A plugin declares a connector app in `.app.json`. Connector-backed capabilities
+are externally mediated and are review items unless a local inventory or policy
+artifact documents the effective surface.
+
+### SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING
+
+A `skills/**/SKILL.md` file is missing parseable `name` or `description`
+frontmatter, or duplicates another skill name in the same plugin. Give every
+skill a unique routing name and clear description.
 
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 

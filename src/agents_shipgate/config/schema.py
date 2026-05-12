@@ -57,6 +57,7 @@ class ToolSourceConfig(BaseModel):
         "google_adk",
         "langchain",
         "crewai",
+        "codex_plugin",
     ]
     path: str | None = None
     trust: str | None = None
@@ -65,8 +66,28 @@ class ToolSourceConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_path_when_needed(self) -> ToolSourceConfig:
-        if self.type in {"mcp", "openapi", "google_adk", "langchain", "crewai"} and not self.path:
+        if (
+            self.type
+            in {
+                "mcp",
+                "openapi",
+                "google_adk",
+                "langchain",
+                "crewai",
+                "codex_plugin",
+            }
+            and not self.path
+        ):
             raise ValueError(f"tool source {self.id!r} requires path")
+        if self.type == "codex_plugin" and self.mode not in {
+            None,
+            "package",
+            "marketplace",
+        }:
+            raise ValueError(
+                f"tool source {self.id!r} has invalid codex_plugin mode "
+                f"{self.mode!r}; expected 'package' or 'marketplace'"
+            )
         return self
 
 
@@ -263,6 +284,46 @@ class CrewAiConfig(BaseModel):
 
     def has_inputs(self) -> bool:
         return any([self.python_entrypoints, self.tool_inventories])
+
+
+class CodexPluginMcpInventoryConfig(ArtifactPathConfig):
+    model_config = STRICT_MODEL_CONFIG
+
+    plugin: str
+    server: str
+
+
+def _parse_codex_plugin_inventory_entries(
+    value: Any,
+) -> list[CodexPluginMcpInventoryConfig]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError("mcp_tool_inventories must be a list")
+    entries: list[CodexPluginMcpInventoryConfig] = []
+    for item in value:
+        if isinstance(item, CodexPluginMcpInventoryConfig):
+            entries.append(item)
+        elif isinstance(item, dict):
+            entries.append(CodexPluginMcpInventoryConfig.model_validate(item))
+        else:
+            raise TypeError("mcp_tool_inventories entries must be objects")
+    return entries
+
+
+class CodexPluginsConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    mcp_tool_inventories: list[CodexPluginMcpInventoryConfig] = Field(
+        default_factory=list
+    )
+
+    @field_validator("mcp_tool_inventories", mode="before")
+    @classmethod
+    def parse_mcp_tool_inventories(
+        cls, value: Any
+    ) -> list[CodexPluginMcpInventoryConfig]:
+        return _parse_codex_plugin_inventory_entries(value)
 
 
 class ValidationRequiredEvidenceConfig(BaseModel):
@@ -484,6 +545,7 @@ class AgentsShipgateManifest(BaseModel):
     google_adk: GoogleAdkConfig | None = None
     langchain: LangChainConfig | None = None
     crewai: CrewAiConfig | None = None
+    codex_plugins: CodexPluginsConfig | None = None
     validation: ValidationConfig | None = None
     policies: PoliciesConfig = Field(default_factory=PoliciesConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
@@ -509,6 +571,9 @@ class AgentsShipgateManifest(BaseModel):
             or self.crewai is not None
             and self.crewai.has_inputs()
         )
+        has_codex_plugin = any(
+            source.type == "codex_plugin" for source in self.tool_sources
+        )
         has_anthropic = self.anthropic is not None and self.anthropic.has_inputs()
         if (
             not self.tool_sources
@@ -517,10 +582,11 @@ class AgentsShipgateManifest(BaseModel):
             and not has_google_adk
             and not has_langchain
             and not has_crewai
+            and not has_codex_plugin
         ):
             raise ValueError(
                 "At least one of tool_sources, openai_api, anthropic, google_adk, "
-                "langchain, or crewai is required"
+                "langchain, crewai, or codex_plugin is required"
             )
         if (
             not self.agent.declared_purpose
@@ -530,11 +596,12 @@ class AgentsShipgateManifest(BaseModel):
             and not has_google_adk
             and not has_langchain
             and not has_crewai
+            and not has_codex_plugin
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "
-                "openai_api.prompt_files, anthropic.prompt_files, or framework "
-                "inputs are required"
+                "openai_api.prompt_files, anthropic.prompt_files, framework "
+                "inputs, or codex_plugin inputs are required"
             )
         return self
 

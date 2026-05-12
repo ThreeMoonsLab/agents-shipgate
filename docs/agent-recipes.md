@@ -41,17 +41,21 @@ Consume the response to decide whether to proceed. Key fields:
   `project.name` only.
 - `suggested_sources[]` — MCP/OpenAPI files matched by glob. These do
   NOT bump `is_agent_project` on their own.
+- `codex_plugin_candidates[]` — Codex plugin package or marketplace
+  artifacts matched by convention. These also do NOT bump
+  `is_agent_project` on their own.
 
 **Stop condition.** Stop and skip `init` only when ALL of:
 
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
+- `codex_plugin_candidates` is empty, AND
 - no `shipgate.yaml` already exists, AND
 - the user did not explicitly request a scan.
 
-Otherwise proceed. MCP/OpenAPI-only tool-surface repos surface as
-`is_agent_project: false` but should still be onboarded — their
-sources will land in `tool_sources` during `init`.
+Otherwise proceed. MCP/OpenAPI-only tool-surface repos and Codex plugin
+package repos surface as `is_agent_project: false` but should still be
+onboarded — their sources will land in `tool_sources` during `init`.
 
 ### Step 2 · `init --write --ci --json`
 

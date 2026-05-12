@@ -352,6 +352,120 @@
     },
     {
       "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "medium",
+      "description": "Codex plugin app connector surface is not statically enumerable.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-app-surface-not-enumerable",
+      "evidence_fields": [
+        "plugin",
+        "app",
+        "connector_id",
+        "path"
+      ],
+      "fires_when": "A Codex plugin declares an app connector without an explicit local enumerable tool surface.",
+      "id": "SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE",
+      "rationale": "Connector-backed app capabilities are externally mediated and cannot be proven from local plugin metadata alone.",
+      "recommendation": "Treat connector app capabilities as a review item or provide explicit local inventory/policy evidence.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "high",
+      "description": "Codex plugin component path cannot be loaded.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-component-path-missing",
+      "evidence_fields": [
+        "plugin",
+        "component",
+        "path",
+        "reason"
+      ],
+      "fires_when": "A plugin component path is missing, outside the plugin root, or outside the manifest directory.",
+      "id": "SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING",
+      "rationale": "Release review cannot inspect declared skills, MCP servers, apps, or hooks when component paths are missing or escape the package.",
+      "recommendation": "Fix component paths so every declared plugin artifact resolves locally.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "medium",
+      "description": "Codex plugin marketplace entry lacks policy metadata.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-marketplace-policy-missing",
+      "evidence_fields": [
+        "marketplace",
+        "plugin",
+        "missing"
+      ],
+      "fires_when": "A marketplace plugin entry lacks policy.installation, policy.authentication, or category.",
+      "id": "SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING",
+      "rationale": "Marketplace installation and authentication policy are part of the release surface coding agents need to review.",
+      "recommendation": "Add policy.installation, policy.authentication, and category to the marketplace entry.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "high",
+      "description": "Codex plugin MCP server is declared but not statically enumerable.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-mcp-server-not-enumerable",
+      "evidence_fields": [
+        "plugin",
+        "server",
+        "path",
+        "inventory_path"
+      ],
+      "fires_when": "A Codex plugin declares an MCP server and no matching codex_plugins.mcp_tool_inventories entry loaded successfully.",
+      "id": "SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE",
+      "rationale": "Agents Shipgate does not execute MCP commands, so reviewer-visible tool metadata requires an explicit local inventory.",
+      "recommendation": "Provide a local MCP tool inventory for the plugin server.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "medium",
+      "description": "Codex plugin package metadata is incomplete or ambiguous.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-metadata-missing",
+      "evidence_fields": [
+        "plugin",
+        "source_id",
+        "manifest_path",
+        "issues"
+      ],
+      "fires_when": "A Codex plugin manifest is missing required identity metadata, its name does not match the package root, or duplicate plugin names are present.",
+      "id": "SHIP-CODEX-PLUGIN-METADATA-MISSING",
+      "rationale": "Plugin identity needs to be stable before publication or downstream agent adoption.",
+      "recommendation": "Fill required plugin metadata and make plugin names unambiguous.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_plugin",
+      "default_severity": "medium",
+      "description": "Codex plugin skill metadata is missing or duplicated.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-skill-metadata-missing",
+      "evidence_fields": [
+        "plugin",
+        "skill",
+        "path",
+        "missing_fields",
+        "duplicate"
+      ],
+      "fires_when": "A SKILL.md lacks name or description frontmatter, or two skills in the same plugin share a name.",
+      "id": "SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING",
+      "rationale": "Skill frontmatter is the static routing surface agents use to decide whether a skill applies.",
+      "recommendation": "Give each skill a unique name and clear description frontmatter.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "crewai",
       "default_severity": "high",
       "description": "CrewAI tool surface cannot be statically enumerated.",

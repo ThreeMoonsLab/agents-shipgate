@@ -7,6 +7,7 @@ from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.models import (
     Agent,
     AnthropicArtifacts,
+    CodexPluginArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -27,4 +28,5 @@ class ScanContext:
     adk_artifacts: GoogleAdkArtifacts | None = None
     langchain_artifacts: LangChainArtifacts | None = None
     crewai_artifacts: CrewAiArtifacts | None = None
+    codex_plugin_artifacts: CodexPluginArtifacts | None = None
     validation_artifacts: ValidationArtifacts | None = None

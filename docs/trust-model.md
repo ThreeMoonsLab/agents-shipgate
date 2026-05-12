@@ -35,6 +35,11 @@ By default Agents Shipgate does not:
 - Google ADK support is static-only. Agents Shipgate parses Python AST and Agent Config YAML, but does not import ADK code, run `adk run`, run `adk web`, run `adk eval`, connect to MCP servers, call tools, call models, or fetch remote specs by default.
 - LangChain/LangGraph and CrewAI support is static-only. Agents Shipgate parses Python AST, but does not import framework packages, run graphs, crews, or agents, call models, call tools, execute `exec`/`eval`, connect to MCP servers, shell out to framework subprocesses, or make network calls.
 - ADK callbacks and plugins are recorded as static guardrail evidence only. They are not proof that runtime enforcement is correct.
+- Codex plugin support is static-only. Agents Shipgate parses
+  `.codex-plugin/plugin.json`, local marketplace files, skills, `.mcp.json`,
+  `.app.json`, hook config files, and explicit local MCP inventories, but does
+  not install plugins, launch MCP server commands, execute hooks, authenticate
+  connectors, call tools, call models, or make network requests.
 - Declarative policy packs are local YAML data. They do not import Python,
   execute code, connect to services, or weaken the default no-execution model.
 - Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.

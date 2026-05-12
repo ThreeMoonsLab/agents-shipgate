@@ -23,6 +23,7 @@ from agents_shipgate.core.findings import (
 from agents_shipgate.core.models import (
     Agent,
     AnthropicArtifacts,
+    CodexPluginSurface,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -34,6 +35,7 @@ from agents_shipgate.core.models import (
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
+from agents_shipgate.inputs.codex_plugin import load_codex_plugin_artifacts
 from agents_shipgate.inputs.frameworks import load_framework_artifacts
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
@@ -127,6 +129,10 @@ def run_scan(
     )
     if anthropic_source:
         loaded_sources.append(anthropic_source)
+    codex_plugin_sources, codex_plugin_artifacts = load_codex_plugin_artifacts(
+        manifest, base_dir
+    )
+    loaded_sources.extend(codex_plugin_sources)
     validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     logger.debug(
         "loaded sources",
@@ -147,6 +153,8 @@ def run_scan(
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if codex_plugin_artifacts:
+        warnings.extend(codex_plugin_artifacts.warnings)
     if validation_artifacts:
         warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(
@@ -193,6 +201,7 @@ def run_scan(
         adk_artifacts=adk_artifacts,
         langchain_artifacts=langchain_artifacts,
         crewai_artifacts=crewai_artifacts,
+        codex_plugin_artifacts=codex_plugin_artifacts,
         validation_artifacts=validation_artifacts,
     )
     loaded_plugins: list[dict[str, str | None]] = []
@@ -307,6 +316,11 @@ def run_scan(
             api_surface=api_artifacts.surface_summary() if api_artifacts else None,
             anthropic_surface=anthropic_surface,
             frameworks=frameworks_surface,
+            codex_plugin_surface=(
+                codex_plugin_artifacts.surface_summary()
+                if codex_plugin_artifacts
+                else None
+            ),
         ),
         manifest=manifest,
         manifest_dir=str(config_path.resolve().parent),
@@ -327,6 +341,9 @@ def run_scan(
         api_surface=api_artifacts.surface_summary() if api_artifacts else None,
         anthropic_surface=anthropic_surface,
         frameworks=frameworks_surface,
+        codex_plugin_surface=(
+            codex_plugin_artifacts.surface_summary() if codex_plugin_artifacts else None
+        ),
         baseline=baseline_summary,
         tool_surface_facts=tool_surface_facts,
         tool_surface_diff=tool_surface_diff,
@@ -390,6 +407,10 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     )
     if anthropic_source:
         loaded_sources.append(anthropic_source)
+    codex_plugin_sources, codex_plugin_artifacts = load_codex_plugin_artifacts(
+        manifest, base_dir
+    )
+    loaded_sources.extend(codex_plugin_sources)
     validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
@@ -400,6 +421,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
         warnings.extend(langchain_artifacts.warnings)
     if crewai_artifacts:
         warnings.extend(crewai_artifacts.warnings)
+    if codex_plugin_artifacts:
+        warnings.extend(codex_plugin_artifacts.warnings)
     if validation_artifacts:
         warnings.extend(validation_artifacts.warnings)
     policy_packs = load_policy_packs(manifest, base_dir)
@@ -428,6 +451,11 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             adk_artifacts,
             langchain_artifacts,
             crewai_artifacts,
+        ),
+        "codex_plugin_surface": (
+            codex_plugin_artifacts.surface_summary().model_dump(mode="json")
+            if codex_plugin_artifacts
+            else None
         ),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
         "baseline": _default_baseline_status(base_dir),
@@ -526,6 +554,9 @@ def _load_sources(manifest, base_dir: Path, *, verbose: bool) -> list[LoadedTool
             elif source.type in {"langchain", "crewai"}:
                 # Framework sources are loaded with framework artifacts below.
                 continue
+            elif source.type == "codex_plugin":
+                # Codex plugin packages are loaded with plugin artifacts above.
+                continue
         except InputParseError:
             if source.optional:
                 warning = f"Optional source {source.id} failed to load"
@@ -580,6 +611,7 @@ def _source_priority(tool: Tool) -> int:
         "google_adk_inventory": 25,
         "langchain_inventory": 25,
         "crewai_inventory": 25,
+        "codex_plugin_mcp_inventory": 25,
         "mcp": 20,
         "google_adk_function": 10,
         "langchain_function": 10,
@@ -843,6 +875,7 @@ def _run_id(
     api_surface: dict[str, object] | None = None,
     anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
+    codex_plugin_surface: CodexPluginSurface | None = None,
 ) -> str:
     payload = {
         "project": manifest.project.model_dump(mode="json", exclude_none=False),
@@ -893,6 +926,9 @@ def _run_id(
         "api_surface": api_surface,
         "anthropic_surface": anthropic_surface,
         "frameworks": frameworks or {},
+        "codex_plugin_surface": (
+            codex_plugin_surface.model_dump(mode="json") if codex_plugin_surface else None
+        ),
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode("utf-8")

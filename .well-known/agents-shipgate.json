@@ -25,13 +25,13 @@
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
   "contract_version": "1",
-  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_messages_api", "google_adk", "langchain", "crewai", "openai_api"],
+  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_messages_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html"],
   "gating_signal": "release_decision.decision",
   "trust_model": "static_by_default",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
-    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.12.json",
+    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.13.json",
     "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.3.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
   },

@@ -27,13 +27,14 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "frameworks": [{"type": "openai_agents_sdk", "score": 4.5, ...}],
   "agent_name_candidates": [...],
   "suggested_sources": [{"type": "mcp", "path": "..."}],
+  "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
   "script_version": "0.1.0"
 }
 ```
 
-The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
+The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, and same Codex plugin candidates for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
 
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 

@@ -16,7 +16,7 @@ from agents_shipgate.config.schema import (
 )
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.findings import finding_fingerprint
-from agents_shipgate.core.models import Finding
+from agents_shipgate.core.models import Finding, ReadinessReport
 from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.report.json_report import report_json_payload
 
@@ -433,7 +433,11 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
         ci_mode="advisory",
     )
     payload = report_json_payload(report)
-    schema = json.loads(Path("docs/report-schema.v0.12.json").read_text(encoding="utf-8"))
+    schema = json.loads(
+        Path(
+            f"docs/report-schema.v{ReadinessReport.model_fields['report_schema_version'].default}.json"
+        ).read_text(encoding="utf-8")
+    )
 
     assert exit_code == 0
     assert payload["summary"]["critical_count"] == 0

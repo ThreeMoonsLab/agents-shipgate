@@ -63,6 +63,24 @@
       "rationale": "Static tool inventories for the OpenAI and Anthropic Messages APIs are first-class tool sources."
     },
     {
+      "id": "TRIGGER-CODEX-PLUGIN-CHANGED",
+      "agents_md_row": "Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files",
+      "when": {
+        "any_of": [
+          {"glob": ".codex-plugin/**"},
+          {"glob": "**/.codex-plugin/**"},
+          {"glob": ".agents/plugins/**"},
+          {"glob": "**/.agents/plugins/**"},
+          {"glob": "**/.app.json"},
+          {"glob": "**/.mcp.json"},
+          {"glob": "**/SKILL.md"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Codex plugin packages and marketplaces are static release surfaces; plugin metadata, skills, apps, MCP server declarations, and hooks need a readiness check.",
+      "command": "agents-shipgate detect --workspace . --json"
+    },
+    {
       "id": "TRIGGER-FUNCTION-TOOL-DECORATOR",
       "agents_md_row": "Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK)",
       "when": {
@@ -147,6 +165,13 @@
             "shipgate.yaml",
             "**/*tools*.json",
             "**/*mcp*.json",
+            ".codex-plugin/**",
+            "**/.codex-plugin/**",
+            ".agents/plugins/**",
+            "**/.agents/plugins/**",
+            "**/.app.json",
+            "**/.mcp.json",
+            "**/SKILL.md",
             "**/*openapi*.yaml",
             "**/*openapi*.yml",
             "**/*openapi*.json",
@@ -164,6 +189,7 @@
     "all_of": [
       {"detect_returns": "is_agent_project: false"},
       {"detect_returns": "suggested_sources: []"},
+      {"detect_returns": "codex_plugin_candidates: []"},
       {"file_absent": "shipgate.yaml"},
       {"user_did_not_request": true}
     ]

@@ -82,6 +82,8 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
             )
     for pattern in MCP_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
+            if path.name == ".mcp.json":
+                continue
             if path in seen:
                 continue
             seen.add(path)

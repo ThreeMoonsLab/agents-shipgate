@@ -11,7 +11,7 @@ curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/t
   | python3 - --workspace . --json
 ```
 
-If `is_agent_project: true` (or `suggested_sources` is non-empty), continue with the install below. If `is_agent_project: false` and `suggested_sources: []`, Shipgate is not the right tool for this repo — see [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
+If `is_agent_project: true` (or `suggested_sources` / `codex_plugin_candidates` is non-empty), continue with the install below. If `is_agent_project: false`, `suggested_sources: []`, and `codex_plugin_candidates: []`, Shipgate is not the right tool for this repo — see [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
 
 ## Install
 
@@ -72,6 +72,7 @@ Use this decision tree before reading the full manifest schema:
 | Symptom | Next action |
 | --- | --- |
 | `detect` says `is_agent_project: false`, but `suggested_sources` includes MCP or OpenAPI files | Proceed to `init`. MCP/OpenAPI-only repos are valid tool-surface targets even without Python framework detection. |
+| `detect` says `is_agent_project: false`, but `codex_plugin_candidates` is non-empty | Proceed to `init`. Codex plugin repos are valid static plugin-surface targets even without Python framework detection. |
 | `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic ADK/MCP toolsets. |
 | Tools are created by factories, wrappers, or dynamic ADK/MCP toolsets | Provide an explicit MCP export, OpenAPI spec, or local tool inventory artifact. |
 | `init --write --json` reports `CHANGE_ME` placeholders | Replace `agent.name` and `agent.declared_purpose` from the prompt, main agent file, or repo README before scanning. |
@@ -88,6 +89,7 @@ already have:
 | OpenAI Agents SDK Python | Tools are defined with `@function_tool` in local Python files. | `tool_sources[].type: openai_agents_sdk` |
 | MCP export | You can export the MCP server's tool list to JSON. | `tool_sources[].type: mcp` |
 | OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
+| Codex plugin package | The repo contains `.codex-plugin/plugin.json` or `.agents/plugins/marketplace.json`. | `tool_sources[].type: codex_plugin` |
 
 Google ADK, LangChain/LangGraph, CrewAI, Anthropic Messages API artifacts, and
 simple OpenAI API artifacts are also supported inputs, but the fastest path is
