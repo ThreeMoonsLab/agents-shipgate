@@ -126,6 +126,95 @@ def test_codex_plugin_mcp_inventory_enumerates_tools(tmp_path: Path) -> None:
     assert "SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE" not in check_ids
 
 
+def test_codex_plugin_marketplace_loads_local_plugin(tmp_path: Path) -> None:
+    _write_codex_plugin(tmp_path / "plugins" / "browserish", include_app=False)
+    _write_marketplace(
+        tmp_path,
+        plugin_entry={
+            "name": "browserish",
+            "category": "automation",
+            "policy": {"installation": "local", "authentication": "none"},
+            "source": {"source": "local", "path": "plugins/browserish"},
+        },
+    )
+    manifest = _write_codex_marketplace_manifest(tmp_path)
+
+    report, _ = run_scan(config_path=manifest)
+
+    assert report.codex_plugin_surface is not None
+    assert report.codex_plugin_surface.marketplace_count == 1
+    assert report.codex_plugin_surface.marketplaces[0].plugin_count == 1
+    assert report.codex_plugin_surface.plugins[0].marketplace == "local-market"
+    assert report.codex_plugin_surface.plugins[0].name == "browserish"
+    check_ids = {finding.check_id for finding in report.findings}
+    assert "SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING" not in check_ids
+
+
+def test_codex_plugin_marketplace_missing_policy_is_finding(tmp_path: Path) -> None:
+    _write_codex_plugin(tmp_path / "plugins" / "browserish", include_app=False)
+    _write_marketplace(
+        tmp_path,
+        plugin_entry={
+            "name": "browserish",
+            "source": {"source": "local", "path": "plugins/browserish"},
+        },
+    )
+    manifest = _write_codex_marketplace_manifest(tmp_path)
+
+    report, _ = run_scan(config_path=manifest)
+
+    findings = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING"
+    ]
+    assert len(findings) == 1
+    assert findings[0].evidence["plugin"] == "browserish"
+    assert findings[0].evidence["missing"] == [
+        "policy.installation",
+        "policy.authentication",
+        "category",
+    ]
+
+
+def test_codex_plugin_manifest_file_path_warning_flows_to_report(
+    tmp_path: Path,
+) -> None:
+    _write_codex_plugin(tmp_path / "plugins" / "browserish", include_app=False)
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        textwrap.dedent(
+            """
+            version: "0.1"
+            project:
+              name: codex-plugin-test
+            agent:
+              name: codex-plugin-review
+              declared_purpose:
+                - review a plugin package
+            environment:
+              target: local
+            tool_sources:
+              - id: browserish
+                type: codex_plugin
+                mode: package
+                path: plugins/browserish/.codex-plugin/plugin.json
+            output:
+              packet:
+                enabled: false
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(config_path=manifest)
+
+    assert any(
+        "prefer the plugin root directory" in warning
+        for warning in report.source_warnings
+    )
+
+
 def test_detect_and_init_route_codex_plugin_only_workspace(tmp_path: Path) -> None:
     _write_codex_plugin(tmp_path, include_app=False)
 
@@ -174,6 +263,44 @@ def _write_manifest(tmp_path: Path, content: str) -> Path:
     path = tmp_path / "shipgate.yaml"
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _write_codex_marketplace_manifest(tmp_path: Path) -> Path:
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        textwrap.dedent(
+            """
+            version: "0.1"
+            project:
+              name: codex-plugin-test
+            agent:
+              name: codex-plugin-review
+              declared_purpose:
+                - review a plugin marketplace
+            environment:
+              target: local
+            tool_sources:
+              - id: local_market
+                type: codex_plugin
+                mode: marketplace
+                path: .agents/plugins/marketplace.json
+            output:
+              packet:
+                enabled: false
+            """
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def _write_marketplace(tmp_path: Path, *, plugin_entry: dict[str, object]) -> None:
+    marketplace = tmp_path / ".agents" / "plugins" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        json.dumps({"name": "local-market", "plugins": [plugin_entry]}),
+        encoding="utf-8",
+    )
 
 
 def _write_codex_plugin(root: Path, *, include_app: bool) -> None:

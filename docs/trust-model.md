@@ -40,6 +40,11 @@ By default Agents Shipgate does not:
   `.app.json`, hook config files, and explicit local MCP inventories, but does
   not install plugins, launch MCP server commands, execute hooks, authenticate
   connectors, call tools, call models, or make network requests.
+- Codex plugin findings do not prove runtime installation, connector
+  authentication, marketplace availability, MCP server behavior, or runtime
+  permission enforcement. Findings emitted from `codex_plugin_surface`
+  describe the static plugin contract only; a running plugin may diverge from
+  its manifest.
 - Declarative policy packs are local YAML data. They do not import Python,
   execute code, connect to services, or weaken the default no-execution model.
 - Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.

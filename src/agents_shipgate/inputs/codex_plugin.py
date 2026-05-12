@@ -572,8 +572,6 @@ def _load_mcp_inventory(
         tool.source_id = source_id
         tool.annotations["codex_plugin"] = plugin_name
         tool.annotations["codex_plugin_mcp_server"] = server_name
-        tool.extraction_confidence = "high"
-        tool.extraction["confidence"] = "high"
         tools.append(tool)
     return (
         LoadedToolSource(
