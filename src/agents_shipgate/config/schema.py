@@ -326,6 +326,45 @@ class CodexPluginsConfig(BaseModel):
         return _parse_codex_plugin_inventory_entries(value)
 
 
+class N8nConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    workflows: list[ArtifactPathConfig] = Field(default_factory=list)
+    credential_stubs: list[ArtifactPathConfig] = Field(default_factory=list)
+    variable_stubs: list[ArtifactPathConfig] = Field(default_factory=list)
+    data_table_schemas: list[ArtifactPathConfig] = Field(default_factory=list)
+    execution_samples: list[ArtifactPathConfig] = Field(default_factory=list)
+    eval_sets: list[ArtifactPathConfig] = Field(default_factory=list)
+    tool_inventories: list[ArtifactPathConfig] = Field(default_factory=list)
+
+    @field_validator(
+        "workflows",
+        "credential_stubs",
+        "variable_stubs",
+        "data_table_schemas",
+        "execution_samples",
+        "eval_sets",
+        "tool_inventories",
+        mode="before",
+    )
+    @classmethod
+    def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
+        return _parse_artifact_entries(value)
+
+    def has_inputs(self) -> bool:
+        return any(
+            [
+                self.workflows,
+                self.credential_stubs,
+                self.variable_stubs,
+                self.data_table_schemas,
+                self.execution_samples,
+                self.eval_sets,
+                self.tool_inventories,
+            ]
+        )
+
+
 class ValidationRequiredEvidenceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -546,6 +585,7 @@ class AgentsShipgateManifest(BaseModel):
     langchain: LangChainConfig | None = None
     crewai: CrewAiConfig | None = None
     codex_plugins: CodexPluginsConfig | None = None
+    n8n: N8nConfig | None = None
     validation: ValidationConfig | None = None
     policies: PoliciesConfig = Field(default_factory=PoliciesConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
@@ -574,6 +614,7 @@ class AgentsShipgateManifest(BaseModel):
         has_codex_plugin = any(
             source.type == "codex_plugin" for source in self.tool_sources
         )
+        has_n8n = self.n8n is not None and self.n8n.has_inputs()
         has_anthropic = self.anthropic is not None and self.anthropic.has_inputs()
         if (
             not self.tool_sources
@@ -582,11 +623,12 @@ class AgentsShipgateManifest(BaseModel):
             and not has_google_adk
             and not has_langchain
             and not has_crewai
+            and not has_n8n
             and not has_codex_plugin
         ):
             raise ValueError(
                 "At least one of tool_sources, openai_api, anthropic, google_adk, "
-                "langchain, crewai, or codex_plugin is required"
+                "langchain, crewai, n8n, or codex_plugin is required"
             )
         if (
             not self.agent.declared_purpose
@@ -596,12 +638,13 @@ class AgentsShipgateManifest(BaseModel):
             and not has_google_adk
             and not has_langchain
             and not has_crewai
+            and not has_n8n
             and not has_codex_plugin
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "
                 "openai_api.prompt_files, anthropic.prompt_files, framework "
-                "inputs, or codex_plugin inputs are required"
+                "inputs, n8n inputs, or codex_plugin inputs are required"
             )
         return self
 

@@ -25,6 +25,12 @@ SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
 
 
+def _agent_mode_payload(result) -> dict:
+    lines = [line for line in (result.output or "").splitlines() if line.startswith("{")]
+    assert lines, result.output
+    return json.loads(lines[-1])
+
+
 def _seed_with_stale_suppression(tmp_path: Path) -> Path:
     workspace = tmp_path / "ws"
     shutil.copytree(SAMPLES / "support_refund_agent", workspace)
@@ -208,6 +214,31 @@ def test_containment_violation_refused(tmp_path: Path) -> None:
     assert "Containment violation" in result.output or "not under" in result.output
 
 
+def test_containment_violation_emits_agent_mode_error_json(tmp_path: Path) -> None:
+    workspace = _seed_with_stale_suppression(tmp_path)
+    report_path = _scan_with_patches(workspace)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    for finding in report["findings"]:
+        for patch in finding.get("patches") or []:
+            if patch.get("kind") == "remove_pointer":
+                patch["target_file"] = "/etc/passwd"
+                break
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report_path), "--apply"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 5
+    payload = _agent_mode_payload(result)
+    assert payload["error"] == "other_error"
+    assert payload["next_action"]
+    assert payload["next_actions"][0]["kind"] == "review"
+    assert payload["next_actions"][0]["path"] == str(report_path)
+
+
 def test_missing_manifest_dir_refuses(tmp_path: Path) -> None:
     """Old reports that pre-date v0.6 won't have manifest_dir; refuse."""
     payload = {
@@ -235,6 +266,24 @@ def test_missing_manifest_dir_refuses(tmp_path: Path) -> None:
         ["apply-patches", "--from", str(report_path), "--apply"],
     )
     assert result.exit_code == 5
+
+
+def test_missing_manifest_dir_emits_agent_mode_error_json(tmp_path: Path) -> None:
+    payload = {"report_schema_version": "0.5", "findings": []}
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report_path), "--apply"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 5
+    error = _agent_mode_payload(result)
+    assert error["error"] == "other_error"
+    assert error["next_actions"][0]["kind"] == "command"
+    assert "scan -c shipgate.yaml" in error["next_actions"][0]["command"]
 
 
 # --- SHA drift ------------------------------------------------------------
@@ -369,6 +418,23 @@ def test_malformed_patch_payload_exits_2(tmp_path: Path) -> None:
     result = runner.invoke(app, ["apply-patches", "--from", str(path)])
     assert result.exit_code == 2, result.output
     assert "Malformed patch" in (result.output or "")
+
+
+def test_unreadable_report_emits_malformed_patch_agent_mode_error(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "missing-report.json"
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report_path)],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_payload(result)
+    assert payload["error"] == "malformed_patch"
+    assert payload["next_actions"][0]["kind"] == "review"
+    assert payload["next_actions"][0]["path"] == str(report_path)
 
 
 def test_multi_remove_index_overflow_does_not_crash(tmp_path: Path) -> None:

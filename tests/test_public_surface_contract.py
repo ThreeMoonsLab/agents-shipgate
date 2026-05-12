@@ -22,10 +22,12 @@ import json
 import re
 import tomllib
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.diagnostics import NextActionKind
 from agents_shipgate.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -597,6 +599,92 @@ _VALID_TRIGGER_ACTIONS = {"run_shipgate", "skip_shipgate", "dry_run", "force_run
 
 def _load_triggers_json() -> dict:
     return json.loads(_read("docs/triggers.json"))
+
+
+def _load_errors_json() -> dict:
+    return json.loads(_read("docs/errors.json"))
+
+
+def _emitted_error_kinds_in_source() -> set[str]:
+    """Walk `src/agents_shipgate/cli/` and return every literal string
+    passed as the first argument to `emit_agent_mode_error(...)` or to
+    `_emit_input_error(...)` (the apply-patches helper that uses the
+    same one-line stderr format). Source-of-truth for which kinds the
+    runtime actually emits."""
+    src_dir = REPO_ROOT / "src" / "agents_shipgate" / "cli"
+    pattern = re.compile(
+        r"(?:emit_agent_mode_error|_emit_input_error)\(\s*\n?\s*\"([a-z_]+)\"",
+        re.MULTILINE,
+    )
+    kinds: set[str] = set()
+    for path in src_dir.rglob("*.py"):
+        kinds.update(pattern.findall(path.read_text(encoding="utf-8")))
+    return kinds
+
+
+def test_errors_json_lists_every_runtime_emitted_kind():
+    """`docs/errors.json` is the published catalog of error kinds an
+    agent might see when `AGENTS_SHIPGATE_AGENT_MODE=1`. Every kind
+    actually emitted by the runtime must appear in the catalog —
+    otherwise downstream agents pre-fetching the catalog will pattern-
+    match against a stale list."""
+    catalog = _load_errors_json()
+    catalog_ids = {entry["id"] for entry in catalog["errors"]}
+    emitted = _emitted_error_kinds_in_source()
+
+    missing_from_catalog = emitted - catalog_ids
+    assert not missing_from_catalog, (
+        "docs/errors.json missing kinds the runtime actually emits: "
+        f"{sorted(missing_from_catalog)}. Add them to the catalog."
+    )
+
+    missing_from_runtime = catalog_ids - emitted
+    assert not missing_from_runtime, (
+        "docs/errors.json lists kinds the runtime never emits: "
+        f"{sorted(missing_from_runtime)}. Either delete them from the "
+        "catalog or add the emit site that justifies them."
+    )
+
+
+def test_errors_json_lists_every_kind_documented_in_agents_md():
+    """AGENTS.md enumerates the error kinds in prose; the catalog and
+    the prose must agree. Catches the drift mode where someone adds a
+    kind to the catalog (or to AGENTS.md) without updating the other."""
+    catalog = _load_errors_json()
+    catalog_ids = {entry["id"] for entry in catalog["errors"]}
+    agents_md = _read("AGENTS.md")
+    for error_id in catalog_ids:
+        assert f"`{error_id}`" in agents_md, (
+            f"AGENTS.md does not mention error kind `{error_id}` "
+            "(must be in the agent-mode error-kind list)."
+        )
+
+
+def test_errors_json_schema_version_is_pinned():
+    """Pin the catalog's schema version explicitly so a bump is a
+    deliberate breaking-change moment. v0.1 is the first published
+    version — bumping requires updating the public-surface mentions
+    and the contract doc in the same PR."""
+    catalog = _load_errors_json()
+    assert catalog["schema_version"] == "0.1", (
+        f"docs/errors.json schema_version moved off 0.1 — got "
+        f"{catalog['schema_version']!r}. Bump deliberately and "
+        "update AGENTS.md / docs/agent-contract-current.md to "
+        "match in the same PR."
+    )
+    assert catalog["agent_mode_env_var"] == "AGENTS_SHIPGATE_AGENT_MODE"
+    for entry in catalog["errors"]:
+        assert isinstance(entry.get("exit_code"), int), (
+            f"errors.json entry {entry['id']!r} missing integer exit_code."
+        )
+        assert entry.get("description"), (
+            f"errors.json entry {entry['id']!r} missing description."
+        )
+
+
+def test_errors_json_next_action_kinds_match_diagnostic_contract():
+    catalog = _load_errors_json()
+    assert set(catalog["next_action_kinds"]) == set(get_args(NextActionKind))
 
 
 def test_triggers_json_loads_via_canonical_loader():

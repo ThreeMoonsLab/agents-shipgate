@@ -91,8 +91,9 @@ already have:
 | OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
 | Codex plugin package | The repo contains `.codex-plugin/plugin.json` or `.agents/plugins/marketplace.json`. | `tool_sources[].type: codex_plugin` |
 
-Google ADK, LangChain/LangGraph, CrewAI, Anthropic Messages API artifacts, and
-simple OpenAI API artifacts are also supported inputs, but the fastest path is
+Google ADK, LangChain/LangGraph, CrewAI, n8n workflow JSON, Anthropic Messages
+API artifacts, and simple OpenAI API artifacts are also supported inputs, but
+the fastest path is
 to start with the tool surface closest to the release boundary.
 
 **Replace placeholders before scanning.** `init --write --json` returns a

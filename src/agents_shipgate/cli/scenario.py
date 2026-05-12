@@ -102,7 +102,9 @@ def scenario_suggest(
                 }
             ],
         )
-        raise typer.Exit(2) from exc
+        # Exit 3 matches the documented convention for input_parse_error
+        # (docs/errors.json, docs/trust-model.md, docs/manifest-v0.1.md).
+        raise typer.Exit(3) from exc
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)

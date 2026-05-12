@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "0.1",
+  "name": "agents-shipgate-errors",
+  "description": "Machine-readable enumeration of error kinds emitted by `agents-shipgate` when `AGENTS_SHIPGATE_AGENT_MODE=1` is set. Coding agents fetch this file to pre-load the recovery vocabulary instead of pattern-matching on prose. The catalog is stable for `0.x`: error-kind ids will not change in minor versions, and additions are pinned by the public-surface contract test against AGENTS.md and the codebase.",
+  "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",
+  "agent_mode_truthy_values": ["1", "true", "yes", "on"],
+  "stderr_format": "Single JSON line, one object per emitted error. Always carries an `error` field naming the kind plus `next_action` (single-string back-compat) and `next_actions` (ranked array). Additional fields per kind are command-dependent and may be absent when they are not relevant.",
+  "exit_codes": {
+    "0": "pass (advisory mode, or strict-no-blockers)",
+    "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch)",
+    "3": "input parse error (input_parse_error)",
+    "4": "other agents-shipgate error (other_error, internal_error)",
+    "5": "apply-patches containment violation (covered by other_error in agent mode)",
+    "20": "strict-mode gate failure"
+  },
+  "errors": [
+    {
+      "id": "config_error",
+      "description": "The manifest is missing or invalid: file not found, YAML parse error, schema-validation failure, or unsupported version.",
+      "exit_code": 2,
+      "typical_cause": "shipgate.yaml does not exist OR exists but the loader rejected it (extra key, missing required field, wrong nesting level).",
+      "additional_fields": ["message", "next_action", "next_actions"],
+      "recovery_hint": "Distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run `agents-shipgate detect --workspace <dir> --json` then `init --write`. `SHIP-DIAG-INVALID-MANIFEST` → edit the manifest at the path in the error; do NOT re-run `init` (it refuses to overwrite an existing file)."
+    },
+    {
+      "id": "config_already_exists",
+      "description": "`init --write` refused to overwrite an existing `shipgate.yaml`.",
+      "exit_code": 2,
+      "typical_cause": "The repo already has a manifest. Initializing fresh would clobber it.",
+      "additional_fields": ["path", "next_action", "next_actions"],
+      "recovery_hint": "Read the existing manifest. If it's stale, hand-edit it. If you want a fresh template anyway, delete the existing file first. `init --write` is intentionally write-once."
+    },
+    {
+      "id": "input_parse_error",
+      "description": "A referenced input file or output path could not be read, parsed, validated, or safely resolved.",
+      "exit_code": 3,
+      "typical_cause": "scan/doctor found a bad tool_sources[].path, explain-finding/scenario was pointed at a missing or incompatible report, or scenario --out was not a writable file path.",
+      "additional_fields": ["message", "source_report", "next_action", "next_actions"],
+      "recovery_hint": "Follow `next_actions[]`. For scan/doctor tool-source failures, run `agents-shipgate doctor -c shipgate.yaml --json` to inspect `unresolved_sources[]`. For report-consuming commands, inspect `source_report` when present (or the `--from` path in the message) and regenerate a current `report.json` if needed."
+    },
+    {
+      "id": "unknown_check_id",
+      "description": "`explain <CHECK_ID>` was called with an id that doesn't exist in the loaded catalog.",
+      "exit_code": 2,
+      "typical_cause": "Typo, a check id from a plugin that isn't loaded, or a check id that was renamed/removed.",
+      "additional_fields": ["check_id", "suggestion", "next_action", "next_actions"],
+      "recovery_hint": "Use `suggestion` (close-match from `difflib`) when present. Otherwise run `agents-shipgate list-checks --json` to enumerate the loaded catalog."
+    },
+    {
+      "id": "unknown_fingerprint",
+      "description": "`explain-finding <FINGERPRINT>` was called with a fingerprint that doesn't match any entry in the supplied report.",
+      "exit_code": 2,
+      "typical_cause": "Stale fingerprint from an older scan, typo, or the report was generated from a different workspace.",
+      "additional_fields": ["fingerprint", "suggestion", "source_report", "next_action", "next_actions"],
+      "recovery_hint": "Use `suggestion` (close-match from `difflib`) when present. Otherwise read `findings[].fingerprint` in `source_report` to find the right id; fingerprints are stable across scans for the same `(check_id, tool_name, evidence)` tuple."
+    },
+    {
+      "id": "malformed_patch",
+      "description": "`apply-patches --from <report>` was called with a report that cannot be read, parsed as JSON, or validated against the Patch schema.",
+      "exit_code": 2,
+      "typical_cause": "`--from` points at a missing/non-JSON file, the report is too old (pre-v0.6), the scan omitted `--suggest-patches`, or the report was hand-edited.",
+      "additional_fields": ["message", "next_action", "next_actions"],
+      "recovery_hint": "Verify `--from` points at a readable report.json, then re-run the scan with `--suggest-patches` to regenerate a valid patch payload."
+    },
+    {
+      "id": "other_error",
+      "description": "Catch-all for application-layer errors that aren't config / input / unknown-id failures.",
+      "exit_code": 4,
+      "typical_cause": "Filesystem permission, output-directory not writable, scenario-input failure, or an apply-patches containment violation (which exits 5 in some paths).",
+      "additional_fields": ["message", "next_action", "next_actions"],
+      "recovery_hint": "Read the `next_action` / `next_actions` fields. If the cause is unclear, re-run with `--verbose` to surface the underlying exception."
+    },
+    {
+      "id": "internal_error",
+      "description": "Unexpected exception in the scanner itself. Should be reported as a bug.",
+      "exit_code": 4,
+      "typical_cause": "A bug in the scanner; the loader, check engine, or reporter raised an uncaught exception.",
+      "additional_fields": ["message", "next_action", "next_actions"],
+      "recovery_hint": "File an issue at https://github.com/ThreeMoonsLab/agents-shipgate/issues with the message and a minimal reproduction. Re-run with `--verbose` to capture the traceback."
+    }
+  ],
+  "next_action_kinds": {
+    "command": "Concrete CLI invocation the agent can run as-is.",
+    "edit": "Open and edit a specific file (path field carries the target).",
+    "review": "Read a file or output and decide; no machine-applicable change.",
+    "stop": "Negative-control action: stop this flow because the workspace or input is intentionally out of scope."
+  },
+  "see_also": {
+    "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
+    "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
+    "diagnostics": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/diagnostics.md",
+    "stability_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/STABILITY.md"
+  }
+}

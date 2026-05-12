@@ -33,9 +33,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files) and produces deterministic findings.
+Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 
@@ -110,6 +110,14 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
     --confidence high --apply
 ```
 
+Or chain all four in one call:
+
+```bash
+agents-shipgate bootstrap --json
+```
+
+`bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
+
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
   means stop early.
 - **`init`** — auto-detects by default. `--ci` writes
@@ -159,6 +167,8 @@ Config error: Config file not found: missing.yaml
 
 The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`.
 
+The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
+
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
 
 ### Doctor behavior change for unresolved tool_sources
@@ -182,7 +192,7 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 Use it when the user is:
 
-- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI)
+- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI, n8n)
 - Publishing or modifying a Codex plugin package or marketplace entry that declares skills, apps, MCP servers, or hooks
 - Adding a new tool, scope, or policy to an existing agent
 - Preparing an agent for production promotion
@@ -202,6 +212,7 @@ Do NOT use it for:
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
+| Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
 | Adds/edits `.github/workflows/agents-shipgate.yml` or related CI | Yes |
 | Pure read-only doc/test changes with no manifest impact | Skip |
@@ -398,6 +409,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
@@ -985,6 +997,12 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
 | `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
 | `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
+| `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | An n8n tool surface uses runtime, unresolved, wildcard, or uninventoried custom exposure. |
+| `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` | high/medium | An n8n MCP Client Tool exposes `All` or `All Except` tools without an explicit inventory. |
+| `SHIP-N8N-AI-TOOL-METADATA-MISSING` | medium | An n8n AI-exposed tool lacks static description or parameter metadata. |
+| `SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING` | high | Production-like n8n workflows reference credentials without declared credential stubs. |
+| `SHIP-N8N-EVAL-COVERAGE-MISSING` | medium | Production-like n8n workflows are present without declared eval files. |
+| `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` | high | n8n workflow JSON contains a secret-like value; evidence is redacted. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -1291,6 +1309,48 @@ A `skills/**/SKILL.md` file is missing parseable `name` or `description`
 frontmatter, or duplicates another skill name in the same plugin. Give every
 skill a unique routing name and clear description.
 
+### SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+An n8n workflow uses a runtime expression in a tool name, an unresolved
+Call-Workflow target, wildcard MCP Server/Client exposure, or an uninventoried
+community/custom tool node. Provide a local n8n/MCP inventory or replace the
+dynamic exposure with a static allowlist. This is high severity in every
+environment because static release evidence cannot prove the actual tool
+inventory.
+
+### SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED
+
+An n8n MCP Client Tool exposes `All` or `All Except` tools without a local
+inventory. Select explicit MCP tools or provide a local MCP inventory for
+release review. The severity is environment-sensitive because the selector is
+easy to narrow before production, while production-like use increases blast
+radius.
+
+### SHIP-N8N-AI-TOOL-METADATA-MISSING
+
+An n8n AI-exposed tool lacks a static description or parameter metadata. Add
+tool descriptions, `$fromAI()` metadata, workflow input schemas, or explicit
+inventory metadata.
+
+### SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING
+
+Production-like n8n workflows reference credentials but no local credential
+stubs are declared. Declare source-control credential stubs so reviewers can
+see credential types without seeing secret values.
+
+### SHIP-N8N-EVAL-COVERAGE-MISSING
+
+n8n workflows target `production_like` or `production` without declared eval
+files. Add eval artifacts that cover expected responses and tool-use
+trajectories.
+
+### SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER
+
+An n8n workflow parameter, node note, `pinData` entry, or `staticData` entry
+contains a secret-like value. Evidence includes only the source reference,
+stable pointer, and secret kind; it never includes the matched secret value or
+a verifier hash for that value.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -1400,6 +1460,30 @@ tool surfaces produce source warnings and framework findings unless explicit
 local tool inventory inputs are provided. CrewAI prebuilt `crewai_tools.*Tool()`
 references are emitted as low-confidence stubs and warnings; they do not by
 themselves produce the dynamic-tools finding.
+
+## n8n Static Extraction
+
+n8n extraction reads only local workflow JSON exports/source-control files and
+optional local stubs or evidence artifacts declared under `n8n:`. It does not
+call a live n8n instance, run `n8n`, execute workflows, decrypt credentials,
+connect to MCP endpoints, execute code nodes, or fetch network resources.
+
+The adapter enumerates AI Agent tool sub-nodes, MCP Client Tool selections,
+MCP Server Trigger exposed tools, Call n8n Workflow Tool entrypoints, Custom
+Code Tool nodes, HTTP Request Tool nodes, and explicit inventories when those
+surfaces are statically visible. Workflow triggers such as Webhook and Chat
+Trigger are recorded as ingress evidence, not as tools.
+
+Inactive workflows (`active: false`) are recorded as workflow evidence but are
+not normalized as live tool or ingress surfaces; their workflow JSON is still
+scanned for secret-like values. Workflow tags, error-workflow settings, and
+node execution controls such as retry/continue-on-fail are preserved as
+review metadata when present.
+
+Credential names, workflow/node names, code bodies, request bodies, headers,
+pinned data, static data, node notes, variable values, execution payloads, and
+detected secrets are redacted or omitted from reports. Credential types and
+credential IDs may be preserved as local release evidence.
 
 
 <!-- ===== source: docs/concepts.md ===== -->

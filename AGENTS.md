@@ -8,9 +8,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files) and produces deterministic findings.
+Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 
@@ -85,6 +85,14 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
     --confidence high --apply
 ```
 
+Or chain all four in one call:
+
+```bash
+agents-shipgate bootstrap --json
+```
+
+`bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
+
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
   means stop early.
 - **`init`** — auto-detects by default. `--ci` writes
@@ -134,6 +142,8 @@ Config error: Config file not found: missing.yaml
 
 The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`.
 
+The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
+
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
 
 ### Doctor behavior change for unresolved tool_sources
@@ -157,7 +167,7 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 Use it when the user is:
 
-- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI)
+- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI, n8n)
 - Publishing or modifying a Codex plugin package or marketplace entry that declares skills, apps, MCP servers, or hooks
 - Adding a new tool, scope, or policy to an existing agent
 - Preparing an agent for production promotion
@@ -177,6 +187,7 @@ Do NOT use it for:
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
+| Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
 | Adds/edits `.github/workflows/agents-shipgate.yml` or related CI | Yes |
 | Pure read-only doc/test changes with no manifest impact | Skip |
@@ -373,6 +384,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |

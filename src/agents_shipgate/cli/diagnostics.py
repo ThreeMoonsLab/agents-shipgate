@@ -423,6 +423,12 @@ def diagnose_doctor(
         )
 
     # SHIP-DIAG-ZERO-TOOLS — manifest exists but inspect_sources returned 0.
+    # Suppress this for Codex plugin packages: their static surface can contain
+    # skills/apps/hooks/server stubs without any enumerable tools.
+    # Surfaces the three canonical recovery paths from agent-recipes.md
+    # Recipe 2 as separate next_actions with explicit `expects` fields,
+    # so the agent can pick the one that matches the runtime architecture
+    # without having to re-derive the recovery vocabulary from prose.
     if payload.get("total_tools", 0) == 0 and not payload.get("codex_plugin_surface"):
         diagnostics.append(
             Diagnostic(
@@ -437,23 +443,63 @@ def diagnose_doctor(
                             "--verbose --json"
                         ),
                         why=(
-                            "Re-run with --verbose to see source-load warnings "
-                            "and dynamic-toolset hints."
+                            "Diagnose: re-run with --verbose to see "
+                            "source-load warnings and dynamic-toolset hints. "
+                            "Pick the recovery that matches the actual cause."
                         ),
                         expects=(
                             "warnings[] entries explain why each tool_source "
-                            "produced 0 tools."
+                            "produced 0 tools (e.g. 'factory wrapper hides "
+                            "tools from AST', 'MCP server unreachable')."
                         ),
                     ),
                     NextAction(
                         kind="edit",
                         path=str(manifest_path),
                         why=(
-                            "Add an explicit MCP export, OpenAPI spec, or "
-                            "local tool inventory as a new tool_sources entry."
+                            "Recovery 1 of 3 — add an explicit MCP export. "
+                            "If the agent speaks MCP at runtime, dump the "
+                            "resolved tool list to a JSON file (canonical "
+                            "path: `.agents-shipgate/mcp-export.json`) and "
+                            "add a tool_sources entry with `type: mcp`."
                         ),
                         expects=(
-                            "doctor reports total_tools >= 1 on the next run."
+                            "tool_sources gains a `type: mcp` entry pointing "
+                            "at a JSON file with a non-empty `tools` array; "
+                            "doctor reports `total_tools >= 1` on the next run."
+                        ),
+                    ),
+                    NextAction(
+                        kind="edit",
+                        path=str(manifest_path),
+                        why=(
+                            "Recovery 2 of 3 — add an OpenAPI spec. If the "
+                            "tool surface is HTTP-shaped, declare the spec "
+                            "via a tool_sources entry with `type: openapi`."
+                        ),
+                        expects=(
+                            "tool_sources gains a `type: openapi` entry "
+                            "pointing at a file containing `paths`; doctor "
+                            "reports `total_tools` matching the documented "
+                            "operations."
+                        ),
+                    ),
+                    NextAction(
+                        kind="edit",
+                        path=str(manifest_path),
+                        why=(
+                            "Recovery 3 of 3 — provide a local tool inventory. "
+                            "LangChain, CrewAI, and Google ADK accept "
+                            "`{framework}.tool_inventories[]` JSON listings "
+                            "of resolved tools, useful when factories or "
+                            "wrappers hide the surface from static AST. See "
+                            "`docs/agent-recipes.md` Recipe 2 for the "
+                            "canonical recovery paths."
+                        ),
+                        expects=(
+                            "the matching framework block (e.g. "
+                            "`langchain.tool_inventories`) lists at least "
+                            "one JSON file; doctor reports `total_tools >= 1`."
                         ),
                     ),
                 ],

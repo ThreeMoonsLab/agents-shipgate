@@ -92,6 +92,12 @@ _KEYWORD_GATED_SOURCE_TYPES = {
     "langchain_structured_tool",
     "crewai_function",
     "crewai_class_tool",
+    "n8n_ai_tool",
+    "n8n_workflow_tool",
+    "n8n_code_tool",
+    "n8n_http_tool",
+    "n8n_mcp_client_tool",
+    "n8n_inventory",
 }
 
 
