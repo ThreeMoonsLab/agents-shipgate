@@ -24,6 +24,12 @@ production-like permissions.
 No agent execution. No LLM calls. No MCP server connections. No scanner network
 calls. No scanner telemetry. Apache-2.0.
 
+## Who this is for
+
+- **Agent builders** — review MCP, OpenAPI, and SDK tool definitions before merging changes that expand the tool surface.
+- **Platform teams** — add release gates for approval, scope, idempotency, and baseline drift to PR review.
+- **Security and GRC reviewers** — get static release evidence without running agents or importing user code.
+
 ## Use this when
 
 Run Agents Shipgate when a PR adds or changes agent tool surfaces or the policy
