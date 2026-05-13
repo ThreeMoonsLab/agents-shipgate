@@ -26,6 +26,7 @@ from agents_shipgate.core.models import (
     GoogleAdkArtifacts,
     LangChainArtifacts,
     OpenAIApiArtifacts,
+    ValidationArtifacts,
 )
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
@@ -101,11 +102,11 @@ def test_adapters_registered_for_every_tool_source_type():
 
 
 def test_manifest_only_adapters_registered():
-    """The three manifest-only adapters live outside the
+    """Manifest-only adapters live outside the
     ``ToolSourceConfig.type`` Literal but must still be in the
     registry under per_scan scope."""
 
-    for source_type in ("openai_api", "anthropic_api", "n8n"):
+    for source_type in ("openai_api", "anthropic_api", "n8n", "validation"):
         adapter = REGISTRY.get(source_type)
         assert adapter is not None, f"{source_type!r} adapter not registered"
         assert adapter.scope == "per_scan"
@@ -148,6 +149,7 @@ def test_canonical_registration_order():
         "openai_api",
         "anthropic_api",
         "codex_plugin",
+        "validation",
     ]
     actual = [adapter.source_type for adapter in REGISTRY]
     assert actual == expected
@@ -247,7 +249,7 @@ def test_framework_adapter_invoked_for_config_only():
 
 
 def test_manifest_only_adapters_run_with_empty_tool_sources():
-    """openai_api, anthropic_api, and n8n adapters fire via pass 2
+    """openai_api, anthropic_api, n8n, and validation adapters fire via pass 2
     regardless of ``tool_sources`` contents. With an empty
     ``tool_sources`` and no manifest sections configured for these
     adapters, the dispatcher must still call them (they return
@@ -261,6 +263,7 @@ def test_manifest_only_adapters_run_with_empty_tool_sources():
     # dispatcher didn't raise.
     assert bag.get("openai_api", OpenAIApiArtifacts) is None
     assert bag.get("anthropic_api", AnthropicArtifacts) is None
+    assert bag.get("validation", ValidationArtifacts) is None
 
 
 def test_per_scan_framework_adapter_invoked_once_with_multiple_tool_sources(monkeypatch):

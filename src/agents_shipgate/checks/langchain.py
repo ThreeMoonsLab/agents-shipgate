@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import LangChainArtifacts
 
 
 def run(context: ScanContext):
-    artifacts = context.langchain_artifacts
+    artifacts = context.artifact("langchain", LangChainArtifacts)
     if not artifacts:
         return []
 

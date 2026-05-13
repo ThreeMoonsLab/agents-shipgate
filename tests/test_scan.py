@@ -1,9 +1,13 @@
+import json
 from pathlib import Path
 
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import write_baseline
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
+GOOGLE_ADK_SAMPLE = Path("samples/google_adk_agent/shipgate.yaml")
+OPENAI_API_SAMPLE = Path("samples/simple_openai_api_agent/shipgate.yaml")
+ANTHROPIC_SAMPLE = Path("samples/simple_anthropic_agent/shipgate.yaml")
 
 
 def test_sample_scan_generates_reports(tmp_path):
@@ -21,6 +25,58 @@ def test_sample_scan_generates_reports(tmp_path):
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "report.json").exists()
     assert "summary" in (tmp_path / "report.json").read_text(encoding="utf-8")
+
+
+def test_artifact_registry_refactor_preserves_framework_json_shape(tmp_path):
+    run_scan(
+        config_path=GOOGLE_ADK_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_formats=["json"],
+    )
+
+    report_payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    packet_payload = json.loads((tmp_path / "packet.json").read_text(encoding="utf-8"))
+
+    assert "framework_artifacts" not in report_payload
+    assert {"api_surface", "anthropic_surface", "frameworks", "codex_plugin_surface"} <= set(
+        report_payload
+    )
+    assert report_payload["frameworks"]["google_adk"]["agent_count"] == 1
+    assert "framework_artifacts" not in packet_payload
+    assert "packet_schema_version" in packet_payload
+
+
+def test_artifact_registry_refactor_preserves_api_surface_json_shape(tmp_path):
+    run_scan(
+        config_path=OPENAI_API_SAMPLE,
+        output_dir=tmp_path / "openai",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_formats=["json"],
+    )
+    run_scan(
+        config_path=ANTHROPIC_SAMPLE,
+        output_dir=tmp_path / "anthropic",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_formats=["json"],
+    )
+
+    openai_payload = json.loads(
+        (tmp_path / "openai" / "report.json").read_text(encoding="utf-8")
+    )
+    anthropic_payload = json.loads(
+        (tmp_path / "anthropic" / "report.json").read_text(encoding="utf-8")
+    )
+
+    assert openai_payload["api_surface"]["tool_file_count"] == 1
+    assert openai_payload["anthropic_surface"] is None
+    assert anthropic_payload["api_surface"] is None
+    assert anthropic_payload["anthropic_surface"]["tool_file_count"] == 1
+    assert "framework_artifacts" not in openai_payload
+    assert "framework_artifacts" not in anthropic_payload
 
 
 def test_strict_mode_fails_on_critical(tmp_path):
