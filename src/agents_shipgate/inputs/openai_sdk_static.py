@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool, ToolParameter
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 DEFAULT_FUNCTION_TOOL_DECORATORS = frozenset(
     {"function_tool", "agents.function_tool", "openai_agents.function_tool"}
@@ -197,3 +198,22 @@ def _json_schema_type(annotation: str | None) -> str:
     if annotation in {"dict", "Dict"} or (annotation or "").startswith("dict["):
         return "object"
     return "string"
+
+
+class OpenAISDKAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_openai_sdk_static_tools`."""
+
+    source_type: ClassVar[str] = "openai_agents_sdk"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
+    artifact_class: ClassVar[type | None] = None
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        assert source is not None, "per_source adapter requires a source"
+        return LoadedAdapterResult(
+            tool_sources=[load_openai_sdk_static_tools(source, manifest, base_dir)]
+        )

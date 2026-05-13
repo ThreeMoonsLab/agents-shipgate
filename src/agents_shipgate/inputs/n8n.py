@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 from agents_shipgate.cli.discovery.artifacts import SKIP_DIR_PREFIXES, SKIP_DIRS
 from agents_shipgate.config.schema import (
@@ -29,6 +29,7 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 N8N_NODE_TYPE_RE = re.compile(r"^(@n8n/)?n8n-nodes-")
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -1507,3 +1508,25 @@ def _stable_identifier_hash(value: str | None) -> str:
 
 def _display_path(path: Path, base_dir: Path) -> str:
     return manifest_relative_path(str(path), base_dir)
+
+
+class N8nAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_n8n_artifacts`.
+
+    Manifest-only: ``source_type = "n8n"`` is NOT in
+    ``ToolSourceConfig.type``'s Literal. Always invoked once per scan
+    via the dispatcher's pass 2.
+    """
+
+    source_type: ClassVar[str] = "n8n"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = N8nArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        loaded_sources, artifacts = load_n8n_artifacts(manifest, base_dir)
+        return LoadedAdapterResult(tool_sources=loaded_sources, artifact=artifacts)

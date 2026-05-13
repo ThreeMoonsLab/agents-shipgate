@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
+from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.models import AuthInfo, CrewAiArtifacts, LoadedToolSource, Tool
 from agents_shipgate.inputs._python_framework import (
     assignment_call,
@@ -18,6 +18,7 @@ from agents_shipgate.inputs._python_framework import (
     unique_tools,
 )
 from agents_shipgate.inputs.common import stable_tool_id, tool_name_warning
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
     field_default_string,
@@ -434,3 +435,25 @@ def _resolve_names(node: ast.AST | None) -> list[str] | None:
     if isinstance(node, ast.Name):
         return [node.id]
     return None
+
+
+class CrewAIAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_crewai_artifacts`.
+
+    Framework-scoped. The dispatcher invokes ``load()`` once per scan
+    when either a ``tool_sources`` entry of type ``crewai`` or the
+    top-level ``manifest.crewai`` section is configured.
+    """
+
+    source_type: ClassVar[str] = "crewai"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = CrewAiArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        loaded_sources, artifacts = load_crewai_artifacts(manifest, base_dir)
+        return LoadedAdapterResult(tool_sources=loaded_sources, artifact=artifacts)

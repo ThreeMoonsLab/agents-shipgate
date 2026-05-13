@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 from agents_shipgate.config.schema import (
+    AgentsShipgateManifest,
     ArtifactPathConfig,
     NamedArtifactPathConfig,
     OpenAIApiConfig,
+    ToolSourceConfig,
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import (
@@ -27,6 +29,7 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
     tool_name_warning,
 )
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 PROMPT_SUFFIXES = {".md", ".markdown", ".txt"}
 
@@ -438,3 +441,28 @@ def _display_path(path: Path, base_dir: Path) -> str:
         return path.resolve().relative_to(base_dir.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+class OpenAIAPIAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_openai_api_artifacts`.
+
+    Manifest-only: ``source_type = "openai_api"`` is NOT in
+    ``ToolSourceConfig.type``'s Literal. Always invoked once per scan
+    via the dispatcher's pass 2; reads from ``manifest.openai_api``.
+    """
+
+    source_type: ClassVar[str] = "openai_api"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = OpenAIApiArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        api_source, artifacts = load_openai_api_artifacts(
+            manifest.openai_api, base_dir
+        )
+        tool_sources = [api_source] if api_source is not None else []
+        return LoadedAdapterResult(tool_sources=tool_sources, artifact=artifacts)

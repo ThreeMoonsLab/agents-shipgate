@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Replaced the hardcoded `if/elif` source-dispatch in `cli/scan.py` with a
+  real `ToolSourceAdapter` Protocol and `AdapterRegistry`. Every loader
+  (MCP, OpenAPI, OpenAI Agents SDK, Google ADK, LangChain, CrewAI, n8n,
+  Codex plugin, OpenAI API, Anthropic API) is now an adapter class that
+  registers with `agents_shipgate.inputs.protocol.REGISTRY`. The scan
+  pipeline returns a typed `ArtifactBag` so framework artifacts retain
+  their concrete types into `ScanContext`. Framework adapters now fire
+  correctly when configured via top-level manifest sections without a
+  matching `tool_sources` entry. Internal refactor — no behavior change
+  for users.
 - Added minimal source provenance to findings. `agents-shipgate scan` now
   emits `report_schema_version: "0.11"` with optional structured location
   keys on `findings[].source`: `path`, `start_line`, `end_line`,

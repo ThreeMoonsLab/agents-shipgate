@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 from agents_shipgate.config.schema import (
     AgentsShipgateManifest,
@@ -31,6 +31,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 COMMAND_KEYS = {"command", "cmd", "run", "shell", "script"}
 PLUGIN_MANIFEST = ".codex-plugin/plugin.json"
@@ -751,3 +752,25 @@ def _location(
         source_start_line=start_line,
         source_start_column=start_column,
     )
+
+
+class CodexPluginAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_codex_plugin_artifacts`.
+
+    Framework-scoped. The dispatcher invokes ``load()`` once per scan
+    when either a ``tool_sources`` entry of type ``codex_plugin`` or
+    the top-level ``manifest.codex_plugins`` section is configured.
+    """
+
+    source_type: ClassVar[str] = "codex_plugin"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = CodexPluginArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        loaded_sources, artifacts = load_codex_plugin_artifacts(manifest, base_dir)
+        return LoadedAdapterResult(tool_sources=loaded_sources, artifact=artifacts)
