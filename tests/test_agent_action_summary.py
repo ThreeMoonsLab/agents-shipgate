@@ -703,6 +703,40 @@ def test_build_agent_summary_review_required_routes_to_review():
     assert "review item" in summary.first_recommended_action.why.lower()
 
 
+def test_insufficient_evidence_outranks_auto_apply_in_first_action():
+    """When a scan is insufficient_evidence AND has auto-applicable
+    patches, first_recommended_action must surface the
+    evidence-gathering hint — not apply-patches. Applying patches
+    does NOT clear an evidence verdict (the scan results are still
+    untrustworthy), so recommending apply-patches would directly
+    contradict the headline. Regression for PR #70 review P2.1."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=_make_release_decision(
+            decision="insufficient_evidence",
+            reason=(
+                "Evidence coverage below threshold "
+                "(2 low-confidence tool(s))."
+            ),
+        ),
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+    )
+    assert summary.verdict == "insufficient_evidence"
+    assert summary.auto_appliable_patches == 1
+    assert summary.first_recommended_action is not None
+    # Must NOT propose apply-patches.
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    why = summary.first_recommended_action.why
+    assert "gather deeper evidence" in why
+    assert "apply-patches" not in why or "does not clear" in why
+
+
 def test_build_agent_summary_insufficient_evidence_uses_reason_as_headline():
     """A `insufficient_evidence` verdict must NOT fall through to the
     "Release ready" else-branch. The headline should surface the

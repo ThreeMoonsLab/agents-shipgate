@@ -94,6 +94,41 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
     assert actual == expected
 
 
+@pytest.mark.parametrize(
+    "sample_dir, expected_decision",
+    [
+        ("samples/simple_openai_api_agent", "review_required"),
+        ("samples/simple_langchain_agent", "insufficient_evidence"),
+        ("samples/simple_crewai_agent", "insufficient_evidence"),
+        ("samples/support_refund_agent", "blocked"),
+    ],
+)
+def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
+    """Pin the expected JSON goldens to the current report schema version
+    and to the documented decision. The markdown golden tests catch
+    rendering drift; this catches the JSON drift the reviewer flagged on
+    PR #70 (langchain/crewai/openai expected JSON had been left at
+    schema 0.13 with the pre-v0.14 decision after the markdown was
+    regenerated)."""
+    golden = json.loads(
+        (Path(sample_dir) / "expected" / "report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert golden["report_schema_version"] == CURRENT_REPORT_SCHEMA_VERSION, (
+        f"{sample_dir}/expected/report.json carries "
+        f"report_schema_version={golden['report_schema_version']!r}; "
+        f"current is {CURRENT_REPORT_SCHEMA_VERSION!r}. Regenerate the "
+        "golden with `agents-shipgate scan` and commit."
+    )
+    assert golden["release_decision"]["decision"] == expected_decision, (
+        f"{sample_dir}/expected/report.json carries decision "
+        f"{golden['release_decision']['decision']!r}; expected "
+        f"{expected_decision!r}. If the threshold tuning changed or the "
+        "sample evolved, update both the golden and the expected value."
+    )
+
+
 def test_json_report_contains_integration_contract_keys(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE,
