@@ -33,6 +33,10 @@ class ScanContext:
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)
 
+    # DEPRECATED: legacy attribute access kept for v0.11 plugin compatibility.
+    # Remove in v0.12. Use context.artifact("...", T) or
+    # context.framework_artifacts. These properties still use ArtifactBag's
+    # type validation and raise TypeError if a key contains the wrong artifact.
     @property
     def api_artifacts(self) -> OpenAIApiArtifacts | None:
         return self.artifact("openai_api", OpenAIApiArtifacts)

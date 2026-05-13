@@ -9,19 +9,15 @@ class FrameworkArtifact(Protocol):
     warnings: list[str]
 
 
-class SurfaceSummaryArtifact(FrameworkArtifact, Protocol):
-    def surface_summary(self) -> object: ...
-
-
 class ArtifactBag:
     """Typed accessor over per-scan adapter artifacts."""
 
     __slots__ = ("_by_type",)
 
-    def __init__(self, by_type: dict[str, object] | None = None) -> None:
-        self._by_type: dict[str, object] = dict(by_type or {})
+    def __init__(self, by_type: dict[str, FrameworkArtifact] | None = None) -> None:
+        self._by_type: dict[str, FrameworkArtifact] = dict(by_type or {})
 
-    def set(self, source_type: str, artifact: object) -> None:
+    def set(self, source_type: str, artifact: FrameworkArtifact) -> None:
         self._by_type[source_type] = artifact
 
     def has(self, source_type: str) -> bool:
@@ -39,5 +35,5 @@ class ArtifactBag:
             )
         return artifact
 
-    def raw(self) -> dict[str, object]:
+    def raw(self) -> dict[str, FrameworkArtifact]:
         return dict(self._by_type)

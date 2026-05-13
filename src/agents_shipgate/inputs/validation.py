@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import ArtifactPathConfig, ValidationConfig
+from agents_shipgate.config.schema import (
+    AgentsShipgateManifest,
+    ArtifactPathConfig,
+    ToolSourceConfig,
+    ValidationConfig,
+)
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import (
     HitlProvenanceStatus,
@@ -18,6 +23,7 @@ from agents_shipgate.inputs.common import (
     load_text_file,
     resolve_input_path,
 )
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import normalize_trace_event
 
 STREAM_SUFFIXES = {".json", ".jsonl"}
@@ -456,3 +462,25 @@ def _append_provenance(
         )
     )
 
+
+class ValidationAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_validation_artifacts`.
+
+    Manifest-only: ``source_type = "validation"`` is NOT in
+    ``ToolSourceConfig.type``'s Literal. Always invoked once per scan
+    via the dispatcher's pass 2; reads from ``manifest.validation``.
+    """
+
+    source_type: ClassVar[str] = "validation"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = ValidationArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        return LoadedAdapterResult(
+            artifact=load_validation_artifacts(manifest.validation, base_dir)
+        )

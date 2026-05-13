@@ -1,9 +1,10 @@
 """Adapter Protocol + AdapterRegistry for tool-source loading.
 
-Every tool-source loader (mcp, openapi, openai_agents_sdk, google_adk,
-langchain, crewai, codex_plugin, openai_api, anthropic_api, n8n) is
-exposed as a ``ToolSourceAdapter``. The CLI's ``_load_sources`` walks
-``REGISTRY`` to dispatch.
+Every tool-source or scan-artifact loader (mcp, openapi,
+openai_agents_sdk, google_adk, langchain, crewai, codex_plugin,
+openai_api, anthropic_api, n8n, validation) is exposed as a
+``ToolSourceAdapter``. The CLI's ``_load_sources`` walks ``REGISTRY``
+to dispatch.
 
 Adding a new builtin adapter in v0.12+ is a two-file change:
 
@@ -13,10 +14,11 @@ Adding a new builtin adapter in v0.12+ is a two-file change:
 
 Entry-point discovery for third-party plugins is a v0.12 follow-up.
 
-Manifest-only adapters (``openai_api``, ``anthropic_api``, ``n8n``) are
-registered under string keys that are NOT in ``ToolSourceConfig.type``'s
-Literal — they never appear in a user's ``tool_sources`` list and always
-run once per scan via the dispatcher's pass-2 loop.
+Manifest-only adapters (``openai_api``, ``anthropic_api``, ``n8n``,
+``validation``) are registered under string keys that are NOT in
+``ToolSourceConfig.type``'s Literal — they never appear in a user's
+``tool_sources`` list and always run once per scan via the dispatcher's
+pass-2 loop.
 """
 
 from __future__ import annotations
@@ -27,6 +29,9 @@ from pathlib import Path
 from typing import ClassVar, Literal, Protocol, runtime_checkable
 
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+
+# Re-export for backward compatibility; protocol.py was ArtifactBag's
+# original home in v0.11 R1.
 from agents_shipgate.core.artifacts import ArtifactBag as ArtifactBag
 from agents_shipgate.core.models import LoadedToolSource
 
@@ -68,9 +73,9 @@ class ToolSourceAdapter(Protocol):
         ``tool_sources`` entry is present OR the corresponding
         top-level manifest section is populated.
       - For per-scan manifest-only adapters ("openai_api",
-        "anthropic_api", "n8n"), the string is the artifact key — never
-        appears in user ``tool_sources`` entries; the adapter always
-        runs once per scan.
+        "anthropic_api", "n8n", "validation"), the string is the
+        artifact key — never appears in user ``tool_sources`` entries;
+        the adapter always runs once per scan.
 
     ``scope`` controls dispatch:
       - "per_source": called once per matching ``tool_sources`` entry.
@@ -181,7 +186,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
 
         per-source loaders (declared order)
         → google_adk → langchain → crewai → n8n
-        → openai_api → anthropic_api → codex_plugin
+        → openai_api → anthropic_api → codex_plugin → validation
 
     Adapter modules are imported lazily here to avoid a top-level
     cycle: each adapter module imports ``LoadedAdapterResult`` from
@@ -200,6 +205,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     from agents_shipgate.inputs.openai_api import OpenAIAPIAdapter
     from agents_shipgate.inputs.openai_sdk_static import OpenAISDKAdapter
     from agents_shipgate.inputs.openapi import OpenAPIAdapter
+    from agents_shipgate.inputs.validation import ValidationAdapter
 
     for adapter in (
         MCPAdapter(),
@@ -212,5 +218,6 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
         OpenAIAPIAdapter(),
         AnthropicAPIAdapter(),
         CodexPluginAdapter(),
+        ValidationAdapter(),
     ):
         registry.register(adapter)

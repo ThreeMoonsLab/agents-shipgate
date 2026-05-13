@@ -35,6 +35,7 @@ from agents_shipgate.core.models import (
     OpenAIApiArtifacts,
     ReadinessReport,
     Tool,
+    ValidationArtifacts,
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
@@ -44,7 +45,6 @@ from agents_shipgate.inputs.protocol import (
     LoadedAdapterResult,
     ToolSourceAdapter,
 )
-from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.packet.html import write_packet_html
 from agents_shipgate.packet.json_packet import write_packet_json
@@ -70,15 +70,6 @@ PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
 """Allowed values for ``--packet-format`` and ``output.packet.formats``."""
 
 logger = logging.getLogger(__name__)
-
-ARTIFACT_WARNING_KEYS = (
-    "google_adk",
-    "langchain",
-    "crewai",
-    "codex_plugin",
-    "n8n",
-    "validation",
-)
 
 
 def run_scan(
@@ -134,9 +125,7 @@ def run_scan(
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
-    if validation_artifacts:
-        artifact_bag.set("validation", validation_artifacts)
+    validation_artifacts = artifact_bag.get("validation", ValidationArtifacts)
     logger.debug(
         "loaded sources",
         extra={
@@ -390,9 +379,6 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
-    if validation_artifacts:
-        artifact_bag.set("validation", validation_artifacts)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
@@ -529,7 +515,7 @@ def _load_sources(
       1. per-source loaders in tool_sources declared order
       2. per-scan adapters in REGISTRY iteration order:
          google_adk → langchain → crewai → n8n → openai_api
-         → anthropic_api → codex_plugin
+         → anthropic_api → codex_plugin → validation
 
     Per-scan adapters are invoked unconditionally in pass 2, in
     canonical order — NOT in tool_sources declared order. This matches
@@ -573,9 +559,7 @@ def _load_sources(
 
 def _artifact_warnings(artifact_bag: ArtifactBag) -> list[str]:
     warnings: list[str] = []
-    by_type = artifact_bag.raw()
-    for source_type in ARTIFACT_WARNING_KEYS:
-        artifact = by_type.get(source_type)
+    for artifact in artifact_bag.raw().values():
         artifact_warnings = getattr(artifact, "warnings", None)
         if isinstance(artifact_warnings, list):
             warnings.extend(str(warning) for warning in artifact_warnings)
