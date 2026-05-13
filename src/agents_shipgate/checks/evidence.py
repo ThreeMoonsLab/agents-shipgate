@@ -5,10 +5,13 @@ from typing import Any
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import (
+    AnthropicArtifacts,
     Finding,
     HitlProvenanceType,
     HitlSourceProvenance,
+    OpenAIApiArtifacts,
     Tool,
+    ValidationArtifacts,
     sorted_hitl_source_provenance,
 )
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
@@ -38,7 +41,7 @@ def run(context: ScanContext) -> list[Finding]:
 
 
 def _approval_trace_findings(context: ScanContext) -> list[Finding]:
-    artifacts = context.validation_artifacts
+    artifacts = context.artifact("validation", ValidationArtifacts)
     trace_files = artifacts.approval_trace_files if artifacts else []
     traces = artifacts.approval_traces if artifacts else []
     approved_tools = {
@@ -105,7 +108,7 @@ def _approval_trace_findings(context: ScanContext) -> list[Finding]:
 
 
 def _override_reason_findings(context: ScanContext) -> list[Finding]:
-    artifacts = context.validation_artifacts
+    artifacts = context.artifact("validation", ValidationArtifacts)
     log_files = artifacts.override_log_files if artifacts else []
     events = artifacts.override_events if artifacts else []
     if not log_files:
@@ -202,7 +205,7 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
 
 
 def _high_risk_exclusion_findings(context: ScanContext) -> list[Finding]:
-    artifacts = context.validation_artifacts
+    artifacts = context.artifact("validation", ValidationArtifacts)
     exclusion_files = artifacts.high_risk_exclusion_files if artifacts else []
     exclusions = artifacts.high_risk_auto_approval_exclusions if artifacts else []
     excluded_tools = {
@@ -275,7 +278,7 @@ def _promotion_criteria_findings(context: ScanContext) -> list[Finding]:
     validation = context.manifest.validation
     if validation is None or validation.target_review_posture != "limited_auto_approval":
         return []
-    artifacts = context.validation_artifacts
+    artifacts = context.artifact("validation", ValidationArtifacts)
     criteria_files = artifacts.promotion_criteria_files if artifacts else []
     criteria = artifacts.promotion_criteria if artifacts else []
     if not criteria_files:
@@ -390,10 +393,12 @@ def _missing_criteria_flags(
 
 def _approval_tools(context: ScanContext) -> set[str]:
     tools = set(context.manifest.policies.approval_tools())
-    if context.api_artifacts:
-        tools |= context.api_artifacts.approval_tools()
-    if context.anthropic_artifacts:
-        tools |= context.anthropic_artifacts.approval_tools()
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    if api_artifacts:
+        tools |= api_artifacts.approval_tools()
+    anthropic_artifacts = context.artifact("anthropic_api", AnthropicArtifacts)
+    if anthropic_artifacts:
+        tools |= anthropic_artifacts.approval_tools()
     return tools
 
 
@@ -448,7 +453,7 @@ def _source_provenance(
             detail=requirement_detail,
         )
     ]
-    artifacts = context.validation_artifacts
+    artifacts = context.artifact("validation", ValidationArtifacts)
     if artifacts is not None:
         items.extend(item for item in artifacts.source_provenance if item.type == type)
     if not _declared_evidence_sources(context, type):

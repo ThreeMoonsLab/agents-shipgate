@@ -13,6 +13,7 @@ from agents_shipgate.core.models import (
     Confidence,
     Finding,
     LoadedPolicyPack,
+    OpenAIApiArtifacts,
     Severity,
     SourceReference,
     Tool,
@@ -277,22 +278,25 @@ def _parameter_matches(
 
 def _approval_tools(context: ScanContext) -> set[str]:
     tools = context.manifest.policies.approval_tools()
-    if context.api_artifacts:
-        tools |= context.api_artifacts.approval_tools()
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    if api_artifacts:
+        tools |= api_artifacts.approval_tools()
     return tools
 
 
 def _confirmation_tools(context: ScanContext) -> set[str]:
     tools = context.manifest.policies.confirmation_tools()
-    if context.api_artifacts:
-        tools |= context.api_artifacts.confirmation_tools()
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    if api_artifacts:
+        tools |= api_artifacts.confirmation_tools()
     return tools
 
 
 def _idempotency_tools(context: ScanContext) -> set[str]:
     tools = context.manifest.policies.idempotency_tools()
-    if context.api_artifacts:
-        tools |= context.api_artifacts.idempotency_tools()
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    if api_artifacts:
+        tools |= api_artifacts.idempotency_tools()
     return tools
 
 

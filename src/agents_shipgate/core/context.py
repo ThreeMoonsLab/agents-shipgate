@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeVar
 
 from agents_shipgate.config.schema import AgentsShipgateManifest
+from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.models import (
     Agent,
     AnthropicArtifacts,
@@ -17,6 +19,8 @@ from agents_shipgate.core.models import (
     ValidationArtifacts,
 )
 
+T = TypeVar("T")
+
 
 @dataclass
 class ScanContext:
@@ -24,11 +28,39 @@ class ScanContext:
     agent: Agent
     tools: list[Tool]
     config_path: Path
-    api_artifacts: OpenAIApiArtifacts | None = None
-    anthropic_artifacts: AnthropicArtifacts | None = None
-    adk_artifacts: GoogleAdkArtifacts | None = None
-    langchain_artifacts: LangChainArtifacts | None = None
-    crewai_artifacts: CrewAiArtifacts | None = None
-    codex_plugin_artifacts: CodexPluginArtifacts | None = None
-    n8n_artifacts: N8nArtifacts | None = None
-    validation_artifacts: ValidationArtifacts | None = None
+    framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
+
+    def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
+        return self.framework_artifacts.get(source_type, expected_type)
+
+    @property
+    def api_artifacts(self) -> OpenAIApiArtifacts | None:
+        return self.artifact("openai_api", OpenAIApiArtifacts)
+
+    @property
+    def anthropic_artifacts(self) -> AnthropicArtifacts | None:
+        return self.artifact("anthropic_api", AnthropicArtifacts)
+
+    @property
+    def adk_artifacts(self) -> GoogleAdkArtifacts | None:
+        return self.artifact("google_adk", GoogleAdkArtifacts)
+
+    @property
+    def langchain_artifacts(self) -> LangChainArtifacts | None:
+        return self.artifact("langchain", LangChainArtifacts)
+
+    @property
+    def crewai_artifacts(self) -> CrewAiArtifacts | None:
+        return self.artifact("crewai", CrewAiArtifacts)
+
+    @property
+    def codex_plugin_artifacts(self) -> CodexPluginArtifacts | None:
+        return self.artifact("codex_plugin", CodexPluginArtifacts)
+
+    @property
+    def n8n_artifacts(self) -> N8nArtifacts | None:
+        return self.artifact("n8n", N8nArtifacts)
+
+    @property
+    def validation_artifacts(self) -> ValidationArtifacts | None:
+        return self.artifact("validation", ValidationArtifacts)

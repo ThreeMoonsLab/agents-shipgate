@@ -24,12 +24,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Literal, Protocol, TypeVar, runtime_checkable
+from typing import ClassVar, Literal, Protocol, runtime_checkable
 
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.core.artifacts import ArtifactBag as ArtifactBag
 from agents_shipgate.core.models import LoadedToolSource
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -94,45 +93,6 @@ class ToolSourceAdapter(Protocol):
         base_dir: Path,
         manifest: AgentsShipgateManifest,
     ) -> LoadedAdapterResult: ...
-
-
-class ArtifactBag:
-    """Typed accessor over per-scan adapter artifacts.
-
-    Wraps a ``dict[str, object]`` keyed by ``source_type``. ``get()``
-    takes the expected concrete type and returns ``T | None``, giving
-    call sites in ``ScanContext`` / packet builder a typed value
-    without per-callsite ``cast`` boilerplate. Mismatches raise
-    ``TypeError`` — protects against an adapter accidentally returning
-    a wrong-typed artifact.
-    """
-
-    __slots__ = ("_by_type",)
-
-    def __init__(self, by_type: dict[str, object] | None = None) -> None:
-        self._by_type: dict[str, object] = dict(by_type or {})
-
-    def set(self, source_type: str, artifact: object) -> None:
-        self._by_type[source_type] = artifact
-
-    def has(self, source_type: str) -> bool:
-        return source_type in self._by_type
-
-    def get(self, source_type: str, expected_type: type[T]) -> T | None:
-        artifact = self._by_type.get(source_type)
-        if artifact is None:
-            return None
-        if not isinstance(artifact, expected_type):
-            raise TypeError(
-                f"Adapter for {source_type!r} returned "
-                f"{type(artifact).__name__}, "
-                f"expected {expected_type.__name__}"
-            )
-        return artifact
-
-    def raw(self) -> dict[str, object]:
-        """Escape hatch for the frameworks.py shim. Not for general use."""
-        return dict(self._by_type)
 
 
 class AdapterRegistry:
