@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 from agents_shipgate.config.schema import (
     AgentsShipgateManifest,
@@ -26,6 +26,7 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import load_trace_artifacts
 
 AGENT_CLASS_NAMES = {
@@ -1111,3 +1112,25 @@ def _display_path(path: Path, base_dir: Path) -> str:
 def _append_unique(values: list[str], value: str) -> None:
     if value not in values:
         values.append(value)
+
+
+class GoogleADKAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_google_adk_artifacts`.
+
+    Framework-scoped. The dispatcher invokes ``load()`` once per scan
+    when either a ``tool_sources`` entry of type ``google_adk`` or the
+    top-level ``manifest.google_adk`` section is configured.
+    """
+
+    source_type: ClassVar[str] = "google_adk"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = GoogleAdkArtifacts
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        loaded_sources, artifacts = load_google_adk_artifacts(manifest, base_dir)
+        return LoadedAdapterResult(tool_sources=loaded_sources, artifact=artifacts)

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import ToolSourceConfig
+from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
@@ -18,6 +18,7 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
     tool_name_warning,
 )
+from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 MAX_SCHEMA_RESOLVE_DEPTH = 32
 MAX_SCHEMA_RESOLVE_NODES = 5000
@@ -341,3 +342,20 @@ def _operation_name(method: str, path: str) -> str:
     safe_path = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
     safe_path = safe_path.replace("-", "_") or "root"
     return f"{method}_{safe_path}"
+
+
+class OpenAPIAdapter:
+    """``ToolSourceAdapter`` wrapping :func:`load_openapi_tools`."""
+
+    source_type: ClassVar[str] = "openapi"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
+    artifact_class: ClassVar[type | None] = None
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        assert source is not None, "per_source adapter requires a source"
+        return LoadedAdapterResult(tool_sources=[load_openapi_tools(source, base_dir)])

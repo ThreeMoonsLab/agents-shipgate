@@ -9,6 +9,7 @@ from pathlib import Path
 from agents_shipgate.checks.registry import run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.baseline import apply_baseline, load_baseline
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
@@ -23,6 +24,7 @@ from agents_shipgate.core.findings import (
 from agents_shipgate.core.models import (
     Agent,
     AnthropicArtifacts,
+    CodexPluginArtifacts,
     CodexPluginSurface,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
@@ -35,14 +37,14 @@ from agents_shipgate.core.models import (
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
-from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
-from agents_shipgate.inputs.codex_plugin import load_codex_plugin_artifacts
 from agents_shipgate.inputs.frameworks import load_framework_artifacts
-from agents_shipgate.inputs.mcp import load_mcp_tools
-from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
-from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
-from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.inputs.protocol import (
+    REGISTRY,
+    ArtifactBag,
+    LoadedAdapterResult,
+    ToolSourceAdapter,
+)
 from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.packet.html import write_packet_html
@@ -116,25 +118,15 @@ def run_scan(
         raise ConfigError("--baseline-mode supports only new-findings")
 
     base_dir = config_path.resolve().parent
-    loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
-    framework_result = load_framework_artifacts(manifest, base_dir)
+    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    framework_result = load_framework_artifacts(manifest, base_dir, artifact_bag)
     adk_artifacts = framework_result.adk_artifacts
     langchain_artifacts = framework_result.langchain_artifacts
     crewai_artifacts = framework_result.crewai_artifacts
     n8n_artifacts = framework_result.n8n_artifacts
-    loaded_sources.extend(framework_result.loaded_sources)
-    api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
-    if api_source:
-        loaded_sources.append(api_source)
-    anthropic_source, anthropic_artifacts = load_anthropic_artifacts(
-        manifest.anthropic, base_dir
-    )
-    if anthropic_source:
-        loaded_sources.append(anthropic_source)
-    codex_plugin_sources, codex_plugin_artifacts = load_codex_plugin_artifacts(
-        manifest, base_dir
-    )
-    loaded_sources.extend(codex_plugin_sources)
+    api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
+    anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
+    codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
     validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     logger.debug(
         "loaded sources",
@@ -399,25 +391,15 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
                 ]
             }
         )
-    loaded_sources = _load_sources(manifest, base_dir, verbose=verbose)
-    framework_result = load_framework_artifacts(manifest, base_dir)
+    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    framework_result = load_framework_artifacts(manifest, base_dir, artifact_bag)
     adk_artifacts = framework_result.adk_artifacts
     langchain_artifacts = framework_result.langchain_artifacts
     crewai_artifacts = framework_result.crewai_artifacts
     n8n_artifacts = framework_result.n8n_artifacts
-    loaded_sources.extend(framework_result.loaded_sources)
-    api_source, api_artifacts = load_openai_api_artifacts(manifest.openai_api, base_dir)
-    if api_source:
-        loaded_sources.append(api_source)
-    anthropic_source, anthropic_artifacts = load_anthropic_artifacts(
-        manifest.anthropic, base_dir
-    )
-    if anthropic_source:
-        loaded_sources.append(anthropic_source)
-    codex_plugin_sources, codex_plugin_artifacts = load_codex_plugin_artifacts(
-        manifest, base_dir
-    )
-    loaded_sources.extend(codex_plugin_sources)
+    api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
+    anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
+    codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
     validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
@@ -548,42 +530,128 @@ def _resolve_source_paths(
     return unresolved
 
 
-def _load_sources(manifest, base_dir: Path, *, verbose: bool) -> list[LoadedToolSource]:
-    loaded: list[LoadedToolSource] = []
+def _load_sources(
+    manifest: AgentsShipgateManifest,
+    base_dir: Path,
+    *,
+    verbose: bool,
+) -> tuple[list[LoadedToolSource], ArtifactBag]:
+    """Dispatch every adapter through ``REGISTRY``.
+
+    Returns ``(loaded_sources, artifact_bag)``. ``artifact_bag`` is a
+    typed ``ArtifactBag`` with per-scan adapter artifacts keyed by
+    ``source_type``. Per-source adapters (mcp, openapi,
+    openai_agents_sdk) never populate artifacts.
+
+    Ordering is deterministic and matches the legacy run_scan order:
+
+      1. per-source loaders in tool_sources declared order
+      2. framework adapters (triggered by either tool_sources OR a
+         populated manifest section), in REGISTRY iteration order:
+         google_adk → langchain → crewai → n8n
+      3. manifest-only adapters: openai_api → anthropic_api
+      4. codex_plugin (last, per legacy ordering)
+
+    Manifest-only adapters always fire via pass 2 regardless of
+    tool_sources contents. Framework adapters fire once per scan via
+    either pass, deduplicated by source_type.
+    """
+    per_source_loaded: list[LoadedToolSource] = []
+    per_scan_loaded: list[LoadedToolSource] = []
+    bag = ArtifactBag()
+    invoked: set[str] = set()
+
+    # Pass 1 — walk tool_sources in declared order. Per-source adapters
+    # contribute to per_source_loaded immediately. Per-scan adapters
+    # (frameworks) are invoked on first encounter and their output is
+    # buffered into per_scan_loaded so it lands AFTER all per-source
+    # results regardless of where the framework's tool_sources row
+    # appears.
     for source in manifest.tool_sources:
-        try:
-            if source.type == "mcp":
-                loaded.append(load_mcp_tools(source, base_dir))
-            elif source.type == "openapi":
-                loaded.append(load_openapi_tools(source, base_dir))
-            elif source.type == "openai_agents_sdk":
-                loaded.append(load_openai_sdk_static_tools(source, manifest, base_dir))
-            elif source.type == "google_adk":
-                # Google ADK sources are loaded with framework artifacts below.
+        adapter = REGISTRY.require(source.type)
+        if adapter.scope == "per_source":
+            result = _invoke_per_source_adapter(
+                adapter, source, base_dir, manifest, verbose=verbose
+            )
+            _absorb(result, source.type, per_source_loaded, bag, adapter)
+        else:  # per_scan framework triggered by tool_sources
+            if source.type in invoked:
                 continue
-            elif source.type in {"langchain", "crewai"}:
-                # Framework sources are loaded with framework artifacts below.
-                continue
-            elif source.type == "codex_plugin":
-                # Codex plugin packages are loaded with plugin artifacts above.
-                continue
-        except InputParseError:
-            if source.optional:
-                warning = f"Optional source {source.id} failed to load"
-                if verbose:
-                    warning = (
-                        f"{warning}; continuing because the source is marked optional"
-                    )
-                loaded.append(
+            invoked.add(source.type)
+            result = adapter.load(None, base_dir, manifest)
+            _absorb(result, source.type, per_scan_loaded, bag, adapter)
+
+    # Pass 2 — invoke per-scan adapters not yet run. Covers:
+    #   (a) framework adapters configured only via top-level manifest
+    #       sections (no tool_sources row) — google_adk, langchain,
+    #       crewai, codex_plugin.
+    #   (b) manifest-only adapters (openai_api, anthropic_api, n8n)
+    #       with no tool_sources representation.
+    for adapter in REGISTRY.per_scan_adapters():
+        if adapter.source_type in invoked:
+            continue
+        invoked.add(adapter.source_type)
+        result = adapter.load(None, base_dir, manifest)
+        _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
+
+    return per_source_loaded + per_scan_loaded, bag
+
+
+def _absorb(
+    result: LoadedAdapterResult,
+    source_type: str,
+    sink: list[LoadedToolSource],
+    bag: ArtifactBag,
+    adapter: ToolSourceAdapter,
+) -> None:
+    sink.extend(result.tool_sources)
+    if result.artifact is not None:
+        if adapter.artifact_class is not None and not isinstance(
+            result.artifact, adapter.artifact_class
+        ):
+            raise TypeError(
+                f"Adapter {adapter.source_type!r} declared "
+                f"artifact_class={adapter.artifact_class.__name__} but "
+                f"returned {type(result.artifact).__name__}"
+            )
+        bag.set(source_type, result.artifact)
+    if result.warnings:
+        sink.append(
+            LoadedToolSource(
+                source_id=f"adapter:{source_type}",
+                source_type=source_type,
+                warnings=list(result.warnings),
+            )
+        )
+
+
+def _invoke_per_source_adapter(
+    adapter: ToolSourceAdapter,
+    source: ToolSourceConfig,
+    base_dir: Path,
+    manifest: AgentsShipgateManifest,
+    *,
+    verbose: bool,
+) -> LoadedAdapterResult:
+    try:
+        return adapter.load(source, base_dir, manifest)
+    except InputParseError:
+        if source.optional:
+            warning = f"Optional source {source.id} failed to load"
+            if verbose:
+                warning = (
+                    f"{warning}; continuing because the source is marked optional"
+                )
+            return LoadedAdapterResult(
+                tool_sources=[
                     LoadedToolSource(
                         source_id=source.id,
                         source_type=source.type,
                         warnings=[warning],
                     )
-                )
-                continue
-            raise
-    return loaded
+                ],
+            )
+        raise
 
 
 def _flatten_and_deduplicate_tools(
