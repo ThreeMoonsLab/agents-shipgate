@@ -546,51 +546,44 @@ def _load_sources(
     Ordering is deterministic and matches the legacy run_scan order:
 
       1. per-source loaders in tool_sources declared order
-      2. framework adapters (triggered by either tool_sources OR a
-         populated manifest section), in REGISTRY iteration order:
-         google_adk → langchain → crewai → n8n
-      3. manifest-only adapters: openai_api → anthropic_api
-      4. codex_plugin (last, per legacy ordering)
+      2. per-scan adapters in REGISTRY iteration order:
+         google_adk → langchain → crewai → n8n → openai_api
+         → anthropic_api → codex_plugin
 
-    Manifest-only adapters always fire via pass 2 regardless of
-    tool_sources contents. Framework adapters fire once per scan via
-    either pass, deduplicated by source_type.
+    Per-scan adapters are invoked unconditionally in pass 2, in
+    canonical order — NOT in tool_sources declared order. This matches
+    today's run_scan exactly: framework loaders fire once per scan via
+    load_framework_artifacts in a fixed order, and the manifest-only
+    loaders (openai_api, anthropic_api) and codex_plugin trail them.
+    Per-scan source types appearing in tool_sources are ignored by
+    pass 1 — they would be redundant; framework loaders already iterate
+    every matching entry internally via the manifest.
     """
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
-    invoked: set[str] = set()
 
-    # Pass 1 — walk tool_sources in declared order. Per-source adapters
-    # contribute to per_source_loaded immediately. Per-scan adapters
-    # (frameworks) are invoked on first encounter and their output is
-    # buffered into per_scan_loaded so it lands AFTER all per-source
-    # results regardless of where the framework's tool_sources row
-    # appears.
+    # Pass 1 — per-source adapters only, in tool_sources declared
+    # order. Per-scan source types (langchain, crewai, etc.) are
+    # skipped here; pass 2 invokes them in canonical REGISTRY order
+    # regardless of where they appear in tool_sources. This protects
+    # the dedup tie-break in _flatten_and_deduplicate_tools from
+    # changing based on user-facing tool_sources ordering.
     for source in manifest.tool_sources:
         adapter = REGISTRY.require(source.type)
-        if adapter.scope == "per_source":
-            result = _invoke_per_source_adapter(
-                adapter, source, base_dir, manifest, verbose=verbose
-            )
-            _absorb(result, source.type, per_source_loaded, bag, adapter)
-        else:  # per_scan framework triggered by tool_sources
-            if source.type in invoked:
-                continue
-            invoked.add(source.type)
-            result = adapter.load(None, base_dir, manifest)
-            _absorb(result, source.type, per_scan_loaded, bag, adapter)
-
-    # Pass 2 — invoke per-scan adapters not yet run. Covers:
-    #   (a) framework adapters configured only via top-level manifest
-    #       sections (no tool_sources row) — google_adk, langchain,
-    #       crewai, codex_plugin.
-    #   (b) manifest-only adapters (openai_api, anthropic_api, n8n)
-    #       with no tool_sources representation.
-    for adapter in REGISTRY.per_scan_adapters():
-        if adapter.source_type in invoked:
+        if adapter.scope != "per_source":
             continue
-        invoked.add(adapter.source_type)
+        result = _invoke_per_source_adapter(
+            adapter, source, base_dir, manifest, verbose=verbose
+        )
+        _absorb(result, source.type, per_source_loaded, bag, adapter)
+
+    # Pass 2 — every per-scan adapter fires once, in REGISTRY order.
+    # Covers framework adapters (always check their manifest section
+    # internally and may emit zero LoadedToolSource entries when not
+    # configured) and manifest-only adapters (openai_api,
+    # anthropic_api, n8n).
+    for adapter in REGISTRY.per_scan_adapters():
         result = adapter.load(None, base_dir, manifest)
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 

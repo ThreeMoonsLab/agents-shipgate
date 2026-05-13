@@ -163,6 +163,20 @@ REFUND_SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 GOOGLE_ADK_SAMPLE = Path("samples/google_adk_agent/shipgate.yaml")
 
 
+def _force_registry_populated() -> None:
+    """Trigger ``AdapterRegistry`` lazy population.
+
+    Tests that monkeypatch ``REGISTRY._adapters`` must run this first.
+    Without it, the first read inside the dispatcher triggers
+    ``_register_builtin_adapters`` against an ``_adapters`` dict that
+    already contains the stub, which raises ``RuntimeError`` for
+    duplicate registration. Reading via ``list(REGISTRY)`` runs
+    ``_ensure_populated`` exactly once and is a no-op on subsequent
+    calls.
+    """
+    list(REGISTRY)
+
+
 def test_dispatch_optional_source_warning(tmp_path):
     """An ``optional`` source that fails to load surfaces a warning-
     only ``LoadedToolSource`` and does NOT escape the dispatcher."""
@@ -253,6 +267,7 @@ def test_per_scan_framework_adapter_invoked_once_with_multiple_tool_sources(monk
     """Duplicate ``tool_sources`` entries of the same framework type
     invoke the adapter exactly once."""
 
+    _force_registry_populated()
     call_count = {"value": 0}
 
     class _RecordingLangChain:
@@ -284,6 +299,8 @@ def test_dispatcher_validates_adapter_artifact_class(monkeypatch):
     ``artifact_class`` but returns a different type, the dispatcher
     raises ``TypeError`` rather than letting the wrong-typed artifact
     leak into ``ScanContext``/packet rendering."""
+
+    _force_registry_populated()
 
     class _LyingAdapter:
         source_type: ClassVar[str] = "langchain"
@@ -319,3 +336,52 @@ def test_codex_plugin_artifact_in_bag():
     # Sample doesn't configure codex_plugins, so artifact is None — but
     # the typed get() succeeded without TypeError.
     assert artifact is None or isinstance(artifact, CodexPluginArtifacts)
+
+
+def test_per_scan_order_is_canonical_not_tool_sources(monkeypatch):
+    """**P2 regression guard.** Per-scan adapter output order is fixed
+    by ``REGISTRY`` registration order, NOT by ``manifest.tool_sources``
+    declaration order. Otherwise duplicate tie-break in
+    ``_flatten_and_deduplicate_tools`` (which keeps the first source
+    when priorities tie) would change based on user-facing yaml
+    ordering."""
+
+    _force_registry_populated()
+    invocation_order: list[str] = []
+
+    def _make_recorder(name: str, artifact_cls: type) -> object:
+        class _Recorder:
+            source_type: ClassVar[str] = name
+            scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+            artifact_class: ClassVar[type | None] = artifact_cls
+
+            def load(self, source, base_dir, manifest):
+                invocation_order.append(name)
+                return LoadedAdapterResult(artifact=artifact_cls())
+
+        return _Recorder()
+
+    monkeypatch.setitem(
+        REGISTRY._adapters, "langchain", _make_recorder("langchain", LangChainArtifacts)
+    )
+    monkeypatch.setitem(
+        REGISTRY._adapters, "google_adk", _make_recorder("google_adk", GoogleAdkArtifacts)
+    )
+
+    manifest = load_manifest(REFUND_SAMPLE)
+    # Declare langchain BEFORE google_adk in tool_sources. If the
+    # dispatcher honored tool_sources order for per-scan adapters,
+    # langchain would invoke first. Canonical REGISTRY order is
+    # google_adk → langchain.
+    swapped = manifest.model_copy(
+        update={
+            "tool_sources": [
+                ToolSourceConfig(id="lc", type="langchain", path="a.py"),
+                ToolSourceConfig(id="adk", type="google_adk", path="b.py"),
+            ]
+        }
+    )
+    base_dir = REFUND_SAMPLE.resolve().parent
+    _load_sources(swapped, base_dir, verbose=False)
+    # google_adk is registered before langchain in _register_builtin_adapters.
+    assert invocation_order.index("google_adk") < invocation_order.index("langchain")
