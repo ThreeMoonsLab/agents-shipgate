@@ -146,6 +146,8 @@ def run_scan(
         cli_policy_packs=policy_pack_paths,
     )
     warnings.extend(policy_packs.warnings)
+    # Some adapters expose the same warnings through both LoadedToolSource
+    # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     tools = enrich_tools_with_risk_hints(manifest, tools)
     logger.debug(
@@ -385,6 +387,8 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     warnings.extend(_artifact_warnings(artifact_bag))
     policy_packs = load_policy_packs(manifest, base_dir)
     warnings.extend(policy_packs.warnings)
+    # Some adapters expose the same warnings through both LoadedToolSource
+    # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     return {
         "project": manifest.project.name,
