@@ -68,6 +68,29 @@ def test_agent_action_enum_values():
     )
 
 
+EXPECTED_AGENT_SUMMARY_VERDICTS = {
+    "blocked",
+    "review_required",
+    "insufficient_evidence",
+    "passed",
+}
+
+
+def test_agent_summary_verdict_enum_values():
+    """The agent_summary.verdict enum mirrors release_decision.decision
+    and is a public contract surface. Pin the exact set so additions
+    or removals trip a test in the same PR — and so the verdict stays
+    in lockstep with ReleaseDecisionStatus."""
+    verdict_field = AgentSummary.model_fields["verdict"]
+    verdict_values = set(get_args(verdict_field.annotation))
+    assert verdict_values == EXPECTED_AGENT_SUMMARY_VERDICTS, (
+        "AgentSummary.verdict diverged from the public contract. If "
+        "you're adding or removing a value, update STABILITY.md and "
+        "docs/agent-contract-current.md in the same PR, and ensure "
+        "ReleaseDecisionStatus carries the same value (they must mirror)."
+    )
+
+
 # --- derive_agent_action contract --------------------------------------
 
 
@@ -678,6 +701,34 @@ def test_build_agent_summary_review_required_routes_to_review():
     assert summary.first_recommended_action is not None
     assert summary.first_recommended_action.kind == "info"
     assert "review item" in summary.first_recommended_action.why.lower()
+
+
+def test_build_agent_summary_insufficient_evidence_uses_reason_as_headline():
+    """A `insufficient_evidence` verdict must NOT fall through to the
+    "Release ready" else-branch. The headline should surface the
+    release_decision.reason verbatim, and first_recommended_action
+    should be the evidence-improvement info action (not a blocker/
+    review pointer and not None)."""
+    reason = (
+        "Evidence coverage below threshold (2 low-confidence tool(s)); "
+        "scan results are not trustworthy enough to gate release."
+    )
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=_make_release_decision(
+            decision="insufficient_evidence",
+            reason=reason,
+        ),
+    )
+    assert summary.verdict == "insufficient_evidence"
+    assert summary.headline.startswith("Evidence coverage below threshold")
+    assert "Release ready" not in summary.headline
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    why = summary.first_recommended_action.why
+    assert "gather deeper evidence" in why
+    assert reason in why
 
 
 def test_build_agent_summary_passed_with_no_release_decision():

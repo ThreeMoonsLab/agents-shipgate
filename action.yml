@@ -110,7 +110,7 @@ outputs:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
   decision:
-    description: Release decision (`blocked`, `review_required`, or `passed`). v0.8+.
+    description: Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14.
     value: ${{ steps.report_outputs.outputs.decision }}
   blocker_count:
     description: Number of blockers in release_decision (v0.8+).

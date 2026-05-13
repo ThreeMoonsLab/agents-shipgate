@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.bootstrap import (
     _failed_step_error,
     _locate_report,
+    _verdict_for_release_decision,
     bootstrap_run,
 )
 from agents_shipgate.cli.main import app
@@ -318,6 +319,38 @@ def test_bootstrap_reports_release_decision_verdict_in_summary(tmp_path):
         f"verdict {result['verdict']!r} should mirror "
         f"release_decision.decision {rd['decision']!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "decision, expected_verdict",
+    [
+        ("blocked", "complete_blocked"),
+        ("review_required", "complete_review_required"),
+        ("insufficient_evidence", "complete_insufficient_evidence"),
+        ("passed", "complete_passed"),
+    ],
+)
+def test_verdict_for_release_decision_maps_all_states(decision, expected_verdict):
+    """Pin the bootstrap verdict mapping for every ReleaseDecisionStatus
+    value, including v0.14's `insufficient_evidence`. Avoids relying on
+    subprocess scans that may pick up an older installed CLI; the
+    mapping is pure logic and worth a unit-test."""
+    payload = {"decision": decision, "reason": "irrelevant"}
+    assert _verdict_for_release_decision(payload) == expected_verdict
+
+
+def test_verdict_for_release_decision_no_report():
+    assert _verdict_for_release_decision(None) == "complete_no_report"
+
+
+def test_verdict_for_release_decision_unknown_value_falls_back():
+    """Per STABILITY.md additivity contract, unknown decision values
+    must not crash bootstrap. Fall back to bare 'complete' so an older
+    bootstrap still surfaces *some* completion signal when a newer
+    scan adds a value (consumers downstream apply their own
+    review_required fallback)."""
+    payload = {"decision": "future_value_2027", "reason": "x"}
+    assert _verdict_for_release_decision(payload) == "complete"
 
 
 def test_bootstrap_rejects_missing_workspace_with_structured_failure(tmp_path):

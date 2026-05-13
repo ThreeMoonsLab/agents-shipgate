@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.13",
+  "report_schema_version": "0.14",
   "run_id": "agents_shipgate_3f6e9f776047c403",
-  "manifest_dir": "<REPO>/samples/support_refund_agent",
+  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/strange-clarke-17c1e7/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1933,7 +1933,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmphinsqp7c/report.json"
+    "markdown": "/private/tmp/sg_refund_nopkt/report.md",
+    "json": "/private/tmp/sg_refund_nopkt/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

@@ -27,6 +27,7 @@ REPORT_SCHEMA_V10 = Path("docs/report-schema.v0.10.json")
 REPORT_SCHEMA_V11 = Path("docs/report-schema.v0.11.json")
 REPORT_SCHEMA_V12 = Path("docs/report-schema.v0.12.json")
 REPORT_SCHEMA_V13 = Path("docs/report-schema.v0.13.json")
+REPORT_SCHEMA_V14 = Path("docs/report-schema.v0.14.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -467,10 +468,11 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v13_schema(tmp_path):
-    """v0.13 schema adds codex_plugin_surface on top of v0.12's
-    agent_action and agent_summary fields. Emitted reports must validate
-    against the v0.13 schema."""
+def test_json_report_validates_against_v14_schema(tmp_path):
+    """v0.14 schema adds the `insufficient_evidence` value to the
+    release_decision.decision and agent_summary.verdict enums on top of
+    v0.13's codex_plugin_surface. Emitted reports must validate against
+    the v0.14 schema."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -479,7 +481,7 @@ def test_json_report_validates_against_v13_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V13.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -540,6 +542,26 @@ def test_v12_schema_file_is_frozen():
     assert schema["properties"]["report_schema_version"] == {"const": "0.12"}
     assert "codex_plugin_surface" not in schema.get("required", [])
     assert "codex_plugin_surface" not in schema.get("properties", {})
+
+
+def test_v13_schema_file_is_frozen():
+    """v0.13 schema file stays parseable and pinned to const "0.13".
+    The release_decision.decision enum must remain at the v0.13 three
+    values; insufficient_evidence ships in v0.14."""
+    schema = json.loads(REPORT_SCHEMA_V13.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.13"}
+    rd_decision = (
+        schema["$defs"]["ReleaseDecision"]["properties"]["decision"]
+    )
+    assert set(rd_decision["enum"]) == {"blocked", "review_required", "passed"}
+    summary_verdict = (
+        schema["$defs"]["AgentSummary"]["properties"]["verdict"]
+    )
+    assert set(summary_verdict["enum"]) == {
+        "blocked",
+        "review_required",
+        "passed",
+    }
 
 
 def test_v07_schema_preserves_nested_required_lists():
@@ -744,8 +766,8 @@ def test_v10_schema_requires_release_decision_and_diffs():
     } <= diff_required
 
 
-def test_v13_schema_rejects_null_release_decision_and_consequence(tmp_path):
-    """A v0.13 payload with null release blocks MUST fail validation.
+def test_v14_schema_rejects_null_release_decision_and_consequence(tmp_path):
+    """A v0.14 payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
     `anyOf: [ReleaseDecision, null]` and silently accepted null."""
     import jsonschema
@@ -758,7 +780,7 @@ def test_v13_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V13.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

@@ -278,15 +278,7 @@ def bootstrap_run(
             return _stop_with_failure(steps, apply_step, "apply-patches")
 
     # --- Verdict -----------------------------------------------------
-    verdict = "complete"
-    if release_decision is None:
-        verdict = "complete_no_report"
-    elif release_decision.get("decision") == "blocked":
-        verdict = "complete_blocked"
-    elif release_decision.get("decision") == "review_required":
-        verdict = "complete_review_required"
-    elif release_decision.get("decision") == "passed":
-        verdict = "complete_passed"
+    verdict = _verdict_for_release_decision(release_decision)
 
     return {
         "verdict": verdict,
@@ -296,6 +288,33 @@ def bootstrap_run(
         "release_decision": release_decision,
         "report_path": str(report_path) if report_path else None,
     }
+
+
+_VERDICT_BY_DECISION = {
+    "blocked": "complete_blocked",
+    "review_required": "complete_review_required",
+    "insufficient_evidence": "complete_insufficient_evidence",
+    "passed": "complete_passed",
+}
+
+
+def _verdict_for_release_decision(
+    release_decision: dict[str, Any] | None,
+) -> str:
+    """Map a parsed ``release_decision`` payload to the bootstrap
+    top-level ``verdict`` string.
+
+    Returns ``"complete_no_report"`` when no release_decision was
+    emitted, ``"complete_{decision}"`` for any of the four
+    ReleaseDecisionStatus values, and bare ``"complete"`` as a
+    defensive fallback for unknown future values (so unknown enum
+    additions don't crash bootstrap before the consumer-side fallback
+    contract in STABILITY.md kicks in).
+    """
+    if release_decision is None:
+        return "complete_no_report"
+    decision = release_decision.get("decision")
+    return _VERDICT_BY_DECISION.get(decision, "complete")
 
 
 def _stop_with_failure(

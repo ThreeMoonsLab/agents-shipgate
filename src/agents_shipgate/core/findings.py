@@ -360,6 +360,20 @@ def build_agent_summary(
             append_reason = False
         if blocker_count:
             headline += f" ({blocker_count} blocker(s) detected.)"
+    elif verdict == "insufficient_evidence":
+        # No specific finding to surface — by definition the issue is
+        # evidence quality, not findings. Surface the release_decision
+        # reason verbatim; it already names the counts and explains why
+        # the scan can't gate release. Falling through to the "Release
+        # ready" branch would lie about a degraded scan.
+        headline = (
+            reason
+            if reason
+            else "Evidence coverage below threshold; scan results not trustworthy enough to gate release."
+        )
+        append_reason = False
+        if blocker_count:
+            headline += f" ({blocker_count} blocker(s) detected.)"
     else:
         headline = (
             "Release ready"
@@ -380,7 +394,11 @@ def build_agent_summary(
         active_findings=active_findings,
         json_report_path=json_report_path,
         evidence_recommended=evidence_recommended,
-        evidence_reason=reason if evidence_recommended else "",
+        evidence_reason=(
+            reason
+            if (evidence_recommended or verdict == "insufficient_evidence")
+            else ""
+        ),
     )
 
     return AgentSummary(
@@ -414,7 +432,10 @@ def _build_first_recommended_action(
        Otherwise emit ``kind: "info"`` with a parameterised hint.
     2. Verdict is blocked → surface the top blocker for review.
     3. Verdict is review_required → walk the top review item.
-    4. Verdict is passed → no action (None).
+    4. Verdict is insufficient_evidence → emit an info action that
+       surfaces the evidence reason and recommends gathering deeper
+       sources (MCP, OpenAPI inputs, eval traces). No finding to walk.
+    5. Verdict is passed → no action (None).
     """
     if auto_appliable > 0:
         why = (
@@ -512,6 +533,23 @@ def _build_first_recommended_action(
                 f"Walk the {visible} review item(s) starting with "
                 f"{top.check_id}; release is allowed but the human "
                 "reviewer should weigh in."
+            ),
+        )
+
+    if verdict == "insufficient_evidence":
+        base = (
+            evidence_reason
+            or "Evidence coverage below threshold; scan results are not "
+            "trustworthy enough to gate release."
+        )
+        return AgentSummaryAction(
+            kind="info",
+            command=None,
+            why=(
+                f"{base} Surface this to the user and gather deeper "
+                "evidence (e.g. MCP/OpenAPI inputs, eval traces, "
+                "additional source files) before re-running the scan; "
+                "no machine-applicable fix is available."
             ),
         )
 

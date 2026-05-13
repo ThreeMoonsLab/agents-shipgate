@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from agents_shipgate.ci.exit_policy import (
     baseline_filtered_active,
     effective_fail_on,
@@ -17,6 +19,16 @@ from agents_shipgate.core.models import (
     Severity,
     Tool,
 )
+
+# Thresholds for the `insufficient_evidence` decision state. Private
+# module-level constants so they're tunable in code without expanding
+# the manifest or CLI surface.
+_LOW_CONFIDENCE_TOOL_RATIO = 0.5
+_MAX_TOLERATED_SOURCE_WARNINGS = 3
+
+
+def _low_confidence_tool_threshold(tool_count: int) -> int:
+    return max(1, math.ceil(tool_count * _LOW_CONFIDENCE_TOOL_RATIO))
 
 
 def build_release_decision(
@@ -87,10 +99,27 @@ def build_release_decision(
         exit_code=exit_code,
     )
 
+    low_confidence_threshold = _low_confidence_tool_threshold(len(tools))
+
     decision: ReleaseDecisionStatus
     if blockers:
         decision = "blocked"
-    elif review_items or evidence.human_review_recommended:
+    elif (
+        evidence.low_confidence_tool_count >= low_confidence_threshold
+        or evidence.source_warning_count > _MAX_TOLERATED_SOURCE_WARNINGS
+    ):
+        decision = "insufficient_evidence"
+    elif (
+        review_items
+        or evidence.human_review_recommended
+        or evidence.source_warning_count > 0
+    ):
+        # Sub-threshold source warnings still warrant review.
+        # summarize_findings() doesn't fold source_warning_count into
+        # human_review_recommended (it tracks only tool confidence and
+        # critical/high findings), so route any source warning here
+        # explicitly. Otherwise 1-3 warnings with no findings would
+        # silently pass.
         decision = "review_required"
     else:
         decision = "passed"
@@ -130,6 +159,21 @@ def _decision_reason(
         noun = "finding" if n == 1 else "findings"
         verb = "blocks" if n == 1 else "block"
         return f"{n} active {noun} {verb} release."
+    if decision == "insufficient_evidence":
+        parts: list[str] = []
+        if evidence.low_confidence_tool_count > 0:
+            parts.append(
+                f"{evidence.low_confidence_tool_count} low-confidence tool(s)"
+            )
+        if evidence.source_warning_count > 0:
+            parts.append(
+                f"{evidence.source_warning_count} source warning(s)"
+            )
+        detail = " and ".join(parts) if parts else "degraded evidence"
+        return (
+            f"Evidence coverage below threshold ({detail}); "
+            "scan results are not trustworthy enough to gate release."
+        )
     if decision == "review_required":
         matched_criticals = sum(
             1
@@ -165,11 +209,21 @@ def _decision_reason(
             noun = "finding" if n_reviews == 1 else "findings"
             verb = "requires" if n_reviews == 1 else "require"
             return f"{n_reviews} {noun} {verb} human review before shipping."
-        if has_evidence_gaps:
+        if evidence.low_confidence_tool_count > 0:
             return (
                 "Static-only scan with low-confidence evidence; human "
                 "review recommended."
             )
+        if evidence.source_warning_count > 0:
+            # Reachable when no review_items and human_review_recommended
+            # is False but source warnings tipped us into review_required
+            # via the explicit source-warning branch in
+            # build_release_decision. Checked after the low-confidence
+            # branch so a scan with both gaps surfaces the more
+            # actionable wording first.
+            n = evidence.source_warning_count
+            noun = "warning" if n == 1 else "warnings"
+            return f"{n} source-loader {noun}; review evidence before shipping."
         # Defensive: review_required with no review_items and no
         # measurable evidence gaps. summarize_findings doesn't produce
         # this combination today, but cover the case explicitly.

@@ -135,9 +135,11 @@ mutate files. Containment-checked: any `target_file` outside
 
 When the flow completes, summarize `report.json`:
 
-- `release_decision.decision` (`"blocked" | "review_required" | "passed"`)
-  — the v0.8+ release-gate signal. Prefer this over `summary.status`,
-  which stays baseline-blind for backwards compat.
+- `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`)
+  — the v0.8+ release-gate signal (`insufficient_evidence` added v0.14).
+  Prefer this over `summary.status`, which stays baseline-blind for
+  backwards compat. Switch on the value with a `review_required`
+  fallback for unknown future values.
 - `release_decision.reason` (one-sentence explanation).
 - Top 3 active critical/high findings with their `check_id`,
   `tool_name` (when present), and `recommendation`.

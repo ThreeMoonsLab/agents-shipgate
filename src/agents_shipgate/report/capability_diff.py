@@ -767,6 +767,11 @@ def _release_summary(decision: str, blocker_count: int, review_count: int) -> st
             f"{review_count} release-relevant finding(s) require release review "
             "before shipping."
         )
+    if decision == "insufficient_evidence":
+        return (
+            "Static evidence is incomplete; capability/intent analysis "
+            "may miss release-relevant signal — gather deeper sources before shipping."
+        )
     return "No capability/intent misalignments require release action from static evidence."
 
 

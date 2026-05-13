@@ -47,10 +47,12 @@ def write_packet_json(packet: EvidencePacket, path: Path) -> None:
 def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     """Validate ``payload`` and return an ``EvidencePacket``.
 
-    ``payload`` may be a parsed dict or a raw JSON string/bytes. A
-    v0.1 payloads are upgraded with the default v0.2 tool-surface diff
+    ``payload`` may be a parsed dict or a raw JSON string/bytes. v0.1
+    payloads are upgraded with the default v0.2 tool-surface diff
     section, then v0.1/v0.2 payloads are upgraded with the default
-    v0.3 HITL provenance fields. Unsupported versions raise
+    v0.3 HITL provenance fields. v0.3 payloads are renumbered to v0.4
+    (pure additive enum extension — `insufficient_evidence` cannot
+    appear in a v0.3-emitted packet). Unsupported versions raise
     ``PacketSchemaError`` so callers can downgrade to a clean error
     rather than a noisy validation traceback.
     """
@@ -70,7 +72,7 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.3",
+            "packet_schema_version": "0.4",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -82,12 +84,14 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         }
         _upgrade_hitl_v03(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.3"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.4"}
         _upgrade_hitl_v03(payload_dict)
-    elif version != "0.3":
+    elif version == "0.3":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.4"}
+    elif version != "0.4":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
-            f"{version!r}; expected '0.1', '0.2', or '0.3'"
+            f"{version!r}; expected '0.1', '0.2', '0.3', or '0.4'"
         )
 
     try:

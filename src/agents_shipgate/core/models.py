@@ -501,7 +501,12 @@ class BaselineSummary(BaseModel):
 # v0.8: release_decision block — see docs/STABILITY.md for the
 # divergence contract with summary.status (which stays baseline-blind
 # for backwards compatibility).
-ReleaseDecisionStatus = Literal["blocked", "review_required", "passed"]
+ReleaseDecisionStatus = Literal[
+    "blocked",
+    "review_required",
+    "insufficient_evidence",
+    "passed",
+]
 
 
 class ReleaseDecisionItem(BaseModel):
@@ -1104,7 +1109,12 @@ class AgentSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    verdict: Literal["blocked", "review_required", "passed"]
+    verdict: Literal[
+        "blocked",
+        "review_required",
+        "insufficient_evidence",
+        "passed",
+    ]
     headline: str
     blocker_count: int = 0
     review_item_count: int = 0
@@ -1117,7 +1127,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.13"
+    report_schema_version: str = "0.14"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
