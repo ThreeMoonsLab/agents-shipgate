@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.checks._framework_common import (
+    DynamicSurfaceConfig,
+    collect_dynamic_surface_findings,
+)
+from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CrewAiArtifacts
 
@@ -11,26 +15,26 @@ def run(context: ScanContext):
         return []
 
     findings = []
-    if not artifacts.tool_inventory_files:
-        for surface in artifacts.dynamic_tool_surfaces:
-            findings.append(
-                agent_finding(
-                    check_id="SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
-                    title="CrewAI tool surface cannot be statically enumerated",
-                    severity="high",
-                    category="crewai",
-                    evidence={
-                        "surface": surface,
-                        "explicit_inventory": False,
-                    },
-                    confidence="medium",
-                    recommendation=(
-                        "Provide explicit MCP-style tool inventory metadata for dynamic "
-                        "CrewAI tool lists before release review."
-                    ),
-                    context=context,
-                )
-            )
+    has_inventory = bool(artifacts.tool_inventory_files)
+    findings.extend(
+        collect_dynamic_surface_findings(
+            context,
+            surfaces=artifacts.dynamic_tool_surfaces,
+            config=DynamicSurfaceConfig(
+                check_id="SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+                title="CrewAI tool surface cannot be statically enumerated",
+                severity="high",
+                category="crewai",
+                confidence="medium",
+                evidence_key="surface",
+                recommendation=(
+                    "Provide explicit MCP-style tool inventory metadata for dynamic "
+                    "CrewAI tool lists before release review."
+                ),
+                suppress=lambda _surface: has_inventory,
+            ),
+        )
+    )
 
     for tool in context.tools:
         if tool.source_type not in {"crewai_function", "crewai_class_tool"}:

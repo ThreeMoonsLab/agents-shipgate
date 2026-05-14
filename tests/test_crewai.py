@@ -123,6 +123,16 @@ tool_sources:
         if finding.check_id == "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
     ]
     assert len(dynamic) == 1
+    assert dynamic[0].evidence == {
+        "surface": {
+            "kind": "agent",
+            "source_ref": "crew.py",
+            "line": 7,
+            "reason": "tool list comes from a runtime call",
+        },
+        "explicit_inventory": False,
+    }
+    assert dynamic[0].confidence == "medium"
     assert report.frameworks["crewai"]["dynamic_tool_surface_count"] == 1
 
 

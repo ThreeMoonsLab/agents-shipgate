@@ -182,6 +182,14 @@ tool_sources:
         "mcp",
         "openapi",
     }
+    for finding in dynamic_findings:
+        assert finding.confidence == "high"
+        assert finding.evidence["explicit_inventory"] is False
+        assert set(finding.evidence["toolset"]) == {
+            "kind",
+            "source_ref",
+            "agent_name",
+        }
     doctor = inspect_sources(config_path=project / "shipgate.yaml")
     assert doctor["frameworks"]["google_adk"]["dynamic_toolset_count"] == 2
 

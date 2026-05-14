@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from agents_shipgate.checks._framework_common import (
+    DynamicSurfaceConfig,
+    collect_dynamic_surface_findings,
+)
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import Finding, N8nArtifacts, SourceReference
@@ -21,26 +25,29 @@ def run(context: ScanContext) -> list[Finding]:
     findings: list[Finding] = []
     has_inventory = bool(artifacts.tool_inventory_files)
 
-    for surface in artifacts.dynamic_tool_surfaces:
-        kind = surface.get("kind")
-        if kind in {"mcp_client_wildcard", "mcp_server_wildcard", "community_tool"} and has_inventory:
-            continue
-        findings.append(
-            Finding(
+    findings.extend(
+        collect_dynamic_surface_findings(
+            context,
+            surfaces=artifacts.dynamic_tool_surfaces,
+            config=DynamicSurfaceConfig(
                 check_id="SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
                 title="n8n tool surface cannot be statically enumerated",
                 severity="high",
                 category="n8n",
-                agent_id=context.agent.id,
-                evidence={"surface": surface, "explicit_inventory": has_inventory},
                 confidence="medium",
-                source=_n8n_source(surface),
+                evidence_key="surface",
                 recommendation=(
                     "Provide explicit local n8n/MCP tool inventory metadata or "
                     "replace runtime/wildcard n8n tool exposure before release review."
                 ),
-            )
+                suppress=lambda surface: _inventory_suppresses_dynamic_surface(
+                    surface, has_inventory
+                ),
+                explicit_inventory_value=lambda _surface: has_inventory,
+                source_for=_n8n_source,
+            ),
         )
+    )
 
     if not has_inventory:
         for toolset in artifacts.mcp_client_tools:
@@ -172,6 +179,18 @@ def run(context: ScanContext) -> list[Finding]:
         )
 
     return findings
+
+
+def _inventory_suppresses_dynamic_surface(surface: object, has_inventory: bool) -> bool:
+    if not isinstance(surface, dict):
+        raise TypeError("n8n dynamic tool surface must be a dictionary")
+    if not has_inventory:
+        return False
+    return surface.get("kind") in {
+        "mcp_client_wildcard",
+        "mcp_server_wildcard",
+        "community_tool",
+    }
 
 
 def _n8n_source(record: dict[str, object]) -> SourceReference:

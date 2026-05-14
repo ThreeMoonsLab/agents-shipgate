@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from agents_shipgate.checks._framework_common import (
+    DynamicSurfaceConfig,
+    collect_dynamic_surface_findings,
+)
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import GoogleAdkArtifacts
+from agents_shipgate.core.models import GoogleAdkArtifacts, GoogleAdkToolset
 from agents_shipgate.core.risk_hints import is_high_risk_tool
 
 
@@ -19,30 +23,26 @@ def run(context: ScanContext):
         for toolset in artifacts.toolsets
         if toolset.dynamic or not toolset.resolved
     ]
-    if not explicit_inventory:
-        for toolset in dynamic_toolsets:
-            findings.append(
-                agent_finding(
-                    check_id="SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
-                    title="Google ADK toolset cannot be statically enumerated",
-                    severity="high",
-                    category="adk",
-                    evidence={
-                        "toolset": {
-                            "kind": toolset.kind,
-                            "source_ref": toolset.source_ref,
-                            "agent_name": toolset.agent_name,
-                        },
-                        "explicit_inventory": False,
-                    },
-                    confidence="high",
-                    recommendation=(
-                        "Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK "
-                        "toolsets before release review."
-                    ),
-                    context=context,
-                )
-            )
+    findings.extend(
+        collect_dynamic_surface_findings(
+            context,
+            surfaces=dynamic_toolsets,
+            config=DynamicSurfaceConfig(
+                check_id="SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
+                title="Google ADK toolset cannot be statically enumerated",
+                severity="high",
+                category="adk",
+                confidence="high",
+                evidence_key="toolset",
+                recommendation=(
+                    "Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK "
+                    "toolsets before release review."
+                ),
+                suppress=lambda _surface: explicit_inventory,
+                evidence_value=_adk_dynamic_toolset_evidence,
+            ),
+        )
+    )
 
     for toolset in artifacts.toolsets:
         if toolset.kind == "mcp" and toolset.filtered is False:
@@ -177,6 +177,14 @@ def _has_explicit_inventory(context: ScanContext) -> bool:
         source.type in {"mcp", "openapi"}
         for source in context.manifest.tool_sources
     )
+
+
+def _adk_dynamic_toolset_evidence(toolset: GoogleAdkToolset) -> dict[str, object]:
+    return {
+        "kind": toolset.kind,
+        "source_ref": toolset.source_ref,
+        "agent_name": toolset.agent_name,
+    }
 
 
 def _has_long_running_contract(output_schema: dict[str, object]) -> bool:
