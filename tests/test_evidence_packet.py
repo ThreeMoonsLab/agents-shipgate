@@ -65,7 +65,7 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.3"
+    assert packet.packet_schema_version == "0.4"
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):
@@ -302,6 +302,100 @@ def test_html_escapes_user_controlled_strings():
     assert "&lt;img src=x onerror=alert(1)&gt;" in html
 
 
+def test_insufficient_evidence_verdict_renders_in_packet():
+    """v0.14: a release_decision with decision='insufficient_evidence'
+    must render verdict='INSUFFICIENT EVIDENCE' in the packet, get the
+    `verdict-insufficient` CSS class, and surface a labelled section
+    heading in markdown."""
+
+    from agents_shipgate.core.models import (
+        BaselineDelta,
+        EvidenceCoverageDecision,
+        FailPolicy,
+    )
+    from agents_shipgate.packet.builder import _VERDICT_BY_DECISION
+    from agents_shipgate.packet.html import _VERDICT_CLASS
+    from agents_shipgate.packet.models import (
+        ApprovalCoverageSection,
+        CapabilityIntentDiff,
+        DynamicScenariosSection,
+        HighRiskSurfaceSection,
+        HumanInTheLoopEvidence,
+        IdempotencyRiskSection,
+        MemoryIsolationStatus,
+        NotProvenItem,
+        NotProvenSection,
+        ReleaseDecisionSection,
+        ScopeCoverageSection,
+    )
+
+    assert _VERDICT_BY_DECISION["insufficient_evidence"] == "INSUFFICIENT EVIDENCE"
+    assert _VERDICT_CLASS["INSUFFICIENT EVIDENCE"] == "verdict verdict-insufficient"
+
+    decision = ReleaseDecisionSection(
+        decision="insufficient_evidence",
+        verdict="INSUFFICIENT EVIDENCE",
+        reason="Evidence coverage below threshold (2 low-confidence tool(s)).",
+        evidence_coverage=EvidenceCoverageDecision(
+            level="static",
+            human_review_recommended=True,
+            source_warning_count=0,
+            low_confidence_tool_count=2,
+        ),
+        baseline_delta=BaselineDelta(enabled=False),
+        fail_policy=FailPolicy(
+            ci_mode="advisory",
+            fail_on=[],
+            new_findings_only=False,
+            would_fail_ci=False,
+            exit_code=0,
+        ),
+    )
+    packet = EvidencePacket(
+        generated_at=GENERATED_AT,
+        run_id="r",
+        project={"name": "p"},
+        agent={"name": "a"},
+        environment={"target": "local"},
+        release_decision=decision,
+        capability_intent=CapabilityIntentDiff(
+            status="not_declared",
+            declared_purpose=[],
+            prohibited_actions=[],
+            observed_tools=[],
+            rows=[],
+            divergence_findings=[],
+        ),
+        high_risk_surface=HighRiskSurfaceSection(
+            status="informational",
+            total_tools=0,
+            high_risk_count=0,
+            tools=[],
+        ),
+        approval_coverage=ApprovalCoverageSection(status="informational"),
+        idempotency_risk=IdempotencyRiskSection(status="informational"),
+        scope_coverage=ScopeCoverageSection(status="informational"),
+        memory_isolation=MemoryIsolationStatus(),
+        human_in_the_loop=HumanInTheLoopEvidence(status="not_declared"),
+        dynamic_scenarios=DynamicScenariosSection(status="informational"),
+        not_proven=NotProvenSection(
+            headline=PACKET_NON_PROOF_HEADLINE,
+            unconditional=[
+                NotProvenItem(label=label, body=body)
+                for label, body in PACKET_NON_PROOF
+            ],
+        ),
+    )
+
+    html = render_packet_html(packet)
+    assert "verdict-insufficient" in html
+    assert "INSUFFICIENT EVIDENCE" in html
+
+    md = render_packet_markdown(packet)
+    assert "INSUFFICIENT EVIDENCE" in md
+    assert "`insufficient_evidence`" in md
+
+
 def test_load_packet_json_rejects_wrong_schema_version():
     bogus = {
         "packet_schema_version": "9.9",
@@ -331,7 +425,7 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.3"
+    assert upgraded.packet_schema_version == "0.4"
     assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
         HITL_RUNTIME_CONTROL_DISCLAIMER
     )
@@ -339,7 +433,7 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
     assert upgraded.human_in_the_loop.provenance_mode == "unavailable"
 
 
-def test_load_packet_json_upgrades_v01_to_v03(tmp_path):
+def test_load_packet_json_upgrades_v01_to_v04(tmp_path):
     _, packet = _scan_with_packet(tmp_path)
     payload = serialize_packet_json(packet)
     payload["packet_schema_version"] = "0.1"
@@ -351,7 +445,7 @@ def test_load_packet_json_upgrades_v01_to_v03(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.3"
+    assert upgraded.packet_schema_version == "0.4"
     assert upgraded.tool_surface_diff.status == "not_declared"
     assert upgraded.tool_surface_diff.enabled is False
     assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
@@ -567,7 +661,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.3"
+    assert reloaded.packet_schema_version == "0.4"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
@@ -698,7 +792,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.3"
+    assert payload["packet_schema_version"] == "0.4"
     assert payload["run_id"] == packet.run_id
 
 

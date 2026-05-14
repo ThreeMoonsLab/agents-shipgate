@@ -8,6 +8,7 @@ from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.models import Agent, N8nArtifacts, Tool
@@ -1010,22 +1011,26 @@ n8n:
         agent=Agent(id="agent:n8n-agent", name="n8n-agent"),
         tools=[],
         config_path=project / "shipgate.yaml",
-        n8n_artifacts=N8nArtifacts(
-            tool_inventory_files=["mcp-tools.json"],
-            dynamic_tool_surfaces=[
-                {
-                    "kind": "mcp_client_wildcard",
-                    "source_ref": "workflow.json#node:mcp-client",
-                    "source_path": "workflow.json",
-                    "source_pointer": "/nodes/mcp-client",
-                },
-                {
-                    "kind": "runtime_tool_name",
-                    "source_ref": "workflow.json#node:runtime-tool",
-                    "source_path": "workflow.json",
-                    "source_pointer": "/nodes/runtime-tool",
-                },
-            ],
+        framework_artifacts=ArtifactBag(
+            {
+                "n8n": N8nArtifacts(
+                    tool_inventory_files=["mcp-tools.json"],
+                    dynamic_tool_surfaces=[
+                        {
+                            "kind": "mcp_client_wildcard",
+                            "source_ref": "workflow.json#node:mcp-client",
+                            "source_path": "workflow.json",
+                            "source_pointer": "/nodes/mcp-client",
+                        },
+                        {
+                            "kind": "runtime_tool_name",
+                            "source_ref": "workflow.json#node:runtime-tool",
+                            "source_path": "workflow.json",
+                            "source_pointer": "/nodes/runtime-tool",
+                        },
+                    ],
+                )
+            }
         ),
     )
 

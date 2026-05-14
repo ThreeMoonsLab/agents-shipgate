@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import CodexPluginArtifacts
 
 
 def run(context: ScanContext):
     findings = []
     if not context.tools:
-        if context.codex_plugin_artifacts is None:
+        if context.artifact("codex_plugin", CodexPluginArtifacts) is None:
             findings.append(
                 agent_finding(
                     check_id="SHIP-INVENTORY-NOT-ENUMERABLE",

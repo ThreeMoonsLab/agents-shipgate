@@ -6,8 +6,8 @@ Target: local
 
 ## Release Decision
 
-Decision: review_required
-Reason: Static-only scan with low-confidence evidence; human review recommended.
+Decision: insufficient_evidence
+Reason: Evidence coverage below threshold \(2 low-confidence tool\(s\)\); scan results are not trustworthy enough to gate release.
 
 Blockers (0): none
 

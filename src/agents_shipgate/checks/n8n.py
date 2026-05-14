@@ -6,7 +6,7 @@ from agents_shipgate.checks._framework_common import (
 )
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Finding, SourceReference
+from agents_shipgate.core.models import Finding, N8nArtifacts, SourceReference
 
 N8N_TOOL_SOURCE_TYPES = {
     "n8n_ai_tool",
@@ -18,7 +18,7 @@ N8N_TOOL_SOURCE_TYPES = {
 
 
 def run(context: ScanContext) -> list[Finding]:
-    artifacts = context.n8n_artifacts
+    artifacts = context.artifact("n8n", N8nArtifacts)
     if not artifacts:
         return []
 

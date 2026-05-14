@@ -61,7 +61,7 @@ Your job is to drive the canonical 4-call flow end-to-end in one tool-using turn
    The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
 
    **Read these first for release gating (v0.8+):**
-   - `release_decision.decision` ∈ `{"blocked", "review_required", "passed"}` — baseline-aware. This is the gating signal.
+   - `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` — baseline-aware. This is the gating signal. `insufficient_evidence` (v0.14+) fires when evidence coverage is degraded past threshold; treat unknown future values as `review_required`.
    - `release_decision.{reason, blockers, review_items, fail_policy.would_fail_ci}`
 
    **Read these for release review (v0.9+):**

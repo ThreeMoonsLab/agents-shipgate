@@ -6,10 +6,11 @@ from agents_shipgate.checks._framework_common import (
 )
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import CrewAiArtifacts
 
 
 def run(context: ScanContext):
-    artifacts = context.crewai_artifacts
+    artifacts = context.artifact("crewai", CrewAiArtifacts)
     if not artifacts:
         return []
 

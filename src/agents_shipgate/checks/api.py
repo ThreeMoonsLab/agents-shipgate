@@ -8,7 +8,7 @@ from agents_shipgate.core.heuristics import (
     BROAD_FREE_TEXT_PARAMETER_NAMES,
     RISKY_NUMERIC_PARAMETER_NAMES,
 )
-from agents_shipgate.core.models import Tool, ToolParameter
+from agents_shipgate.core.models import AnthropicArtifacts, OpenAIApiArtifacts, Tool, ToolParameter
 from agents_shipgate.core.risk_hints import (
     has_risk_tag,
     is_high_risk_tool,
@@ -29,7 +29,10 @@ CONFIRMATION_PROMPT_TERMS = ("confirm", "confirmation", "explicit consent", "ask
 
 
 def run(context: ScanContext):
-    if context.api_artifacts is None and context.anthropic_artifacts is None:
+    if (
+        context.artifact("openai_api", OpenAIApiArtifacts) is None
+        and context.artifact("anthropic_api", AnthropicArtifacts) is None
+    ):
         return []
     findings = []
     findings.extend(_function_schema_strictness(context))
@@ -71,7 +74,7 @@ def _structured_output_readiness(context: ScanContext):
     # OpenAI-only tool filter so a mixed manifest (anthropic + openai_api)
     # doesn't list Anthropic tools as high-risk under an OpenAI-shaped
     # finding.
-    artifacts = context.api_artifacts
+    artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
     if artifacts is None:
         return []
     high_risk_tools = [
@@ -126,13 +129,12 @@ def _structured_output_readiness(context: ScanContext):
 
 def _prompt_tool_scope_mismatch(context: ScanContext):
     prompt_segments: list[str] = []
-    if context.api_artifacts is not None and context.api_artifacts.prompt_text:
-        prompt_segments.append(context.api_artifacts.prompt_text)
-    if (
-        context.anthropic_artifacts is not None
-        and context.anthropic_artifacts.prompt_text
-    ):
-        prompt_segments.append(context.anthropic_artifacts.prompt_text)
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    anthropic_artifacts = context.artifact("anthropic_api", AnthropicArtifacts)
+    if api_artifacts is not None and api_artifacts.prompt_text:
+        prompt_segments.append(api_artifacts.prompt_text)
+    if anthropic_artifacts is not None and anthropic_artifacts.prompt_text:
+        prompt_segments.append(anthropic_artifacts.prompt_text)
     if not prompt_segments:
         return []
     prompt = "\n\n".join(prompt_segments).lower()
@@ -197,7 +199,7 @@ def _operational_readiness(context: ScanContext):
     # fire OpenAI-shaped findings against Anthropic tools that have no
     # response_formats / retry_policy / test_cases / tool_output_schemas
     # to satisfy. See plan §5.
-    artifacts = context.api_artifacts
+    artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
     if artifacts is None:
         return []
     findings = []
@@ -289,7 +291,7 @@ def _operational_readiness(context: ScanContext):
 
 
 def _append_trace_findings(findings: list, context: ScanContext) -> None:
-    artifacts = context.api_artifacts
+    artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
     if artifacts is None:
         return
     approval_tools = context.manifest.policies.approval_tools() | artifacts.approval_tools()

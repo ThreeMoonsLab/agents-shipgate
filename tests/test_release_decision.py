@@ -155,7 +155,12 @@ def test_clean_scan_with_high_confidence_tools_passes():
     assert decision.fail_policy.would_fail_ci is False
 
 
-def test_clean_scan_with_low_confidence_tool_is_review_required():
+def test_all_tools_low_confidence_is_insufficient_evidence():
+    """Under the v0.14 ratio rule (ceil(N * 0.5) with min 1), a 1-of-1
+    low-confidence scan trips the gate — 0-of-1 confidence rate is
+    degraded by definition. The previous behavior routed this to
+    review_required; v0.14 introduces insufficient_evidence to
+    distinguish "scan is shaky" from "review the findings."""
     report = _report(
         tools=[_tool(confidence="low")],
         summary_status="human_review_recommended",
@@ -164,11 +169,149 @@ def test_clean_scan_with_low_confidence_tool_is_review_required():
     decision = _build(
         report, ci_mode="strict", tools=[_tool(confidence="low")]
     )
-    assert decision.decision == "review_required"
-    assert decision.review_items == []  # no findings, just evidence gate
-    assert decision.evidence_coverage.human_review_recommended is True
+    assert decision.decision == "insufficient_evidence"
+    assert decision.review_items == []
     assert decision.evidence_coverage.low_confidence_tool_count == 1
     assert "low-confidence" in decision.reason
+
+
+def test_majority_low_confidence_tools_is_insufficient_evidence():
+    """2 of 3 tools low-confidence (>= ceil(3 * 0.5) = 2) trips the
+    insufficient_evidence gate."""
+    tools = [
+        _tool(name="a", confidence="low"),
+        _tool(name="b", confidence="low"),
+        _tool(name="c", confidence="high"),
+    ]
+    report = _report(
+        tools=tools,
+        summary_status="human_review_recommended",
+        human_review_recommended=True,
+    )
+    decision = _build(report, ci_mode="strict", tools=tools)
+    assert decision.decision == "insufficient_evidence"
+    assert decision.evidence_coverage.low_confidence_tool_count == 2
+
+
+def test_sub_threshold_low_confidence_is_review_required():
+    """1 of 3 low-confidence tools (count 1 < threshold 2) stays at
+    review_required — via human_review_recommended."""
+    tools = [
+        _tool(name="a", confidence="low"),
+        _tool(name="b", confidence="high"),
+        _tool(name="c", confidence="high"),
+    ]
+    report = _report(
+        tools=tools,
+        summary_status="human_review_recommended",
+        human_review_recommended=True,
+    )
+    decision = _build(report, ci_mode="strict", tools=tools)
+    assert decision.decision == "review_required"
+    assert decision.evidence_coverage.low_confidence_tool_count == 1
+
+
+def test_four_source_warnings_is_insufficient_evidence():
+    """Source-warning threshold is > 3 (strict). 4 warnings trip."""
+    report = _report(
+        tools=[_tool(confidence="high")],
+        source_warnings=["w1", "w2", "w3", "w4"],
+    )
+    decision = _build(
+        report, ci_mode="strict", tools=[_tool(confidence="high")]
+    )
+    assert decision.decision == "insufficient_evidence"
+    assert decision.evidence_coverage.source_warning_count == 4
+    assert "4 source warning(s)" in decision.reason
+
+
+def test_three_source_warnings_is_review_required():
+    """Boundary: exactly 3 source warnings is at the limit; > 3 trips.
+    3 should stay at review_required via the explicit source-warning
+    routing branch."""
+    report = _report(
+        tools=[_tool(confidence="high")],
+        source_warnings=["w1", "w2", "w3"],
+    )
+    decision = _build(
+        report, ci_mode="strict", tools=[_tool(confidence="high")]
+    )
+    assert decision.decision == "review_required"
+    assert decision.evidence_coverage.source_warning_count == 3
+
+
+def test_one_source_warning_is_review_required():
+    """The new explicit source_warning_count > 0 routing must fire even
+    when human_review_recommended is False — summarize_findings doesn't
+    feed source warnings into that signal, so without this branch a
+    single warning would silently pass."""
+    report = _report(
+        tools=[_tool(confidence="high")],
+        summary_status="no_release_blockers_detected",
+        human_review_recommended=False,
+        source_warnings=["w1"],
+    )
+    decision = _build(
+        report, ci_mode="strict", tools=[_tool(confidence="high")]
+    )
+    assert decision.decision == "review_required"
+    assert decision.evidence_coverage.source_warning_count == 1
+    assert "source-loader" in decision.reason
+
+
+def test_zero_source_warnings_clean_scan_passes():
+    """Regression guard: 0 warnings + 0 findings + all-high-confidence
+    tools must still produce passed under the new logic."""
+    report = _report(
+        tools=[_tool(confidence="high")],
+        summary_status="no_release_blockers_detected",
+        human_review_recommended=False,
+    )
+    decision = _build(
+        report, ci_mode="strict", tools=[_tool(confidence="high")]
+    )
+    assert decision.decision == "passed"
+
+
+def test_blockers_outrank_insufficient_evidence():
+    """Priority order: blockers always win over evidence-degradation."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[_finding(severity="critical", baseline_status="new")],
+        tools=tools,
+    )
+    decision = _build(report, ci_mode="strict", tools=tools)
+    assert decision.decision == "blocked"
+
+
+def test_insufficient_evidence_outranks_review_required():
+    """Priority order: insufficient_evidence wins over review_required.
+    A medium-severity finding (would normally trigger review_required)
+    plus 2-of-2 low-confidence tools (insufficient_evidence) → the
+    evidence-gate verdict takes precedence."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[_finding(severity="medium", baseline_status="new")],
+        tools=tools,
+        summary_status="human_review_recommended",
+        human_review_recommended=True,
+    )
+    decision = _build(report, ci_mode="strict", tools=tools)
+    assert decision.decision == "insufficient_evidence"
+    assert len(decision.review_items) == 1
+
+
+def test_insufficient_evidence_reason_lists_both_counts():
+    """When both gates trip, the reason names both counts."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        tools=tools,
+        source_warnings=["w1", "w2", "w3", "w4"],
+    )
+    decision = _build(report, ci_mode="strict", tools=tools)
+    assert decision.decision == "insufficient_evidence"
+    assert "2 low-confidence tool(s)" in decision.reason
+    assert "4 source warning(s)" in decision.reason
 
 
 def test_fail_policy_exit_code_matches_exit_code_for_report():

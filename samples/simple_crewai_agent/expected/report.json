@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.13",
+  "report_schema_version": "0.14",
   "run_id": "agents_shipgate_01d24509531ce681",
-  "manifest_dir": "<REPO>/samples/simple_crewai_agent",
+  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/strange-clarke-17c1e7/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
   },
@@ -57,8 +57,8 @@
     "evidence_coverage": "mixed"
   },
   "release_decision": {
-    "decision": "review_required",
-    "reason": "Static-only scan with low-confidence evidence; human review recommended.",
+    "decision": "insufficient_evidence",
+    "reason": "Evidence coverage below threshold (3 low-confidence tool(s) and 1 source warning(s)); scan results are not trustworthy enough to gate release.",
     "blockers": [],
     "review_items": [],
     "evidence_coverage": {
@@ -94,8 +94,8 @@
   ],
   "misalignments": [],
   "release_consequence": {
-    "decision": "review_required",
-    "summary": "0 release-relevant finding(s) require release review before shipping.",
+    "decision": "insufficient_evidence",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 0,
     "fail_policy": {
@@ -247,7 +247,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpdtjiouhk/report.json"
+    "markdown": "/private/tmp/sg_crewai/report.md",
+    "json": "/private/tmp/sg_crewai/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -291,8 +292,8 @@
     "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review."
   ],
   "agent_summary": {
-    "verdict": "review_required",
-    "headline": "Static-only scan with low-confidence evidence; human review recommended.",
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold (3 low-confidence tool(s) and 1 source warning(s)); scan results are not trustworthy enough to gate release.",
     "blocker_count": 0,
     "review_item_count": 0,
     "auto_appliable_patches": 0,
@@ -300,7 +301,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "Static-only scan with low-confidence evidence; human review recommended. Surface this to the user and discuss whether to gather better evidence (e.g. add MCP/OpenAPI inputs, eval traces) or accept the static-only review posture; no machine-applicable fix is available."
+      "why": "Evidence coverage below threshold (3 low-confidence tool(s) and 1 source warning(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
     }
   }
 }

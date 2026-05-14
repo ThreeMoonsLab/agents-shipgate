@@ -269,9 +269,20 @@ def build_agent_summary(
         # (rather than the unhelpful "0 review items flagged" text)
         # and route the agent toward gathering better evidence
         # (#57 review P2: evidence-only review_required).
+        #
+        # v0.14 also routes source_warning_count > 0 to review_required
+        # via an explicit branch in build_release_decision()
+        # (summarize_findings() doesn't fold source warnings into
+        # human_review_recommended, so without including them here a
+        # source-warning-only scan would render as "0 review item(s)
+        # flagged" with no first_recommended_action — losing the
+        # release_decision.reason that has the only useful context).
         evidence_recommended = bool(
             release_decision.evidence_coverage
-            and release_decision.evidence_coverage.human_review_recommended
+            and (
+                release_decision.evidence_coverage.human_review_recommended
+                or release_decision.evidence_coverage.source_warning_count > 0
+            )
         )
 
     active_findings = [f for f in findings if not f.suppressed]
@@ -327,6 +338,26 @@ def build_agent_summary(
             if auto_appliable > 0:
                 head += f"; {auto_appliable} also auto-applicable"
             headline = head + "."
+        elif auto_appliable > 0 and evidence_recommended:
+            # Mixed case: every flagged finding is auto-applicable
+            # *but* evidence coverage is incomplete (low-confidence
+            # tools or source warnings tipped review_required). Saying
+            # "none require human input beyond apply-patches" would
+            # silently drop the evidence-review requirement that the
+            # release_decision.reason explicitly calls out. Surface
+            # both so the agent applies the patches AND asks the
+            # human to review the evidence gap.
+            evidence_clause = reason or (
+                "evidence coverage is incomplete and should be reviewed "
+                "before shipping"
+            )
+            headline = (
+                f"{auto_appliable} auto-applicable finding(s) flagged for "
+                f"release review; {evidence_clause}"
+            )
+            if not headline.endswith("."):
+                headline += "."
+            append_reason = False  # already in headline
         elif auto_appliable > 0:
             headline = (
                 f"{auto_appliable} auto-applicable finding(s) flagged for "
@@ -360,6 +391,20 @@ def build_agent_summary(
             append_reason = False
         if blocker_count:
             headline += f" ({blocker_count} blocker(s) detected.)"
+    elif verdict == "insufficient_evidence":
+        # No specific finding to surface — by definition the issue is
+        # evidence quality, not findings. Surface the release_decision
+        # reason verbatim; it already names the counts and explains why
+        # the scan can't gate release. Falling through to the "Release
+        # ready" branch would lie about a degraded scan.
+        headline = (
+            reason
+            if reason
+            else "Evidence coverage below threshold; scan results not trustworthy enough to gate release."
+        )
+        append_reason = False
+        if blocker_count:
+            headline += f" ({blocker_count} blocker(s) detected.)"
     else:
         headline = (
             "Release ready"
@@ -380,7 +425,11 @@ def build_agent_summary(
         active_findings=active_findings,
         json_report_path=json_report_path,
         evidence_recommended=evidence_recommended,
-        evidence_reason=reason if evidence_recommended else "",
+        evidence_reason=(
+            reason
+            if (evidence_recommended or verdict == "insufficient_evidence")
+            else ""
+        ),
     )
 
     return AgentSummary(
@@ -408,19 +457,61 @@ def _build_first_recommended_action(
     """Deterministic next-step picker for ``agent_summary``.
 
     Order (highest impact first):
-    1. Auto-applicable patches available → propose ``apply-patches``,
+    1. Verdict is insufficient_evidence → emit an info action that
+       surfaces the evidence reason and recommends gathering deeper
+       sources (MCP, OpenAPI inputs, eval traces). Checked before
+       auto-apply because applying patches does NOT clear an evidence
+       verdict — the scan results are not trustworthy enough to gate
+       release, and running apply-patches first would contradict the
+       headline. Tell the agent to fix the trust problem before
+       cleaning up findings.
+    2. Auto-applicable patches available → propose ``apply-patches``,
        but only as a ``command`` action when we know the actual JSON
        report path (so the command never points at the wrong file).
        Otherwise emit ``kind: "info"`` with a parameterised hint.
-    2. Verdict is blocked → surface the top blocker for review.
-    3. Verdict is review_required → walk the top review item.
-    4. Verdict is passed → no action (None).
+    3. Verdict is blocked → surface the top blocker for review.
+    4. Verdict is review_required → walk the top review item.
+    5. Verdict is passed → no action (None).
     """
+    if verdict == "insufficient_evidence":
+        base = (
+            evidence_reason
+            or "Evidence coverage below threshold; scan results are not "
+            "trustworthy enough to gate release."
+        )
+        return AgentSummaryAction(
+            kind="info",
+            command=None,
+            why=(
+                f"{base} Surface this to the user and gather deeper "
+                "evidence (e.g. MCP/OpenAPI inputs, eval traces, "
+                "additional source files) before re-running the scan; "
+                "applying patches does not clear an evidence verdict, "
+                "so no machine-applicable fix is available."
+            ),
+        )
+
     if auto_appliable > 0:
         why = (
             f"{auto_appliable} finding(s) carry high-confidence patches "
             "safe to apply without human review."
         )
+        if verdict == "review_required" and evidence_recommended:
+            # The patches are still worth applying (the scan IS
+            # trustworthy enough to gate at review_required, unlike
+            # the insufficient_evidence path that outranks auto-apply
+            # entirely). But the action's why must call out the
+            # evidence gap so the agent doesn't treat apply-patches
+            # as the *only* next step — the human still needs to
+            # review the source warnings / low-confidence tools.
+            evidence_note = evidence_reason or (
+                "Evidence coverage is incomplete (source warnings or "
+                "low-confidence tools); review before shipping."
+            )
+            why = (
+                f"{why} Note: {evidence_note} Applying patches does not "
+                "address the evidence gap."
+            )
         if json_report_path:
             # shlex.quote so paths with spaces (e.g. macOS
             # "/Users/.../My Project/agents-shipgate-reports/report.json")

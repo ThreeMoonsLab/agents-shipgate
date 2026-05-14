@@ -73,6 +73,7 @@ from agents_shipgate.packet.models import (
 _VERDICT_BY_DECISION: dict[str, VerdictLabel] = {
     "passed": "PASSED",
     "review_required": "REVIEW REQUIRED",
+    "insufficient_evidence": "INSUFFICIENT EVIDENCE",
     "blocked": "BLOCKED",
 }
 

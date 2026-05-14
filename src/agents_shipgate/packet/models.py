@@ -29,7 +29,12 @@ from agents_shipgate.core.models import (
     ToolSurfaceDiffSummary,
 )
 
-VerdictLabel = Literal["PASSED", "REVIEW REQUIRED", "BLOCKED"]
+VerdictLabel = Literal[
+    "PASSED",
+    "REVIEW REQUIRED",
+    "INSUFFICIENT EVIDENCE",
+    "BLOCKED",
+]
 SectionStatus = Literal["covered", "partial", "not_declared", "missing", "informational"]
 HitlProvenanceMode = Literal["fresh_scan", "rebuilt_from_findings", "unavailable"]
 
@@ -256,7 +261,7 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.3"] = "0.3"
+    packet_schema_version: Literal["0.4"] = "0.4"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

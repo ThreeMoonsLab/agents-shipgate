@@ -171,9 +171,9 @@ enable a surface diff and emit a disabled diff note instead.
 The diff is static evidence only. It does not fetch branches in the CLI,
 infer runtime routing, execute tools, or change release gating.
 
-### Release Evidence Packet (v0.3)
+### Release Evidence Packet (v0.4)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.3.json`](docs/packet-schema.v0.3.json). Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.4.json`](docs/packet-schema.v0.4.json). Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, capability_intent, high_risk_surface, tool_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
@@ -209,6 +209,8 @@ These are not stable — assume they may grow but not shrink:
 - **Report `frameworks.{name}` blocks.** New framework summaries (e.g. `frameworks.langchain`) may appear.
 - **Manifest fields.** New optional fields under existing sections.
 - **Check default severities.** May tighten over time. To pin a severity for your repo, use `checks.severity_overrides`.
+- **`release_decision.decision` enum values.** New states (e.g., `insufficient_evidence` added at `report_schema_version` 0.14) may be added. Consumers that switch on the enum MUST fall back to `review_required` for unrecognized values — that is the safe default. Existing values' meanings will not change. New states do not change CI exit codes (exit 20 still requires a `fail_on` match on actual findings).
+- **`agent_summary.verdict` enum values.** Mirror `release_decision.decision`; same additivity and fallback rule.
 
 ---
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import AnthropicArtifacts, OpenAIApiArtifacts
 from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, risk_tags
 
 APPROVAL_TAGS = {
@@ -22,12 +23,14 @@ def run(context: ScanContext):
     findings = []
     approval_tools = set(context.manifest.policies.approval_tools())
     confirmation_tools = set(context.manifest.policies.confirmation_tools())
-    if context.api_artifacts:
-        approval_tools.update(context.api_artifacts.approval_tools())
-        confirmation_tools.update(context.api_artifacts.confirmation_tools())
-    if context.anthropic_artifacts:
-        approval_tools.update(context.anthropic_artifacts.approval_tools())
-        confirmation_tools.update(context.anthropic_artifacts.confirmation_tools())
+    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
+    if api_artifacts:
+        approval_tools.update(api_artifacts.approval_tools())
+        confirmation_tools.update(api_artifacts.confirmation_tools())
+    anthropic_artifacts = context.artifact("anthropic_api", AnthropicArtifacts)
+    if anthropic_artifacts:
+        approval_tools.update(anthropic_artifacts.approval_tools())
+        confirmation_tools.update(anthropic_artifacts.confirmation_tools())
     for tool in context.tools:
         if is_effectively_read_only(tool):
             continue

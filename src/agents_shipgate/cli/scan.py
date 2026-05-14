@@ -10,6 +10,7 @@ from agents_shipgate.checks.registry import run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.baseline import apply_baseline, load_baseline
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
@@ -34,18 +35,16 @@ from agents_shipgate.core.models import (
     OpenAIApiArtifacts,
     ReadinessReport,
     Tool,
+    ValidationArtifacts,
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
-from agents_shipgate.inputs.frameworks import load_framework_artifacts
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
-    ArtifactBag,
     LoadedAdapterResult,
     ToolSourceAdapter,
 )
-from agents_shipgate.inputs.validation import load_validation_artifacts
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.packet.html import write_packet_html
 from agents_shipgate.packet.json_packet import write_packet_json
@@ -119,15 +118,14 @@ def run_scan(
 
     base_dir = config_path.resolve().parent
     loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
-    framework_result = load_framework_artifacts(manifest, base_dir, artifact_bag)
-    adk_artifacts = framework_result.adk_artifacts
-    langchain_artifacts = framework_result.langchain_artifacts
-    crewai_artifacts = framework_result.crewai_artifacts
-    n8n_artifacts = framework_result.n8n_artifacts
+    adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
+    langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
+    crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
+    n8n_artifacts = artifact_bag.get("n8n", N8nArtifacts)
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
+    validation_artifacts = artifact_bag.get("validation", ValidationArtifacts)
     logger.debug(
         "loaded sources",
         extra={
@@ -141,24 +139,15 @@ def run_scan(
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
-    if adk_artifacts:
-        warnings.extend(adk_artifacts.warnings)
-    if langchain_artifacts:
-        warnings.extend(langchain_artifacts.warnings)
-    if crewai_artifacts:
-        warnings.extend(crewai_artifacts.warnings)
-    if codex_plugin_artifacts:
-        warnings.extend(codex_plugin_artifacts.warnings)
-    if n8n_artifacts:
-        warnings.extend(n8n_artifacts.warnings)
-    if validation_artifacts:
-        warnings.extend(validation_artifacts.warnings)
+    warnings.extend(_artifact_warnings(artifact_bag))
     policy_packs = load_policy_packs(
         manifest,
         base_dir,
         cli_policy_packs=policy_pack_paths,
     )
     warnings.extend(policy_packs.warnings)
+    # Some adapters expose the same warnings through both LoadedToolSource
+    # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     tools = enrich_tools_with_risk_hints(manifest, tools)
     logger.debug(
@@ -192,14 +181,7 @@ def run_scan(
         agent=agent,
         tools=tools,
         config_path=config_path.resolve(),
-        api_artifacts=api_artifacts,
-        anthropic_artifacts=anthropic_artifacts,
-        adk_artifacts=adk_artifacts,
-        langchain_artifacts=langchain_artifacts,
-        crewai_artifacts=crewai_artifacts,
-        codex_plugin_artifacts=codex_plugin_artifacts,
-        n8n_artifacts=n8n_artifacts,
-        validation_artifacts=validation_artifacts,
+        framework_artifacts=artifact_bag,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
@@ -392,32 +374,21 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             }
         )
     loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
-    framework_result = load_framework_artifacts(manifest, base_dir, artifact_bag)
-    adk_artifacts = framework_result.adk_artifacts
-    langchain_artifacts = framework_result.langchain_artifacts
-    crewai_artifacts = framework_result.crewai_artifacts
-    n8n_artifacts = framework_result.n8n_artifacts
+    adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
+    langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
+    crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
+    n8n_artifacts = artifact_bag.get("n8n", N8nArtifacts)
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    validation_artifacts = load_validation_artifacts(manifest.validation, base_dir)
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
-    if adk_artifacts:
-        warnings.extend(adk_artifacts.warnings)
-    if langchain_artifacts:
-        warnings.extend(langchain_artifacts.warnings)
-    if crewai_artifacts:
-        warnings.extend(crewai_artifacts.warnings)
-    if codex_plugin_artifacts:
-        warnings.extend(codex_plugin_artifacts.warnings)
-    if n8n_artifacts:
-        warnings.extend(n8n_artifacts.warnings)
-    if validation_artifacts:
-        warnings.extend(validation_artifacts.warnings)
+    warnings.extend(_artifact_warnings(artifact_bag))
     policy_packs = load_policy_packs(manifest, base_dir)
     warnings.extend(policy_packs.warnings)
+    # Some adapters expose the same warnings through both LoadedToolSource
+    # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     return {
         "project": manifest.project.name,
@@ -548,13 +519,13 @@ def _load_sources(
       1. per-source loaders in tool_sources declared order
       2. per-scan adapters in REGISTRY iteration order:
          google_adk → langchain → crewai → n8n → openai_api
-         → anthropic_api → codex_plugin
+         → anthropic_api → codex_plugin → validation
 
     Per-scan adapters are invoked unconditionally in pass 2, in
     canonical order — NOT in tool_sources declared order. This matches
-    today's run_scan exactly: framework loaders fire once per scan via
-    load_framework_artifacts in a fixed order, and the manifest-only
-    loaders (openai_api, anthropic_api) and codex_plugin trail them.
+    today's run_scan exactly: framework loaders fire once per scan in
+    fixed order, and the manifest-only loaders (openai_api,
+    anthropic_api) and codex_plugin trail them.
     Per-scan source types appearing in tool_sources are ignored by
     pass 1 — they would be redundant; framework loaders already iterate
     every matching entry internally via the manifest.
@@ -588,6 +559,15 @@ def _load_sources(
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 
     return per_source_loaded + per_scan_loaded, bag
+
+
+def _artifact_warnings(artifact_bag: ArtifactBag) -> list[str]:
+    warnings: list[str] = []
+    for artifact in artifact_bag.raw().values():
+        artifact_warnings = getattr(artifact, "warnings", None)
+        if isinstance(artifact_warnings, list):
+            warnings.extend(str(warning) for warning in artifact_warnings)
+    return warnings
 
 
 def _absorb(

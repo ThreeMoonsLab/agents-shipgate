@@ -6,12 +6,12 @@ from agents_shipgate.checks._framework_common import (
 )
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import GoogleAdkToolset
+from agents_shipgate.core.models import GoogleAdkArtifacts, GoogleAdkToolset
 from agents_shipgate.core.risk_hints import is_high_risk_tool
 
 
 def run(context: ScanContext):
-    artifacts = context.adk_artifacts
+    artifacts = context.artifact("google_adk", GoogleAdkArtifacts)
     if not artifacts:
         return []
 
@@ -170,7 +170,8 @@ def run(context: ScanContext):
 
 
 def _has_explicit_inventory(context: ScanContext) -> bool:
-    if context.adk_artifacts and context.adk_artifacts.tool_inventory_files:
+    artifacts = context.artifact("google_adk", GoogleAdkArtifacts)
+    if artifacts and artifacts.tool_inventory_files:
         return True
     return any(
         source.type in {"mcp", "openapi"}

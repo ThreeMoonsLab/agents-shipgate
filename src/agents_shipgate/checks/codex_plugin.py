@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import CodexPluginArtifacts
 
 
 def run(context: ScanContext):
-    artifacts = context.codex_plugin_artifacts
+    artifacts = context.artifact("codex_plugin", CodexPluginArtifacts)
     if artifacts is None:
         return []
 

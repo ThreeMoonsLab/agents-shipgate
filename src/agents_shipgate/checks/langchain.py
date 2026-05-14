@@ -6,10 +6,11 @@ from agents_shipgate.checks._framework_common import (
 )
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.models import LangChainArtifacts
 
 
 def run(context: ScanContext):
-    artifacts = context.langchain_artifacts
+    artifacts = context.artifact("langchain", LangChainArtifacts)
     if not artifacts:
         return []
 

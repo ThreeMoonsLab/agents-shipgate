@@ -68,6 +68,29 @@ def test_agent_action_enum_values():
     )
 
 
+EXPECTED_AGENT_SUMMARY_VERDICTS = {
+    "blocked",
+    "review_required",
+    "insufficient_evidence",
+    "passed",
+}
+
+
+def test_agent_summary_verdict_enum_values():
+    """The agent_summary.verdict enum mirrors release_decision.decision
+    and is a public contract surface. Pin the exact set so additions
+    or removals trip a test in the same PR — and so the verdict stays
+    in lockstep with ReleaseDecisionStatus."""
+    verdict_field = AgentSummary.model_fields["verdict"]
+    verdict_values = set(get_args(verdict_field.annotation))
+    assert verdict_values == EXPECTED_AGENT_SUMMARY_VERDICTS, (
+        "AgentSummary.verdict diverged from the public contract. If "
+        "you're adding or removing a value, update STABILITY.md and "
+        "docs/agent-contract-current.md in the same PR, and ensure "
+        "ReleaseDecisionStatus carries the same value (they must mirror)."
+    )
+
+
 # --- derive_agent_action contract --------------------------------------
 
 
@@ -678,6 +701,166 @@ def test_build_agent_summary_review_required_routes_to_review():
     assert summary.first_recommended_action is not None
     assert summary.first_recommended_action.kind == "info"
     assert "review item" in summary.first_recommended_action.why.lower()
+
+
+def test_auto_apply_plus_evidence_gap_surfaces_both():
+    """Mixed case: every flagged finding is auto-applicable AND
+    evidence coverage is incomplete (1 source warning tipped
+    review_required). The old code took the auto-apply branch and
+    silently dropped the evidence-review requirement, so the headline
+    became "none require human input beyond apply-patches" and the
+    action was a bare apply-patches command with no evidence note —
+    even though release_decision.reason called out the source
+    warning. Now both surfaces mention the evidence gap. Regression
+    for PR #70 review (mixed review_required + evidence)."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    reason = "1 source-loader warning; review evidence before shipping."
+    decision = _make_release_decision(
+        decision="review_required",
+        review_items=["SHIP-MANIFEST-STALE-SUPPRESSION"],
+        reason=reason,
+    )
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=False,
+        source_warning_count=1,
+        low_confidence_tool_count=0,
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=decision,
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+    )
+    assert summary.verdict == "review_required"
+    assert summary.auto_appliable_patches == 1
+    # Headline must surface BOTH: that patches are auto-applicable
+    # AND that evidence still needs review. The old "none require
+    # human input" phrasing would silently drop the evidence
+    # requirement.
+    assert "auto-applicable" in summary.headline
+    assert "none require human input" not in summary.headline
+    assert (
+        "source-loader" in summary.headline
+        or "evidence" in summary.headline.lower()
+    )
+    # Action: apply-patches is still useful (scan IS trustworthy
+    # enough to gate at review_required), but the why must mention
+    # the evidence gap so apply-patches isn't treated as the only
+    # next step.
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "command"
+    assert "apply-patches" in (summary.first_recommended_action.command or "")
+    why = summary.first_recommended_action.why
+    assert "evidence" in why.lower() or "source-loader" in why
+    assert "does not address" in why.lower() or "review" in why.lower()
+
+
+def test_source_warning_only_review_required_surfaces_reason():
+    """v0.14 routes `source_warning_count > 0` (sub-threshold) to
+    review_required via an explicit branch in build_release_decision.
+    summarize_findings() does NOT fold source warnings into
+    `human_review_recommended`, so without including them in the
+    agent_summary evidence-recommended path, a scan with 1 source
+    warning, no findings, and high-confidence tools renders as
+    "0 review item(s) flagged for release review." with
+    first_recommended_action == None — losing the release_decision
+    reason. Regression for PR #70 review P2."""
+    reason = "1 source-loader warning; review evidence before shipping."
+    decision = _make_release_decision(
+        decision="review_required",
+        reason=reason,
+        evidence_human_review_recommended=False,
+    )
+    # Tip evidence_coverage.source_warning_count to 1 manually since
+    # the helper defaults to 0.
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=False,
+        source_warning_count=1,
+        low_confidence_tool_count=0,
+    )
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=decision,
+    )
+    assert summary.verdict == "review_required"
+    assert summary.review_item_count == 0
+    # Headline must surface the reason verbatim, NOT
+    # "0 review item(s) flagged for release review."
+    assert "0 review item(s)" not in summary.headline
+    assert reason in summary.headline
+    # first_recommended_action must be the evidence-improvement info
+    # action, not None.
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    assert "evidence" in summary.first_recommended_action.why.lower()
+
+
+def test_insufficient_evidence_outranks_auto_apply_in_first_action():
+    """When a scan is insufficient_evidence AND has auto-applicable
+    patches, first_recommended_action must surface the
+    evidence-gathering hint — not apply-patches. Applying patches
+    does NOT clear an evidence verdict (the scan results are still
+    untrustworthy), so recommending apply-patches would directly
+    contradict the headline. Regression for PR #70 review P2.1."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=_make_release_decision(
+            decision="insufficient_evidence",
+            reason=(
+                "Evidence coverage below threshold "
+                "(2 low-confidence tool(s))."
+            ),
+        ),
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+    )
+    assert summary.verdict == "insufficient_evidence"
+    assert summary.auto_appliable_patches == 1
+    assert summary.first_recommended_action is not None
+    # Must NOT propose apply-patches.
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    why = summary.first_recommended_action.why
+    assert "gather deeper evidence" in why
+    assert "apply-patches" not in why or "does not clear" in why
+
+
+def test_build_agent_summary_insufficient_evidence_uses_reason_as_headline():
+    """A `insufficient_evidence` verdict must NOT fall through to the
+    "Release ready" else-branch. The headline should surface the
+    release_decision.reason verbatim, and first_recommended_action
+    should be the evidence-improvement info action (not a blocker/
+    review pointer and not None)."""
+    reason = (
+        "Evidence coverage below threshold (2 low-confidence tool(s)); "
+        "scan results are not trustworthy enough to gate release."
+    )
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=_make_release_decision(
+            decision="insufficient_evidence",
+            reason=reason,
+        ),
+    )
+    assert summary.verdict == "insufficient_evidence"
+    assert summary.headline.startswith("Evidence coverage below threshold")
+    assert "Release ready" not in summary.headline
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    why = summary.first_recommended_action.why
+    assert "gather deeper evidence" in why
+    assert reason in why
 
 
 def test_build_agent_summary_passed_with_no_release_decision():
