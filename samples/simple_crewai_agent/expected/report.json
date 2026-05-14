@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.14",
+  "report_schema_version": "0.15",
   "run_id": "agents_shipgate_01d24509531ce681",
-  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/strange-clarke-17c1e7/samples/simple_crewai_agent",
+  "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
   },
@@ -247,8 +247,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "/private/tmp/sg_crewai/report.md",
-    "json": "/private/tmp/sg_crewai/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpvy9fskud/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpvy9fskud/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

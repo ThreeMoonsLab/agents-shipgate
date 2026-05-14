@@ -84,3 +84,27 @@ def agent_finding(
 
 def _manifest_ref(config_path: Path) -> str:
     return config_path.name
+
+
+# v0.14: framework checks (ADK, LangChain, CrewAI) fire against Tools
+# whose source_type is either AST-extracted (Python code) or
+# declaratively loaded (YAML config or inventory JSON). The provenance
+# of a finding follows the underlying Tool: AST-extracted tools are
+# subject to extraction error (`ast_extraction`), declaratively loaded
+# ones are not (`static_declaration`). Used by tool-level callsites
+# inside the framework checks. Agent-level callsites in those checks
+# fire on declared agent-setup facts regardless of how individual
+# tools were obtained, so they hard-code `static_declaration`.
+_FRAMEWORK_DECLARATIVE_SOURCES = frozenset(
+    {
+        "google_adk_config",
+        "langchain_inventory",
+        "crewai_inventory",
+    }
+)
+
+
+def framework_tool_provenance(tool: Tool) -> ProvenanceKind:
+    if tool.source_type in _FRAMEWORK_DECLARATIVE_SOURCES:
+        return "static_declaration"
+    return "ast_extraction"

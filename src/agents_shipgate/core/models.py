@@ -252,8 +252,13 @@ class Finding(BaseModel):
     # synthesized for every finding. Emitted reports always carry a
     # real value: `tool_finding` and `agent_finding` in checks/base.py
     # require the kwarg, and direct constructors in n8n/policy_packs
-    # pass it explicitly. Required + non-nullable on the wire via
-    # scripts/generate_schemas.py.
+    # pass it explicitly. Third-party plugin checks that construct
+    # `Finding(...)` directly without setting this field are coerced
+    # to `"static_declaration"` by `annotate_remediation` in
+    # core/findings.py so the wire schema's required + non-nullable
+    # enum stays satisfied — plugins that want a more specific label
+    # should set the field themselves. Required + non-nullable on the
+    # wire via scripts/generate_schemas.py.
     provenance_kind: ProvenanceKind | None = None
     source: SourceReference | None = None
     recommendation: str

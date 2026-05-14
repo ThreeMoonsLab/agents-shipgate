@@ -153,6 +153,17 @@ def annotate_remediation(
         finding.suggested_patch_kind = suggested_patch_kind
         finding.docs_url = catalog_doc_url
         finding.agent_action = derive_agent_action(finding)
+        # v0.14: ensure every emitted finding carries a real
+        # `provenance_kind`. Built-in checks set it via the required
+        # `tool_finding`/`agent_finding` kwarg. Third-party plugin
+        # checks may still construct `Finding(...)` directly without
+        # the field; coerce None → "static_declaration" so the wire
+        # schema's required + non-nullable enum is satisfied. Plugins
+        # that want a more accurate label should set the field
+        # themselves; this fallback is the conservative declarative
+        # label rather than a sentinel.
+        if finding.provenance_kind is None:
+            finding.provenance_kind = "static_declaration"
     return findings
 
 

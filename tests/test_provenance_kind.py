@@ -1,4 +1,4 @@
-"""Tests for `Finding.provenance_kind` (v0.14).
+"""Tests for `Finding.provenance_kind` (v0.15).
 
 Locks the public enum surface, asserts emitted reports always carry a
 real value (catching forgotten helper-callsite kwargs), and pins the
@@ -25,7 +25,7 @@ SAMPLES = [
     Path("samples/simple_crewai_agent/shipgate.yaml"),
 ]
 
-V14_SCHEMA = Path("docs/report-schema.v0.14.json")
+V15_SCHEMA = Path("docs/report-schema.v0.15.json")
 
 
 def test_provenance_kind_enum_values():
@@ -118,7 +118,7 @@ def test_provenance_kind_not_in_fingerprint():
 
 
 def test_wire_schema_rejects_missing_provenance_kind(tmp_path):
-    """v0.14 wire contract: provenance_kind is required + non-nullable.
+    """v0.15 wire contract: provenance_kind is required + non-nullable.
     A payload missing the field MUST fail jsonschema validation."""
     report, _ = run_scan(
         config_path=SAMPLES[0],
@@ -128,7 +128,7 @@ def test_wire_schema_rejects_missing_provenance_kind(tmp_path):
         packet_enabled=False,
     )
     payload = report_json_payload(report)
-    schema = json.loads(V14_SCHEMA.read_text(encoding="utf-8"))
+    schema = json.loads(V15_SCHEMA.read_text(encoding="utf-8"))
 
     # Sanity check: the unmodified payload validates.
     validate(instance=payload, schema=schema)
@@ -150,8 +150,46 @@ def test_wire_schema_rejects_unknown_provenance_kind(tmp_path):
         packet_enabled=False,
     )
     payload = report_json_payload(report)
-    schema = json.loads(V14_SCHEMA.read_text(encoding="utf-8"))
+    schema = json.loads(V15_SCHEMA.read_text(encoding="utf-8"))
 
     payload["findings"][0]["provenance_kind"] = "made_up_value"
     with pytest.raises(ValidationError):
         validate(instance=payload, schema=schema)
+
+
+def test_annotate_remediation_coerces_plugin_finding_provenance():
+    """Third-party plugin checks may emit `Finding(...)` directly
+    without the new v0.15 kwarg. `annotate_remediation` must coerce
+    `provenance_kind=None` to `"static_declaration"` so the wire
+    schema's required + non-nullable enum is satisfied. Without this
+    fallback, any pre-v0.15 plugin would produce schema-invalid
+    `report.json`."""
+    from agents_shipgate.core.findings import annotate_remediation
+
+    plugin_finding = Finding(
+        check_id="ORG-PLUGIN-TEST",
+        title="t",
+        severity="info",
+        category="test",
+        recommendation="r",
+    )
+    assert plugin_finding.provenance_kind is None
+    annotate_remediation([plugin_finding], check_metadata_lookup={})
+    assert plugin_finding.provenance_kind == "static_declaration"
+
+
+def test_annotate_remediation_preserves_explicit_provenance():
+    """The coercion in `annotate_remediation` must NOT overwrite a
+    provenance value that a check explicitly set."""
+    from agents_shipgate.core.findings import annotate_remediation
+
+    explicit = Finding(
+        check_id="ORG-PLUGIN-TEST",
+        title="t",
+        severity="info",
+        category="test",
+        recommendation="r",
+        provenance_kind="policy_pack",
+    )
+    annotate_remediation([explicit], check_metadata_lookup={})
+    assert explicit.provenance_kind == "policy_pack"
