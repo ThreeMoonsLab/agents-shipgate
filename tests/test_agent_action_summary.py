@@ -703,6 +703,62 @@ def test_build_agent_summary_review_required_routes_to_review():
     assert "review item" in summary.first_recommended_action.why.lower()
 
 
+def test_auto_apply_plus_evidence_gap_surfaces_both():
+    """Mixed case: every flagged finding is auto-applicable AND
+    evidence coverage is incomplete (1 source warning tipped
+    review_required). The old code took the auto-apply branch and
+    silently dropped the evidence-review requirement, so the headline
+    became "none require human input beyond apply-patches" and the
+    action was a bare apply-patches command with no evidence note —
+    even though release_decision.reason called out the source
+    warning. Now both surfaces mention the evidence gap. Regression
+    for PR #70 review (mixed review_required + evidence)."""
+    finding = _make_finding(
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        severity="medium",
+        agent_action="auto_apply",
+    )
+    reason = "1 source-loader warning; review evidence before shipping."
+    decision = _make_release_decision(
+        decision="review_required",
+        review_items=["SHIP-MANIFEST-STALE-SUPPRESSION"],
+        reason=reason,
+    )
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=False,
+        source_warning_count=1,
+        low_confidence_tool_count=0,
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=decision,
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+    )
+    assert summary.verdict == "review_required"
+    assert summary.auto_appliable_patches == 1
+    # Headline must surface BOTH: that patches are auto-applicable
+    # AND that evidence still needs review. The old "none require
+    # human input" phrasing would silently drop the evidence
+    # requirement.
+    assert "auto-applicable" in summary.headline
+    assert "none require human input" not in summary.headline
+    assert (
+        "source-loader" in summary.headline
+        or "evidence" in summary.headline.lower()
+    )
+    # Action: apply-patches is still useful (scan IS trustworthy
+    # enough to gate at review_required), but the why must mention
+    # the evidence gap so apply-patches isn't treated as the only
+    # next step.
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "command"
+    assert "apply-patches" in (summary.first_recommended_action.command or "")
+    why = summary.first_recommended_action.why
+    assert "evidence" in why.lower() or "source-loader" in why
+    assert "does not address" in why.lower() or "review" in why.lower()
+
+
 def test_source_warning_only_review_required_surfaces_reason():
     """v0.14 routes `source_warning_count > 0` (sub-threshold) to
     review_required via an explicit branch in build_release_decision.

@@ -338,6 +338,26 @@ def build_agent_summary(
             if auto_appliable > 0:
                 head += f"; {auto_appliable} also auto-applicable"
             headline = head + "."
+        elif auto_appliable > 0 and evidence_recommended:
+            # Mixed case: every flagged finding is auto-applicable
+            # *but* evidence coverage is incomplete (low-confidence
+            # tools or source warnings tipped review_required). Saying
+            # "none require human input beyond apply-patches" would
+            # silently drop the evidence-review requirement that the
+            # release_decision.reason explicitly calls out. Surface
+            # both so the agent applies the patches AND asks the
+            # human to review the evidence gap.
+            evidence_clause = reason or (
+                "evidence coverage is incomplete and should be reviewed "
+                "before shipping"
+            )
+            headline = (
+                f"{auto_appliable} auto-applicable finding(s) flagged for "
+                f"release review; {evidence_clause}"
+            )
+            if not headline.endswith("."):
+                headline += "."
+            append_reason = False  # already in headline
         elif auto_appliable > 0:
             headline = (
                 f"{auto_appliable} auto-applicable finding(s) flagged for "
@@ -476,6 +496,22 @@ def _build_first_recommended_action(
             f"{auto_appliable} finding(s) carry high-confidence patches "
             "safe to apply without human review."
         )
+        if verdict == "review_required" and evidence_recommended:
+            # The patches are still worth applying (the scan IS
+            # trustworthy enough to gate at review_required, unlike
+            # the insufficient_evidence path that outranks auto-apply
+            # entirely). But the action's why must call out the
+            # evidence gap so the agent doesn't treat apply-patches
+            # as the *only* next step — the human still needs to
+            # review the source warnings / low-confidence tools.
+            evidence_note = evidence_reason or (
+                "Evidence coverage is incomplete (source warnings or "
+                "low-confidence tools); review before shipping."
+            )
+            why = (
+                f"{why} Note: {evidence_note} Applying patches does not "
+                "address the evidence gap."
+            )
         if json_report_path:
             # shlex.quote so paths with spaces (e.g. macOS
             # "/Users/.../My Project/agents-shipgate-reports/report.json")

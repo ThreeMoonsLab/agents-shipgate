@@ -412,7 +412,7 @@ Rules of the packet contract (do not break in 0.x):
 - §10 ("What this packet did NOT prove") **always** lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance — regardless of run state.
 - All reviewer sections are **always present** in `packet.json`, including `tool_surface_diff`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
 - §8 (`human_in_the_loop`) always carries `runtime_control_disclaimer`. When local validation artifacts are available, `source_provenance[]` traces approval traces, override logs, high-risk exclusions, promotion criteria, and manifest requirements.
-- §1 verdict (`PASSED` / `REVIEW REQUIRED` / `BLOCKED`) derives from `release_decision.decision` only. CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
+- §1 verdict (`PASSED` / `REVIEW REQUIRED` / `INSUFFICIENT EVIDENCE` / `BLOCKED`) derives from `release_decision.decision` only (with `INSUFFICIENT EVIDENCE` mirroring the v0.14 `insufficient_evidence` decision value). CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
 - The current manifest schema does **not** model `agent.memory`. §7 always renders "not declared, see §10" until a future schema bump adds the field.
 
 Exit codes (stable):
