@@ -44,6 +44,7 @@ def _stale_suppressions(
                 confidence="high",
                 recommendation="Remove stale suppressions or update them to match current check IDs and tool names.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -70,6 +71,7 @@ def _stale_policies(context: ScanContext, tool_names: set[str]) -> list:
                     confidence="high",
                     recommendation="Remove stale policy entries or update them to current tool names.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
     return findings
@@ -90,6 +92,7 @@ def _stale_overrides(context: ScanContext, tool_names: set[str]) -> list:
                 confidence="high",
                 recommendation="Remove stale risk overrides or update them to current tool names.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -116,6 +119,7 @@ def _missing_high_risk_owners(context: ScanContext) -> list:
                 confidence="high",
                 recommendation="Declare an owner for each high-risk production tool in risk_overrides.tools.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -144,6 +148,7 @@ def _unused_manifest_scopes(context: ScanContext) -> list:
                 confidence="medium",
                 recommendation="Remove unused manifest scopes or add tool metadata showing why they are required.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings

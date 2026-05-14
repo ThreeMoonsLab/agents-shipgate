@@ -39,6 +39,7 @@ def run(context: ScanContext):
                     confidence="high",
                     recommendation=f"Add a clear tool description for {tool.name} so the agent and reviewers can understand intended use.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         secret_matches = _secret_like_matches(description)
@@ -55,6 +56,7 @@ def run(context: ScanContext):
                     confidence="high" if severity == "high" else "medium",
                     recommendation=f"Remove secret-like values from the {tool.name} description and rotate any exposed credentials.",
                     context=context,
+                    provenance_kind="regex_heuristic",
                 )
             )
         injection_matches = _injection_like_matches(description)
@@ -71,6 +73,7 @@ def run(context: ScanContext):
                     confidence="medium",
                     recommendation=f"Rewrite the {tool.name} description as capability metadata, not instructions to the model.",
                     context=context,
+                    provenance_kind="regex_heuristic",
                 )
             )
     return findings

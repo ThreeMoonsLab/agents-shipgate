@@ -32,6 +32,7 @@ def run(context: ScanContext):
                     "LangChain or LangGraph tool lists before release review."
                 ),
                 suppress=lambda _surface: has_inventory,
+                provenance_kind="ast_extraction",
             ),
         )
     )
@@ -60,6 +61,7 @@ def run(context: ScanContext):
                     f"explicit local inventory metadata for LangChain tool {tool.name}."
                 ),
                 context=context,
+                provenance_kind="ast_extraction",
             )
         )
 

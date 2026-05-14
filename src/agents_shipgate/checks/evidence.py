@@ -161,6 +161,7 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
                     "or auto-approval event."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         ]
 
@@ -200,6 +201,7 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
                 "override, bypass, or auto-approval events."
             ),
             context=context,
+            provenance_kind="static_declaration",
         )
     ]
 
@@ -269,6 +271,7 @@ def _high_risk_exclusion_findings(context: ScanContext) -> list[Finding]:
                     "with a reason before targeting limited auto-approval."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -355,6 +358,7 @@ def _promotion_criteria_finding(
             "auto-approval review posture and required evidence flags."
         ),
         context=context,
+        provenance_kind="static_declaration",
     )
 
 
@@ -422,6 +426,7 @@ def _evidence_finding_for_tool(
             confidence="high",
             recommendation=recommendation,
             context=context,
+            provenance_kind="static_declaration",
         )
     return agent_finding(
         check_id=check_id,
@@ -432,6 +437,7 @@ def _evidence_finding_for_tool(
         confidence="medium",
         recommendation=recommendation,
         context=context,
+        provenance_kind="static_declaration",
     )
 
 

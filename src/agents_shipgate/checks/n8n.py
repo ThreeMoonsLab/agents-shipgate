@@ -45,6 +45,7 @@ def run(context: ScanContext) -> list[Finding]:
                 ),
                 explicit_inventory_value=lambda _surface: has_inventory,
                 source_for=_n8n_source,
+                provenance_kind="static_declaration",
             ),
         )
     )
@@ -70,6 +71,7 @@ def run(context: ScanContext) -> list[Finding]:
                         "explicit_inventory": False,
                     },
                     confidence="high",
+                    provenance_kind="static_declaration",
                     source=_n8n_source(toolset),
                     recommendation=(
                         "Select an explicit MCP tool allowlist in n8n or provide a "
@@ -105,6 +107,7 @@ def run(context: ScanContext) -> list[Finding]:
                     f"workflow input schemas, or explicit inventory metadata for {tool.name}."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 
@@ -129,6 +132,7 @@ def run(context: ScanContext) -> list[Finding]:
                     "verify credential types without exposing secret values."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 
@@ -153,6 +157,7 @@ def run(context: ScanContext) -> list[Finding]:
                     "tool-use trajectories for this release."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 
@@ -170,6 +175,7 @@ def run(context: ScanContext) -> list[Finding]:
                     "secret_kind": exposure.get("secret_kind"),
                 },
                 confidence="high",
+                provenance_kind="regex_heuristic",
                 source=_n8n_source(exposure),
                 recommendation=(
                     "Move secret values into n8n credentials or variables and "

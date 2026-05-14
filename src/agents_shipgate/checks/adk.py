@@ -4,7 +4,11 @@ from agents_shipgate.checks._framework_common import (
     DynamicSurfaceConfig,
     collect_dynamic_surface_findings,
 )
-from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.checks.base import (
+    agent_finding,
+    framework_tool_provenance,
+    tool_finding,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import GoogleAdkArtifacts, GoogleAdkToolset
 from agents_shipgate.core.risk_hints import is_high_risk_tool
@@ -40,6 +44,7 @@ def run(context: ScanContext):
                 ),
                 suppress=lambda _surface: explicit_inventory,
                 evidence_value=_adk_dynamic_toolset_evidence,
+                provenance_kind="static_declaration",
             ),
         )
     )
@@ -65,6 +70,7 @@ def run(context: ScanContext):
                         "local MCP tool inventory for review."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 
@@ -92,6 +98,7 @@ def run(context: ScanContext):
                     f"metadata for ADK tool {tool.name}."
                 ),
                 context=context,
+                provenance_kind=framework_tool_provenance(tool),
             )
         )
 
@@ -117,6 +124,7 @@ def run(context: ScanContext):
                     f"contract for long-running ADK tool {tool.name}."
                 ),
                 context=context,
+                provenance_kind=framework_tool_provenance(tool),
             )
         )
 
@@ -140,6 +148,7 @@ def run(context: ScanContext):
                         "approval, confirmation, and validation guardrails."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 
@@ -163,6 +172,7 @@ def run(context: ScanContext):
                     "trajectories for this release."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 

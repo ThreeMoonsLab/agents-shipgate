@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_3f6e9f776047c403
+- Run id: agents\_shipgate\_c88986e383ecb40f
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.4
 

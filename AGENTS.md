@@ -245,8 +245,9 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
+- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for filtering heuristic-only findings)
 
-The full schema is at [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (current; emitted reports carry `report_schema_version: "0.14"`). v0.14 adds the `insufficient_evidence` value to the `release_decision.decision`/`agent_summary.verdict` enums on top of v0.13's `codex_plugin_surface` block (which itself sits over v0.12's per-finding `agent_action` enum and top-level `agent_summary` block). Older reports validate against [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current; emitted reports carry `report_schema_version: "0.15"`). v0.15 adds the per-finding `provenance_kind` enum so agents can filter heuristic-only findings from declarative ones, on top of v0.14's `insufficient_evidence` value in the `release_decision.decision`/`agent_summary.verdict` enums and v0.13's `codex_plugin_surface` block. Older reports validate against [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -312,7 +313,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (current).
+[`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -350,7 +351,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) | `0.14` |
+| Report schema (current) | [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) | `0.15` |
+| Report schema (v0.14 frozen reference) | [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) | `0.14` |
 | Report schema (v0.13 frozen reference) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
 | Report schema (v0.12 frozen reference) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
 | Report schema (v0.11 frozen reference) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |

@@ -63,6 +63,7 @@ def _function_schema_strictness(context: ScanContext):
                     "additionalProperties=false, complete required list, and bounded risky fields."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -94,6 +95,7 @@ def _structured_output_readiness(context: ScanContext):
                     "and needs_review fields where downstream behavior depends on the output."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         ]
 
@@ -122,6 +124,7 @@ def _structured_output_readiness(context: ScanContext):
                     "needs_review/refusal/error modeling, and declared critical fields."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings
@@ -159,6 +162,7 @@ def _prompt_tool_scope_mismatch(context: ScanContext):
                     "Align prompt scope with enabled tools or remove write/high-risk tools."
                 ),
                 context=context,
+                provenance_kind="keyword_heuristic",
             )
         )
     needs_confirmation = [
@@ -187,6 +191,7 @@ def _prompt_tool_scope_mismatch(context: ScanContext):
                     "before financial, destructive, or external customer actions."
                 ),
                 context=context,
+                provenance_kind="keyword_heuristic",
             )
         )
     return findings
@@ -220,6 +225,7 @@ def _operational_readiness(context: ScanContext):
                 confidence="medium",
                 recommendation="Declare retry_policy in openai_api.policy_rules or model_config.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     if high_risk_tools and not timeouts:
@@ -233,6 +239,7 @@ def _operational_readiness(context: ScanContext):
                 confidence="medium",
                 recommendation="Declare tool-call timeout metadata for high-risk OpenAI API flows.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     if high_risk_tools and not artifacts.test_cases:
@@ -246,6 +253,7 @@ def _operational_readiness(context: ScanContext):
                 confidence="medium",
                 recommendation="Add simple OpenAI API test cases for high-risk tool-call flows.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     for tool in high_risk_tools:
@@ -264,6 +272,7 @@ def _operational_readiness(context: ScanContext):
                         "in openai_api policy rules."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         if retry_policy and _needs_idempotency(tool, artifacts):
@@ -284,6 +293,7 @@ def _operational_readiness(context: ScanContext):
                         "this side effect."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
     _append_trace_findings(findings, context)
@@ -313,6 +323,7 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
                     confidence="medium",
                     recommendation=f"Require approval before calling {tool_name}.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         if tool_name in confirmation_tools and event.get("confirmed") is False:
@@ -326,6 +337,7 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
                     confidence="medium",
                     recommendation=f"Require explicit confirmation before calling {tool_name}.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 

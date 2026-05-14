@@ -174,6 +174,13 @@ def write_report_schema() -> None:
                 # but required + non-nullable on the wire — every
                 # emitted report runs annotate_remediation which sets it.
                 "agent_action",
+                # v0.15: per-finding rule provenance. Optional in
+                # Python (None default for legacy v0.12-v0.14 reports
+                # loaded via explain-finding and minimal test
+                # constructions) but required + non-nullable on the
+                # wire — emitted reports always carry a real value
+                # via tool_finding/agent_finding's required kwarg.
+                "provenance_kind",
             ]
         )
         # v0.12: tighten agent_action to the inline enum shape (no
@@ -185,11 +192,19 @@ def write_report_schema() -> None:
         from typing import get_args as _get_args
 
         from agents_shipgate.core.models import AgentAction as _AgentAction
+        from agents_shipgate.core.models import ProvenanceKind as _ProvenanceKind
 
         if "agent_action" in finding_props:
             finding_props["agent_action"] = {
                 "type": "string",
                 "enum": list(_get_args(_AgentAction)),
+            }
+        # v0.15: same tightening for provenance_kind — Python-Optional,
+        # wire-required, inline enum (Literal can't be $ref'd).
+        if "provenance_kind" in finding_props:
+            finding_props["provenance_kind"] = {
+                "type": "string",
+                "enum": list(_get_args(_ProvenanceKind)),
             }
     # v0.12: tighten the AgentSummary block. Pydantic auto-detects
     # required only for fields without defaults (verdict, headline);

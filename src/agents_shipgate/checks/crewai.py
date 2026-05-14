@@ -32,6 +32,7 @@ def run(context: ScanContext):
                     "CrewAI tool lists before release review."
                 ),
                 suppress=lambda _surface: has_inventory,
+                provenance_kind="ast_extraction",
             ),
         )
     )
@@ -60,6 +61,7 @@ def run(context: ScanContext):
                     f"explicit local inventory metadata for CrewAI tool {tool.name}."
                 ),
                 context=context,
+                provenance_kind="ast_extraction",
             )
         )
 

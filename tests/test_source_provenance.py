@@ -214,6 +214,7 @@ def test_tool_finding_forwards_provenance_into_source_reference():
         confidence="high",
         recommendation="rec",
         context=_scan_context(),
+        provenance_kind="static_declaration",
     )
     src = finding.source
     assert src is not None

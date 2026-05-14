@@ -9,6 +9,26 @@ from agents_shipgate.core.patches import Patch
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["low", "medium", "high"]
 BaselineStatus = Literal["new", "matched", "resolved"]
+# v0.15: per-finding provenance kind. Independent of `confidence` —
+# `confidence` records how sure a rule is; `provenance_kind` records
+# *what kind of rule fired* (and what artifact it inspected). Lets
+# agents filter heuristic-only findings from declarative ones.
+#
+# - ``static_declaration`` — value came from manifest/MCP/OpenAPI schema
+#   or other declared metadata.
+# - ``ast_extraction`` — parsed from user Python source (framework
+#   extractors: ADK, LangChain, CrewAI).
+# - ``keyword_heuristic`` — matched a keyword list in core/heuristics or
+#   per-check token sets.
+# - ``regex_heuristic`` — matched a regex (injection, secrets).
+# - ``policy_pack`` — external rule from a loaded policy pack.
+ProvenanceKind = Literal[
+    "static_declaration",
+    "ast_extraction",
+    "keyword_heuristic",
+    "regex_heuristic",
+    "policy_pack",
+]
 # v0.12: per-finding agent action enum.
 #
 # Deterministic projection of the existing `patches`, `autofix_safe`, and
@@ -57,6 +77,12 @@ def parse_confidence(value: str) -> Confidence:
     if value not in get_args(Confidence):
         raise ValueError(f"Unsupported confidence: {value}")
     return cast(Confidence, value)
+
+
+def parse_provenance_kind(value: str) -> ProvenanceKind:
+    if value not in get_args(ProvenanceKind):
+        raise ValueError(f"Unsupported provenance kind: {value}")
+    return cast(ProvenanceKind, value)
 
 
 def confidence_rank(confidence: str | None) -> int:
@@ -216,6 +242,19 @@ class Finding(BaseModel):
     agent_id: str | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
     confidence: Confidence = "medium"
+    # v0.15: records *what kind of rule fired* — declared metadata vs.
+    # parsed AST artifact vs. keyword/regex match vs. external policy
+    # pack. Independent of `confidence` (sureness) and `source` (which
+    # file/pointer the underlying Tool was sourced from).
+    #
+    # Python-Optional with None default so v0.12-v0.14 reports loaded
+    # by explain-finding don't get a misleading "static_declaration"
+    # synthesized for every finding. Emitted reports always carry a
+    # real value: `tool_finding` and `agent_finding` in checks/base.py
+    # require the kwarg, and direct constructors in n8n/policy_packs
+    # pass it explicitly. Required + non-nullable on the wire via
+    # scripts/generate_schemas.py.
+    provenance_kind: ProvenanceKind | None = None
     source: SourceReference | None = None
     recommendation: str
     suppressed: bool = False
@@ -1127,7 +1166,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.14"
+    report_schema_version: str = "0.15"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

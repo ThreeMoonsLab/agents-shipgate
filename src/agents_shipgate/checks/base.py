@@ -5,6 +5,7 @@ from pathlib import Path
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import (
     Finding,
+    ProvenanceKind,
     SourceReference,
     Tool,
     parse_confidence,
@@ -24,6 +25,7 @@ def tool_finding(
     confidence: str,
     recommendation: str,
     context: ScanContext,
+    provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
 ) -> Finding:
     return Finding(
@@ -36,6 +38,7 @@ def tool_finding(
         agent_id=context.agent.id,
         evidence=evidence,
         confidence=parse_confidence(confidence),
+        provenance_kind=provenance_kind,
         source=SourceReference(
             type=tool.source_type,
             ref=tool.source_ref,
@@ -61,6 +64,7 @@ def agent_finding(
     confidence: str,
     recommendation: str,
     context: ScanContext,
+    provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
 ) -> Finding:
     return Finding(
@@ -71,6 +75,7 @@ def agent_finding(
         agent_id=context.agent.id,
         evidence=evidence,
         confidence=parse_confidence(confidence),
+        provenance_kind=provenance_kind,
         source=SourceReference(type="manifest", ref=_manifest_ref(context.config_path)),
         recommendation=recommendation,
         patches=patches,
