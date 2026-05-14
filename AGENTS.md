@@ -246,9 +246,9 @@ Other stable top-level fields:
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
 
-The full schema is at [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (current; emitted reports carry `report_schema_version: "0.13"`). v0.13 adds the `codex_plugin_surface` block over v0.12's per-finding `agent_action` enum and top-level `agent_summary` block. Older reports validate against [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (current; emitted reports carry `report_schema_version: "0.14"`). v0.14 adds the `insufficient_evidence` value to the `release_decision.decision`/`agent_summary.verdict` enums on top of v0.13's `codex_plugin_surface` block (which itself sits over v0.12's per-finding `agent_action` enum and top-level `agent_summary` block). Older reports validate against [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
-**Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)).
+**Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
 For a step-by-step reader's primer with anti-patterns and concrete code rewrites, see [`docs/report-reading-for-agents.md`](docs/report-reading-for-agents.md).
 
@@ -312,7 +312,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) (current).
+[`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -350,7 +350,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
+| Report schema (current) | [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) | `0.14` |
+| Report schema (v0.13 frozen reference) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
 | Report schema (v0.12 frozen reference) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
 | Report schema (v0.11 frozen reference) | [`docs/report-schema.v0.11.json`](docs/report-schema.v0.11.json) | `0.11` |
 | Report schema (v0.10 frozen reference) | [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json) | `0.10` |
@@ -358,7 +359,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.3.json`](docs/packet-schema.v0.3.json) | `0.3` |
+| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.4.json`](docs/packet-schema.v0.4.json) | `0.4` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -390,9 +391,9 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.3)
+### Release Evidence Packet (v0.4)
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v03).
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v04).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
@@ -411,7 +412,7 @@ Rules of the packet contract (do not break in 0.x):
 - §10 ("What this packet did NOT prove") **always** lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance — regardless of run state.
 - All reviewer sections are **always present** in `packet.json`, including `tool_surface_diff`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
 - §8 (`human_in_the_loop`) always carries `runtime_control_disclaimer`. When local validation artifacts are available, `source_provenance[]` traces approval traces, override logs, high-risk exclusions, promotion criteria, and manifest requirements.
-- §1 verdict (`PASSED` / `REVIEW REQUIRED` / `BLOCKED`) derives from `release_decision.decision` only. CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
+- §1 verdict (`PASSED` / `REVIEW REQUIRED` / `INSUFFICIENT EVIDENCE` / `BLOCKED`) derives from `release_decision.decision` only (with `INSUFFICIENT EVIDENCE` mirroring the v0.14 `insufficient_evidence` decision value). CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
 - The current manifest schema does **not** model `agent.memory`. §7 always renders "not declared, see §10" until a future schema bump adds the field.
 
 Exit codes (stable):

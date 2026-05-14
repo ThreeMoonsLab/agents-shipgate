@@ -50,7 +50,7 @@ Action outputs:
 
 | Output | Meaning |
 | --- | --- |
-| `decision` | Release decision (`blocked`, `review_required`, or `passed`). v0.8+. **Prefer this over `status` for gating.** |
+| `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Prefer this over `status` for gating.** Switch on the value with a `review_required` fallback for unknown future values. |
 | `blocker_count` | Number of blockers in `release_decision.blockers`. v0.8+. |
 | `review_item_count` | Number of review items in `release_decision.review_items`. v0.8+. |
 | `ci_would_fail` | `true`/`false` — whether the active fail policy would fail CI. v0.8+. |

@@ -49,7 +49,7 @@ Those are release decisions that must come from the tool owner.
 ```md
 ## Agents Shipgate
 
-Release decision: `<blocked|review_required|passed>`
+Release decision: `<blocked|review_required|insufficient_evidence|passed>`
 Blockers: <n>
 Review items: <n>
 

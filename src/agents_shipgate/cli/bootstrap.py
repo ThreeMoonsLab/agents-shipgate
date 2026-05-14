@@ -278,15 +278,7 @@ def bootstrap_run(
             return _stop_with_failure(steps, apply_step, "apply-patches")
 
     # --- Verdict -----------------------------------------------------
-    verdict = "complete"
-    if release_decision is None:
-        verdict = "complete_no_report"
-    elif release_decision.get("decision") == "blocked":
-        verdict = "complete_blocked"
-    elif release_decision.get("decision") == "review_required":
-        verdict = "complete_review_required"
-    elif release_decision.get("decision") == "passed":
-        verdict = "complete_passed"
+    verdict = _verdict_for_release_decision(release_decision)
 
     return {
         "verdict": verdict,
@@ -296,6 +288,39 @@ def bootstrap_run(
         "release_decision": release_decision,
         "report_path": str(report_path) if report_path else None,
     }
+
+
+_VERDICT_BY_DECISION = {
+    "blocked": "complete_blocked",
+    "review_required": "complete_review_required",
+    "insufficient_evidence": "complete_insufficient_evidence",
+    "passed": "complete_passed",
+}
+
+
+def _verdict_for_release_decision(
+    release_decision: dict[str, Any] | None,
+) -> str:
+    """Map a parsed ``release_decision`` payload to the bootstrap
+    top-level ``verdict`` string.
+
+    Returns ``"complete_no_report"`` when no release_decision was
+    emitted, ``"complete_{decision}"`` for any of the four
+    ReleaseDecisionStatus values, and ``"complete_review_required"``
+    as the safe fallback for unknown future enum values — matching
+    the consumer-side fallback rule documented in STABILITY.md
+    ("Consumers that switch on the enum MUST fall back to
+    review_required for unrecognized values"). Bootstrap is itself
+    one of those switching consumers, so honoring the same fallback
+    means a future scan adding a value still surfaces a review-
+    required signal to the agent invoking bootstrap.
+    """
+    if release_decision is None:
+        return "complete_no_report"
+    decision = release_decision.get("decision")
+    if not decision:
+        return "complete_no_report"
+    return _VERDICT_BY_DECISION.get(decision, "complete_review_required")
 
 
 def _stop_with_failure(

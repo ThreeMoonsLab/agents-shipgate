@@ -42,7 +42,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 | Output | Purpose |
 |---|---|
-| `decision` | `blocked` / `review_required` / `passed`. Baseline-aware; this is the gating signal. |
+| `decision` | `blocked` / `review_required` / `insufficient_evidence` / `passed`. Baseline-aware; this is the gating signal. `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold. |
 | `blocker_count` | Number of items in `release_decision.blockers`. |
 | `review_item_count` | Number of items in `release_decision.review_items`. |
 | `ci_would_fail` | `true`/`false`. Whether the active fail policy would fail CI. |

@@ -38,6 +38,7 @@ from agents_shipgate.packet.models import (
 _VERDICT_CLASS: dict[VerdictLabel, str] = {
     "PASSED": "verdict verdict-passed",
     "REVIEW REQUIRED": "verdict verdict-review",
+    "INSUFFICIENT EVIDENCE": "verdict verdict-insufficient",
     "BLOCKED": "verdict verdict-blocked",
 }
 
@@ -69,6 +70,7 @@ code { background: #f4f4f4; padding: 0.05rem 0.25rem; border-radius: 3px; }
   font-weight: 600; letter-spacing: 0.03em; }
 .verdict-passed { background: #d4f4dd; color: #14532d; }
 .verdict-review { background: #fef0c7; color: #854d0e; }
+.verdict-insufficient { background: #eef2ff; color: #3730a3; }
 .verdict-blocked { background: #fde2e2; color: #7f1d1d; }
 .status-covered { color: #14532d; }
 .status-partial { color: #854d0e; }

@@ -137,7 +137,7 @@ the same number as `review_item_count`, which mirrors
 
 ## What to copy from this template
 
-- **Lead with the verdict.** `blocked` / `review_required` / `passed`, with the headline counts on the same line.
+- **Lead with the verdict.** `blocked` / `review_required` / `insufficient_evidence` / `passed`, with the headline counts on the same line.
 - **Top blockers** named by `check_id` and `tool_name`, with a one-sentence "why it matters" pulled from `metadata.rationale` (use `agents-shipgate explain-finding <FINGERPRINT> --json`).
 - **Apply / review split**. What you applied automatically, what needs human review. Always show the auto-applied diff.
 - **Reports paths**. The agent shouldn't hide where the reports landed; the user may want to read them.

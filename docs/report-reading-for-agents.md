@@ -8,12 +8,12 @@ A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in t
 
 ## TL;DR
 
-**Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "passed"`, baseline-aware, stable since v0.8. Everything else in the report is detail you reach for *after* the gate decision is captured.
+**Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "insufficient_evidence" | "passed"`, baseline-aware, stable since v0.8 (`insufficient_evidence` added v0.14). Switch on the enum with a `review_required` fallback for unknown future values per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release). Everything else in the report is detail you reach for *after* the gate decision is captured.
 
 ```python
 import json
 report = json.loads(open("agents-shipgate-reports/report.json").read())
-gate = report["release_decision"]["decision"]   # blocked | review_required | passed
+gate = report["release_decision"]["decision"]   # blocked | review_required | insufficient_evidence | passed
 ```
 
 The CLI's stable contract names this signal explicitly: run `agents-shipgate contract --json` and inspect `gating_signal` — it is always `release_decision.decision` in the current contract (see [`STABILITY.md`](../STABILITY.md) §"Runtime contract JSON").
@@ -24,13 +24,14 @@ The CLI's stable contract names this signal explicitly: run `agents-shipgate con
 
 ### Step 1 · `release_decision.decision`
 
-Branch on the three values:
+Branch on the four values (treat unknown future values as `review_required` per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release)):
 
 | `decision` | Meaning | Agent behavior |
 |---|---|---|
 | `"blocked"` | Active, unaccepted blockers exist. CI will fail in strict mode. | Surface blockers; do not auto-merge; do not assert evidence categories — see [`agent-autofix-boundary.md`](agent-autofix-boundary.md). |
-| `"review_required"` | Review items exist (often baseline-matched accepted debt or capability/intent misalignments). | Surface review items as a human handoff; safe mechanical patches may still apply via `apply-patches --confidence high`. |
-| `"passed"` | No active blockers, no review items. | Mechanical patches (if any) may apply; otherwise nothing to do. |
+| `"insufficient_evidence"` (v0.14+) | Evidence coverage is degraded past threshold: at least half of scanned tools are low-confidence (`ceil(N × 0.5)` with a minimum of 1, so 1-of-1 and 1-of-2 already trip), or 4+ source-loader warnings were emitted. The scan can't gate release reliably. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP/OpenAPI inputs, eval traces, additional source files) and re-running. Do not auto-merge. |
+| `"review_required"` | Review items exist (often baseline-matched accepted debt, capability/intent misalignments, or sub-threshold evidence gaps). | Surface review items as a human handoff; safe mechanical patches may still apply via `apply-patches --confidence high`. |
+| `"passed"` | No active blockers, no review items, evidence coverage clean. | Mechanical patches (if any) may apply; otherwise nothing to do. |
 
 The decision is **baseline-aware**: a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not in `release_decision.blockers`. Compare with the legacy `summary.status` field, which is *baseline-blind* — see Anti-patterns below.
 
@@ -85,7 +86,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.3`; full schema at [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json).
+The packet schema is `0.4`; full schema at [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json).
 
 ---
 
@@ -105,9 +106,15 @@ if report["summary"]["status"] == "release_blockers_detected":
 
 ```python
 # RIGHT: baseline-aware gate signal (v0.8+)
-if report["release_decision"]["decision"] == "blocked":
+decision = report["release_decision"]["decision"]
+if decision == "blocked":
     fail("blockers")
-elif report["release_decision"]["decision"] == "review_required":
+elif decision == "insufficient_evidence":  # v0.14+
+    surface_for_human_review_with_evidence_gathering_prompt()
+elif decision == "review_required":
+    surface_for_human_review()
+# unknown future values: treat as review_required per STABILITY.md
+elif decision != "passed":
     surface_for_human_review()
 ```
 
@@ -160,8 +167,8 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.10` | `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.10.json`](report-schema.v0.10.json) |
-| Packet | `0.3` | — | [`packet-schema.v0.3.json`](packet-schema.v0.3.json) |
+| Report | `0.14` | `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.14.json`](report-schema.v0.14.json) |
+| Packet | `0.4` | `0.3`, `0.2`, `0.1` | [`packet-schema.v0.4.json`](packet-schema.v0.4.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `1` | — | `agents-shipgate contract --json` |
 

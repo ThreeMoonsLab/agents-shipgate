@@ -12,15 +12,15 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.13` — [`docs/report-schema.v0.13.json`](report-schema.v0.13.json)
-- Current packet schema: `0.3` — [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json)
-- Frozen-reference report schemas: [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Current report schema: `0.14` — [`docs/report-schema.v0.14.json`](report-schema.v0.14.json)
+- Current packet schema: `0.4` — [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json)
+- Frozen-reference report schemas: [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
 In `agents-shipgate-reports/report.json`:
 
-- `release_decision.decision` — `"blocked"` / `"review_required"` / `"passed"`. Baseline-aware. **This is the gating signal.**
+- `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold (at least half of scanned tools are low-confidence — `ceil(N × 0.5)` with a minimum of 1, so 1-of-1 and 1-of-2 trip — or 4+ source-loader warnings); switch on the enum with a `review_required` fallback for unknown future values.
 - `release_decision.blockers[]` — items that block release on this run.
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.
@@ -76,11 +76,12 @@ input by itself:
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` — local static plugin package and marketplace facts.
 - Only explicit MCP inventory tools from `codex_plugins.mcp_tool_inventories` appear in `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in `codex_plugin_surface`.
 
-For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v03).
-In packet schema `0.3`, `human_in_the_loop.runtime_control_disclaimer`
+For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v04).
+In packet schema `0.4`, `human_in_the_loop.runtime_control_disclaimer`
 clarifies that local HITL evidence is not runtime-enforcement proof, and
 `human_in_the_loop.source_provenance[]` traces local validation artifacts when
-available.
+available. The `release_decision.verdict` label adds `INSUFFICIENT EVIDENCE`
+(matching the new `decision` enum value).
 
 ## Don't use for new gating
 
@@ -109,8 +110,8 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.13.json`](report-schema.v0.13.json) — machine-validatable JSON Schema for the current report.
-- [`docs/packet-schema.v0.3.json`](packet-schema.v0.3.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/report-schema.v0.14.json`](report-schema.v0.14.json) — machine-validatable JSON Schema for the current report.
+- [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
 
 ## See also

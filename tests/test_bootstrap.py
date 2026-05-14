@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.bootstrap import (
     _failed_step_error,
     _locate_report,
+    _verdict_for_release_decision,
     bootstrap_run,
 )
 from agents_shipgate.cli.main import app
@@ -317,6 +318,51 @@ def test_bootstrap_reports_release_decision_verdict_in_summary(tmp_path):
     assert result["verdict"] == expected_prefix, (
         f"verdict {result['verdict']!r} should mirror "
         f"release_decision.decision {rd['decision']!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "decision, expected_verdict",
+    [
+        ("blocked", "complete_blocked"),
+        ("review_required", "complete_review_required"),
+        ("insufficient_evidence", "complete_insufficient_evidence"),
+        ("passed", "complete_passed"),
+    ],
+)
+def test_verdict_for_release_decision_maps_all_states(decision, expected_verdict):
+    """Pin the bootstrap verdict mapping for every ReleaseDecisionStatus
+    value, including v0.14's `insufficient_evidence`. Avoids relying on
+    subprocess scans that may pick up an older installed CLI; the
+    mapping is pure logic and worth a unit-test."""
+    payload = {"decision": decision, "reason": "irrelevant"}
+    assert _verdict_for_release_decision(payload) == expected_verdict
+
+
+def test_verdict_for_release_decision_no_report():
+    assert _verdict_for_release_decision(None) == "complete_no_report"
+
+
+def test_verdict_for_release_decision_unknown_value_falls_back():
+    """Per STABILITY.md additivity contract ("Consumers that switch on
+    the enum MUST fall back to review_required for unrecognized
+    values"), bootstrap — itself a switching consumer — must honor the
+    same fallback. An older bootstrap encountering a new enum value
+    from a future scan must surface a review-required signal, not a
+    bare 'complete' that could be mistaken for a clean pass.
+    Regression for PR #70 review P2.2."""
+    payload = {"decision": "future_value_2027", "reason": "x"}
+    assert _verdict_for_release_decision(payload) == "complete_review_required"
+
+
+def test_verdict_for_release_decision_missing_decision_key():
+    """A release_decision payload that's a dict but missing or null
+    `decision` is treated as no-report — separate from the
+    unknown-value path, which still has *some* signal to fall back on."""
+    assert _verdict_for_release_decision({}) == "complete_no_report"
+    assert (
+        _verdict_for_release_decision({"decision": None})
+        == "complete_no_report"
     )
 
 
