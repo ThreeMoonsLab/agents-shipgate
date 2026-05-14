@@ -899,6 +899,77 @@ n8n:
     assert {"runtime_tool_name", "unresolved_workflow"} <= dynamic_kinds
 
 
+def test_n8n_dynamic_surface_preserves_inventory_evidence_and_source(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    workflow = _minimal_agent_workflow(
+        {
+            "id": "runtime-workflow-tool",
+            "name": "Runtime Workflow Tool",
+            "type": "n8n-nodes-langchain.toolWorkflow",
+            "parameters": {
+                "toolName": "={{ $json.tool_name }}",
+                "description": "Call runtime workflow.",
+                "workflowId": "={{ $json.workflow_id }}",
+            },
+        }
+    )
+    (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+    (project / "mcp-tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "inventory_tool",
+                        "description": "Static inventory entry.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: n8n-runtime-dynamic-with-inventory
+agent:
+  name: n8n-agent
+environment:
+  target: local
+n8n:
+  workflows:
+    - path: workflow.json
+  tool_inventories:
+    - path: mcp-tools.json
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    dynamic_findings = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+    ]
+    assert {
+        finding.evidence["surface"]["kind"] for finding in dynamic_findings
+    } == {"runtime_tool_name", "unresolved_workflow"}
+    for finding in dynamic_findings:
+        assert finding.evidence["explicit_inventory"] is True
+        assert finding.source is not None
+        assert finding.source.type == "n8n_workflow"
+        assert finding.source.path == "workflow.json"
+        assert finding.source.pointer is not None
+
+
 def test_n8n_multi_bound_tool_keeps_agent_and_mcp_surfaces(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

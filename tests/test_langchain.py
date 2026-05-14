@@ -114,6 +114,16 @@ tool_sources:
         if finding.check_id == "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
     ]
     assert len(dynamic) == 1
+    assert dynamic[0].evidence == {
+        "surface": {
+            "kind": "agent",
+            "source_ref": "agent.py",
+            "line": 5,
+            "reason": "tool list comes from a runtime call",
+        },
+        "explicit_inventory": False,
+    }
+    assert dynamic[0].confidence == "medium"
     assert report.frameworks["langchain"]["dynamic_tool_surface_count"] == 1
 
 
