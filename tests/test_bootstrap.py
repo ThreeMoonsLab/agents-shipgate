@@ -344,13 +344,26 @@ def test_verdict_for_release_decision_no_report():
 
 
 def test_verdict_for_release_decision_unknown_value_falls_back():
-    """Per STABILITY.md additivity contract, unknown decision values
-    must not crash bootstrap. Fall back to bare 'complete' so an older
-    bootstrap still surfaces *some* completion signal when a newer
-    scan adds a value (consumers downstream apply their own
-    review_required fallback)."""
+    """Per STABILITY.md additivity contract ("Consumers that switch on
+    the enum MUST fall back to review_required for unrecognized
+    values"), bootstrap — itself a switching consumer — must honor the
+    same fallback. An older bootstrap encountering a new enum value
+    from a future scan must surface a review-required signal, not a
+    bare 'complete' that could be mistaken for a clean pass.
+    Regression for PR #70 review P2.2."""
     payload = {"decision": "future_value_2027", "reason": "x"}
-    assert _verdict_for_release_decision(payload) == "complete"
+    assert _verdict_for_release_decision(payload) == "complete_review_required"
+
+
+def test_verdict_for_release_decision_missing_decision_key():
+    """A release_decision payload that's a dict but missing or null
+    `decision` is treated as no-report — separate from the
+    unknown-value path, which still has *some* signal to fall back on."""
+    assert _verdict_for_release_decision({}) == "complete_no_report"
+    assert (
+        _verdict_for_release_decision({"decision": None})
+        == "complete_no_report"
+    )
 
 
 def test_bootstrap_rejects_missing_workspace_with_structured_failure(tmp_path):

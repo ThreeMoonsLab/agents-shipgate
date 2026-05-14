@@ -703,6 +703,48 @@ def test_build_agent_summary_review_required_routes_to_review():
     assert "review item" in summary.first_recommended_action.why.lower()
 
 
+def test_source_warning_only_review_required_surfaces_reason():
+    """v0.14 routes `source_warning_count > 0` (sub-threshold) to
+    review_required via an explicit branch in build_release_decision.
+    summarize_findings() does NOT fold source warnings into
+    `human_review_recommended`, so without including them in the
+    agent_summary evidence-recommended path, a scan with 1 source
+    warning, no findings, and high-confidence tools renders as
+    "0 review item(s) flagged for release review." with
+    first_recommended_action == None — losing the release_decision
+    reason. Regression for PR #70 review P2."""
+    reason = "1 source-loader warning; review evidence before shipping."
+    decision = _make_release_decision(
+        decision="review_required",
+        reason=reason,
+        evidence_human_review_recommended=False,
+    )
+    # Tip evidence_coverage.source_warning_count to 1 manually since
+    # the helper defaults to 0.
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=False,
+        source_warning_count=1,
+        low_confidence_tool_count=0,
+    )
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=decision,
+    )
+    assert summary.verdict == "review_required"
+    assert summary.review_item_count == 0
+    # Headline must surface the reason verbatim, NOT
+    # "0 review item(s) flagged for release review."
+    assert "0 review item(s)" not in summary.headline
+    assert reason in summary.headline
+    # first_recommended_action must be the evidence-improvement info
+    # action, not None.
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    assert "evidence" in summary.first_recommended_action.why.lower()
+
+
 def test_insufficient_evidence_outranks_auto_apply_in_first_action():
     """When a scan is insufficient_evidence AND has auto-applicable
     patches, first_recommended_action must surface the

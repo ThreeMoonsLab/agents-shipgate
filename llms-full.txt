@@ -817,7 +817,7 @@ agents-shipgate contract --json
 
 In `agents-shipgate-reports/report.json`:
 
-- `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold (majority low-confidence tools, or 4+ source-loader warnings); switch on the enum with a `review_required` fallback for unknown future values.
+- `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold (at least half of scanned tools are low-confidence — `ceil(N × 0.5)` with a minimum of 1, so 1-of-1 and 1-of-2 trip — or 4+ source-loader warnings); switch on the enum with a `review_required` fallback for unknown future values.
 - `release_decision.blockers[]` — items that block release on this run.
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.

@@ -269,9 +269,20 @@ def build_agent_summary(
         # (rather than the unhelpful "0 review items flagged" text)
         # and route the agent toward gathering better evidence
         # (#57 review P2: evidence-only review_required).
+        #
+        # v0.14 also routes source_warning_count > 0 to review_required
+        # via an explicit branch in build_release_decision()
+        # (summarize_findings() doesn't fold source warnings into
+        # human_review_recommended, so without including them here a
+        # source-warning-only scan would render as "0 review item(s)
+        # flagged" with no first_recommended_action — losing the
+        # release_decision.reason that has the only useful context).
         evidence_recommended = bool(
             release_decision.evidence_coverage
-            and release_decision.evidence_coverage.human_review_recommended
+            and (
+                release_decision.evidence_coverage.human_review_recommended
+                or release_decision.evidence_coverage.source_warning_count > 0
+            )
         )
 
     active_findings = [f for f in findings if not f.suppressed]

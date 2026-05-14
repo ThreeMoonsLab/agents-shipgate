@@ -306,15 +306,21 @@ def _verdict_for_release_decision(
 
     Returns ``"complete_no_report"`` when no release_decision was
     emitted, ``"complete_{decision}"`` for any of the four
-    ReleaseDecisionStatus values, and bare ``"complete"`` as a
-    defensive fallback for unknown future values (so unknown enum
-    additions don't crash bootstrap before the consumer-side fallback
-    contract in STABILITY.md kicks in).
+    ReleaseDecisionStatus values, and ``"complete_review_required"``
+    as the safe fallback for unknown future enum values — matching
+    the consumer-side fallback rule documented in STABILITY.md
+    ("Consumers that switch on the enum MUST fall back to
+    review_required for unrecognized values"). Bootstrap is itself
+    one of those switching consumers, so honoring the same fallback
+    means a future scan adding a value still surfaces a review-
+    required signal to the agent invoking bootstrap.
     """
     if release_decision is None:
         return "complete_no_report"
     decision = release_decision.get("decision")
-    return _VERDICT_BY_DECISION.get(decision, "complete")
+    if not decision:
+        return "complete_no_report"
+    return _VERDICT_BY_DECISION.get(decision, "complete_review_required")
 
 
 def _stop_with_failure(

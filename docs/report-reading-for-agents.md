@@ -29,7 +29,7 @@ Branch on the four values (treat unknown future values as `review_required` per 
 | `decision` | Meaning | Agent behavior |
 |---|---|---|
 | `"blocked"` | Active, unaccepted blockers exist. CI will fail in strict mode. | Surface blockers; do not auto-merge; do not assert evidence categories — see [`agent-autofix-boundary.md`](agent-autofix-boundary.md). |
-| `"insufficient_evidence"` (v0.14+) | Evidence coverage is degraded past threshold: majority of scanned tools are low-confidence or 4+ source-loader warnings were emitted. The scan can't gate release reliably. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP/OpenAPI inputs, eval traces, additional source files) and re-running. Do not auto-merge. |
+| `"insufficient_evidence"` (v0.14+) | Evidence coverage is degraded past threshold: at least half of scanned tools are low-confidence (`ceil(N × 0.5)` with a minimum of 1, so 1-of-1 and 1-of-2 already trip), or 4+ source-loader warnings were emitted. The scan can't gate release reliably. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP/OpenAPI inputs, eval traces, additional source files) and re-running. Do not auto-merge. |
 | `"review_required"` | Review items exist (often baseline-matched accepted debt, capability/intent misalignments, or sub-threshold evidence gaps). | Surface review items as a human handoff; safe mechanical patches may still apply via `apply-patches --confidence high`. |
 | `"passed"` | No active blockers, no review items, evidence coverage clean. | Mechanical patches (if any) may apply; otherwise nothing to do. |
 
