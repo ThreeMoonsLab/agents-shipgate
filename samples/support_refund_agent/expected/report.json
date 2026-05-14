@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.14",
-  "run_id": "agents_shipgate_3f6e9f776047c403",
-  "manifest_dir": "/Users/pengfeihu/code/shipgate/.claude/worktrees/strange-clarke-17c1e7/samples/support_refund_agent",
+  "report_schema_version": "0.15",
+  "run_id": "agents_shipgate_c88986e383ecb40f",
+  "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1287,6 +1287,7 @@
         "source_ref": ".agents-shipgate/wildcard-tools.json"
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/wildcard-tools.json",
@@ -1319,6 +1320,7 @@
         "type": "number"
       },
       "confidence": "high",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
@@ -1353,6 +1355,7 @@
         "type": "object"
       },
       "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
@@ -1387,6 +1390,7 @@
         "type": "string"
       },
       "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1420,6 +1424,7 @@
         }
       },
       "confidence": "medium",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "sdk_function",
         "ref": "agents/refund_agent.py",
@@ -1451,6 +1456,7 @@
         ]
       },
       "confidence": "high",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "manifest",
         "ref": "shipgate.yaml",
@@ -1490,6 +1496,7 @@
         ]
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
@@ -1533,6 +1540,7 @@
         ]
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1574,6 +1582,7 @@
         ]
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1610,6 +1619,7 @@
         ]
       },
       "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
@@ -1647,6 +1657,7 @@
         ]
       },
       "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1683,6 +1694,7 @@
         "policy_match": null
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
@@ -1721,6 +1733,7 @@
         "policy_match": null
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
@@ -1758,6 +1771,7 @@
         "policy_match": null
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1794,6 +1808,7 @@
         "retry_policy_known": true
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
@@ -1831,6 +1846,7 @@
         "retry_policy_known": false
       },
       "confidence": "medium",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "mcp",
         "ref": ".agents-shipgate/mcp-tools.json",
@@ -1866,6 +1882,7 @@
         ]
       },
       "confidence": "high",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "openapi",
         "ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
@@ -1906,6 +1923,7 @@
         ]
       },
       "confidence": "medium",
+      "provenance_kind": "static_declaration",
       "source": {
         "type": "manifest",
         "ref": "shipgate.yaml",
@@ -1933,8 +1951,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/sg_refund_nopkt/report.md",
-    "json": "/private/tmp/sg_refund_nopkt/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpbz9prg3p/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpbz9prg3p/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

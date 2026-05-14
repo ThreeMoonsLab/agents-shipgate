@@ -28,6 +28,7 @@ def run(context: ScanContext):
                         "is later passed back into model context."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         for parameter in tool.parameters:
@@ -43,6 +44,7 @@ def run(context: ScanContext):
                         confidence="medium",
                         recommendation=f"Constrain {tool.name}.{parameter.name} with an enum, structured schema, or narrower field-specific parameters.",
                         context=context,
+                        provenance_kind="keyword_heuristic",
                     )
                 )
             if _is_missing_bound(parameter) and _bounded_tool(tool):
@@ -57,6 +59,7 @@ def run(context: ScanContext):
                         confidence="high",
                         recommendation=f"Add a maximum bound to {tool.name}.{parameter.name} or document an equivalent limit in the tool policy.",
                         context=context,
+                        provenance_kind="keyword_heuristic",
                     )
                 )
     return findings

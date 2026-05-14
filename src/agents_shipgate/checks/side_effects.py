@@ -41,6 +41,7 @@ def run(context: ScanContext):
                 confidence="high" if retry_known else "medium",
                 recommendation=f"Add an idempotency key, idempotent annotation, or declared idempotency policy for {tool.name}.",
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
     return findings

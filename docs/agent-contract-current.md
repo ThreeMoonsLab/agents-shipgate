@@ -12,9 +12,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.14` — [`docs/report-schema.v0.14.json`](report-schema.v0.14.json)
+- Current report schema: `0.15` — [`docs/report-schema.v0.15.json`](report-schema.v0.15.json)
 - Current packet schema: `0.4` — [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json)
-- Frozen-reference report schemas: [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
@@ -76,6 +76,16 @@ input by itself:
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` — local static plugin package and marketplace facts.
 - Only explicit MCP inventory tools from `codex_plugins.mcp_tool_inventories` appear in `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in `codex_plugin_surface`.
 
+Per-finding `provenance_kind` enum (v0.15+), additive classification — read this when you want to filter findings by the kind of rule that fired, independent of `confidence` (sureness):
+
+- `static_declaration` — declared metadata: manifest, MCP export, OpenAPI schema, ADK YAML agent config, LangChain/CrewAI inventory JSON. High-trust structural facts.
+- `ast_extraction` — Tool parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets). Subject to extraction errors; agents that distrust AST quality may filter these as a class.
+- `keyword_heuristic` — matched a keyword list (broad-scope tokens, read-only/approval prompt terms, free-text parameter names). Higher false-positive risk than declarative facts.
+- `regex_heuristic` — matched a regex (secret-like values in descriptions, prompt-injection patterns). Highest false-positive risk; pair with the recommendation before acting.
+- `policy_pack` — emitted by an external policy pack rule. The rule's own confidence applies — Shipgate does not second-guess the pack.
+
+Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
+
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v04).
 In packet schema `0.4`, `human_in_the_loop.runtime_control_disclaimer`
 clarifies that local HITL evidence is not runtime-enforcement proof, and
@@ -110,7 +120,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.14.json`](report-schema.v0.14.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.15.json`](report-schema.v0.15.json) — machine-validatable JSON Schema for the current report.
 - [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
 

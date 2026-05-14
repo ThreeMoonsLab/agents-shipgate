@@ -28,6 +28,7 @@ REPORT_SCHEMA_V11 = Path("docs/report-schema.v0.11.json")
 REPORT_SCHEMA_V12 = Path("docs/report-schema.v0.12.json")
 REPORT_SCHEMA_V13 = Path("docs/report-schema.v0.13.json")
 REPORT_SCHEMA_V14 = Path("docs/report-schema.v0.14.json")
+REPORT_SCHEMA_V15 = Path("docs/report-schema.v0.15.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -503,11 +504,12 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v14_schema(tmp_path):
-    """v0.14 schema adds the `insufficient_evidence` value to the
-    release_decision.decision and agent_summary.verdict enums on top of
-    v0.13's codex_plugin_surface. Emitted reports must validate against
-    the v0.14 schema."""
+def test_json_report_validates_against_v15_schema(tmp_path):
+    """v0.15 schema adds provenance_kind on every Finding (required +
+    non-nullable on the wire, inline 5-value enum) on top of v0.14's
+    insufficient_evidence release-decision state and v0.13's
+    codex_plugin_surface. Emitted reports must validate against the
+    v0.15 schema."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -516,9 +518,29 @@ def test_json_report_validates_against_v14_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V15.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
+
+
+def test_v14_schema_does_not_include_provenance_kind():
+    """v0.14 is a frozen-reference schema; it MUST NOT mention
+    provenance_kind. Adding the field to v0.14 retroactively would
+    silently break consumers that pin the v0.14 contract."""
+    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
+    finding_def = schema["$defs"]["Finding"]
+    assert "provenance_kind" not in finding_def.get("properties", {})
+    assert "provenance_kind" not in finding_def.get("required", [])
+
+
+def test_v13_schema_does_not_include_provenance_kind():
+    """v0.13 is the frozen-reference schema; it MUST NOT mention
+    provenance_kind. Adding the field to v0.13 retroactively would
+    silently break consumers that pin the v0.13 contract."""
+    schema = json.loads(REPORT_SCHEMA_V13.read_text(encoding="utf-8"))
+    finding_def = schema["$defs"]["Finding"]
+    assert "provenance_kind" not in finding_def.get("properties", {})
+    assert "provenance_kind" not in finding_def.get("required", [])
 
 
 def test_v07_schema_file_is_frozen():
@@ -595,6 +617,32 @@ def test_v13_schema_file_is_frozen():
     assert set(summary_verdict["enum"]) == {
         "blocked",
         "review_required",
+        "passed",
+    }
+
+
+def test_v14_schema_file_is_frozen():
+    """v0.14 schema file stays parseable and pinned to const "0.14".
+    v0.14 adds insufficient_evidence to release_decision.decision and
+    agent_summary.verdict; provenance_kind ships in v0.15."""
+    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.14"}
+    rd_decision = (
+        schema["$defs"]["ReleaseDecision"]["properties"]["decision"]
+    )
+    assert set(rd_decision["enum"]) == {
+        "blocked",
+        "review_required",
+        "insufficient_evidence",
+        "passed",
+    }
+    summary_verdict = (
+        schema["$defs"]["AgentSummary"]["properties"]["verdict"]
+    )
+    assert set(summary_verdict["enum"]) == {
+        "blocked",
+        "review_required",
+        "insufficient_evidence",
         "passed",
     }
 
@@ -801,10 +849,11 @@ def test_v10_schema_requires_release_decision_and_diffs():
     } <= diff_required
 
 
-def test_v14_schema_rejects_null_release_decision_and_consequence(tmp_path):
-    """A v0.14 payload with null release blocks MUST fail validation.
+def test_v15_schema_rejects_null_release_decision_and_consequence(tmp_path):
+    """A v0.15 payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
-    `anyOf: [ReleaseDecision, null]` and silently accepted null."""
+    `anyOf: [ReleaseDecision, null]` and silently accepted null. Invariant
+    carries forward unchanged from v0.13/v0.14."""
     import jsonschema
 
     from agents_shipgate.report.json_report import report_json_payload
@@ -815,7 +864,7 @@ def test_v14_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V14.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V15.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

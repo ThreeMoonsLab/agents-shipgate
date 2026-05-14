@@ -7,6 +7,7 @@ from agents_shipgate.checks.base import agent_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import (
     Finding,
+    ProvenanceKind,
     SourceReference,
     parse_confidence,
     parse_severity,
@@ -31,6 +32,11 @@ class DynamicSurfaceConfig:
     evidence_key: str
     recommendation: str
     suppress: Callable[[object], bool]
+    # v0.15: every emitted dynamic-surface finding carries a
+    # provenance label. Required so framework checks declare whether
+    # the rule's trigger is AST extraction (Python-only framework
+    # detection) or a declared package fact (YAML/JSON inputs).
+    provenance_kind: ProvenanceKind = "static_declaration"
     evidence_value: Callable[[object], object] = _identity_surface
     explicit_inventory_value: Callable[[object], bool] = _explicit_inventory_false
     source_for: Callable[[object], SourceReference | None] | None = None
@@ -62,6 +68,7 @@ def collect_dynamic_surface_findings(
                     confidence=config.confidence,
                     recommendation=config.recommendation,
                     context=context,
+                    provenance_kind=config.provenance_kind,
                 )
             )
             continue
@@ -74,6 +81,7 @@ def collect_dynamic_surface_findings(
                 agent_id=context.agent.id,
                 evidence=evidence,
                 confidence=parse_confidence(config.confidence),
+                provenance_kind=config.provenance_kind,
                 source=source,
                 recommendation=config.recommendation,
             )

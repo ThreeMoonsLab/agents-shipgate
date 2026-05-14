@@ -38,6 +38,7 @@ def run(context: ScanContext):
                         "identity unambiguous before release review."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 
@@ -56,6 +57,7 @@ def run(context: ScanContext):
                         "MCP, app, or hook artifact resolves inside the plugin package."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 
@@ -77,6 +79,7 @@ def run(context: ScanContext):
                         "to every Codex marketplace plugin entry."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
 
@@ -102,6 +105,7 @@ def run(context: ScanContext):
                     "server through codex_plugins.mcp_tool_inventories."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 
@@ -124,6 +128,7 @@ def run(context: ScanContext):
                     "unless an explicit local tool inventory or policy evidence is provided."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 
@@ -149,6 +154,7 @@ def run(context: ScanContext):
                     "description so agents can route it deterministically."
                 ),
                 context=context,
+                provenance_kind="static_declaration",
             )
         )
 

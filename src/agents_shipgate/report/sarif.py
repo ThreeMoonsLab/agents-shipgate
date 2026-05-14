@@ -93,6 +93,7 @@ def _result(finding: Finding) -> dict[str, Any]:
             "category": finding.category,
             "recommendation": finding.recommendation,
             "confidence": finding.confidence,
+            "provenance_kind": finding.provenance_kind,
             "evidence": _summarize_evidence(finding.evidence),
             "tool_name": finding.tool_name,
         },

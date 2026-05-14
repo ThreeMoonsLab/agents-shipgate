@@ -77,6 +77,7 @@ def run(context: ScanContext):
                             "and release review to cover write-capable tools."
                         ),
                         context=context,
+                        provenance_kind="keyword_heuristic",
                     )
                 )
 
@@ -104,6 +105,7 @@ def run(context: ScanContext):
                             "so the manifest and tool surface do not contradict each other."
                         ),
                         context=context,
+                        provenance_kind="keyword_heuristic",
                     )
                 )
                 break

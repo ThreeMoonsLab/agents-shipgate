@@ -49,6 +49,7 @@ def run(context: ScanContext):
                     confidence="high",
                     recommendation=f"Declare an approval policy for {tool.name} or remove this tool from the release.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         if (
@@ -66,6 +67,7 @@ def run(context: ScanContext):
                     confidence="high",
                     recommendation=f"Declare a user confirmation policy for {tool.name} or remove this action from the release.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
     return findings

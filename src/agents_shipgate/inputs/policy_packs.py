@@ -150,6 +150,7 @@ def run_policy_pack_rules(
                     agent_id=context.agent.id,
                     evidence=evidence,
                     confidence=rule.confidence,
+                    provenance_kind="policy_pack",
                     source=SourceReference(type="policy_pack", ref=resolved.pack.path),
                     recommendation=rule.recommendation,
                 )

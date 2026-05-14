@@ -22,6 +22,7 @@ def run(context: ScanContext):
                 confidence="high",
                 recommendation="Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
                 context=context,
+                provenance_kind="keyword_heuristic",
             )
         )
     for tool in context.tools:
@@ -37,6 +38,7 @@ def run(context: ScanContext):
                     confidence="medium",
                     recommendation=f"Declare auth scopes for {tool.name} in OpenAPI, MCP metadata, or the manifest before release review.",
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         missing_scopes = [
@@ -63,6 +65,7 @@ def run(context: ScanContext):
                         "or narrow the tool's declared auth requirements."
                     ),
                     context=context,
+                    provenance_kind="static_declaration",
                 )
             )
         broad_scopes = [scope for scope in tool.auth.scopes if is_broad_scope(scope)]
@@ -78,6 +81,7 @@ def run(context: ScanContext):
                     confidence="high",
                     recommendation=f"Replace broad scopes for {tool.name} with narrower operation-specific scopes.",
                     context=context,
+                    provenance_kind="keyword_heuristic",
                 )
             )
     return findings
