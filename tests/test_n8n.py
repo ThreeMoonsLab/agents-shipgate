@@ -3,12 +3,14 @@ import json
 
 import pytest
 
+from agents_shipgate.checks.n8n import run as run_n8n_checks
 from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.models import Tool
+from agents_shipgate.core.models import Agent, N8nArtifacts, Tool
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints, risk_tags
 from agents_shipgate.inputs.n8n import load_n8n_artifacts
 
@@ -968,6 +970,74 @@ n8n:
         assert finding.source.type == "n8n_workflow"
         assert finding.source.path == "workflow.json"
         assert finding.source.pointer is not None
+
+
+def test_n8n_dynamic_surface_check_suppresses_inventory_wildcards(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "mcp-tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "inventory_tool",
+                        "description": "Static inventory entry.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: n8n-wildcard-with-inventory
+agent:
+  name: n8n-agent
+environment:
+  target: local
+n8n:
+  tool_inventories:
+    - path: mcp-tools.json
+""",
+        encoding="utf-8",
+    )
+    manifest = load_manifest(project / "shipgate.yaml")
+    context = ScanContext(
+        manifest=manifest,
+        agent=Agent(id="agent:n8n-agent", name="n8n-agent"),
+        tools=[],
+        config_path=project / "shipgate.yaml",
+        n8n_artifacts=N8nArtifacts(
+            tool_inventory_files=["mcp-tools.json"],
+            dynamic_tool_surfaces=[
+                {
+                    "kind": "mcp_client_wildcard",
+                    "source_ref": "workflow.json#node:mcp-client",
+                    "source_path": "workflow.json",
+                    "source_pointer": "/nodes/mcp-client",
+                },
+                {
+                    "kind": "runtime_tool_name",
+                    "source_ref": "workflow.json#node:runtime-tool",
+                    "source_path": "workflow.json",
+                    "source_pointer": "/nodes/runtime-tool",
+                },
+            ],
+        ),
+    )
+
+    dynamic_findings = [
+        finding
+        for finding in run_n8n_checks(context)
+        if finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+    ]
+
+    assert len(dynamic_findings) == 1
+    assert dynamic_findings[0].evidence["surface"]["kind"] == "runtime_tool_name"
+    assert dynamic_findings[0].evidence["explicit_inventory"] is True
 
 
 def test_n8n_multi_bound_tool_keeps_agent_and_mcp_surfaces(tmp_path):

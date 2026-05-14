@@ -182,7 +182,9 @@ def run(context: ScanContext) -> list[Finding]:
 
 
 def _inventory_suppresses_dynamic_surface(surface: object, has_inventory: bool) -> bool:
-    if not has_inventory or not isinstance(surface, dict):
+    if not isinstance(surface, dict):
+        raise TypeError("n8n dynamic tool surface must be a dictionary")
+    if not has_inventory:
         return False
     return surface.get("kind") in {
         "mcp_client_wildcard",

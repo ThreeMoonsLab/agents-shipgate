@@ -14,6 +14,7 @@ def run(context: ScanContext):
         return []
 
     findings = []
+    has_inventory = bool(artifacts.tool_inventory_files)
     findings.extend(
         collect_dynamic_surface_findings(
             context,
@@ -29,7 +30,7 @@ def run(context: ScanContext):
                     "Provide explicit MCP-style tool inventory metadata for dynamic "
                     "LangChain or LangGraph tool lists before release review."
                 ),
-                suppress=lambda _surface: bool(artifacts.tool_inventory_files),
+                suppress=lambda _surface: has_inventory,
             ),
         )
     )
