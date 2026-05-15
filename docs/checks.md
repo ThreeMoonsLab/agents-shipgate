@@ -48,6 +48,17 @@ baseline summary and do not fail CI.
 | `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | high | A tool appears to overlap with a manifest `prohibited_actions` entry. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
+| `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
+| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy requirement is not satisfied. |
+| `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` | critical | A newly added financial write action lacks approval, audit, or idempotency controls. |
+| `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
+| `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
+| `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
+| `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
+| `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` | high | An action declaration weakens the effect inferred from the loaded tool surface. |
+| `SHIP-ACTION-CONTROL-DOWNGRADE` | high | An action declaration weakens an inherited approval or safeguard control. |
+| `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
+| `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
 | `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | Local HITL approval trace evidence is missing or incomplete for an approval-required tool. |
 | `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | Local HITL override reason evidence is missing or incomplete. |
 | `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | Local high-risk auto-approval exclusion evidence is missing or incomplete. |
@@ -167,6 +178,69 @@ A high-risk tool lacks a declared approval policy. Add an approval policy or rem
 ### SHIP-POLICY-CONFIRMATION-MISSING
 
 A destructive, external-write, or customer-communication tool lacks a confirmation policy. Add confirmation policy or remove the tool.
+
+### SHIP-ACTION-UNDECLARED
+
+`action_surface.require_explicit_actions` is true, but a loaded tool has no
+matching `action_surface.actions[]` declaration. Add action metadata for the
+tool or disable the explicit-action requirement.
+
+### SHIP-ACTION-POLICY-VIOLATION
+
+A user-declared `action_surface.policies[]` rule matched an action, and one or
+more required dot-path values were absent or different. Satisfy the policy
+requirements or narrow/remove the action.
+
+### SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
+
+A newly added action is classified as `financial_write` and is missing
+`approval.required`, `safeguards.audit_log`, or `safeguards.idempotency`.
+Declare the required controls before releasing the action.
+
+### SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING
+
+A newly added destructive action is missing `approval.required` or
+`safeguards.rollback`. Declare the approval and rollback controls, or remove
+the destructive action from the release surface.
+
+### SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING
+
+A newly added external communication action lacks `safeguards.audit_log`.
+Declare audit evidence so reviewers can trace outbound side effects.
+
+### SHIP-ACTION-WILDCARD-SCOPE
+
+An added action declares a broad scope, or a modified action expands into a
+broad scope such as wildcard/admin access. Replace it with operation-specific
+scopes.
+
+### SHIP-ACTION-EFFECT-ESCALATED
+
+An action changed to a higher-risk effect, such as read to write or write to
+destructive. Add reviewer approval for the escalation or reduce the effect.
+
+### SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED
+
+An `action_surface.actions[]` declaration sets a lower-risk effect than
+Shipgate inferred from the loaded tool metadata. Align the declared effect
+with the inferred operation or remove the weaker declaration.
+
+### SHIP-ACTION-CONTROL-DOWNGRADE
+
+An `action_surface.actions[]` declaration sets an inherited approval or
+safeguard control from `true` to `false`. Keep the inherited control enabled
+or remove the weakening declaration.
+
+### SHIP-ACTION-APPROVAL-REMOVED
+
+The base action required approval, but the current action no longer does.
+Restore `approval.required` or document a reviewed override.
+
+### SHIP-ACTION-SAFEGUARD-REMOVED
+
+An existing action lost a safeguard such as audit logging, idempotency,
+rollback, or dry-run support. Restore the safeguard or document a reviewed
+override.
 
 ### SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
 

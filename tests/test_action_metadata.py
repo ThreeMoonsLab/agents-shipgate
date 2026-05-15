@@ -51,6 +51,8 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "BASELINE: ${{ inputs.baseline }}" in text
     assert "DIFF_FROM: ${{ inputs.diff_from }}" in text
     assert "DIFF_BASE: ${{ inputs.diff_base }}" in text
+    assert "INPUT_HEAD_REF: ${{ inputs.head_ref }}" in text
+    assert "git checkout --detach" in text
     assert "args+=(--diff-from" in text
     assert "git worktree remove --force" in text
     assert 'rm -rf "${diff_tmp_to_cleanup}"' in text
@@ -77,7 +79,16 @@ def test_action_pr_comment_truncates_user_controlled_text():
     assert "const truncate =" in text
     assert "truncate(finding.title || finding.check_id, 240)" in text
     assert "const groups = [controlHighlights, riskHighlights, toolHighlights]" in text
+    assert "const diffSections = [...actionDiffHighlights(), ...diffHighlights()]" in text
+    assert "preferredDiff" not in text
     assert "].join(\"\\n\"), 6000)" in text
+
+
+def test_action_diff_inputs_describe_current_schema_versions():
+    data = yaml.safe_load(Path("action.yml").read_text(encoding="utf-8"))
+
+    assert "v0.4 baseline" in data["inputs"]["diff_from"]["description"]
+    assert "head_ref" in data["inputs"]
 
 
 def test_action_pr_comment_upserts_via_sticky_marker():

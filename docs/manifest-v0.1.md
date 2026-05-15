@@ -344,6 +344,155 @@ tool_output_schemas:
 
 Trace samples are JSON arrays or JSONL with simple normalized fields such as `tool_name`, `approved`, `confirmed`, `success`, and `error`. Unsupported raw logs produce source warnings rather than blockers.
 
+## Action Surface Diff
+
+The optional top-level `action_surface:` block adds reviewer-facing action
+metadata and deterministic action policies on top of the loaded tool surface.
+It requires a CLI whose `agents-shipgate contract --json` reports
+`report_schema_version >= 0.16`; older CLIs reject the unknown top-level field
+instead of silently ignoring release policy. It does not create new CLI
+commands; use this to compare the current action surface against a base report
+or baseline snapshot:
+
+```bash
+agents-shipgate scan --diff-from <path>
+```
+
+```yaml
+action_surface:
+  require_explicit_actions: false
+
+  actions:
+    - tool: stripe.create_refund
+      operation: refund_customer
+      effect: financial_write
+      risk_tags:
+        - financial_write
+        - external_communication
+      scopes:
+        - refunds:create
+      approval:
+        required: true
+        threshold: "amount <= 100"
+      safeguards:
+        idempotency: true
+        audit_log: true
+        rollback: false
+        dry_run: false
+      evidence:
+        owner: support-platform
+        runbook: docs/runbooks/refunds.md
+        approval_ticket: SEC-123
+
+  policies:
+    - id: require-audit-for-external-communication
+      match:
+        risk_tags:
+          - external_communication
+      require:
+        safeguards.audit_log: true
+      severity: high
+      block: true
+```
+
+`actions[]` entries are keyed by loaded tool name through `tool`. Explicit
+declarations override inferred operation, effect, risk tags, scopes, approval,
+safeguards, and evidence, but weaker declarations are visible: declaring a
+lower-risk effect than Shipgate inferred emits
+`SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED`, and setting inherited approval or
+safeguards from `true` to `false` emits `SHIP-ACTION-CONTROL-DOWNGRADE`.
+Agents Shipgate still creates an action fact for every loaded tool when no
+declaration is present; set
+`require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
+that lack an explicit action declaration.
+
+Action facts are derived from the loaded tool records after static risk-hint
+enrichment and before finding evaluation. Checks and policies consume those
+facts; they do not mutate the action surface snapshot.
+
+Action IDs are deterministic. By default they use:
+
+```text
+{agent_id}:{source_type}:{source_id_or_provider}:{operation}
+```
+
+`source_id_or_provider` resolves as `actions[].provider`, then the loaded
+tool's `source_id`, then `source_type` when no source ID exists. Dotted tool
+names are treated as operation text, not provider metadata; declare
+`actions[].provider` when the source cannot provide one. OpenAPI operations
+normalize to `METHOD /path`. MCP and SDK-derived tools default to the loaded
+tool name. Treat `action_id` as an opaque stable identifier in downstream
+tools; use the structured `provider`, `source_type`, `source_id`, and
+`operation` fields on `action_surface_facts.actions[]` when you need to inspect
+components. You may set `actions[].id` when you need a stable explicit action
+ID across source refactors.
+
+`policies[]` rules match actions by `action_ids`, `tools`, `effects`,
+`risk_tags`, or `scopes`. User-declared policies are evaluated against the full
+current action surface even when `--diff-from` is enabled; built-in escalation
+policies remain change-based. The `require` map uses dot paths over the action
+fact, with aliases for `approval.required`, `approval.threshold`, and `scopes`.
+Known `require` paths are type-checked at manifest load time; boolean controls
+such as `safeguards.audit_log` must use YAML booleans (`true`/`false`), not
+quoted strings.
+When `block: true`, policy findings set `findings[].blocks_release` and
+participate in `release_decision.blockers` when active and unbaselined.
+
+Canonical action risk tags are:
+
+| Tag | Meaning |
+|---|---|
+| `read_only` | Read-only action surface. |
+| `writes_data` | Mutates application or customer data. |
+| `destructive` | Deletes, cancels, revokes, terminates, or otherwise destroys state. |
+| `financial_write` | Creates or changes payments, refunds, invoices, charges, or billing state. |
+| `external_communication` | Sends or posts content outside the agent boundary, including customer email or messages. |
+| `production_ops` | Deploys, restarts, scales, rolls back, or changes production infrastructure. |
+| `privileged_data` | Reads privileged, sensitive, or regulated data. |
+| `identity_access` | Creates, changes, invites, revokes, or reads identity and permission state. |
+| `code_execution` | Executes code, shell commands, scripts, or dynamic runtime logic. |
+| `network_access` | Performs network access beyond a bounded local data source. |
+| `filesystem_write` | Writes to the filesystem. |
+| `customer_data` | Reads or writes customer data. |
+| `secret_access` | Reads or writes secrets, tokens, keys, or credentials. |
+| `irreversible` | Produces effects that cannot be rolled back reliably. |
+
+Manifest risk tag aliases accepted for compatibility are normalized before
+policy evaluation: `write` -> `writes_data`, `external_write`,
+`customer_communication`, and `external_side_effect` ->
+`external_communication`, `financial_action` -> `financial_write`,
+`infrastructure_change` and `production_operation` -> `production_ops`,
+`sensitive_data_access` and `privileged_data_access` -> `privileged_data`.
+
+Known `policies[].require` paths:
+
+| Path | Type |
+|---|---|
+| `approval.required` | boolean |
+| `approval.threshold` | string |
+| `safeguards.idempotency` | boolean |
+| `safeguards.audit_log` | boolean |
+| `safeguards.rollback` | boolean |
+| `safeguards.dry_run` | boolean |
+| `evidence.owner` | string |
+| `evidence.runbook` | string |
+| `evidence.approval_ticket` | string |
+| `effect` | one of `read`, `write`, `destructive`, `external_communication`, `financial_write`, `production_operation`, `privileged_data_access`, `code_execution`, `identity_access` |
+| `scopes` / `required_scopes` | list of strings |
+| `risk_tags` | list of strings |
+| `input_fields` | list of strings |
+| `required_input_fields` | list of strings |
+| `provider` | string |
+| `source_type` | string |
+| `source_id` | string |
+| `operation` | string |
+| `input_schema_hash` | string |
+
+Built-in action policies cover new financial writes without approval/audit/
+idempotency, destructive actions without rollback, external communication
+without audit evidence, wildcard/admin scopes, effect escalation, declared
+effect/control downgrades, approval removal, and safeguard removal.
+
 ## Validation Evidence Artifacts
 
 The optional top-level `validation` block declares local human-in-the-loop

@@ -234,7 +234,7 @@ agents-shipgate scan -c shipgate.yaml
 
 Always parse `agents-shipgate-reports/report.json`, not the markdown.
 
-The canonical field list — `release_decision`, `capability_facts` / `declared_intentions` / `misalignments` / `release_consequence` / `suggested_scenarios`, and `tool_surface_facts` / `tool_surface_diff` — lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). It updates first when the contract bumps; this file links to it instead of restating the field set.
+The canonical field list — `release_decision`, `capability_facts` / `declared_intentions` / `misalignments` / `release_consequence` / `suggested_scenarios`, `tool_surface_facts` / `tool_surface_diff`, and `action_surface_facts` / `action_surface_diff` — lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). It updates first when the contract bumps; this file links to it instead of restating the field set.
 
 Other stable top-level fields:
 
@@ -246,8 +246,10 @@ Other stable top-level fields:
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
 - `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for filtering heuristic-only findings)
+- `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
+- `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 
-The full schema is at [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current; emitted reports carry `report_schema_version: "0.15"`). v0.15 adds the per-finding `provenance_kind` enum so agents can filter heuristic-only findings from declarative ones, on top of v0.14's `insufficient_evidence` value in the `release_decision.decision`/`agent_summary.verdict` enums and v0.13's `codex_plugin_surface` block. Older reports validate against [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) (current; emitted reports carry `report_schema_version: "0.16"`). v0.16 adds first-class Action Surface Diff fields, on top of v0.15's per-finding `provenance_kind` enum, v0.14's `insufficient_evidence` value in the `release_decision.decision`/`agent_summary.verdict` enums, and v0.13's `codex_plugin_surface` block. Older reports validate against [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -313,7 +315,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current).
+[`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -351,7 +353,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) | `0.15` |
+| Report schema (current) | [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) | `0.16` |
+| Report schema (v0.15 frozen reference) | [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) | `0.15` |
 | Report schema (v0.14 frozen reference) | [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) | `0.14` |
 | Report schema (v0.13 frozen reference) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
 | Report schema (v0.12 frozen reference) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
@@ -361,7 +364,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.4.json`](docs/packet-schema.v0.4.json) | `0.4` |
+| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json) | `0.5` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -393,9 +396,9 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.4)
+### Release Evidence Packet (v0.5)
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v04).
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v05).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs

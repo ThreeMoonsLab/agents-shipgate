@@ -21,9 +21,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.15.json`](report-schema.v0.15.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.15"`, which adds the per-finding `provenance_kind` enum so agents can filter heuristic-only findings from declarative ones)
+- [`report-schema.v0.16.json`](report-schema.v0.16.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.16"`, which adds first-class Action Surface Diff fields)
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.15.json`](report-schema.v0.15.json) — frozen v0.15 reference schema; pre-v0.16 reports validate against this
 - [`report-schema.v0.14.json`](report-schema.v0.14.json) — frozen v0.14 reference schema; pre-v0.15 reports validate against this
 - [`report-schema.v0.13.json`](report-schema.v0.13.json) — frozen v0.13 reference schema; pre-v0.14 reports validate against this
 - [`report-schema.v0.12.json`](report-schema.v0.12.json) — frozen v0.12 reference schema; pre-v0.13 reports validate against this
@@ -33,7 +34,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.4.json`](packet-schema.v0.4.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.4"`)
+- [`packet-schema.v0.5.json`](packet-schema.v0.5.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.5"`)
+- [`packet-schema.v0.4.json`](packet-schema.v0.4.json) — frozen v0.4 reference packet schema
 - [`packet-schema.v0.3.json`](packet-schema.v0.3.json) — frozen v0.3 reference packet schema
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 

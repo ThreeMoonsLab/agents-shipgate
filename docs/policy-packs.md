@@ -29,6 +29,7 @@ rules:
     title: High-risk production tool has no org owner
     category: org_policy
     severity: high
+    block: true
     confidence: high
     recommendation: Assign an owning team before production release.
     match:
@@ -45,6 +46,9 @@ Supported rule fields:
 - `description`: optional fallback finding title when `title` is omitted.
 - `category`: optional finding category; defaults to `policy_pack`.
 - `severity`: required `info`, `low`, `medium`, `high`, or `critical`.
+- `block`: optional boolean; when `true`, matching findings set
+  `findings[].blocks_release` and block strict CI even if severity is below
+  the configured `fail_on` threshold.
 - `confidence`: optional `low`, `medium`, or `high`; defaults to `medium`.
 - `recommendation`: required remediation text.
 - `match`: required static predicate object.
@@ -72,4 +76,5 @@ must still be explicitly enabled with `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`.
 
 Reports include `loaded_policy_packs` with pack name, version, path, and rule
 count. Policy-pack findings support suppressions, severity overrides,
-baselines, Markdown, JSON, and SARIF like built-in findings.
+release-blocking `block: true`, baselines, Markdown, JSON, and SARIF like
+built-in findings.

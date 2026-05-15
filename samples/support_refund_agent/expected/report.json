@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.15",
-  "run_id": "agents_shipgate_c88986e383ecb40f",
-  "manifest_dir": "<REPO>/samples/support_refund_agent",
+  "report_schema_version": "0.16",
+  "run_id": "agents_shipgate_6150f69e2312264e",
+  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/e9c4/shipgate/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -86,7 +86,8 @@
         "check_id": "SHIP-POLICY-APPROVAL-MISSING",
         "severity": "critical",
         "title": "stripe.create_refund lacks a declared approval policy",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_dac8011e14c53777",
@@ -94,7 +95,8 @@
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "severity": "critical",
         "title": "stripe.create_refund lacks idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       }
     ],
     "review_items": [
@@ -104,7 +106,8 @@
         "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
         "severity": "high",
         "title": "Wildcard tool exposure declared",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_ab60b01cb53cfcbe",
@@ -112,7 +115,8 @@
         "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
         "severity": "high",
         "title": "stripe.create_refund.amount has no maximum bound",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_ff2f028953d1c220",
@@ -120,7 +124,8 @@
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
         "severity": "high",
         "title": "zendesk.update_ticket accepts broad free-form action input",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_acd63b899d49aa1c",
@@ -128,7 +133,8 @@
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
         "severity": "high",
         "title": "gmail.send_customer_email accepts broad free-form action input",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_85f8513ad72cd9ea",
@@ -136,7 +142,8 @@
         "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
         "severity": "medium",
         "title": "send_email_preview returns free-form text output",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_d27325cbdbbf5483",
@@ -144,7 +151,8 @@
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "severity": "high",
         "title": "Manifest declares broad permission scopes",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_83852fbd6b440524",
@@ -152,7 +160,8 @@
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "severity": "high",
         "title": "shopify.cancel_order requires scopes not declared in the manifest",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_d8e6d1865dae97cc",
@@ -160,7 +169,8 @@
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "severity": "high",
         "title": "support.search_kb requires scopes not declared in the manifest",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_1f6cfd6b7daa9b7c",
@@ -168,7 +178,8 @@
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "severity": "high",
         "title": "gmail.send_customer_email requires scopes not declared in the manifest",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_12985c36a06026de",
@@ -176,7 +187,8 @@
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "severity": "high",
         "title": "stripe.create_refund appears to overlap with a prohibited action",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_e090c62e390e70ab",
@@ -184,7 +196,8 @@
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "severity": "high",
         "title": "gmail.send_customer_email appears to overlap with a prohibited action",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_a62ca2fd9a68a1d1",
@@ -192,7 +205,8 @@
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
         "severity": "high",
         "title": "stripe.create_refund lacks a declared confirmation policy",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_8e08a4fe6b0917f6",
@@ -200,7 +214,8 @@
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
         "severity": "high",
         "title": "gmail.send_customer_email lacks a declared confirmation policy",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_0f8aaa912d589cf0",
@@ -208,7 +223,8 @@
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "severity": "high",
         "title": "gmail.send_customer_email lacks idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_fd2577850cef1f87",
@@ -216,7 +232,8 @@
         "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "severity": "high",
         "title": "shopify.cancel_order is high-risk but has no owner",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_39b9ae878f343d1b",
@@ -224,7 +241,8 @@
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
         "severity": "medium",
         "title": "Manifest declares unused permission scope zendesk:tickets:read",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       }
     ],
     "evidence_coverage": {
@@ -1266,6 +1284,408 @@
       "No --diff-from report or v0.3 baseline snapshot was provided."
     ]
   },
+  "action_surface_facts": {
+    "snapshot_version": "0.1",
+    "actions": [
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:mcp:support_mcp_tools:gmail.send_customer_email",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:gmail.send_customer_email",
+        "tool_name": "gmail.send_customer_email",
+        "provider": "support_mcp_tools",
+        "source_type": "mcp",
+        "source_id": "support_mcp_tools",
+        "operation": "gmail.send_customer_email",
+        "effect": "financial_write",
+        "risk_tags": [
+          "external_communication",
+          "financial_write"
+        ],
+        "required_scopes": [
+          "gmail:send"
+        ],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": "support-platform",
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "body",
+          "recipient",
+          "subject"
+        ],
+        "required_input_fields": [
+          "body",
+          "recipient",
+          "subject"
+        ],
+        "input_schema_hash": "8c76077daf4af98a",
+        "hashes": {
+          "identity_hash": "4aabad739fef9222",
+          "schema_hash": "8c76077daf4af98a",
+          "policy_hash": "e2f65f5729883cf7",
+          "risk_hash": "d4eb9a132648a203"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:mcp:support_mcp_tools:support.search_kb",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:support.search_kb",
+        "tool_name": "support.search_kb",
+        "provider": "support_mcp_tools",
+        "source_type": "mcp",
+        "source_id": "support_mcp_tools",
+        "operation": "support.search_kb",
+        "effect": "financial_write",
+        "risk_tags": [
+          "financial_write",
+          "read_only"
+        ],
+        "required_scopes": [
+          "support:kb:read"
+        ],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": true,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": "support-platform",
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "query"
+        ],
+        "required_input_fields": [
+          "query"
+        ],
+        "input_schema_hash": "d18dae577323051e",
+        "hashes": {
+          "identity_hash": "1b2ecaa86e8be96b",
+          "schema_hash": "d18dae577323051e",
+          "policy_hash": "1e20e61c1e17120f",
+          "risk_hash": "05c2a00c8cf607ea"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:mcp:wildcard_mcp_tools:wildcard_mcp_tools.*",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:wildcard_mcp_tools.*",
+        "tool_name": "wildcard_mcp_tools.*",
+        "provider": "wildcard_mcp_tools",
+        "source_type": "mcp",
+        "source_id": "wildcard_mcp_tools",
+        "operation": "wildcard_mcp_tools.*",
+        "effect": "read",
+        "risk_tags": [],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [],
+        "required_input_fields": [],
+        "input_schema_hash": "107c0ed314a0d6ff",
+        "hashes": {
+          "identity_hash": "287678bdd479304a",
+          "schema_hash": "107c0ed314a0d6ff",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "4b93b7ea9c7e351c"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:openapi:support_openapi:GET /refunds/{payment_id}/status",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:refund_status_lookup",
+        "tool_name": "refund_status_lookup",
+        "provider": "support_openapi",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "operation": "GET /refunds/{payment_id}/status",
+        "effect": "read",
+        "risk_tags": [
+          "read_only"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "payment_id"
+        ],
+        "required_input_fields": [
+          "payment_id"
+        ],
+        "input_schema_hash": "292a2a079de3cd2d",
+        "hashes": {
+          "identity_hash": "83764018fe1c1489",
+          "schema_hash": "292a2a079de3cd2d",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "70b0ab591723cb0f"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:openapi:support_openapi:PATCH /tickets/{ticket_id}",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:zendesk.update_ticket",
+        "tool_name": "zendesk.update_ticket",
+        "provider": "support_openapi",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "operation": "PATCH /tickets/{ticket_id}",
+        "effect": "write",
+        "risk_tags": [
+          "writes_data"
+        ],
+        "required_scopes": [
+          "zendesk:tickets:write"
+        ],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "ticket_id",
+          "updates"
+        ],
+        "required_input_fields": [
+          "ticket_id",
+          "updates"
+        ],
+        "input_schema_hash": "dbf925d266a30cf8",
+        "hashes": {
+          "identity_hash": "7c0056d5cbf14a55",
+          "schema_hash": "dbf925d266a30cf8",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "2cb95edd8a482599"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:openapi:support_openapi:POST /orders/{order_id}/cancel",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:shopify.cancel_order",
+        "tool_name": "shopify.cancel_order",
+        "provider": "support_openapi",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "operation": "POST /orders/{order_id}/cancel",
+        "effect": "destructive",
+        "risk_tags": [
+          "destructive",
+          "writes_data"
+        ],
+        "required_scopes": [
+          "shopify:orders:write"
+        ],
+        "approval_policy": {
+          "required": true,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": true,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "order_id",
+          "reason"
+        ],
+        "required_input_fields": [
+          "order_id",
+          "reason"
+        ],
+        "input_schema_hash": "4911286cfee6035f",
+        "hashes": {
+          "identity_hash": "36c4e5462388903d",
+          "schema_hash": "4911286cfee6035f",
+          "policy_hash": "c96258eea5f54acc",
+          "risk_hash": "32374998992b2880"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:openapi:support_openapi:POST /refunds",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:stripe.create_refund",
+        "tool_name": "stripe.create_refund",
+        "provider": "support_openapi",
+        "source_type": "openapi",
+        "source_id": "support_openapi",
+        "operation": "POST /refunds",
+        "effect": "financial_write",
+        "risk_tags": [
+          "external_communication",
+          "financial_write",
+          "writes_data"
+        ],
+        "required_scopes": [
+          "stripe:refunds:write"
+        ],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": "payments-platform",
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "amount",
+          "currency",
+          "payment_id"
+        ],
+        "required_input_fields": [
+          "amount",
+          "currency",
+          "payment_id"
+        ],
+        "input_schema_hash": "81d9efbadca5ea8c",
+        "hashes": {
+          "identity_hash": "d39fafff8a4904e0",
+          "schema_hash": "81d9efbadca5ea8c",
+          "policy_hash": "f912d8866f75d017",
+          "risk_hash": "e8d98d8ba9e58c3f"
+        }
+      },
+      {
+        "action_id": "agent:support-refund-agent/refund-assistant:sdk_function:openai_sdk_static:send_email_preview",
+        "agent_id": "agent:support-refund-agent/refund-assistant",
+        "tool_id": "tool:send_email_preview",
+        "tool_name": "send_email_preview",
+        "provider": "openai_sdk_static",
+        "source_type": "sdk_function",
+        "source_id": "openai_sdk_static",
+        "operation": "send_email_preview",
+        "effect": "external_communication",
+        "risk_tags": [
+          "external_communication",
+          "read_only"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "body",
+          "recipient",
+          "subject"
+        ],
+        "required_input_fields": [
+          "body",
+          "recipient",
+          "subject"
+        ],
+        "input_schema_hash": "bffb98e13492ed24",
+        "hashes": {
+          "identity_hash": "80e079dee96c23c3",
+          "schema_hash": "bffb98e13492ed24",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "ea7fc5b0104ac208"
+        }
+      }
+    ]
+  },
+  "action_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "actions_added": 0,
+      "actions_removed": 0,
+      "actions_modified": 0,
+      "scope_expansions": 0,
+      "effect_escalations": 0,
+      "risk_tags_added": 0,
+      "approvals_removed": 0,
+      "safeguards_removed": 0,
+      "input_schema_expansions": 0,
+      "blocking_findings": 0
+    },
+    "added": [],
+    "removed": [],
+    "modified": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ]
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {},
@@ -1296,6 +1716,7 @@
         "pointer": "/wildcard"
       },
       "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1331,6 +1752,7 @@
         "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1366,6 +1788,7 @@
         "pointer": "/paths/~1tickets~1{ticket_id}/patch"
       },
       "recommendation": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1399,6 +1822,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Constrain gmail.send_customer_email.body with an enum, structured schema, or narrower field-specific parameters.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1431,6 +1855,7 @@
         "location": "agents/refund_agent.py:5"
       },
       "recommendation": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1463,6 +1888,7 @@
         "location": null
       },
       "recommendation": "Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1507,6 +1933,7 @@
         "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "recommendation": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1549,6 +1976,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1591,6 +2019,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Add the required scopes for gmail.send_customer_email to permissions.scopes or narrow the tool's declared auth requirements.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1630,6 +2059,7 @@
         "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1666,6 +2096,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Remove gmail.send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1705,6 +2136,7 @@
         "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Declare an approval policy for stripe.create_refund or remove this tool from the release.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1744,6 +2176,7 @@
         "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1780,6 +2213,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Declare a user confirmation policy for gmail.send_customer_email or remove this action from the release.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1819,6 +2253,7 @@
         "pointer": "/paths/~1refunds/post"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1855,6 +2290,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for gmail.send_customer_email.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1893,6 +2329,7 @@
         "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1930,6 +2367,7 @@
         "location": null
       },
       "recommendation": "Remove unused manifest scopes or add tool metadata showing why they are required.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1951,8 +2389,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpbz9prg3p/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpbz9prg3p/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

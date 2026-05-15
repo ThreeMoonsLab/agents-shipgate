@@ -12,9 +12,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.15` — [`docs/report-schema.v0.15.json`](report-schema.v0.15.json)
-- Current packet schema: `0.4` — [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json)
-- Frozen-reference report schemas: [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Current report schema: `0.16` — [`docs/report-schema.v0.16.json`](report-schema.v0.16.json)
+- Current packet schema: `0.5` — [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json)
+- Frozen-reference report schemas: [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
@@ -42,10 +42,16 @@ The capability/intent diff fields (v0.9+), used by reviewers to spot misalignmen
 - `release_consequence` — capability-aware roll-up of the release decision.
 - `suggested_scenarios[]` — dynamic-validation scenarios derived from misalignments and findings.
 
-The tool-surface diff fields (v0.10+), explanatory only — never a release-gate input:
+The Action Surface Diff fields (v0.16+), reviewer-facing PR/release delta:
+
+- `action_surface_facts.actions[]` — deterministic snapshot of the current agent action surface: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, and hashes.
+- `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` — what changed vs. a base report or v0.4 baseline. Policy findings generated from this diff can set `findings[].blocks_release=true` and appear in `release_decision.blockers`.
+- `findings[].blocks_release` and `release_decision.{blockers,review_items}[].blocks_release` — explicit release-policy blockers from Action Surface Diff policies and policy-pack rules with `block: true`. Advisory CI may still exit 0; strict CI exits nonzero when an active unbaselined release blocker is present.
+
+The tool-surface diff fields (v0.10+), lower-level explanatory data:
 
 - `tool_surface_facts.{tools, scopes, controls, policies}` — current static facts about the tool surface.
-- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` — what changed vs. a base ref. Disabled diffs render as `enabled: false` with a `notes` reason; the release decision is unaffected.
+- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` — what changed vs. a base ref. Disabled diffs render as `enabled: false` with a `notes` reason.
 
 Source provenance fields on `findings[].source` (v0.11+), additive and optional:
 
@@ -86,12 +92,13 @@ Per-finding `provenance_kind` enum (v0.15+), additive classification — read th
 
 Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
 
-For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has ten always-present sections governed by [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v04).
-In packet schema `0.4`, `human_in_the_loop.runtime_control_disclaimer`
-clarifies that local HITL evidence is not runtime-enforcement proof, and
-`human_in_the_loop.source_provenance[]` traces local validation artifacts when
-available. The `release_decision.verdict` label adds `INSUFFICIENT EVIDENCE`
-(matching the new `decision` enum value).
+For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v05).
+Packet schema `0.5` preserves the v0.4 HITL fields
+(`human_in_the_loop.runtime_control_disclaimer` and
+`human_in_the_loop.source_provenance[]`) and adds
+`action_surface_diff` so packet-only consumers can see release-blocking action
+changes. The `release_decision.verdict` label includes
+`INSUFFICIENT EVIDENCE` when the report decision is insufficient evidence.
 
 ## Don't use for new gating
 
@@ -120,8 +127,8 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.15.json`](report-schema.v0.15.json) — machine-validatable JSON Schema for the current report.
-- [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/report-schema.v0.16.json`](report-schema.v0.16.json) — machine-validatable JSON Schema for the current report.
+- [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
 
 ## See also

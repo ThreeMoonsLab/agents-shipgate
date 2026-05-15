@@ -11,6 +11,7 @@ from agents_shipgate.core.findings import (
     apply_severity_overrides,
     apply_suppressions,
     assign_finding_ids,
+    dedupe_findings,
     finding_fingerprint,
     summarize_findings,
 )
@@ -41,6 +42,36 @@ def test_apply_suppressions_matches_tool_name_and_preserves_reason():
 
     assert finding.suppressed is True
     assert finding.suppression_reason == "Intentional free-form search."
+
+
+def test_dedupe_findings_collapses_equivalent_evidence():
+    first = Finding(
+        check_id="ORG-DUPLICATE",
+        title="Duplicate policy",
+        severity="medium",
+        category="org_policy",
+        tool_name="refund",
+        evidence={"b": 2, "a": 1},
+        recommendation="Fix duplicate.",
+    )
+    second = first.model_copy(update={"evidence": {"a": 1, "b": 2}})
+
+    assert dedupe_findings([first, second]) == [first]
+
+
+def test_dedupe_findings_preserves_distinct_titles():
+    first = Finding(
+        check_id="ORG-DUPLICATE",
+        title="Duplicate policy for refund",
+        severity="medium",
+        category="org_policy",
+        tool_name="refund",
+        evidence={"a": 1},
+        recommendation="Fix duplicate.",
+    )
+    second = first.model_copy(update={"title": "Duplicate policy for email"})
+
+    assert dedupe_findings([first, second]) == [first, second]
 
 
 def test_legacy_api_operational_readiness_suppression_matches_split_check():

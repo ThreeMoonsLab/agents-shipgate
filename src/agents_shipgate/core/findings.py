@@ -9,6 +9,8 @@ from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.models import (
+    ActionSurfaceDiff,
+    ActionSurfaceFacts,
     AgentAction,
     AgentSummary,
     AgentSummaryAction,
@@ -31,7 +33,11 @@ from agents_shipgate.core.patches import ManualPatch
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {"default_severity", "source_provenance"}
+FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {
+    "default_severity",
+    "observed",
+    "source_provenance",
+}
 
 
 def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
@@ -46,6 +52,39 @@ def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
             continue
         finding.id = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
     return findings
+
+
+def dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    seen: set[tuple[str, str, str, str, str, str]] = set()
+    deduped: list[Finding] = []
+    for finding in findings:
+        evidence_key = json.dumps(
+            _canonicalize_for_fingerprint(finding.evidence),
+            sort_keys=True,
+            default=str,
+        )
+        source_key = json.dumps(
+            finding.source.model_dump(mode="json") if finding.source else None,
+            sort_keys=True,
+            default=str,
+        )
+        key = (
+            finding.check_id,
+            # Title is intentionally part of local de-dupe identity. Some
+            # checks share structured evidence across distinct user-visible
+            # targets, and the interpolated title is the only stable context
+            # that keeps those findings separate before IDs are assigned.
+            finding.title,
+            finding.tool_id or "",
+            finding.tool_name or "",
+            evidence_key,
+            source_key,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return deduped
 
 
 def apply_suppressions(
@@ -170,9 +209,11 @@ def annotate_remediation(
 def derive_agent_action(finding: Finding) -> AgentAction:
     """Project ``finding`` to a single ``AgentAction`` enum value.
 
-    Deterministic projection of (``patches``, ``autofix_safe``,
-    ``requires_human_review``). Order-invariant: the result depends
-    on the SET of patches, not on their list ordering. The first
+    Deterministic projection of (``blocks_release``, ``patches``,
+    ``autofix_safe``, ``requires_human_review``). A release-blocking
+    finding always escalates to a human unless it is suppressed.
+    Order-invariant: the result depends on the SET of patches, not on
+    their list ordering. The first
     non-manual patch's confidence drives the verdict, mirroring
     :func:`_derive_from_patches` (which derives ``suggested_patch_kind``
     from the first non-manual patch). Earlier this function used
@@ -199,6 +240,8 @@ def derive_agent_action(finding: Finding) -> AgentAction:
     """
     if finding.suppressed:
         return "informational"
+    if finding.blocks_release:
+        return "escalate_to_human"
 
     patches = finding.patches
 
@@ -749,6 +792,8 @@ def build_report(
     manifest_dir: str | None = None,
     tool_surface_facts: ToolSurfaceFacts | None = None,
     tool_surface_diff: ToolSurfaceDiff | None = None,
+    action_surface_facts: ActionSurfaceFacts | None = None,
+    action_surface_diff: ActionSurfaceDiff | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -760,6 +805,8 @@ def build_report(
         tool_surface=summarize_tool_surface(tools),
         tool_surface_facts=tool_surface_facts or ToolSurfaceFacts(),
         tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
+        action_surface_facts=action_surface_facts or ActionSurfaceFacts(),
+        action_surface_diff=action_surface_diff or ActionSurfaceDiff(),
         api_surface=api_surface,
         anthropic_surface=anthropic_surface,
         frameworks=frameworks or {},

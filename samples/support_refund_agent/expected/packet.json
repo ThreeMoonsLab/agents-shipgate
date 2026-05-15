@@ -1,4 +1,26 @@
 {
+  "action_surface_diff": {
+    "base_kind": "none",
+    "blocking_reasons": [],
+    "enabled": false,
+    "highlights": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ],
+    "status": "not_declared",
+    "summary": {
+      "actions_added": 0,
+      "actions_modified": 0,
+      "actions_removed": 0,
+      "approvals_removed": 0,
+      "blocking_findings": 0,
+      "effect_escalations": 0,
+      "input_schema_expansions": 0,
+      "risk_tags_added": 0,
+      "safeguards_removed": 0,
+      "scope_expansions": 0
+    }
+  },
   "agent": {
     "declared_purpose": [
       "answer refund policy questions",
@@ -55,6 +77,7 @@
     "gap_findings": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-POLICY-APPROVAL-MISSING",
         "fingerprint": "fp_f092940f62fbb012",
         "id": "fp_f092940f62fbb012",
@@ -89,6 +112,7 @@
     "divergence_findings": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "fingerprint": "fp_12985c36a06026de",
         "id": "fp_12985c36a06026de",
@@ -97,6 +121,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "fingerprint": "fp_e090c62e390e70ab",
         "id": "fp_e090c62e390e70ab",
@@ -326,6 +351,7 @@
     "gap_findings": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "fingerprint": "fp_dac8011e14c53777",
         "id": "fp_dac8011e14c53777",
@@ -334,6 +360,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "fingerprint": "fp_0f8aaa912d589cf0",
         "id": "fp_0f8aaa912d589cf0",
@@ -402,7 +429,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.4",
+  "packet_schema_version": "0.5",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -419,6 +446,7 @@
     "blockers": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-POLICY-APPROVAL-MISSING",
         "fingerprint": "fp_f092940f62fbb012",
         "id": "fp_f092940f62fbb012",
@@ -427,6 +455,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "fingerprint": "fp_dac8011e14c53777",
         "id": "fp_dac8011e14c53777",
@@ -452,6 +481,7 @@
     "review_items": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
         "fingerprint": "fp_fc02d8ecd30f2578",
         "id": "fp_fc02d8ecd30f2578",
@@ -460,6 +490,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
         "fingerprint": "fp_ab60b01cb53cfcbe",
         "id": "fp_ab60b01cb53cfcbe",
@@ -468,6 +499,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
         "fingerprint": "fp_ff2f028953d1c220",
         "id": "fp_ff2f028953d1c220",
@@ -476,6 +508,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
         "fingerprint": "fp_acd63b899d49aa1c",
         "id": "fp_acd63b899d49aa1c",
@@ -484,6 +517,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
         "fingerprint": "fp_85f8513ad72cd9ea",
         "id": "fp_85f8513ad72cd9ea",
@@ -492,6 +526,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "fingerprint": "fp_d27325cbdbbf5483",
         "id": "fp_d27325cbdbbf5483",
@@ -500,6 +535,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_83852fbd6b440524",
         "id": "fp_83852fbd6b440524",
@@ -508,6 +544,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_d8e6d1865dae97cc",
         "id": "fp_d8e6d1865dae97cc",
@@ -516,6 +553,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_1f6cfd6b7daa9b7c",
         "id": "fp_1f6cfd6b7daa9b7c",
@@ -524,6 +562,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "fingerprint": "fp_12985c36a06026de",
         "id": "fp_12985c36a06026de",
@@ -532,6 +571,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "fingerprint": "fp_e090c62e390e70ab",
         "id": "fp_e090c62e390e70ab",
@@ -540,6 +580,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
         "fingerprint": "fp_a62ca2fd9a68a1d1",
         "id": "fp_a62ca2fd9a68a1d1",
@@ -548,6 +589,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
         "fingerprint": "fp_8e08a4fe6b0917f6",
         "id": "fp_8e08a4fe6b0917f6",
@@ -556,6 +598,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "fingerprint": "fp_0f8aaa912d589cf0",
         "id": "fp_0f8aaa912d589cf0",
@@ -564,6 +607,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "fingerprint": "fp_fd2577850cef1f87",
         "id": "fp_fd2577850cef1f87",
@@ -572,6 +616,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
         "fingerprint": "fp_39b9ae878f343d1b",
         "id": "fp_39b9ae878f343d1b",
@@ -581,7 +626,7 @@
     ],
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_c88986e383ecb40f",
+  "run_id": "agents_shipgate_6150f69e2312264e",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",
@@ -591,6 +636,7 @@
     "gap_findings": [
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_83852fbd6b440524",
         "id": "fp_83852fbd6b440524",
@@ -599,6 +645,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_d8e6d1865dae97cc",
         "id": "fp_d8e6d1865dae97cc",
@@ -607,6 +654,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "fingerprint": "fp_1f6cfd6b7daa9b7c",
         "id": "fp_1f6cfd6b7daa9b7c",
@@ -615,6 +663,7 @@
       },
       {
         "baseline_status": null,
+        "blocks_release": false,
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
         "fingerprint": "fp_39b9ae878f343d1b",
         "id": "fp_39b9ae878f343d1b",

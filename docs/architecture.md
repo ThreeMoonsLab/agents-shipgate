@@ -100,7 +100,7 @@ See [`trust-model.md`](trust-model.md). Headlines:
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json}` whenever
 `output.packet.enabled` is true (the default). The packet has its own JSON
-contract ([`packet-schema.v0.4.json`](packet-schema.v0.4.json)) so the report
+contract ([`packet-schema.v0.5.json`](packet-schema.v0.5.json)) so the report
 schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools, findings,

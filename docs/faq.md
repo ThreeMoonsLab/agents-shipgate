@@ -98,23 +98,24 @@ schema.
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
   GitHub's code-scanning UI on the Files Changed view.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}`
-  (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped, ten
-  always-present sections. See the next question.
+  (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped fixed
+  sections. See the next question.
 
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json)
-and has ten always-present sections (release decision, capability/intent,
-high-risk surface, approval coverage, idempotency risk, scope coverage,
-memory isolation, human-in-the-loop, dynamic scenarios, and a
+default. The packet is governed by [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json)
+and has fixed reviewer sections (release decision, capability/intent,
+high-risk surface, tool-surface diff, action-surface diff, approval coverage,
+idempotency risk, scope coverage, memory isolation, human-in-the-loop,
+dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v04).
-Packet schema v0.4 adds `INSUFFICIENT EVIDENCE` to the verdict label set
-(mirroring the new `release_decision.decision` value), on top of v0.3's
-HITL runtime-control disclaimer text and local HITL source provenance
-when validation evidence artifacts are available.
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v05).
+Packet schema v0.5 adds the packet-level `action_surface_diff` section and
+preserves the v0.4 `INSUFFICIENT EVIDENCE` verdict label, HITL
+runtime-control disclaimer text, and local HITL source provenance when
+validation evidence artifacts are available.
 Skip emission with `--no-packet`; re-render later with
 `agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json`.
 

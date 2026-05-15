@@ -1,5 +1,118 @@
 {
   "$defs": {
+    "ActionSurfaceDiffSection": {
+      "additionalProperties": false,
+      "description": "\u00a73B \u2014 compact action-surface diff for reviewers.",
+      "properties": {
+        "base_kind": {
+          "default": "none",
+          "title": "Base Kind",
+          "type": "string"
+        },
+        "blocking_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking Reasons",
+          "type": "array"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "highlights": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Highlights",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/$defs/ActionSurfaceDiffSummary"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ActionSurfaceDiffSection",
+      "type": "object"
+    },
+    "ActionSurfaceDiffSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "actions_added": {
+          "default": 0,
+          "title": "Actions Added",
+          "type": "integer"
+        },
+        "actions_modified": {
+          "default": 0,
+          "title": "Actions Modified",
+          "type": "integer"
+        },
+        "actions_removed": {
+          "default": 0,
+          "title": "Actions Removed",
+          "type": "integer"
+        },
+        "approvals_removed": {
+          "default": 0,
+          "title": "Approvals Removed",
+          "type": "integer"
+        },
+        "blocking_findings": {
+          "default": 0,
+          "title": "Blocking Findings",
+          "type": "integer"
+        },
+        "effect_escalations": {
+          "default": 0,
+          "title": "Effect Escalations",
+          "type": "integer"
+        },
+        "input_schema_expansions": {
+          "default": 0,
+          "title": "Input Schema Expansions",
+          "type": "integer"
+        },
+        "risk_tags_added": {
+          "default": 0,
+          "title": "Risk Tags Added",
+          "type": "integer"
+        },
+        "safeguards_removed": {
+          "default": 0,
+          "title": "Safeguards Removed",
+          "type": "integer"
+        },
+        "scope_expansions": {
+          "default": 0,
+          "title": "Scope Expansions",
+          "type": "integer"
+        }
+      },
+      "title": "ActionSurfaceDiffSummary",
+      "type": "object"
+    },
     "ApprovalCoverageRow": {
       "additionalProperties": false,
       "properties": {
@@ -1062,11 +1175,14 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.4.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for packet.json. Generated from agents_shipgate.packet.models.EvidencePacket. Do not edit by hand.",
   "properties": {
+    "action_surface_diff": {
+      "$ref": "#/$defs/ActionSurfaceDiffSection"
+    },
     "agent": {
       "additionalProperties": true,
       "title": "Agent",
@@ -1114,8 +1230,8 @@
       "$ref": "#/$defs/NotProvenSection"
     },
     "packet_schema_version": {
-      "const": "0.4",
-      "default": "0.4",
+      "const": "0.5",
+      "default": "0.5",
       "title": "Packet Schema Version",
       "type": "string"
     },
@@ -1151,6 +1267,6 @@
     "dynamic_scenarios",
     "not_proven"
   ],
-  "title": "Agents Shipgate Release Evidence Packet v0.4",
+  "title": "Agents Shipgate Release Evidence Packet v0.5",
   "type": "object"
 }

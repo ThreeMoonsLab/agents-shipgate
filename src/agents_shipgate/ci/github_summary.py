@@ -59,6 +59,25 @@ def write_github_step_summary(report: ReadinessReport) -> None:
         ]
     )
     diff = report.tool_surface_diff
+    action_diff = report.action_surface_diff
+    if action_diff.enabled:
+        lines.extend(
+            [
+                "",
+                "### Action Surface Diff",
+                (
+                    f"Actions: +{action_diff.summary.actions_added}, "
+                    f"-{action_diff.summary.actions_removed}, "
+                    f"{action_diff.summary.actions_modified} modified. "
+                    f"Blocking findings: "
+                    f"{action_diff.summary.blocking_findings}."
+                ),
+            ]
+        )
+        for item in _action_diff_highlights(report):
+            lines.append(f"- {item}")
+    elif action_diff.notes:
+        lines.extend(["", f"Action-surface diff: {action_diff.notes[0]}"])
     if diff.enabled:
         lines.extend(
             [
@@ -93,6 +112,31 @@ def write_github_step_summary(report: ReadinessReport) -> None:
     lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
+
+
+def _action_diff_highlights(report: ReadinessReport) -> list[str]:
+    diff = report.action_surface_diff
+    highlights: list[str] = []
+    for item in diff.modified:
+        if item.type in {
+            "SCOPE_EXPANDED",
+            "EFFECT_ESCALATED",
+            "APPROVAL_REMOVED",
+            "SAFEGUARD_REMOVED",
+        }:
+            highlights.append(
+                f"`{_safe_markdown_text(item.tool_name or item.action_id)}`: "
+                f"{_safe_markdown_text(item.type)}"
+            )
+    for item in diff.added:
+        highlights.append(
+            f"Added action `{_safe_markdown_text(item.tool_name or item.action_id)}`"
+        )
+    for item in diff.removed:
+        highlights.append(
+            f"Removed action `{_safe_markdown_text(item.tool_name or item.action_id)}`"
+        )
+    return highlights[:5]
 
 
 def _diff_highlights(report: ReadinessReport) -> list[str]:

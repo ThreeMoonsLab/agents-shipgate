@@ -29,6 +29,7 @@ REPORT_SCHEMA_V12 = Path("docs/report-schema.v0.12.json")
 REPORT_SCHEMA_V13 = Path("docs/report-schema.v0.13.json")
 REPORT_SCHEMA_V14 = Path("docs/report-schema.v0.14.json")
 REPORT_SCHEMA_V15 = Path("docs/report-schema.v0.15.json")
+REPORT_SCHEMA_V16 = Path("docs/report-schema.v0.16.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -165,6 +166,8 @@ def test_json_report_contains_integration_contract_keys(tmp_path):
         "suggested_scenarios",
         "tool_surface_facts",
         "tool_surface_diff",
+        "action_surface_facts",
+        "action_surface_diff",
     ):
         assert key in payload
 
@@ -395,6 +398,7 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
             "severity": "critical",
             "title": "stripe.create_refund lacks a declared approval policy",
             "baseline_status": None,
+            "blocks_release": False,
         },
         {
             "id": "fp_dac8011e14c53777",
@@ -403,6 +407,7 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
             "severity": "critical",
             "title": "stripe.create_refund lacks idempotency evidence",
             "baseline_status": None,
+            "blocks_release": False,
         },
     ]
 
@@ -504,12 +509,9 @@ def test_json_schema_is_published():
     } <= set(api_surface["required"])
 
 
-def test_json_report_validates_against_v15_schema(tmp_path):
-    """v0.15 schema adds provenance_kind on every Finding (required +
-    non-nullable on the wire, inline 5-value enum) on top of v0.14's
-    insufficient_evidence release-decision state and v0.13's
-    codex_plugin_surface. Emitted reports must validate against the
-    v0.15 schema."""
+def test_json_report_validates_against_current_schema(tmp_path):
+    """Current schema includes action-surface diff fields on top of
+    v0.15 provenance_kind. Emitted reports must validate against it."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -518,7 +520,7 @@ def test_json_report_validates_against_v15_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V15.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -645,6 +647,16 @@ def test_v14_schema_file_is_frozen():
         "insufficient_evidence",
         "passed",
     }
+
+
+def test_v15_schema_file_is_frozen():
+    """v0.15 schema file stays parseable and excludes v0.16 action fields."""
+    schema = json.loads(REPORT_SCHEMA_V15.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.15"}
+    assert "action_surface_facts" not in schema.get("required", [])
+    assert "action_surface_diff" not in schema.get("required", [])
+    assert "action_surface_facts" not in schema.get("properties", {})
+    assert "action_surface_diff" not in schema.get("properties", {})
 
 
 def test_v07_schema_preserves_nested_required_lists():
@@ -849,8 +861,35 @@ def test_v10_schema_requires_release_decision_and_diffs():
     } <= diff_required
 
 
-def test_v15_schema_rejects_null_release_decision_and_consequence(tmp_path):
-    """A v0.15 payload with null release blocks MUST fail validation.
+def test_v16_schema_requires_action_surface_fields():
+    """v0.16 adds first-class Action Surface Diff facts and diff fields."""
+    schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.16"}
+    assert {
+        "action_surface_facts",
+        "action_surface_diff",
+    } <= set(schema["required"])
+    assert {
+        "enabled",
+        "base",
+        "summary",
+        "added",
+        "removed",
+        "modified",
+        "notes",
+    } <= set(schema["$defs"]["ActionSurfaceDiff"]["required"])
+    assert {
+        "actions_added",
+        "actions_removed",
+        "actions_modified",
+        "blocking_findings",
+    } <= set(schema["$defs"]["ActionSurfaceDiffSummary"]["required"])
+    assert "blocks_release" in schema["$defs"]["Finding"]["required"]
+    assert "blocks_release" in schema["$defs"]["ReleaseDecisionItem"]["required"]
+
+
+def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
+    """A current payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
     `anyOf: [ReleaseDecision, null]` and silently accepted null. Invariant
     carries forward unchanged from v0.13/v0.14."""
@@ -864,7 +903,7 @@ def test_v15_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V15.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

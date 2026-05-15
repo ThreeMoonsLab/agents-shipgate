@@ -52,6 +52,9 @@ def build_release_decision(
     blocker_severities: set[Severity] = {"critical", *fail_on_resolved}
 
     for finding in active:
+        if finding.blocks_release and finding.baseline_status != "matched":
+            blockers.append(_to_item(finding))
+            continue
         if (
             finding.baseline_status != "matched"
             and finding.severity in blocker_severities
@@ -145,6 +148,7 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
         severity=finding.severity,
         title=finding.title,
         baseline_status=finding.baseline_status,
+        blocks_release=finding.blocks_release,
     )
 
 

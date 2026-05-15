@@ -55,8 +55,26 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
   run: echo "Release blocked by Agents Shipgate"
 ```
 
-**Diagnostic (informational, not a release gate):** `diff_enabled` — `true`/`false`. Whether the action performed a base-branch comparison (`diff_base: target` or `diff_from: <ref>` was set and the scan succeeded).
+**Diagnostic (informational by itself):** `diff_enabled` — `true`/`false`.
+Whether the action performed a base-branch tool-surface comparison
+(`diff_base: target` or `diff_from: <ref>` was set and the scan succeeded).
+
+Action Surface Diff outputs:
+
+| Output | Purpose |
+|---|---|
+| `action_diff_enabled` | `true`/`false`. Whether `action_surface_diff` was enabled. |
+| `actions_added` | Count of newly added actions. |
+| `actions_modified` | Count of modified actions. |
+| `actions_removed` | Count of removed actions. |
+
+Release decisions still come from `decision` / `ci_would_fail`; action policy
+findings can feed those fields through `findings[].blocks_release`.
 
 **Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
 
-For PR review diffs, set `diff_base: target`. The action performs a best-effort base-branch scan with the PR-side installed package; use `fetch-depth: 0` on `actions/checkout` if your workflow needs reliable target-branch comparison.
+For PR review diffs, set `diff_base: target`. The action performs a best-effort
+base-branch scan with the PR-side installed package; use `fetch-depth: 0` on
+`actions/checkout` if your workflow needs reliable target-branch comparison.
+`base_ref` and `head_ref` may be set explicitly for clearer PR wiring; existing
+`diff_base` / `diff_from` workflows keep working.
