@@ -151,3 +151,31 @@ def test_release_workflow_uses_release_security_steps():
     assert "uv publish --trusted-publishing always" in text
     assert "sigstore sign" in text
     assert "cyclonedx-py environment" in text
+
+
+def test_release_workflow_supports_manual_approved_tag_creation():
+    text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in text
+    assert "version:" in text
+    assert "environment: pypi" in text
+    assert "Resolve release metadata" in text
+    assert "Validate release version and tag" in text
+    assert "pyproject.toml" in text
+    assert "src/agents_shipgate/__init__.py" in text
+    assert "Create annotated release tag" in text
+    assert 'git tag -a "${RELEASE_TAG}"' in text
+    assert 'git push origin "refs/tags/${RELEASE_TAG}"' in text
+    assert 'gh release create "${RELEASE_TAG}"' in text
+    assert "--verify-tag" in text
+
+
+def test_release_workflow_verifies_external_release_surfaces():
+    text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert "Verify GitHub release" in text
+    assert "Verify PyPI release" in text
+    assert "https://pypi.org/pypi/agents-shipgate/json" in text
+    assert "Check GitHub Marketplace listing" in text
+    assert "https://github.com/marketplace/actions/agents-shipgate" in text
+    assert "::warning::GitHub Marketplace did not show" in text
