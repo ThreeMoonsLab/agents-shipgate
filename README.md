@@ -21,6 +21,12 @@ LangChain/LangGraph, CrewAI, n8n, and OpenAI API artifacts, then writes a
 deterministic **Tool-Use Readiness Report** before your agent gets
 production-like permissions.
 
+**Website:** [threemoonslab.com](https://threemoonslab.com/) —
+[quickstart](https://threemoonslab.com/quickstart/),
+[glossary](https://threemoonslab.com/glossary/),
+[check catalog](https://threemoonslab.com/checks/), and
+[design partners](https://threemoonslab.com/design-partners/).
+
 No agent execution. No LLM calls. No MCP server connections. No scanner network
 calls. No scanner telemetry. Apache-2.0.
 
@@ -179,6 +185,10 @@ Once an AI agent can refund, email, cancel, deploy, or modify a record, every to
 
 Agents Shipgate produces a deterministic answer to that question, before promotion.
 
+The longer thesis — *healthcare for agents* and the broader
+[agent lifecycle readiness](https://threemoonslab.com/about/) roadmap — lives on
+the marketing site.
+
 ## Findings Gallery
 
 The bundled support-refund fixture demonstrates the kind of release risks Agents Shipgate is designed to surface:
@@ -221,6 +231,14 @@ The fastest way to understand what changes for a reviewer: walk through a Golden
 | Code review | Reviewers miss generated specs, MCP exports, broad scopes, and missing approval policies. |
 | Runtime traces | Useful later, but they arrive after behavior exists. Agents Shipgate runs before promotion. |
 | Nothing | Tool-surface drift becomes a production surprise. |
+
+For named comparisons against specific evaluators and platforms, see the
+marketing-site versus pages:
+[vs evals](https://threemoonslab.com/vs/evals/),
+[vs promptfoo](https://threemoonslab.com/vs/promptfoo/),
+[vs Braintrust](https://threemoonslab.com/vs/braintrust/),
+[vs LangSmith](https://threemoonslab.com/vs/langsmith/), and
+[vs observability platforms](https://threemoonslab.com/vs/observability/).
 
 ## CI Behavior
 
@@ -398,11 +416,23 @@ Agents Shipgate is and will remain free OSS for individuals and teams running it
 
 If hosted dashboards, SSO, org-wide baselines, approval workflows, or trace-based evidence emerge, they should live in a separate optional product rather than moving core OSS functionality behind a paywall.
 
-Teams shipping production-like tool-using agents can read the
-[design partner notes](docs/design-partners.md) for early review criteria and
-contact details.
+Teams shipping production-like tool-using agents can apply to the
+[Three Moons Lab design partner program](https://threemoonslab.com/design-partners/)
+— the marketing page mirrors
+[`docs/design-partners.md`](docs/design-partners.md) in the repo and includes a
+prefilled email CTA for review criteria and contact.
 
 ## Docs
+
+The marketing site at [threemoonslab.com](https://threemoonslab.com/) carries
+the same canonical concepts in human-readable, search-optimised form:
+[quickstart](https://threemoonslab.com/quickstart/),
+[check catalog](https://threemoonslab.com/checks/),
+[glossary](https://threemoonslab.com/glossary/),
+[blog](https://threemoonslab.com/blog/), and
+[design partners](https://threemoonslab.com/design-partners/). The in-repo docs
+below are the canonical contract; the marketing pages are sized for first-time
+readers and AI search ingest.
 
 - [Agent Release Gate category](docs/category.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)

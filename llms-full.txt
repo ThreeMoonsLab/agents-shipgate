@@ -38,6 +38,7 @@ Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
+- **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL. Discovery metadata at [`/.well-known/agents-shipgate.json`](https://threemoonslab.com/.well-known/agents-shipgate.json) (pinned to the latest released tag). Human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/).
 
 ---
 
@@ -57,7 +58,7 @@ The canonical tagline is:
 
 > Static release-readiness gate for AI agent tool surfaces.
 
-This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the marketing site `<meta name="description">`. Keep them in sync.
+This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync.
 
 ---
 
