@@ -11,7 +11,8 @@ from typer.testing import CliRunner
 
 from agents_shipgate import __version__
 from agents_shipgate.checks import registry
-from agents_shipgate.cli.main import _safe_output_name, app
+from agents_shipgate.cli._helpers import _safe_output_name
+from agents_shipgate.cli.main import app
 from agents_shipgate.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -258,7 +259,7 @@ def test_cli_scan_help_hides_deferred_flags():
 
 
 def test_cli_tool_surface_summary_detects_no_changes():
-    from agents_shipgate.cli.main import _tool_surface_diff_has_changes
+    from agents_shipgate.cli._helpers import _tool_surface_diff_has_changes
 
     assert _tool_surface_diff_has_changes(ToolSurfaceDiffSummary()) is False
     assert (

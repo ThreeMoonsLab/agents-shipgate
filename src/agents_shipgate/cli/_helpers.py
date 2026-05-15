@@ -1,0 +1,375 @@
+from __future__ import annotations
+
+import glob
+import logging
+import re
+from pathlib import Path
+
+import typer
+
+from agents_shipgate import __version__
+from agents_shipgate.cli.diagnostics import (
+    diagnose_invalid_manifest,
+    diagnose_missing_manifest,
+)
+from agents_shipgate.cli.discovery import discover_manifest_paths
+from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.findings import SEVERITY_ORDER
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_formats(value: str) -> list[str]:
+    formats = [item.strip() for item in value.split(",") if item.strip()]
+    invalid = [item for item in formats if item not in {"markdown", "json", "sarif"}]
+    if invalid:
+        raise ConfigError(f"Unsupported report format(s): {', '.join(invalid)}")
+    if not formats:
+        raise ConfigError("At least one report format is required")
+    return formats
+
+
+def _parse_packet_formats(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    parts = [item.strip() for item in value.split(",") if item.strip()]
+    invalid = [item for item in parts if item not in {"md", "json", "html", "pdf"}]
+    if invalid:
+        raise ConfigError(
+            f"Unsupported packet format(s): {', '.join(invalid)}; "
+            "expected a subset of md,json,html,pdf"
+        )
+    if not parts:
+        raise ConfigError(
+            "--packet-format must contain at least one of md,json,html,pdf"
+        )
+    return parts
+
+
+def _parse_fail_on(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    severities = [item.strip() for item in value.split(",") if item.strip()]
+    invalid = [
+        severity
+        for severity in severities
+        if severity not in {"info", "low", "medium", "high", "critical"}
+    ]
+    if invalid:
+        raise ConfigError(f"Unsupported fail-on severity: {', '.join(invalid)}")
+    return severities
+
+
+def _resolve_config_paths(*, config: str, workspace: Path | None) -> list[Path]:
+    if workspace:
+        paths = discover_manifest_paths(workspace)
+    elif any(char in config for char in "*?[]"):
+        paths = sorted(Path(path) for path in glob.glob(config, recursive=True))
+    else:
+        paths = [Path(config)]
+    if not paths:
+        raise ConfigError("No shipgate.yaml files matched")
+    return paths
+
+
+def _missing_manifest_workspace(
+    *, config: str, workspace: Path | None
+) -> Path:
+    """Pick the workspace path used by the missing-manifest diagnostic.
+
+    Routes recovery to the directory the user pointed scan/doctor at
+    (``-c <path>`` or ``--workspace <dir>``), not whichever directory
+    they happen to be invoking the CLI from. For glob inputs, walks the
+    path components and uses the longest non-glob prefix — so an
+    invocation like ``scan -c /tmp/repo/*/shipgate.yaml`` from another
+    cwd still routes the agent to ``/tmp/repo``.
+    """
+    if workspace is not None:
+        return workspace.resolve()
+    if any(char in config for char in "*?[]"):
+        return _glob_non_glob_prefix(config)
+    config_path = Path(config)
+    parent = config_path.parent
+    if not str(parent) or str(parent) == ".":
+        return Path.cwd()
+    # `Path.resolve()` works on non-existent paths — and the manifest
+    # parent often exists even when the manifest itself is missing.
+    return parent.resolve()
+
+
+def _glob_non_glob_prefix(config: str) -> Path:
+    """Return the longest leading path component sequence with no glob
+    metacharacters, falling back to ``cwd`` for purely-relative globs.
+    """
+    parts = Path(config).parts
+    safe: list[str] = []
+    for part in parts:
+        if any(char in part for char in "*?[]"):
+            break
+        safe.append(part)
+    if not safe:
+        return Path.cwd()
+    candidate = Path(*safe)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve()
+
+
+def _candidate_manifest_paths(
+    *, config: str, workspace: Path | None
+) -> list[Path]:
+    """Enumerate the manifest paths the user pointed scan/doctor at.
+
+    Mirrors ``_resolve_config_paths`` but does not raise — it's called
+    from inside the ``ConfigError`` handler, where re-raising would
+    obscure the original failure. Returns an empty list when nothing
+    resolves; the dispatcher then falls back to ``MISSING-MANIFEST``.
+    """
+    try:
+        if workspace is not None:
+            return list(discover_manifest_paths(workspace))
+        if any(char in config for char in "*?[]"):
+            return sorted(Path(p) for p in glob.glob(config, recursive=True))
+        return [Path(config)]
+    except Exception:  # noqa: BLE001 — diagnostic dispatch must not fail
+        return []
+
+
+def _diagnose_config_error(
+    *, config: str, workspace: Path | None, exc: ConfigError
+) -> list:
+    """Pick the right diagnostic for a ``ConfigError``.
+
+    ``ConfigError`` covers two distinct failure shapes:
+    - the manifest file does not exist (``MISSING-MANIFEST``)
+    - one or more candidate manifest files exist but the loader rejected
+      them — invalid YAML, schema validation failure, unsupported
+      version (``INVALID-MANIFEST``)
+
+    Disambiguate by walking every candidate path the CLI invocation
+    points at (direct ``-c <file>``, ``--workspace`` discovery, or a
+    glob pattern). If any candidate is a real file, the loader is
+    choking on it — emit ``INVALID-MANIFEST`` for that file.
+    """
+    for candidate in _candidate_manifest_paths(
+        config=config, workspace=workspace
+    ):
+        if candidate.is_file():
+            return diagnose_invalid_manifest(candidate, message=str(exc))
+    return diagnose_missing_manifest(
+        _missing_manifest_workspace(config=config, workspace=workspace)
+    )
+
+
+def _run_multi_scan(
+    *,
+    config_paths: list[Path],
+    out: Path | None,
+    formats: list[str],
+    ci_mode: str | None,
+    fail_on: list[str] | None,
+    baseline: Path | None,
+    diff_from: Path | None,
+    baseline_mode: str,
+    deep_import: bool,
+    policy_packs: list[Path],
+    plugins_enabled: bool | None,
+    verbose: bool,
+    suggest_patches: bool = False,
+    packet_enabled: bool | None = None,
+    packet_formats: list[str] | None = None,
+) -> int:
+    typer.echo(f"Agents Shipgate {__version__}")
+    typer.echo(f"Scanning {len(config_paths)} manifests")
+    typer.echo("")
+    exit_code = 0
+    for config_path in config_paths:
+        output_dir = None
+        if out is not None:
+            output_dir = out / _safe_output_name(config_path)
+        try:
+            report, scan_exit_code = run_scan(
+                config_path=config_path,
+                output_dir=output_dir,
+                formats=formats,
+                ci_mode=ci_mode,
+                fail_on=fail_on,
+                baseline_path=baseline,
+                diff_from_path=diff_from,
+                baseline_mode=baseline_mode,
+                deep_import=deep_import,
+                policy_pack_paths=policy_packs,
+                plugins_enabled=plugins_enabled,
+                verbose=verbose,
+                suggest_patches=suggest_patches,
+                packet_enabled=packet_enabled,
+                packet_formats=packet_formats,
+            )
+        except ConfigError as exc:
+            scan_exit_code = 2
+            typer.echo(f"{config_path}: config_error - {exc}", err=True)
+        except InputParseError as exc:
+            scan_exit_code = 3
+            typer.echo(f"{config_path}: input_parse_error - {exc}", err=True)
+        except AgentsShipgateError as exc:
+            scan_exit_code = 4
+            typer.echo(f"{config_path}: agents_shipgate_error - {exc}", err=True)
+        except Exception as exc:  # noqa: BLE001 - multi-scan boundary.
+            scan_exit_code = 4
+            if verbose:
+                logger.exception("unhandled exception while scanning %s", config_path)
+            typer.echo(f"{config_path}: internal_error - {exc}", err=True)
+        else:
+            # v0.8: lead with release_decision.decision (baseline-aware,
+            # the recommended release-gate signal). Fall back to the
+            # legacy summary.status only if the report somehow lacks
+            # release_decision (older baselines loaded for diff, etc.).
+            decision = report.release_decision
+            if decision is not None:
+                typer.echo(
+                    f"{config_path}: {decision.decision} "
+                    f"(blockers={len(decision.blockers)}, "
+                    f"review_items={len(decision.review_items)}, "
+                    f"critical={report.summary.critical_count}, "
+                    f"high={report.summary.high_count})"
+                )
+            else:
+                typer.echo(
+                    f"{config_path}: {report.summary.status} "
+                    f"(critical={report.summary.critical_count}, "
+                    f"high={report.summary.high_count})"
+                )
+        exit_code = max(exit_code, scan_exit_code)
+    typer.echo("")
+    typer.echo(f"Exit code: {exit_code}")
+    return exit_code
+
+
+def _safe_output_name(config_path: Path) -> str:
+    parent = config_path.parent
+    try:
+        display_parent = parent.resolve().relative_to(Path.cwd().resolve())
+    except ValueError:
+        display_parent = parent.resolve()
+    raw = display_parent.as_posix()
+    if raw in {"", "."}:
+        return "root"
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")
+    return safe or "root"
+
+
+def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = False) -> None:
+    summary = report.summary
+    decision = report.release_decision
+    typer.echo(f"Agents Shipgate {__version__}")
+    typer.echo("")
+    typer.echo(f"Project: {report.project.get('name')}")
+    typer.echo(f"Agent: {report.agent.get('name')}")
+    typer.echo(f"Target: {report.environment.get('target')}")
+    typer.echo("")
+    if decision is not None:
+        typer.echo(f"Decision: {decision.decision}")
+        typer.echo(f"Reason: {decision.reason}")
+        typer.echo(f"Blockers: {len(decision.blockers)}")
+        typer.echo(f"Review items: {len(decision.review_items)}")
+        ev = decision.evidence_coverage
+        ev_extras: list[str] = []
+        if ev.low_confidence_tool_count:
+            ev_extras.append(f"{ev.low_confidence_tool_count} low-confidence tool(s)")
+        if ev.source_warning_count:
+            ev_extras.append(f"{ev.source_warning_count} source warning(s)")
+        if ev.human_review_recommended:
+            ev_extras.append("human review recommended")
+        suffix = f" ({'; '.join(ev_extras)})" if ev_extras else ""
+        typer.echo(f"Evidence coverage: {ev.level}{suffix}")
+        bd = decision.baseline_delta
+        if bd.enabled:
+            typer.echo(
+                "Baseline delta: "
+                f"matched={bd.matched_count}, new={bd.new_count}, "
+                f"resolved={bd.resolved_count}"
+            )
+        else:
+            typer.echo("Baseline delta: not enabled")
+        fp = decision.fail_policy
+        fail_on_text = ", ".join(fp.fail_on) if fp.fail_on else "none"
+        typer.echo(
+            f"Fail policy: ci_mode={fp.ci_mode}, fail_on=[{fail_on_text}], "
+            f"new_findings_only={str(fp.new_findings_only).lower()}, "
+            f"would_fail_ci={str(fp.would_fail_ci).lower()}"
+        )
+    else:
+        typer.echo("Decision: (not recorded)")
+    typer.echo("")
+    typer.echo(
+        f"Counts: critical={summary.critical_count}, high={summary.high_count}, "
+        f"medium={summary.medium_count}, low={summary.low_count}, "
+        f"suppressed={summary.suppressed_count}"
+    )
+    diff = report.tool_surface_diff
+    if diff.enabled:
+        if _tool_surface_diff_has_changes(diff.summary):
+            typer.echo(
+                "Tool-surface diff: "
+                f"+{diff.summary.tools_added} tools, "
+                f"-{diff.summary.tools_removed} tools, "
+                f"{diff.summary.tools_changed} changed, "
+                f"{diff.summary.new_high_risk_effects} new high-risk effect(s), "
+                f"{diff.summary.controls_removed} removed control(s)"
+            )
+        else:
+            typer.echo("Tool-surface diff: no changes")
+    elif diff.notes:
+        typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
+    if verbose:
+        typer.echo(f"Tool count: {report.tool_surface.total_tools}")
+        typer.echo(f"Source warnings: {len(report.source_warnings)}")
+    typer.echo("")
+    top = [
+        finding
+        for finding in report.findings
+        if not finding.suppressed and finding.severity in {"critical", "high"}
+    ]
+    top = sorted(top, key=lambda finding: (SEVERITY_ORDER[finding.severity], finding.check_id))[:5]
+    typer.echo("Top findings:")
+    if top:
+        for finding in top:
+            target = f": {finding.tool_name}" if finding.tool_name else ""
+            typer.echo(f"- {finding.check_id}{target} - {finding.title}")
+    else:
+        typer.echo("- none")
+    typer.echo("")
+    typer.echo("Reports:")
+    for path in report.generated_reports.values():
+        typer.echo(f"- {path}")
+    if verbose and report.source_warnings:
+        typer.echo("")
+        typer.echo("Source warnings:")
+        for warning in report.source_warnings:
+            typer.echo(f"- {warning}")
+    typer.echo("")
+    typer.echo(f"CI mode: {ci_mode}")
+    typer.echo(f"Exit code: {exit_code}")
+
+
+def _tool_surface_diff_has_changes(summary) -> bool:
+    return any(
+        (
+            summary.tools_added,
+            summary.tools_removed,
+            summary.tools_changed,
+            summary.new_scopes,
+            summary.removed_scopes,
+            summary.new_high_risk_effects,
+            summary.removed_high_risk_effects,
+            summary.controls_added,
+            summary.controls_removed,
+            summary.metadata_changes,
+            summary.policy_drift_items,
+            summary.new_findings,
+            summary.resolved_findings,
+            summary.unchanged_findings,
+            summary.accepted_debt,
+        )
+    )
