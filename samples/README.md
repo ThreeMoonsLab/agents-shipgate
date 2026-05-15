@@ -13,6 +13,22 @@ agents-shipgate fixture run support_refund_agent
 This produces a Tool-Use Readiness Report with 18 findings, including critical
 approval and idempotency findings on `stripe.create_refund`.
 
+## Sample reports
+
+These golden reports are committed so you can inspect the output shape without
+running a scan first:
+
+| Sample | Markdown | JSON |
+| --- | --- | --- |
+| [`support_refund_agent`](support_refund_agent/) | [`report.md`](support_refund_agent/expected/report.md) | [`report.json`](support_refund_agent/expected/report.json) |
+| [`simple_openai_api_agent`](simple_openai_api_agent/) | [`report.md`](simple_openai_api_agent/expected/report.md) | [`report.json`](simple_openai_api_agent/expected/report.json) |
+| [`simple_langchain_agent`](simple_langchain_agent/) | [`report.md`](simple_langchain_agent/expected/report.md) | [`report.json`](simple_langchain_agent/expected/report.json) |
+
+The `support_refund_agent` fixture also includes the Release Evidence Packet at
+[`packet.md`](support_refund_agent/expected/packet.md),
+[`packet.json`](support_refund_agent/expected/packet.json), and
+[`packet.html`](support_refund_agent/expected/packet.html).
+
 ## Fixtures
 
 | Sample | Purpose |

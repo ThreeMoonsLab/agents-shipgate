@@ -2,6 +2,20 @@
 
 A 60-second introduction to agents-shipgate for developers and AI coding agents.
 
+## One-command quickstart
+
+Run the bundled fixture without writing any YAML. If you already have
+[`uv`](https://docs.astral.sh/uv/) installed, this is a one-command check with
+no persistent install:
+
+```bash
+uvx agents-shipgate fixture run support_refund_agent
+```
+
+Use this when you want a 5-minute path to confirm the CLI works and inspect a
+real Tool-Use Readiness Report before touching your own repo. If `uvx` is not
+available, use the `pipx` install path below.
+
 ## Zero-install: is this even relevant?
 
 Coding agents reading a fresh repo can answer "is this an agent project?" in one fetch, no install needed:
@@ -47,8 +61,15 @@ like.
 
 ## Second 60 seconds (your real repo)
 
-In a repo containing an agent and its tools, the canonical four-call flow
-detects, configures, scans, and auto-applies safe fixes in one turn:
+In a repo containing an agent and its tools, `bootstrap` runs the adoption flow
+in one command:
+
+```bash
+agents-shipgate bootstrap --json
+```
+
+The expanded form detects, configures, scans, and auto-applies safe fixes in
+one turn:
 
 ```bash
 agents-shipgate detect --json                                              # 1. classify
