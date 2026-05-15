@@ -41,7 +41,7 @@ _RISK_TAG_MAP = {
     "customer_communication": "external_communication",
     "financial_action": "financial_write",
     "financial_write": "financial_write",
-    "external_side_effect": "external_side_effect",
+    "external_side_effect": "external_communication",
     "destructive": "destructive",
     "infrastructure_change": "production_ops",
     "production_operation": "production_ops",
@@ -380,8 +380,6 @@ def _provider(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:
         return _normalize_token(declaration.provider)
     if tool.source_id:
         return _normalize_token(tool.source_id)
-    if "." in tool.name:
-        return _normalize_token(tool.name.split(".", 1)[0])
     return _normalize_token(tool.source_type)
 
 

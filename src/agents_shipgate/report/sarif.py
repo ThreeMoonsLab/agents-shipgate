@@ -51,7 +51,9 @@ def _rules(
 ) -> list[dict[str, Any]]:
     by_check: dict[str, Finding] = {}
     for finding in findings:
-        by_check.setdefault(finding.check_id, finding)
+        existing = by_check.get(finding.check_id)
+        if existing is None or (finding.blocks_release and not existing.blocks_release):
+            by_check[finding.check_id] = finding
     rules = []
     for check_id, finding in sorted(by_check.items()):
         metadata = metadata_by_id.get(check_id)
@@ -62,6 +64,7 @@ def _rules(
             else finding.recommendation
         )
         severity = metadata.default_severity if metadata else finding.severity
+        tags = _sarif_tags(finding, category=metadata.category if metadata else None)
         rule: dict[str, Any] = {
             "id": check_id,
             "name": check_id,
@@ -71,6 +74,7 @@ def _rules(
             "properties": {
                 "category": metadata.category if metadata else finding.category,
                 "severity": severity,
+                "tags": tags,
             },
         }
         if metadata and metadata.docs_url:
@@ -96,6 +100,7 @@ def _result(finding: Finding) -> dict[str, Any]:
             "provenance_kind": finding.provenance_kind,
             "evidence": _summarize_evidence(finding.evidence),
             "tool_name": finding.tool_name,
+            "tags": _sarif_tags(finding),
         },
     }
     if finding.fingerprint:
@@ -112,6 +117,13 @@ def _level(severity: str) -> str:
     if severity == "medium":
         return "warning"
     return "note"
+
+
+def _sarif_tags(finding: Finding, *, category: str | None = None) -> list[str]:
+    tags = [category or finding.category]
+    if finding.blocks_release:
+        tags.append("release_blocker")
+    return sorted({tag for tag in tags if tag})
 
 
 def _location(finding: Finding) -> dict[str, Any] | None:

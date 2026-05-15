@@ -167,6 +167,29 @@ def test_action_surface_facts_normalize_openapi_operation():
     assert action.effect == "write"
 
 
+def test_action_surface_dotted_tool_name_without_source_id_uses_source_type_provider():
+    manifest = _manifest()
+    tool = Tool(
+        id="tool:gmail.threads.send",
+        name="gmail.threads.send",
+        source_type="sdk_function",
+        extraction_confidence="high",
+    )
+
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    action = facts.actions[0]
+    assert action.provider == "sdk_function"
+    assert action.operation == "gmail.threads.send"
+    assert action.action_id == (
+        "agent:action-test/agent:sdk_function:sdk_function:gmail.threads.send"
+    )
+
+
 def test_action_surface_rejects_duplicate_tool_declarations():
     with pytest.raises(ValueError, match=r"Duplicate action_surface\.actions\[\]\.tool"):
         _manifest(
@@ -235,6 +258,58 @@ def test_action_surface_policy_requires_typed_expected_values():
                 }
             }
         )
+
+
+def test_action_surface_external_side_effect_alias_matches_external_communication_policy():
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "actions": [
+                    {
+                        "tool": "send_customer_email",
+                        "effect": "external_communication",
+                        "risk_tags": ["external_side_effect"],
+                    }
+                ],
+                "policies": [
+                    {
+                        "id": "require-audit-for-external-communication",
+                        "match": {"risk_tags": ["external_communication"]},
+                        "require": {"safeguards.audit_log": True},
+                        "severity": "high",
+                        "block": True,
+                    }
+                ],
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:send_customer_email",
+        name="send_customer_email",
+        source_type="mcp",
+        source_id="tools",
+        extraction_confidence="high",
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    assert facts.actions[0].risk_tags == ["external_communication"]
+    findings = evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+    )
+
+    assert any(
+        finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+        and finding.evidence["policy_id"] == "require-audit-for-external-communication"
+        and finding.blocks_release
+        for finding in findings
+    )
 
 
 def test_action_surface_diff_reports_added_and_removed_actions():
@@ -377,6 +452,38 @@ def test_require_explicit_actions_reports_undeclared_tool():
         and finding.blocks_release
         for finding in findings
     )
+
+
+def test_require_explicit_actions_passes_when_all_tools_are_declared():
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "require_explicit_actions": True,
+                "actions": [{"tool": "lookup"}],
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:lookup",
+        name="lookup",
+        source_type="mcp",
+        source_id="tools",
+        extraction_confidence="high",
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+    )
+
+    assert not any(finding.check_id == "SHIP-ACTION-UNDECLARED" for finding in findings)
 
 
 def test_dedupe_findings_uses_canonical_evidence_order():

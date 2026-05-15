@@ -615,7 +615,7 @@ class ActionFact(BaseModel):
     evidence: ActionEvidenceFact = Field(default_factory=ActionEvidenceFact)
     input_fields: list[str] = Field(default_factory=list)
     required_input_fields: list[str] = Field(default_factory=list)
-    input_schema_hash: str | None = None
+    input_schema_hash: str
     hashes: ActionSurfaceHashes
 
 

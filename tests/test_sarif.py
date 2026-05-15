@@ -61,6 +61,30 @@ def test_sarif_uses_canonical_rule_metadata_and_help_uri():
     assert rule["helpUri"].endswith("docs/checks.md#ship-auth-missing-scope")
 
 
+def test_sarif_tags_action_surface_release_blockers():
+    report = _report_with_findings(
+        [
+            Finding(
+                check_id="SHIP-ACTION-POLICY-VIOLATION",
+                title="Action policy failed",
+                severity="medium",
+                category="action_surface",
+                tool_name="send_customer_email",
+                evidence={"policy_id": "require-audit"},
+                recommendation="Declare audit evidence.",
+                blocks_release=True,
+            )
+        ]
+    )
+
+    payload = render_sarif_report(report)
+    rule = payload["runs"][0]["tool"]["driver"]["rules"][0]
+    result = payload["runs"][0]["results"][0]
+
+    assert rule["properties"]["tags"] == ["action_surface", "release_blocker"]
+    assert result["properties"]["tags"] == ["action_surface", "release_blocker"]
+
+
 def test_sarif_summarizes_large_evidence_payloads():
     report = _report_with_findings(
         [

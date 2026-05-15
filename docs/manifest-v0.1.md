@@ -365,7 +365,7 @@ action_surface:
       effect: financial_write
       risk_tags:
         - financial_write
-        - external_side_effect
+        - external_communication
       scopes:
         - refunds:create
       approval:
@@ -403,15 +403,26 @@ declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
 that lack an explicit action declaration.
 
+Action facts are derived from the loaded tool records after static risk-hint
+enrichment and before finding evaluation. Checks and policies consume those
+facts; they do not mutate the action surface snapshot.
+
 Action IDs are deterministic. By default they use:
 
 ```text
 {agent_id}:{source_type}:{source_id_or_provider}:{operation}
 ```
 
-OpenAPI operations normalize to `METHOD /path`. MCP and SDK-derived tools
-default to the loaded tool name. You may set `actions[].id` when you need a
-stable explicit action ID across source refactors.
+`source_id_or_provider` resolves as `actions[].provider`, then the loaded
+tool's `source_id`, then `source_type` when no source ID exists. Dotted tool
+names are treated as operation text, not provider metadata; declare
+`actions[].provider` when the source cannot provide one. OpenAPI operations
+normalize to `METHOD /path`. MCP and SDK-derived tools default to the loaded
+tool name. Treat `action_id` as an opaque stable identifier in downstream
+tools; use the structured `provider`, `source_type`, `source_id`, and
+`operation` fields on `action_surface_facts.actions[]` when you need to inspect
+components. You may set `actions[].id` when you need a stable explicit action
+ID across source refactors.
 
 `policies[]` rules match actions by `action_ids`, `tools`, `effects`,
 `risk_tags`, or `scopes`. User-declared policies are evaluated against the full
@@ -423,6 +434,56 @@ such as `safeguards.audit_log` must use YAML booleans (`true`/`false`), not
 quoted strings.
 When `block: true`, policy findings set `findings[].blocks_release` and
 participate in `release_decision.blockers` when active and unbaselined.
+
+Canonical action risk tags are:
+
+| Tag | Meaning |
+|---|---|
+| `read_only` | Read-only action surface. |
+| `writes_data` | Mutates application or customer data. |
+| `destructive` | Deletes, cancels, revokes, terminates, or otherwise destroys state. |
+| `financial_write` | Creates or changes payments, refunds, invoices, charges, or billing state. |
+| `external_communication` | Sends or posts content outside the agent boundary, including customer email or messages. |
+| `production_ops` | Deploys, restarts, scales, rolls back, or changes production infrastructure. |
+| `privileged_data` | Reads privileged, sensitive, or regulated data. |
+| `identity_access` | Creates, changes, invites, revokes, or reads identity and permission state. |
+| `code_execution` | Executes code, shell commands, scripts, or dynamic runtime logic. |
+| `network_access` | Performs network access beyond a bounded local data source. |
+| `filesystem_write` | Writes to the filesystem. |
+| `customer_data` | Reads or writes customer data. |
+| `secret_access` | Reads or writes secrets, tokens, keys, or credentials. |
+| `irreversible` | Produces effects that cannot be rolled back reliably. |
+
+Manifest risk tag aliases accepted for compatibility are normalized before
+policy evaluation: `write` -> `writes_data`, `external_write`,
+`customer_communication`, and `external_side_effect` ->
+`external_communication`, `financial_action` -> `financial_write`,
+`infrastructure_change` and `production_operation` -> `production_ops`,
+`sensitive_data_access` and `privileged_data_access` -> `privileged_data`.
+
+Known `policies[].require` paths:
+
+| Path | Type |
+|---|---|
+| `approval.required` | boolean |
+| `approval.threshold` | string |
+| `safeguards.idempotency` | boolean |
+| `safeguards.audit_log` | boolean |
+| `safeguards.rollback` | boolean |
+| `safeguards.dry_run` | boolean |
+| `evidence.owner` | string |
+| `evidence.runbook` | string |
+| `evidence.approval_ticket` | string |
+| `effect` | one of `read`, `write`, `destructive`, `external_communication`, `financial_write`, `production_operation`, `privileged_data_access`, `code_execution`, `identity_access` |
+| `scopes` / `required_scopes` | list of strings |
+| `risk_tags` | list of strings |
+| `input_fields` | list of strings |
+| `required_input_fields` | list of strings |
+| `provider` | string |
+| `source_type` | string |
+| `source_id` | string |
+| `operation` | string |
+| `input_schema_hash` | string |
 
 Built-in action policies cover new financial writes without approval/audit/
 idempotency, destructive actions without rollback, external communication

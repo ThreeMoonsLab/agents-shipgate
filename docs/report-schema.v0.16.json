@@ -126,16 +126,8 @@
           "type": "array"
         },
         "input_schema_hash": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Input Schema Hash"
+          "title": "Input Schema Hash",
+          "type": "string"
         },
         "operation": {
           "title": "Operation",
