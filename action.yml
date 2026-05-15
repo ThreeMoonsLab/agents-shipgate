@@ -36,6 +36,14 @@ inputs:
     required: false
     default: ""
     description: Set to target to best-effort scan the pull request base branch for diff.
+  base_ref:
+    required: false
+    default: ""
+    description: Optional base ref/SHA for PR action-surface diff. Falls back to github.base_ref.
+  head_ref:
+    required: false
+    default: ""
+    description: Optional head ref/SHA for PR action-surface diff. The checked-out workspace is scanned by default.
   baseline_mode:
     required: false
     default: new-findings
@@ -124,6 +132,18 @@ outputs:
   diff_enabled:
     description: Whether tool_surface_diff was enabled in report.json.
     value: ${{ steps.report_outputs.outputs.diff_enabled }}
+  action_diff_enabled:
+    description: Whether action_surface_diff was enabled in report.json.
+    value: ${{ steps.report_outputs.outputs.action_diff_enabled }}
+  actions_added:
+    description: Number of actions added by Action Surface Diff.
+    value: ${{ steps.report_outputs.outputs.actions_added }}
+  actions_modified:
+    description: Number of actions modified by Action Surface Diff.
+    value: ${{ steps.report_outputs.outputs.actions_modified }}
+  actions_removed:
+    description: Number of actions removed by Action Surface Diff.
+    value: ${{ steps.report_outputs.outputs.actions_removed }}
 
 runs:
   using: composite
@@ -155,6 +175,8 @@ runs:
         BASELINE_MODE: ${{ inputs.baseline_mode }}
         DIFF_FROM: ${{ inputs.diff_from }}
         DIFF_BASE: ${{ inputs.diff_base }}
+        INPUT_BASE_REF: ${{ inputs.base_ref }}
+        INPUT_HEAD_REF: ${{ inputs.head_ref }}
         BASE_REF: ${{ github.base_ref }}
         EVENT_NAME: ${{ github.event_name }}
         POLICY_PACKS: ${{ inputs.policy_packs }}
@@ -178,15 +200,16 @@ runs:
         diff_tmp_to_cleanup=""
         diff_worktree_to_cleanup=""
         if [ -z "${resolved_diff_from}" ] && [ "${DIFF_BASE}" = "target" ]; then
-          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
+          resolved_base_ref="${INPUT_BASE_REF:-${BASE_REF}}"
+          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${resolved_base_ref}" ]; then
             base_tmp="$(mktemp -d)"
             base_worktree="${base_tmp}/base"
             base_out="${base_tmp}/reports"
             diff_tmp_to_cleanup="${base_tmp}"
             diff_worktree_to_cleanup="${base_worktree}"
             diff_note=""
-            if ! git fetch --depth=1 origin "${BASE_REF}"; then
-              diff_note="tool-surface diff disabled: could not fetch base ref ${BASE_REF}"
+            if ! git fetch --depth=1 origin "${resolved_base_ref}"; then
+              diff_note="tool-surface diff disabled: could not fetch base ref ${resolved_base_ref}"
             elif ! git worktree add --detach "${base_worktree}" "FETCH_HEAD"; then
               diff_note="tool-surface diff disabled: could not create base worktree"
             elif [ ! -f "${base_worktree}/${CONFIG}" ]; then
@@ -264,6 +287,8 @@ runs:
         fail_policy = {}
         tool_surface_diff = {}
         diff_summary = {}
+        action_surface_diff = {}
+        action_diff_summary = {}
         if report_json.exists():
             with report_json.open(encoding="utf-8") as handle:
                 payload = json.load(handle)
@@ -274,6 +299,8 @@ runs:
                 fail_policy = release_decision.get("fail_policy") or {}
                 tool_surface_diff = payload.get("tool_surface_diff") or {}
                 diff_summary = tool_surface_diff.get("summary") or {}
+                action_surface_diff = payload.get("action_surface_diff") or {}
+                action_diff_summary = action_surface_diff.get("summary") or {}
 
         def clean(value: object) -> str:
             # `value or ""` would emit 0 as "", which breaks workflow
@@ -302,6 +329,10 @@ runs:
             # so this stays false until the workflow installs v0.8+.
             "ci_would_fail": str(bool(fail_policy.get("would_fail_ci"))).lower(),
             "diff_enabled": str(bool(tool_surface_diff.get("enabled"))).lower(),
+            "action_diff_enabled": str(bool(action_surface_diff.get("enabled"))).lower(),
+            "actions_added": action_diff_summary.get("actions_added", 0),
+            "actions_modified": action_diff_summary.get("actions_modified", 0),
+            "actions_removed": action_diff_summary.get("actions_removed", 0),
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():
@@ -332,7 +363,21 @@ runs:
                         f"High: {clean(summary.get('high_count', 0))} · "
                         f"Medium: {clean(summary.get('medium_count', 0))}\n"
                     )
-                if tool_surface_diff.get("enabled"):
+                if action_surface_diff.get("enabled"):
+                    summary_file.write(
+                        "- Action Surface Diff: "
+                        f"+{clean(action_diff_summary.get('actions_added', 0))} actions, "
+                        f"-{clean(action_diff_summary.get('actions_removed', 0))} actions, "
+                        f"{clean(action_diff_summary.get('actions_modified', 0))} modified, "
+                        f"{clean(action_diff_summary.get('blocking_findings', 0))} "
+                        "blocking finding(s)\n"
+                    )
+                elif action_surface_diff.get("notes"):
+                    summary_file.write(
+                        "- Action-surface diff: "
+                        f"{clean(action_surface_diff.get('notes')[0])}\n"
+                    )
+                elif tool_surface_diff.get("enabled"):
                     summary_file.write(
                         "- What changed: "
                         f"+{clean(diff_summary.get('tools_added', 0))} tools, "
@@ -379,6 +424,8 @@ runs:
           const adk = ((report.frameworks || {}).google_adk) || null;
           const diff = report.tool_surface_diff || {};
           const diffSummary = diff.summary || {};
+          const actionDiff = report.action_surface_diff || {};
+          const actionDiffSummary = actionDiff.summary || {};
           const escapeMarkdown = (value) =>
             String(value || "")
               .replace(/\\/g, "\\\\")
@@ -409,6 +456,30 @@ runs:
                 `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
               ];
           const STICKY = "<!-- agents-shipgate-pr-comment -->";
+          const actionDiffHighlights = () => {
+            if (!actionDiff.enabled) {
+              const note = (actionDiff.notes || [])[0];
+              return note ? [`Action-surface diff: ${escapeMarkdown(note)}`] : [];
+            }
+            const lines = [
+              "### Action Surface Diff",
+              `Actions: +${actionDiffSummary.actions_added || 0}, -${actionDiffSummary.actions_removed || 0}, ${actionDiffSummary.actions_modified || 0} modified`,
+              `Blocking findings: ${actionDiffSummary.blocking_findings || 0}`,
+            ];
+            const highlights = [];
+            for (const item of actionDiff.modified || []) {
+              if (["SCOPE_EXPANDED", "EFFECT_ESCALATED", "APPROVAL_REMOVED", "SAFEGUARD_REMOVED"].includes(item.type)) {
+                highlights.push(`- \`${escapeMarkdown(item.tool_name || item.action_id)}\`: ${escapeMarkdown(item.type)}`);
+              }
+            }
+            for (const item of actionDiff.added || []) {
+              highlights.push(`- Added action \`${escapeMarkdown(item.tool_name || item.action_id)}\``);
+            }
+            for (const item of actionDiff.removed || []) {
+              highlights.push(`- Removed action \`${escapeMarkdown(item.tool_name || item.action_id)}\``);
+            }
+            return [...lines, ...highlights.slice(0, 5)];
+          };
           const diffHighlights = () => {
             if (!diff.enabled) {
               const note = (diff.notes || [])[0];
@@ -446,7 +517,10 @@ runs:
             }
             return [...lines, ...highlights];
           };
-          const whatChanged = truncate(diffHighlights().join("\n"), 1500);
+          const preferredDiff = actionDiff.enabled || (actionDiff.notes || []).length
+            ? actionDiffHighlights()
+            : diffHighlights();
+          const whatChanged = truncate(preferredDiff.join("\n"), 1500);
           const body = truncate([
             STICKY,
             "## Agents Shipgate",

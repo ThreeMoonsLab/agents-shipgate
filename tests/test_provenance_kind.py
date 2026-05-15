@@ -25,7 +25,7 @@ SAMPLES = [
     Path("samples/simple_crewai_agent/shipgate.yaml"),
 ]
 
-V15_SCHEMA = Path("docs/report-schema.v0.15.json")
+CURRENT_SCHEMA = Path("docs/report-schema.v0.16.json")
 
 
 def test_provenance_kind_enum_values():
@@ -128,7 +128,7 @@ def test_wire_schema_rejects_missing_provenance_kind(tmp_path):
         packet_enabled=False,
     )
     payload = report_json_payload(report)
-    schema = json.loads(V15_SCHEMA.read_text(encoding="utf-8"))
+    schema = json.loads(CURRENT_SCHEMA.read_text(encoding="utf-8"))
 
     # Sanity check: the unmodified payload validates.
     validate(instance=payload, schema=schema)
@@ -150,7 +150,7 @@ def test_wire_schema_rejects_unknown_provenance_kind(tmp_path):
         packet_enabled=False,
     )
     payload = report_json_payload(report)
-    schema = json.loads(V15_SCHEMA.read_text(encoding="utf-8"))
+    schema = json.loads(CURRENT_SCHEMA.read_text(encoding="utf-8"))
 
     payload["findings"][0]["provenance_kind"] = "made_up_value"
     with pytest.raises(ValidationError):

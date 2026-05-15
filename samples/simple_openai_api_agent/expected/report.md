@@ -135,6 +135,11 @@ Next validation:
 - Missing descriptions: 0
 - Sources: openai_api=2
 
+## Action Surface Diff
+
+- Status: disabled - No action-surface comparison source was provided.
+- Base: none
+
 ## Tool Surface Diff
 
 - Status: disabled - No --diff-from report or v0.3 baseline snapshot was provided.

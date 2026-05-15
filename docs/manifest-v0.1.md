@@ -344,6 +344,84 @@ tool_output_schemas:
 
 Trace samples are JSON arrays or JSONL with simple normalized fields such as `tool_name`, `approved`, `confirmed`, `success`, and `error`. Unsupported raw logs produce source warnings rather than blockers.
 
+## Action Surface Diff
+
+The optional top-level `action_surface:` block adds reviewer-facing action
+metadata and deterministic action policies on top of the loaded tool surface.
+It does not create new CLI commands; use this to compare the current action
+surface against a base report or baseline snapshot:
+
+```bash
+agents-shipgate scan --diff-from <path>
+```
+
+```yaml
+action_surface:
+  require_explicit_actions: false
+
+  actions:
+    - tool: stripe.create_refund
+      operation: refund_customer
+      effect: financial_write
+      risk_tags:
+        - financial_write
+        - external_side_effect
+      scopes:
+        - refunds:create
+      approval:
+        required: true
+        threshold: "amount <= 100"
+      safeguards:
+        idempotency: true
+        audit_log: true
+        rollback: false
+        dry_run: false
+      evidence:
+        owner: support-platform
+        runbook: docs/runbooks/refunds.md
+        approval_ticket: SEC-123
+
+  policies:
+    - id: require-audit-for-external-communication
+      match:
+        risk_tags:
+          - external_communication
+      require:
+        safeguards.audit_log: true
+      severity: high
+      block: true
+```
+
+`actions[]` entries are keyed by loaded tool name through `tool`. Explicit
+declarations override inferred operation, effect, risk tags, scopes, approval,
+safeguards, and evidence. Agents Shipgate still creates an action fact for
+every loaded tool when no declaration is present; set
+`require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
+that lack an explicit action declaration.
+
+Action IDs are deterministic. By default they use:
+
+```text
+{agent_id}:{source_type}:{source_id_or_provider}:{operation}
+```
+
+OpenAPI operations normalize to `METHOD /path`. MCP and SDK-derived tools
+default to the loaded tool name. You may set `actions[].id` when you need a
+stable explicit action ID across source refactors.
+
+`policies[]` rules match actions by `action_ids`, `tools`, `effects`,
+`risk_tags`, or `scopes`. User-declared policies are evaluated against the full
+current action surface even when `--diff-from` is enabled; built-in escalation
+policies remain change-based. The `require` map uses dot paths over the action
+fact, with aliases for `approval.required`, `approval.threshold`, and `scopes`.
+When `block: true`, policy findings set `findings[].blocks_release` and
+participate in `release_decision.blockers` when active and unbaselined.
+
+Built-in action policies cover new financial writes without approval/audit/
+idempotency, destructive actions without rollback, external communication
+without audit evidence, wildcard/admin scopes, effect escalation, approval
+removal, and safeguard removal.
+
 ## Validation Evidence Artifacts
 
 The optional top-level `validation` block declares local human-in-the-loop

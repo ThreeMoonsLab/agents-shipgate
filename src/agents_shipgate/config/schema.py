@@ -533,6 +533,88 @@ class ChecksConfig(BaseModel):
         return _parse_policy_pack_entries(value)
 
 
+ActionEffect = Literal[
+    "read",
+    "write",
+    "destructive",
+    "external_communication",
+    "financial_write",
+    "production_operation",
+    "privileged_data_access",
+    "code_execution",
+    "identity_access",
+]
+
+
+class ActionApprovalConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    required: bool | None = None
+    threshold: str | None = None
+
+
+class ActionSafeguardsConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    idempotency: bool | None = None
+    audit_log: bool | None = None
+    rollback: bool | None = None
+    dry_run: bool | None = None
+
+
+class ActionEvidenceConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    owner: str | None = None
+    runbook: str | None = None
+    approval_ticket: str | None = None
+
+
+class ActionDeclarationConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    tool: str
+    id: str | None = None
+    provider: str | None = None
+    operation: str | None = None
+    effect: ActionEffect | None = None
+    risk_tags: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
+    approval: ActionApprovalConfig | None = None
+    safeguards: ActionSafeguardsConfig | None = None
+    evidence: ActionEvidenceConfig | None = None
+
+
+class ActionPolicyMatchConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    action_ids: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    effects: list[ActionEffect] = Field(default_factory=list)
+    risk_tags: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
+
+
+class ActionPolicyConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    id: str
+    match: ActionPolicyMatchConfig = Field(default_factory=ActionPolicyMatchConfig)
+    require: dict[str, Any] = Field(default_factory=dict)
+    severity: Severity
+    block: bool = True
+    message: str | None = None
+    recommendation: str | None = None
+
+
+class ActionSurfaceConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
+    require_explicit_actions: bool = False
+    actions: list[ActionDeclarationConfig] = Field(default_factory=list)
+    policies: list[ActionPolicyConfig] = Field(default_factory=list)
+
+
 class CiConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -591,6 +673,7 @@ class AgentsShipgateManifest(BaseModel):
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     risk_overrides: RiskOverridesConfig = Field(default_factory=RiskOverridesConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
+    action_surface: ActionSurfaceConfig = Field(default_factory=ActionSurfaceConfig)
     ci: CiConfig = Field(default_factory=CiConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 

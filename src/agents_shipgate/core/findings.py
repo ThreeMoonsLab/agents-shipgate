@@ -9,6 +9,8 @@ from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.models import (
+    ActionSurfaceDiff,
+    ActionSurfaceFacts,
     AgentAction,
     AgentSummary,
     AgentSummaryAction,
@@ -749,6 +751,8 @@ def build_report(
     manifest_dir: str | None = None,
     tool_surface_facts: ToolSurfaceFacts | None = None,
     tool_surface_diff: ToolSurfaceDiff | None = None,
+    action_surface_facts: ActionSurfaceFacts | None = None,
+    action_surface_diff: ActionSurfaceDiff | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -760,6 +764,8 @@ def build_report(
         tool_surface=summarize_tool_surface(tools),
         tool_surface_facts=tool_surface_facts or ToolSurfaceFacts(),
         tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
+        action_surface_facts=action_surface_facts or ActionSurfaceFacts(),
+        action_surface_diff=action_surface_diff or ActionSurfaceDiff(),
         api_surface=api_surface,
         anthropic_surface=anthropic_surface,
         frameworks=frameworks or {},

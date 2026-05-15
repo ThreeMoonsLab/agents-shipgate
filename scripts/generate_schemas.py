@@ -109,6 +109,8 @@ def write_report_schema() -> None:
             "tool_surface",
             "tool_surface_facts",
             "tool_surface_diff",
+            "action_surface_facts",
+            "action_surface_diff",
             "frameworks",
             "codex_plugin_surface",
             "findings",
@@ -167,6 +169,7 @@ def write_report_schema() -> None:
                 "evidence",
                 "confidence",
                 "recommendation",
+                "blocks_release",
                 "suppressed",
                 "baseline_status",
                 # v0.12: deterministic projection field. Optional in
@@ -267,7 +270,15 @@ def write_report_schema() -> None:
         # present (value may be null) lets agent/CI consumers rely on
         # the documented shape without conditional key checks.
         defs["ReleaseDecisionItem"]["required"] = sorted(
-            ["id", "fingerprint", "check_id", "severity", "title", "baseline_status"]
+            [
+                "id",
+                "fingerprint",
+                "check_id",
+                "severity",
+                "title",
+                "baseline_status",
+                "blocks_release",
+            ]
         )
     if "EvidenceCoverageDecision" in defs:
         defs["EvidenceCoverageDecision"]["required"] = sorted(
@@ -491,6 +502,82 @@ def write_report_schema() -> None:
                 "finding_deltas",
                 "notes",
             ]
+        )
+    if "ActionApprovalFact" in defs:
+        defs["ActionApprovalFact"]["required"] = sorted(["required", "threshold"])
+    if "ActionSafeguardsFact" in defs:
+        defs["ActionSafeguardsFact"]["required"] = sorted(
+            ["idempotency", "audit_log", "rollback", "dry_run"]
+        )
+    if "ActionEvidenceFact" in defs:
+        defs["ActionEvidenceFact"]["required"] = sorted(
+            ["owner", "runbook", "approval_ticket"]
+        )
+    if "ActionSurfaceHashes" in defs:
+        defs["ActionSurfaceHashes"]["required"] = sorted(
+            ["identity_hash", "schema_hash", "policy_hash", "risk_hash"]
+        )
+    if "ActionFact" in defs:
+        defs["ActionFact"]["required"] = sorted(
+            [
+                "action_id",
+                "agent_id",
+                "tool_id",
+                "tool_name",
+                "provider",
+                "source_type",
+                "source_id",
+                "operation",
+                "effect",
+                "risk_tags",
+                "required_scopes",
+                "approval_policy",
+                "safeguards",
+                "evidence",
+                "input_fields",
+                "required_input_fields",
+                "input_schema_hash",
+                "hashes",
+            ]
+        )
+    if "ActionSurfaceFacts" in defs:
+        defs["ActionSurfaceFacts"]["required"] = sorted(
+            ["snapshot_version", "actions"]
+        )
+    if "ActionSurfaceDiffSummary" in defs:
+        defs["ActionSurfaceDiffSummary"]["required"] = sorted(
+            [
+                "actions_added",
+                "actions_removed",
+                "actions_modified",
+                "scope_expansions",
+                "effect_escalations",
+                "risk_tags_added",
+                "approvals_removed",
+                "safeguards_removed",
+                "input_schema_expansions",
+                "blocking_findings",
+            ]
+        )
+    if "ActionSurfaceChange" in defs:
+        defs["ActionSurfaceChange"]["required"] = sorted(
+            [
+                "type",
+                "action_id",
+                "agent_id",
+                "tool_name",
+                "operation",
+                "severity",
+                "reason",
+                "before",
+                "after",
+                "added",
+                "removed",
+            ]
+        )
+    if "ActionSurfaceDiff" in defs:
+        defs["ActionSurfaceDiff"]["required"] = sorted(
+            ["enabled", "base", "summary", "added", "removed", "modified", "notes"]
         )
 
     # tool_inventory[] and loaded_plugins[] are typed as

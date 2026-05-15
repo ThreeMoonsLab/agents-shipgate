@@ -1,5 +1,396 @@
 {
   "$defs": {
+    "ActionApprovalConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        }
+      },
+      "title": "ActionApprovalConfig",
+      "type": "object"
+    },
+    "ActionDeclarationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionApprovalConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "write",
+                "destructive",
+                "external_communication",
+                "financial_write",
+                "production_operation",
+                "privileged_data_access",
+                "code_execution",
+                "identity_access"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionEvidenceConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "safeguards": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionSafeguardsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ActionDeclarationConfig",
+      "type": "object"
+    },
+    "ActionEvidenceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_ticket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Ticket"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "runbook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runbook"
+        }
+      },
+      "title": "ActionEvidenceConfig",
+      "type": "object"
+    },
+    "ActionPolicyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "block": {
+          "default": true,
+          "title": "Block",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/ActionPolicyMatchConfig"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommendation"
+        },
+        "require": {
+          "additionalProperties": true,
+          "title": "Require",
+          "type": "object"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "severity"
+      ],
+      "title": "ActionPolicyConfig",
+      "type": "object"
+    },
+    "ActionPolicyMatchConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "action_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Action Ids",
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "destructive",
+              "external_communication",
+              "financial_write",
+              "production_operation",
+              "privileged_data_access",
+              "code_execution",
+              "identity_access"
+            ],
+            "type": "string"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "title": "ActionPolicyMatchConfig",
+      "type": "object"
+    },
+    "ActionSafeguardsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_log": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audit Log"
+        },
+        "dry_run": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dry Run"
+        },
+        "idempotency": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency"
+        },
+        "rollback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rollback"
+        }
+      },
+      "title": "ActionSafeguardsConfig",
+      "type": "object"
+    },
+    "ActionSurfaceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ActionDeclarationConfig"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "policies": {
+          "items": {
+            "$ref": "#/$defs/ActionPolicyConfig"
+          },
+          "title": "Policies",
+          "type": "array"
+        },
+        "require_explicit_actions": {
+          "default": false,
+          "title": "Require Explicit Actions",
+          "type": "boolean"
+        }
+      },
+      "title": "ActionSurfaceConfig",
+      "type": "object"
+    },
     "AgentConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1049,6 +1440,9 @@
   "additionalProperties": false,
   "description": "JSON Schema for shipgate.yaml. Generated from agents_shipgate.config.schema.AgentsShipgateManifest. Do not edit by hand.",
   "properties": {
+    "action_surface": {
+      "$ref": "#/$defs/ActionSurfaceConfig"
+    },
     "agent": {
       "$ref": "#/$defs/AgentConfig"
     },

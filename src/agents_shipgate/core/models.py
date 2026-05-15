@@ -262,6 +262,10 @@ class Finding(BaseModel):
     provenance_kind: ProvenanceKind | None = None
     source: SourceReference | None = None
     recommendation: str
+    # v0.16: explicit release-blocking signal for Action Surface Diff
+    # policy findings. This is orthogonal to severity: advisory CI can
+    # still exit 0 while the release decision names a policy blocker.
+    blocks_release: bool = False
     suppressed: bool = False
     suppression_reason: str | None = None
     baseline_status: BaselineStatus | None = None
@@ -535,6 +539,136 @@ class ToolSurfaceDiff(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+ActionEffect = Literal[
+    "read",
+    "write",
+    "destructive",
+    "external_communication",
+    "financial_write",
+    "production_operation",
+    "privileged_data_access",
+    "code_execution",
+    "identity_access",
+]
+ActionSurfaceChangeType = Literal[
+    "ACTION_ADDED",
+    "ACTION_REMOVED",
+    "ACTION_MODIFIED",
+    "SCOPE_EXPANDED",
+    "EFFECT_ESCALATED",
+    "RISK_TAG_ADDED",
+    "APPROVAL_REMOVED",
+    "SAFEGUARD_REMOVED",
+    "INPUT_SCHEMA_EXPANDED",
+]
+
+
+class ActionApprovalFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required: bool | None = None
+    threshold: str | None = None
+
+
+class ActionSafeguardsFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency: bool | None = None
+    audit_log: bool | None = None
+    rollback: bool | None = None
+    dry_run: bool | None = None
+
+
+class ActionEvidenceFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner: str | None = None
+    runbook: str | None = None
+    approval_ticket: str | None = None
+
+
+class ActionSurfaceHashes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity_hash: str
+    schema_hash: str
+    policy_hash: str
+    risk_hash: str
+
+
+class ActionFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str
+    agent_id: str
+    tool_id: str
+    tool_name: str
+    provider: str
+    source_type: str
+    source_id: str | None = None
+    operation: str
+    effect: ActionEffect
+    risk_tags: list[str] = Field(default_factory=list)
+    required_scopes: list[str] = Field(default_factory=list)
+    approval_policy: ActionApprovalFact = Field(default_factory=ActionApprovalFact)
+    safeguards: ActionSafeguardsFact = Field(default_factory=ActionSafeguardsFact)
+    evidence: ActionEvidenceFact = Field(default_factory=ActionEvidenceFact)
+    input_fields: list[str] = Field(default_factory=list)
+    required_input_fields: list[str] = Field(default_factory=list)
+    input_schema_hash: str | None = None
+    hashes: ActionSurfaceHashes
+
+
+class ActionSurfaceFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_version: str = "0.1"
+    actions: list[ActionFact] = Field(default_factory=list)
+
+
+class ActionSurfaceDiffSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actions_added: int = 0
+    actions_removed: int = 0
+    actions_modified: int = 0
+    scope_expansions: int = 0
+    effect_escalations: int = 0
+    risk_tags_added: int = 0
+    approvals_removed: int = 0
+    safeguards_removed: int = 0
+    input_schema_expansions: int = 0
+    blocking_findings: int = 0
+
+
+class ActionSurfaceChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: ActionSurfaceChangeType
+    action_id: str
+    agent_id: str | None = None
+    tool_name: str | None = None
+    operation: str | None = None
+    severity: Severity = "info"
+    reason: str
+    before: Any = None
+    after: Any = None
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class ActionSurfaceDiff(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    base: ToolSurfaceDiffBase = Field(default_factory=ToolSurfaceDiffBase)
+    summary: ActionSurfaceDiffSummary = Field(default_factory=ActionSurfaceDiffSummary)
+    added: list[ActionSurfaceChange] = Field(default_factory=list)
+    removed: list[ActionSurfaceChange] = Field(default_factory=list)
+    modified: list[ActionSurfaceChange] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class BaselineSummary(BaseModel):
     path: str
     matched_count: int = 0
@@ -560,6 +694,7 @@ class ReleaseDecisionItem(BaseModel):
     severity: Severity
     title: str
     baseline_status: BaselineStatus | None = None
+    blocks_release: bool = False
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -1171,7 +1306,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.15"
+    report_schema_version: str = "0.16"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -1198,6 +1333,11 @@ class ReadinessReport(BaseModel):
     # these facts/diff fields are explanatory reviewer data.
     tool_surface_facts: ToolSurfaceFacts = Field(default_factory=ToolSurfaceFacts)
     tool_surface_diff: ToolSurfaceDiff = Field(default_factory=ToolSurfaceDiff)
+    # v0.16 action-surface diff. This is the first-class PR/release
+    # delta of what an agent can do externally, derived from the same
+    # static tool surface plus optional manifest action declarations.
+    action_surface_facts: ActionSurfaceFacts = Field(default_factory=ActionSurfaceFacts)
+    action_surface_diff: ActionSurfaceDiff = Field(default_factory=ActionSurfaceDiff)
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None
     frameworks: dict[str, Any] = Field(default_factory=dict)

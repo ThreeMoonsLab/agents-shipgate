@@ -727,6 +727,11 @@
           "default": null,
           "title": "Baseline Status"
         },
+        "blocks_release": {
+          "default": false,
+          "title": "Blocks Release",
+          "type": "boolean"
+        },
         "check_id": {
           "title": "Check Id",
           "type": "string"

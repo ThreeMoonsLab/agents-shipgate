@@ -101,6 +101,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
     _append_tool_surface(lines, report)
+    _append_action_surface_diff(lines, report)
     _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
@@ -512,6 +513,70 @@ def _append_tool_surface_diff(lines: list[str], report: ReadinessReport) -> None
     )
     if diff.notes:
         _append_diff_values(lines, "Notes", diff.notes[:3])
+
+
+def _append_action_surface_diff(lines: list[str], report: ReadinessReport) -> None:
+    diff = report.action_surface_diff
+    lines.extend(["## Action Surface Diff", ""])
+    if not diff.enabled:
+        note = diff.notes[0] if diff.notes else "No comparison source was available."
+        lines.extend(
+            [
+                f"- Status: disabled - {_safe_markdown_text(note)}",
+                f"- Base: {_safe_markdown_text(diff.base.kind)}",
+                "",
+            ]
+        )
+        return
+
+    summary = diff.summary
+    lines.extend(
+        [
+            f"- Base: {_safe_markdown_text(diff.base.kind)}"
+            + (f" ({_safe_markdown_text(diff.base.path)})" if diff.base.path else ""),
+            (
+                "- Actions: "
+                f"+{summary.actions_added}, -{summary.actions_removed}, "
+                f"{summary.actions_modified} modified"
+            ),
+            (
+                "- Escalations: "
+                f"{summary.scope_expansions} scope expansion(s), "
+                f"{summary.effect_escalations} effect escalation(s), "
+                f"{summary.risk_tags_added} risk tag addition(s)"
+            ),
+            (
+                "- Controls: "
+                f"{summary.approvals_removed} approval removal(s), "
+                f"{summary.safeguards_removed} safeguard removal(s)"
+            ),
+            f"- Blocking findings: {summary.blocking_findings}",
+            "",
+        ]
+    )
+    _append_diff_values(
+        lines,
+        "Added actions",
+        [
+            f"{item.tool_name}: {item.operation} ({item.severity})"
+            for item in diff.added
+        ],
+    )
+    _append_diff_values(
+        lines,
+        "Modified actions",
+        [
+            f"{item.tool_name}: {item.type} ({item.severity})"
+            for item in diff.modified
+        ],
+    )
+    _append_diff_values(
+        lines,
+        "Removed actions",
+        [f"{item.tool_name}: {item.operation}" for item in diff.removed],
+    )
+    if diff.notes:
+        _append_diff_values(lines, "Action diff notes", diff.notes[:3])
 
 
 def _append_diff_values(lines: list[str], label: str, values: list[str]) -> None:

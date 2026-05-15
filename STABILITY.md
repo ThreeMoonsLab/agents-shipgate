@@ -39,7 +39,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `2` | Manifest config error (missing/typo/invalid) |
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
-| `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`) |
+| `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`) |
 
 ### Runtime contract JSON
 
@@ -69,14 +69,14 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
-- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`)
+- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`)
 - `capability_facts[].{id, tool_name, source_type, source_ref, capability, risk_tags, auth_scopes, owner, included_reason, control_status, related_findings}` (v0.9+)
 - `declared_intentions[].{id, kind, text, source, intent_tags}` (v0.9+)
 - `misalignments[].{id, kind, severity, tool_name, capability_refs, intention_refs, finding_refs, policy_requirement, gap, release_implication}` (v0.9+)
 - `release_consequence.{decision, summary, blocker_misalignment_count, review_misalignment_count, fail_policy}` (v0.9+)
 - `suggested_scenarios[].{id, scenario_type, title, given, expected_control, source_misalignments, source_findings}` (v0.9+)
 - `tool_surface_facts.{tools, scopes, controls, policies}` (v0.10+) — deterministic current facts used for static tool-surface comparison
-- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` (v0.10+) — explanatory diff data only; it never changes `release_decision.decision` or exit behavior
+- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` (v0.10+) — lower-level explanatory diff data only; it never changes `release_decision.decision` or exit behavior by itself
 - `summary.{critical_count, high_count, medium_count, low_count, info_count, suppressed_count, status, human_review_recommended}`
 - `findings[].{id, fingerprint, check_id, severity, category, title, recommendation, suppressed}`
 - `findings[].tool_name` (string or null)
@@ -85,7 +85,10 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].agent_action` (v0.12+) — deterministic projection of `patches`, `autofix_safe`, and `requires_human_review`. Enum: `auto_apply | propose_patch_for_review | escalate_to_human | suppress_with_reason | informational`. The first four cover the actionable cases; `informational` covers suppressed findings or non-actionable advisories. `suppress_with_reason` is reserved for future check classes that explicitly mark themselves as suppressible — the v0.12 deterministic projection does not emit it. New consumers should read `agent_action` first and treat the underlying flags as advisory.
 - `agent_summary.{verdict, headline, blocker_count, review_item_count, auto_appliable_patches, needs_human_review, first_recommended_action}` (v0.12+) — top-level deterministic projection of `release_decision` + per-finding `agent_action`. Lets a coding agent read one block instead of traversing arrays. `first_recommended_action` is `{kind: "command" | "info", command: string | null, why: string}`; the `command` form carries an actual CLI invocation, the `info` form is a "surface this to the user" hint. Same inputs always produce the same output; this block cannot disagree with the underlying `release_decision` and `findings[].agent_action`.
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` (v0.13+) — static Codex plugin package and marketplace facts. Only explicit MCP inventory tools enter `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in this surface block.
-- `findings[].provenance_kind` (v0.14+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
+- `findings[].provenance_kind` (v0.15+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
+- `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Built-in and user-defined Action Surface Diff policies set it for findings that must block release when active and unbaselined; ordinary severity-based gating still works for existing checks.
+- `action_surface_facts.actions[]` (v0.16+) — deterministic current action snapshot: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, input fields, and stable hashes.
+- `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` (v0.16+) — reviewer-facing delta for what the agent can do vs. a prior report or v0.4 baseline. Policy findings derived from this diff can set `findings[].blocks_release=true` and affect `release_decision.decision` and strict-mode exit behavior.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
@@ -159,18 +162,21 @@ The manifest schema version (`version: "0.1"`) is independent of the CLI version
 ### Tool-Surface Diff
 
 `agents-shipgate scan --diff-from <path>` accepts a prior `report.json` or a
-v0.3 baseline JSON with `tool_surface_facts`. If both `--baseline` and
+v0.4 baseline JSON with `tool_surface_facts` and `action_surface_facts`. If both `--baseline` and
 `--diff-from` are provided, `--baseline` continues to drive finding baseline
 status, strict-mode filtering, and `release_decision.baseline_delta`;
-`--diff-from` drives only `tool_surface_diff`.
+`--diff-from` drives `tool_surface_diff` and `action_surface_diff`.
 
-If `--diff-from` is absent and `--baseline` points at a v0.3 baseline with
-`tool_surface_facts`, the baseline snapshot is used as the diff reference.
+If `--diff-from` is absent and `--baseline` points at a v0.4 baseline with
+surface facts, the baseline snapshot is used as the diff reference. v0.3
+baselines can still enable `tool_surface_diff` but not `action_surface_diff`.
 Older v0.2 baselines still load for accepted-debt gating, but they cannot
-enable a surface diff and emit a disabled diff note instead.
+enable either surface diff and emit disabled diff notes instead.
 
 The diff is static evidence only. It does not fetch branches in the CLI,
-infer runtime routing, execute tools, or change release gating.
+infer runtime routing, or execute tools. Action Surface Diff policy findings
+can affect release gating through `findings[].blocks_release`; Tool Surface
+Diff remains explanatory only.
 
 ### Release Evidence Packet (v0.4)
 

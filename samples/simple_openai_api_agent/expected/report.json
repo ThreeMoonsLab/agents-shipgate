@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.15",
-  "run_id": "agents_shipgate_1344ab54505f4ae7",
-  "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
+  "report_schema_version": "0.16",
+  "run_id": "agents_shipgate_0adc60e9f77f2b2a",
+  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/e9c4/shipgate/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -68,7 +68,8 @@
         "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
         "severity": "high",
         "title": "create_refund.amount has no maximum bound",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_07538ba8f9532359",
@@ -76,7 +77,8 @@
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
         "severity": "high",
         "title": "send_customer_email accepts broad free-form action input",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_58b3202c0a4d9793",
@@ -84,7 +86,8 @@
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
         "severity": "high",
         "title": "create_refund lacks declared auth scopes",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_45ef3ff3ce2cf187",
@@ -92,7 +95,8 @@
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
         "severity": "high",
         "title": "send_customer_email lacks declared auth scopes",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_a8a615b5a4f2597b",
@@ -100,7 +104,8 @@
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "severity": "high",
         "title": "create_refund appears to overlap with a prohibited action",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_cf260ff7c72d64b7",
@@ -108,7 +113,8 @@
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "severity": "high",
         "title": "send_customer_email appears to overlap with a prohibited action",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_e9d63903757dfe07",
@@ -116,7 +122,8 @@
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "severity": "high",
         "title": "create_refund lacks idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_4466eb2871434dc5",
@@ -124,7 +131,8 @@
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "severity": "high",
         "title": "send_customer_email lacks idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_9675d1799680d81d",
@@ -132,7 +140,8 @@
         "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
         "severity": "high",
         "title": "create_refund function schema is not strict enough",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_29e718b3bbde0e7d",
@@ -140,7 +149,8 @@
         "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
         "severity": "high",
         "title": "send_customer_email function schema is not strict enough",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_64f825faa751b7f8",
@@ -148,7 +158,8 @@
         "check_id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
         "severity": "medium",
         "title": "Response format schemas/refund_decision.schema.json is under-specified",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_1b64e136ace3472a_d6a46917",
@@ -156,7 +167,8 @@
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "high",
         "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_1b64e136ace3472a_6f6fb033",
@@ -164,7 +176,8 @@
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "medium",
         "title": "Prompt lacks approval/confirmation language for high-risk tools",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_28483a22a9ed40cb",
@@ -172,7 +185,8 @@
         "check_id": "SHIP-API-TIMEOUT-MISSING",
         "severity": "medium",
         "title": "OpenAI API flow lacks timeout metadata",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_b8df99c94ef3aa60",
@@ -180,7 +194,8 @@
         "check_id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
         "severity": "medium",
         "title": "create_refund lacks success/failure output modeling",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_2bf957380e89863f",
@@ -188,7 +203,8 @@
         "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
         "severity": "high",
         "title": "create_refund may be retried without idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_efb42c5b5aea7be6",
@@ -196,7 +212,8 @@
         "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
         "severity": "high",
         "title": "send_customer_email may be retried without idempotency evidence",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_245bcdb96d8220e2",
@@ -204,7 +221,8 @@
         "check_id": "SHIP-API-TRACE-APPROVAL-MISSING",
         "severity": "medium",
         "title": "Trace sample shows create_refund without approval",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_d9059d0c1f3540af",
@@ -212,7 +230,8 @@
         "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "severity": "high",
         "title": "create_refund is high-risk but has no owner",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       },
       {
         "id": "fp_a95adeb6338f8b3e",
@@ -220,7 +239,8 @@
         "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "severity": "high",
         "title": "send_customer_email is high-risk but has no owner",
-        "baseline_status": null
+        "baseline_status": null,
+        "blocks_release": false
       }
     ],
     "evidence_coverage": {
@@ -1025,6 +1045,130 @@
       "No --diff-from report or v0.3 baseline snapshot was provided."
     ]
   },
+  "action_surface_facts": {
+    "snapshot_version": "0.1",
+    "actions": [
+      {
+        "action_id": "agent:simple-openai-api-agent/api-refund-assistant:openai_api:openai_api:create_refund",
+        "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+        "tool_id": "tool:create_refund",
+        "tool_name": "create_refund",
+        "provider": "openai_api",
+        "source_type": "openai_api",
+        "source_id": "openai_api",
+        "operation": "create_refund",
+        "effect": "financial_write",
+        "risk_tags": [
+          "financial_write",
+          "writes_data"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "amount",
+          "payment_id",
+          "reason"
+        ],
+        "required_input_fields": [
+          "payment_id"
+        ],
+        "input_schema_hash": "007a29658127c019",
+        "hashes": {
+          "identity_hash": "5284f1c9afad8c1e",
+          "schema_hash": "007a29658127c019",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "9840067e2bbe3e5f"
+        }
+      },
+      {
+        "action_id": "agent:simple-openai-api-agent/api-refund-assistant:openai_api:openai_api:send_customer_email",
+        "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+        "tool_id": "tool:send_customer_email",
+        "tool_name": "send_customer_email",
+        "provider": "openai_api",
+        "source_type": "openai_api",
+        "source_id": "openai_api",
+        "operation": "send_customer_email",
+        "effect": "external_communication",
+        "risk_tags": [
+          "external_communication",
+          "writes_data"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "customer_id",
+          "message"
+        ],
+        "required_input_fields": [
+          "customer_id",
+          "message"
+        ],
+        "input_schema_hash": "7c70a663cf4ccc40",
+        "hashes": {
+          "identity_hash": "1d4a07245674160d",
+          "schema_hash": "7c70a663cf4ccc40",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "be27efb3d8c00712"
+        }
+      }
+    ]
+  },
+  "action_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "actions_added": 0,
+      "actions_removed": 0,
+      "actions_modified": 0,
+      "scope_expansions": 0,
+      "effect_escalations": 0,
+      "risk_tags_added": 0,
+      "approvals_removed": 0,
+      "safeguards_removed": 0,
+      "input_schema_expansions": 0,
+      "blocking_findings": 0
+    },
+    "added": [],
+    "removed": [],
+    "modified": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ]
+  },
   "api_surface": {
     "prompt_file_count": 1,
     "tool_file_count": 1,
@@ -1063,6 +1207,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Add a maximum bound to create_refund.amount or document an equivalent limit in the tool policy.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1096,6 +1241,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Constrain send_customer_email.message with an enum, structured schema, or narrower field-specific parameters.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1131,6 +1277,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1167,6 +1314,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1203,6 +1351,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1240,6 +1389,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1276,6 +1426,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1313,6 +1464,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for send_customer_email.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1354,6 +1506,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1393,6 +1546,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1432,6 +1586,7 @@
         "location": null
       },
       "recommendation": "Tighten the structured output schema with enums, needs_review/refusal/error modeling, and declared critical fields.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1465,6 +1620,7 @@
         "location": null
       },
       "recommendation": "Align prompt scope with enabled tools or remove write/high-risk tools.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1498,6 +1654,7 @@
         "location": null
       },
       "recommendation": "Add prompt instructions requiring human approval and explicit confirmation before financial, destructive, or external customer actions.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1531,6 +1688,7 @@
         "location": null
       },
       "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1565,6 +1723,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Declare success_fields and failure_fields for create_refund in openai_api policy rules.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1603,6 +1762,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Add idempotency evidence for create_refund or avoid retrying this side effect.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1642,6 +1802,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1673,6 +1834,7 @@
         "location": null
       },
       "recommendation": "Require approval before calling create_refund.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1709,6 +1871,7 @@
         "pointer": "/tools/0"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1746,6 +1909,7 @@
         "pointer": "/tools/1"
       },
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
+      "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
       "baseline_status": null,
@@ -1767,8 +1931,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_esiwvp3/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_esiwvp3/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

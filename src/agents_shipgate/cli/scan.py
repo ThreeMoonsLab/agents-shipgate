@@ -23,6 +23,7 @@ from agents_shipgate.core.findings import (
     tool_inventory,
 )
 from agents_shipgate.core.models import (
+    ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -53,6 +54,13 @@ from agents_shipgate.packet.pdf import (
     PdfRendererUnavailable,
     is_pdf_available,
     render_packet_pdf,
+)
+from agents_shipgate.report.action_surface_diff import (
+    action_reference_from_scan_reference,
+    attach_action_surface_finding_summary,
+    build_action_surface_facts,
+    compute_action_surface_diff,
+    evaluate_action_surface_policies,
 )
 from agents_shipgate.report.capability_diff import apply_capability_diff
 from agents_shipgate.report.json_report import write_json_report
@@ -183,6 +191,39 @@ def run_scan(
         config_path=config_path.resolve(),
         framework_artifacts=artifact_bag,
     )
+    baseline_file = load_baseline(baseline_path) if baseline_path else None
+    baseline_display_path = (
+        _relative_display_path(baseline_path, base_dir) if baseline_path else None
+    )
+    diff_reference = None
+    diff_reference_error: str | None = None
+    try:
+        if diff_from_path:
+            diff_reference = load_tool_surface_diff_reference(
+                diff_from_path,
+                display_path=_relative_display_path(diff_from_path, base_dir),
+            )
+        elif baseline_file:
+            diff_reference = reference_from_baseline(
+                baseline_file,
+                display_path=baseline_display_path,
+            )
+    except InputParseError as exc:
+        diff_reference_error = str(exc)
+    action_surface_facts = build_action_surface_facts(
+        manifest,
+        agent_id=agent.id,
+        tools=tools,
+    )
+    action_reference = action_reference_from_scan_reference(diff_reference)
+    action_surface_diff = compute_action_surface_diff(
+        action_surface_facts,
+        action_reference.facts if action_reference else None,
+        reference=action_reference,
+    )
+    if diff_reference_error:
+        action_surface_diff.enabled = False
+        action_surface_diff.notes = [diff_reference_error]
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
         context,
@@ -191,6 +232,14 @@ def run_scan(
         extra_known_check_ids={resolved.rule.id for resolved in policy_packs.rules},
     )
     findings.extend(run_policy_pack_rules(context, policy_packs))
+    findings.extend(
+        evaluate_action_surface_policies(
+            manifest,
+            action_surface_facts,
+            action_surface_diff,
+            agent_id=agent.id,
+        )
+    )
     assign_finding_ids(findings)
     apply_severity_overrides(findings, manifest.severity_overrides())
     apply_suppressions(findings, manifest.checks.ignore)
@@ -211,14 +260,13 @@ def run_scan(
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
     baseline_summary = None
-    baseline_file = None
-    if baseline_path:
-        baseline_file = load_baseline(baseline_path)
+    if baseline_file and baseline_display_path:
         baseline_summary = apply_baseline(
             findings,
             baseline_file,
-            display_path=_relative_display_path(baseline_path, base_dir),
+            display_path=baseline_display_path,
         )
+    attach_action_surface_finding_summary(action_surface_diff, findings)
     logger.debug(
         "checks completed",
         extra={
@@ -267,27 +315,15 @@ def run_scan(
         api_artifacts,
         anthropic_artifacts,
     )
-    try:
-        if diff_from_path:
-            diff_reference = load_tool_surface_diff_reference(
-                diff_from_path,
-                display_path=_relative_display_path(diff_from_path, base_dir),
-            )
-        elif baseline_file:
-            diff_reference = reference_from_baseline(
-                baseline_file,
-                display_path=baseline_summary.path if baseline_summary else None,
-            )
-        else:
-            diff_reference = None
+    if diff_reference_error:
+        tool_surface_diff = disabled_tool_surface_diff(diff_reference_error)
+    else:
         tool_surface_diff = compute_tool_surface_diff(
             tool_surface_facts,
             diff_reference.facts if diff_reference else None,
             findings,
             reference=diff_reference,
         )
-    except InputParseError as exc:
-        tool_surface_diff = disabled_tool_surface_diff(str(exc))
     report = build_report(
         run_id=_run_id(
             manifest,
@@ -301,6 +337,7 @@ def run_scan(
                 if codex_plugin_artifacts
                 else None
             ),
+            action_surface_facts=action_surface_facts,
         ),
         manifest=manifest,
         manifest_dir=str(config_path.resolve().parent),
@@ -327,6 +364,8 @@ def run_scan(
         baseline=baseline_summary,
         tool_surface_facts=tool_surface_facts,
         tool_surface_diff=tool_surface_diff,
+        action_surface_facts=action_surface_facts,
+        action_surface_diff=action_surface_diff,
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -933,6 +972,7 @@ def _run_id(
     anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
     codex_plugin_surface: CodexPluginSurface | None = None,
+    action_surface_facts: ActionSurfaceFacts | None = None,
 ) -> str:
     payload = {
         "project": manifest.project.model_dump(mode="json", exclude_none=False),
@@ -957,6 +997,7 @@ def _run_id(
                     "requires_human_review": True,
                     "suggested_patch_kind": True,
                     "docs_url": True,
+                    "blocks_release": True,
                     # v0.12 derived enrichment: same exclusion rule as
                     # the v0.7 remediation fields above. agent_action is
                     # a deterministic projection of those fields, so
@@ -985,6 +1026,11 @@ def _run_id(
         "frameworks": frameworks or {},
         "codex_plugin_surface": (
             codex_plugin_surface.model_dump(mode="json") if codex_plugin_surface else None
+        ),
+        "action_surface_facts": (
+            action_surface_facts.model_dump(mode="json")
+            if action_surface_facts is not None
+            else None
         ),
     }
     digest = hashlib.sha256(

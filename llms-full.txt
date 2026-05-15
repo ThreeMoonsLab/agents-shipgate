@@ -259,7 +259,7 @@ agents-shipgate scan -c shipgate.yaml
 
 Always parse `agents-shipgate-reports/report.json`, not the markdown.
 
-The canonical field list — `release_decision`, `capability_facts` / `declared_intentions` / `misalignments` / `release_consequence` / `suggested_scenarios`, and `tool_surface_facts` / `tool_surface_diff` — lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). It updates first when the contract bumps; this file links to it instead of restating the field set.
+The canonical field list — `release_decision`, `capability_facts` / `declared_intentions` / `misalignments` / `release_consequence` / `suggested_scenarios`, `tool_surface_facts` / `tool_surface_diff`, and `action_surface_facts` / `action_surface_diff` — lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). It updates first when the contract bumps; this file links to it instead of restating the field set.
 
 Other stable top-level fields:
 
@@ -271,8 +271,10 @@ Other stable top-level fields:
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
 - `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for filtering heuristic-only findings)
+- `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
+- `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 
-The full schema is at [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current; emitted reports carry `report_schema_version: "0.15"`). v0.15 adds the per-finding `provenance_kind` enum so agents can filter heuristic-only findings from declarative ones, on top of v0.14's `insufficient_evidence` value in the `release_decision.decision`/`agent_summary.verdict` enums and v0.13's `codex_plugin_surface` block. Older reports validate against [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) (current; emitted reports carry `report_schema_version: "0.16"`). v0.16 adds first-class Action Surface Diff fields, on top of v0.15's per-finding `provenance_kind` enum, v0.14's `insufficient_evidence` value in the `release_decision.decision`/`agent_summary.verdict` enums, and v0.13's `codex_plugin_surface` block. Older reports validate against [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -338,7 +340,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) (current).
+[`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -376,7 +378,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) | `0.15` |
+| Report schema (current) | [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) | `0.16` |
+| Report schema (v0.15 frozen reference) | [`docs/report-schema.v0.15.json`](docs/report-schema.v0.15.json) | `0.15` |
 | Report schema (v0.14 frozen reference) | [`docs/report-schema.v0.14.json`](docs/report-schema.v0.14.json) | `0.14` |
 | Report schema (v0.13 frozen reference) | [`docs/report-schema.v0.13.json`](docs/report-schema.v0.13.json) | `0.13` |
 | Report schema (v0.12 frozen reference) | [`docs/report-schema.v0.12.json`](docs/report-schema.v0.12.json) | `0.12` |
@@ -811,9 +814,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.15` — [`docs/report-schema.v0.15.json`](report-schema.v0.15.json)
+- Current report schema: `0.16` — [`docs/report-schema.v0.16.json`](report-schema.v0.16.json)
 - Current packet schema: `0.4` — [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json)
-- Frozen-reference report schemas: [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 
 ## Read these first for release gating
 
@@ -841,10 +844,16 @@ The capability/intent diff fields (v0.9+), used by reviewers to spot misalignmen
 - `release_consequence` — capability-aware roll-up of the release decision.
 - `suggested_scenarios[]` — dynamic-validation scenarios derived from misalignments and findings.
 
-The tool-surface diff fields (v0.10+), explanatory only — never a release-gate input:
+The Action Surface Diff fields (v0.16+), reviewer-facing PR/release delta:
+
+- `action_surface_facts.actions[]` — deterministic snapshot of the current agent action surface: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, and hashes.
+- `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` — what changed vs. a base report or v0.4 baseline. Policy findings generated from this diff can set `findings[].blocks_release=true` and appear in `release_decision.blockers`.
+- `findings[].blocks_release` and `release_decision.{blockers,review_items}[].blocks_release` — explicit release-policy blockers. Advisory CI may still exit 0; strict CI exits nonzero when an active unbaselined release blocker is present.
+
+The tool-surface diff fields (v0.10+), lower-level explanatory data:
 
 - `tool_surface_facts.{tools, scopes, controls, policies}` — current static facts about the tool surface.
-- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` — what changed vs. a base ref. Disabled diffs render as `enabled: false` with a `notes` reason; the release decision is unaffected.
+- `tool_surface_diff.{enabled, base, summary, tools, high_risk_effects, scopes, controls, metadata_changes, policy_drift, finding_deltas, notes}` — what changed vs. a base ref. Disabled diffs render as `enabled: false` with a `notes` reason.
 
 Source provenance fields on `findings[].source` (v0.11+), additive and optional:
 
@@ -919,7 +928,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.15.json`](report-schema.v0.15.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.16.json`](report-schema.v0.16.json) — machine-validatable JSON Schema for the current report.
 - [`docs/packet-schema.v0.4.json`](packet-schema.v0.4.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
 
@@ -981,6 +990,15 @@ baseline summary and do not fail CI.
 | `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | high | A tool appears to overlap with a manifest `prohibited_actions` entry. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
+| `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
+| `SHIP-ACTION-POLICY-VIOLATION` | high | A user-declared action-surface policy requirement is not satisfied. |
+| `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` | critical | A newly added financial write action lacks approval, audit, or idempotency controls. |
+| `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
+| `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
+| `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
+| `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
+| `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
+| `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
 | `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | Local HITL approval trace evidence is missing or incomplete for an approval-required tool. |
 | `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | Local HITL override reason evidence is missing or incomplete. |
 | `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | Local high-risk auto-approval exclusion evidence is missing or incomplete. |
@@ -1100,6 +1118,57 @@ A high-risk tool lacks a declared approval policy. Add an approval policy or rem
 ### SHIP-POLICY-CONFIRMATION-MISSING
 
 A destructive, external-write, or customer-communication tool lacks a confirmation policy. Add confirmation policy or remove the tool.
+
+### SHIP-ACTION-UNDECLARED
+
+`action_surface.require_explicit_actions` is true, but a loaded tool has no
+matching `action_surface.actions[]` declaration. Add action metadata for the
+tool or disable the explicit-action requirement.
+
+### SHIP-ACTION-POLICY-VIOLATION
+
+A user-declared `action_surface.policies[]` rule matched an action, and one or
+more required dot-path values were absent or different. Satisfy the policy
+requirements or narrow/remove the action.
+
+### SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
+
+A newly added action is classified as `financial_write` and is missing
+`approval.required`, `safeguards.audit_log`, or `safeguards.idempotency`.
+Declare the required controls before releasing the action.
+
+### SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING
+
+A newly added destructive action is missing `approval.required` or
+`safeguards.rollback`. Declare the approval and rollback controls, or remove
+the destructive action from the release surface.
+
+### SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING
+
+A newly added external communication action lacks `safeguards.audit_log`.
+Declare audit evidence so reviewers can trace outbound side effects.
+
+### SHIP-ACTION-WILDCARD-SCOPE
+
+An added action declares a broad scope, or a modified action expands into a
+broad scope such as wildcard/admin access. Replace it with operation-specific
+scopes.
+
+### SHIP-ACTION-EFFECT-ESCALATED
+
+An action changed to a higher-risk effect, such as read to write or write to
+destructive. Add reviewer approval for the escalation or reduce the effect.
+
+### SHIP-ACTION-APPROVAL-REMOVED
+
+The base action required approval, but the current action no longer does.
+Restore `approval.required` or document a reviewed override.
+
+### SHIP-ACTION-SAFEGUARD-REMOVED
+
+An existing action lost a safeguard such as audit logging, idempotency,
+rollback, or dry-run support. Restore the safeguard or document a reviewed
+override.
 
 ### SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
 
@@ -1804,7 +1873,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.15.json`](report-schema.v0.15.json) — current JSON
+- [`report-schema.v0.16.json`](report-schema.v0.16.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

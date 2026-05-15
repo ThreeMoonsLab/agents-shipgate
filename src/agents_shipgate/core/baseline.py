@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.models import (
+    ActionSurfaceFacts,
     BaselineSummary,
     Finding,
     ReadinessReport,
@@ -16,7 +17,7 @@ from agents_shipgate.core.models import (
     ToolSurfaceFacts,
 )
 
-BASELINE_SCHEMA_VERSION = "0.3"
+BASELINE_SCHEMA_VERSION = "0.4"
 
 
 class BaselineFinding(BaseModel):
@@ -32,13 +33,14 @@ class BaselineFinding(BaseModel):
 class BaselineFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.2", "0.3"] = BASELINE_SCHEMA_VERSION
+    schema_version: Literal["0.2", "0.3", "0.4"] = BASELINE_SCHEMA_VERSION
     project: dict[str, object] = Field(default_factory=dict)
     agent: dict[str, object] = Field(default_factory=dict)
     created_at: str
     source_report_run_id: str
     findings: list[BaselineFinding] = Field(default_factory=list)
     tool_surface_facts: ToolSurfaceFacts | None = None
+    action_surface_facts: ActionSurfaceFacts | None = None
     notes: list[str] = Field(default_factory=list)
 
 
@@ -49,6 +51,7 @@ def baseline_from_report(report: ReadinessReport) -> BaselineFile:
         created_at=_utc_now(),
         source_report_run_id=report.run_id,
         tool_surface_facts=report.tool_surface_facts,
+        action_surface_facts=report.action_surface_facts,
         findings=[
             BaselineFinding(
                 fingerprint=finding.fingerprint or finding.id or "",

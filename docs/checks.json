@@ -3,6 +3,158 @@
   "checks": [
     {
       "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "critical",
+      "description": "Action approval policy was removed.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-approval-removed",
+      "evidence_fields": [
+        "change"
+      ],
+      "fires_when": "Base action approval.required was true and head no longer requires approval.",
+      "id": "SHIP-ACTION-APPROVAL-REMOVED",
+      "rationale": "Removing approval weakens the release boundary for an existing action.",
+      "recommendation": "Restore approval.required or document a reviewed override.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "critical",
+      "description": "New destructive action lacks approval or rollback controls.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-destructive-rollback-missing",
+      "evidence_fields": [
+        "action_id",
+        "missing"
+      ],
+      "fires_when": "An added destructive action lacks approval.required or safeguards.rollback.",
+      "id": "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+      "rationale": "Destructive actions need explicit approval and rollback evidence before release.",
+      "recommendation": "Declare approval.required and safeguards.rollback or remove the destructive action.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "critical",
+      "description": "Action effect escalated compared with the base surface.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-escalated",
+      "evidence_fields": [
+        "change"
+      ],
+      "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive.",
+      "id": "SHIP-ACTION-EFFECT-ESCALATED",
+      "rationale": "Effect escalation changes what the agent can do in the real world and needs explicit review.",
+      "recommendation": "Add reviewer approval for the escalation or reduce the action effect.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "high",
+      "description": "New external communication action lacks audit evidence.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-external-communication-audit-missing",
+      "evidence_fields": [
+        "action_id",
+        "missing"
+      ],
+      "fires_when": "An added external_communication action lacks safeguards.audit_log.",
+      "id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+      "rationale": "External communication changes agent blast radius and should be auditable.",
+      "recommendation": "Declare safeguards.audit_log for the external communication action.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "critical",
+      "description": "New financial write action lacks required controls.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-financial-write-control-missing",
+      "evidence_fields": [
+        "action_id",
+        "missing"
+      ],
+      "fires_when": "An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.",
+      "id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+      "rationale": "Financial write actions need approval, audit, and idempotency evidence before release.",
+      "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "high",
+      "description": "An action-surface policy requirement is not satisfied.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-policy-violation",
+      "evidence_fields": [
+        "policy_id",
+        "action_id",
+        "missing"
+      ],
+      "fires_when": "A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.",
+      "id": "SHIP-ACTION-POLICY-VIOLATION",
+      "rationale": "Action Surface Diff policies are the reviewer-facing release boundary for external action capability.",
+      "recommendation": "Satisfy the action-surface policy requirements or remove/narrow the action.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "high",
+      "description": "Action safeguard was removed.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-safeguard-removed",
+      "evidence_fields": [
+        "change"
+      ],
+      "fires_when": "A previously true action safeguard is false or absent in the head surface.",
+      "id": "SHIP-ACTION-SAFEGUARD-REMOVED",
+      "rationale": "Removing audit, idempotency, rollback, or dry-run safeguards expands blast radius.",
+      "recommendation": "Restore the removed safeguard or document a reviewed override.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "high",
+      "description": "A loaded tool lacks explicit action-surface metadata.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-undeclared",
+      "evidence_fields": [
+        "action_id",
+        "tool_name"
+      ],
+      "fires_when": "action_surface.require_explicit_actions is true and a loaded tool has no matching action_surface.actions entry.",
+      "id": "SHIP-ACTION-UNDECLARED",
+      "rationale": "Action Surface Diff depends on reviewer-visible action metadata for release decisions.",
+      "recommendation": "Add action_surface.actions metadata for the tool or disable require_explicit_actions.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "critical",
+      "description": "Action surface includes a wildcard or admin-like scope.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-wildcard-scope",
+      "evidence_fields": [
+        "action_id",
+        "scopes",
+        "change"
+      ],
+      "fires_when": "An added action declares a broad scope, or a modified action expands into a broad scope.",
+      "id": "SHIP-ACTION-WILDCARD-SCOPE",
+      "rationale": "Wildcard scopes make action blast radius too broad for deterministic release review.",
+      "recommendation": "Replace wildcard/admin scopes with operation-specific scopes.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "adk",
       "default_severity": "high",
       "description": "Google ADK toolset cannot be statically enumerated.",

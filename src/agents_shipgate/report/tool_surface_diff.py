@@ -14,6 +14,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.models import (
+    ActionSurfaceFacts,
     AnthropicArtifacts,
     Finding,
     OpenAIApiArtifacts,
@@ -52,8 +53,10 @@ class ToolSurfaceDiffReference:
     path: str | None = None
     report_schema_version: str | None = None
     baseline_schema_version: str | None = None
+    action_facts: ActionSurfaceFacts | None = None
     findings: list[ToolSurfaceFindingDeltaItem] | None = None
     notes: tuple[str, ...] = ()
+    action_notes: tuple[str, ...] = ()
 
 
 def build_tool_surface_facts(
@@ -759,23 +762,33 @@ def _reference_from_report_payload(
     except ValidationError as exc:
         raise InputParseError(f"Invalid diff report {display_path}: {exc}") from exc
     facts = report.tool_surface_facts if "tool_surface_facts" in payload else None
+    action_facts = (
+        report.action_surface_facts if "action_surface_facts" in payload else None
+    )
     notes: list[str] = []
+    action_notes: list[str] = []
     if facts is None:
         notes.append(
             "Reference report is pre-v0.10 or otherwise lacks "
             "tool_surface_facts; surface diff disabled."
+        )
+    if action_facts is None:
+        action_notes.append(
+            "Reference report lacks action_surface_facts; action-surface diff disabled."
         )
     return ToolSurfaceDiffReference(
         kind="report",
         path=display_path,
         facts=facts,
         report_schema_version=report.report_schema_version,
+        action_facts=action_facts,
         findings=[
             item
             for item in (_finding_item(finding) for finding in report.findings)
             if item is not None
         ],
         notes=tuple(notes),
+        action_notes=tuple(action_notes),
     )
 
 
@@ -799,11 +812,20 @@ def _reference_from_baseline(
         notes.append("Baseline schema 0.2 has no tool_surface_facts; surface diff disabled.")
     elif baseline.tool_surface_facts is None:
         notes.append("Baseline has no tool_surface_facts; surface diff disabled.")
+    action_notes: list[str] = []
+    if baseline.schema_version in {"0.2", "0.3"}:
+        action_notes.append(
+            f"Baseline schema {baseline.schema_version} has no action_surface_facts; "
+            "action-surface diff disabled."
+        )
+    elif baseline.action_surface_facts is None:
+        action_notes.append("Baseline has no action_surface_facts; action-surface diff disabled.")
     return ToolSurfaceDiffReference(
         kind="baseline",
         path=display_path,
         facts=baseline.tool_surface_facts,
         baseline_schema_version=baseline.schema_version,
+        action_facts=baseline.action_surface_facts,
         findings=[
             ToolSurfaceFindingDeltaItem(
                 fingerprint=finding.fingerprint,
@@ -815,6 +837,7 @@ def _reference_from_baseline(
             for finding in baseline.findings
         ],
         notes=tuple(notes),
+        action_notes=tuple(action_notes),
     )
 
 

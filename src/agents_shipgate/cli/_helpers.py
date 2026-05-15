@@ -307,6 +307,20 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         f"medium={summary.medium_count}, low={summary.low_count}, "
         f"suppressed={summary.suppressed_count}"
     )
+    action_diff = report.action_surface_diff
+    if action_diff.enabled:
+        if _action_surface_diff_has_changes(action_diff.summary):
+            typer.echo(
+                "Action-surface diff: "
+                f"+{action_diff.summary.actions_added} actions, "
+                f"-{action_diff.summary.actions_removed} actions, "
+                f"{action_diff.summary.actions_modified} modified, "
+                f"{action_diff.summary.blocking_findings} blocking finding(s)"
+            )
+        else:
+            typer.echo("Action-surface diff: no changes")
+    elif action_diff.notes:
+        typer.echo(f"Action-surface diff: disabled ({action_diff.notes[0]})")
     diff = report.tool_surface_diff
     if diff.enabled:
         if _tool_surface_diff_has_changes(diff.summary):
@@ -371,5 +385,22 @@ def _tool_surface_diff_has_changes(summary) -> bool:
             summary.resolved_findings,
             summary.unchanged_findings,
             summary.accepted_debt,
+        )
+    )
+
+
+def _action_surface_diff_has_changes(summary) -> bool:
+    return any(
+        (
+            summary.actions_added,
+            summary.actions_removed,
+            summary.actions_modified,
+            summary.scope_expansions,
+            summary.effect_escalations,
+            summary.risk_tags_added,
+            summary.approvals_removed,
+            summary.safeguards_removed,
+            summary.input_schema_expansions,
+            summary.blocking_findings,
         )
     )

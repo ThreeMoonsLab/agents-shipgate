@@ -1,0 +1,957 @@
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from typing import Any
+
+from agents_shipgate.config.schema import (
+    ActionDeclarationConfig,
+    ActionPolicyConfig,
+    AgentsShipgateManifest,
+)
+from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.models import (
+    ActionApprovalFact,
+    ActionEvidenceFact,
+    ActionFact,
+    ActionSafeguardsFact,
+    ActionSurfaceChange,
+    ActionSurfaceDiff,
+    ActionSurfaceDiffSummary,
+    ActionSurfaceFacts,
+    ActionSurfaceHashes,
+    Finding,
+    Severity,
+    SourceReference,
+    Tool,
+    ToolSurfaceDiffBase,
+)
+from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
+from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _stable_hash
+
+_RISK_TAG_MAP = {
+    "read_only": "read_only",
+    "write": "writes_data",
+    "external_write": "external_communication",
+    "customer_communication": "external_communication",
+    "financial_action": "financial_write",
+    "destructive": "destructive",
+    "infrastructure_change": "production_ops",
+    "production_operation": "production_ops",
+    "sensitive_data_access": "privileged_data",
+    "privileged_data_access": "privileged_data",
+    "code_execution": "code_execution",
+}
+_CRITICAL_RISK_TAGS = {
+    "financial_write",
+    "destructive",
+    "production_ops",
+    "identity_access",
+    "secret_access",
+    "code_execution",
+}
+_EFFECT_RANK = {
+    "read": 0,
+    "privileged_data_access": 1,
+    "write": 2,
+    "external_communication": 3,
+    "financial_write": 4,
+    "production_operation": 4,
+    "identity_access": 4,
+    "code_execution": 4,
+    "destructive": 5,
+}
+_SAFEGUARD_FIELDS = ("idempotency", "audit_log", "rollback", "dry_run")
+_MISSING_PATH = object()
+
+
+@dataclass(frozen=True)
+class ActionSurfaceDiffReference:
+    kind: str
+    facts: ActionSurfaceFacts | None
+    path: str | None = None
+    report_schema_version: str | None = None
+    baseline_schema_version: str | None = None
+    notes: tuple[str, ...] = ()
+
+
+def build_action_surface_facts(
+    manifest: AgentsShipgateManifest,
+    *,
+    agent_id: str,
+    tools: list[Tool],
+) -> ActionSurfaceFacts:
+    declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
+    actions = [
+        _action_from_tool(
+            manifest,
+            agent_id=agent_id,
+            tool=tool,
+            declaration=declarations.get(tool.name),
+        )
+        for tool in sorted(tools, key=lambda item: item.name)
+    ]
+    return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
+
+
+def compute_action_surface_diff(
+    current: ActionSurfaceFacts,
+    base: ActionSurfaceFacts | None,
+    *,
+    reference: ActionSurfaceDiffReference | None = None,
+) -> ActionSurfaceDiff:
+    if base is None:
+        notes = _action_notes(reference)
+        if not notes:
+            notes.append("No action-surface comparison source was provided.")
+        return ActionSurfaceDiff(
+            enabled=False,
+            base=_diff_base(reference),
+            notes=notes,
+        )
+
+    current_by_id = {action.action_id: action for action in current.actions}
+    base_by_id = {action.action_id: action for action in base.actions}
+    added = [
+        _action_added_change(current_by_id[action_id])
+        for action_id in sorted(current_by_id.keys() - base_by_id.keys())
+    ]
+    removed = [
+        _action_removed_change(base_by_id[action_id])
+        for action_id in sorted(base_by_id.keys() - current_by_id.keys())
+    ]
+    modified: list[ActionSurfaceChange] = []
+    for action_id in sorted(current_by_id.keys() & base_by_id.keys()):
+        modified.extend(_modified_changes(current_by_id[action_id], base_by_id[action_id]))
+
+    notes = ["Action renames are reported as one removed action plus one added action."]
+    notes.extend(_action_notes(reference))
+    return ActionSurfaceDiff(
+        enabled=True,
+        base=_diff_base(reference),
+        summary=_summary(added, removed, modified),
+        added=added,
+        removed=removed,
+        modified=modified,
+        notes=notes,
+    )
+
+
+def evaluate_action_surface_policies(
+    manifest: AgentsShipgateManifest,
+    facts: ActionSurfaceFacts,
+    diff: ActionSurfaceDiff,
+    *,
+    agent_id: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    by_action = {action.action_id: action for action in facts.actions}
+    if manifest.action_surface.require_explicit_actions:
+        declared_tools = {entry.tool for entry in manifest.action_surface.actions}
+        for action in facts.actions:
+            if action.tool_name in declared_tools:
+                continue
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-UNDECLARED",
+                    title=f"{action.tool_name} is missing an action_surface declaration",
+                    severity="high",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"action_id": action.action_id, "tool_name": action.tool_name},
+                    recommendation=(
+                        "Add action_surface.actions metadata for this tool or disable "
+                        "action_surface.require_explicit_actions."
+                    ),
+                    blocks_release=True,
+                )
+            )
+
+    findings.extend(_builtin_policy_findings(diff, by_action, agent_id=agent_id))
+    for policy in manifest.action_surface.policies:
+        for action in facts.actions:
+            if not _policy_matches(policy, action):
+                continue
+            missing = _missing_requirements(policy, action)
+            if not missing:
+                continue
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-POLICY-VIOLATION",
+                    title=policy.message
+                    or f"Action surface policy {policy.id} failed for {action.tool_name}",
+                    severity=policy.severity,
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={
+                        "policy_id": policy.id,
+                        "action_id": action.action_id,
+                        "missing": missing,
+                    },
+                    recommendation=policy.recommendation
+                    or f"Satisfy action surface policy {policy.id} for {action.tool_name}.",
+                    blocks_release=policy.block,
+                )
+            )
+    return _dedupe_findings(findings)
+
+
+def attach_action_surface_finding_summary(
+    diff: ActionSurfaceDiff,
+    findings: list[Finding],
+) -> None:
+    diff.summary.blocking_findings = sum(
+        1
+        for finding in findings
+        if finding.blocks_release
+        and not finding.suppressed
+        and finding.baseline_status != "matched"
+    )
+
+
+def action_reference_from_scan_reference(
+    reference: ToolSurfaceDiffReference | None,
+) -> ActionSurfaceDiffReference | None:
+    if reference is None:
+        return None
+    facts = getattr(reference, "action_facts", None)
+    notes = tuple(getattr(reference, "action_notes", ()) or ())
+    return ActionSurfaceDiffReference(
+        kind=reference.kind,
+        path=reference.path,
+        facts=facts,
+        report_schema_version=reference.report_schema_version,
+        baseline_schema_version=reference.baseline_schema_version,
+        notes=notes,
+    )
+
+
+def _action_from_tool(
+    manifest: AgentsShipgateManifest,
+    *,
+    agent_id: str,
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+) -> ActionFact:
+    provider = _provider(tool, declaration)
+    operation = _operation(tool, declaration)
+    action_id = (
+        declaration.id
+        if declaration and declaration.id
+        else f"{agent_id}:{tool.source_type}:{provider}:{operation}"
+    )
+    inferred_tags = _normalized_risk_tags(tool)
+    risk_tag_values = (
+        _normalize_risk_tag_values(declaration.risk_tags)
+        if declaration and declaration.risk_tags
+        else inferred_tags
+    )
+    scopes = (
+        _normalize_strings(declaration.scopes)
+        if declaration and declaration.scopes
+        else _normalize_strings(tool.auth.scopes)
+    )
+    effect = (
+        declaration.effect
+        if declaration and declaration.effect
+        else _infer_effect(tool, risk_tag_values)
+    )
+    approval = _approval_fact(manifest, tool, declaration)
+    safeguards = _safeguards_fact(manifest, tool, declaration)
+    evidence = _evidence_fact(tool, declaration)
+    input_fields = sorted({parameter.name for parameter in tool.parameters})
+    required_input_fields = sorted(
+        {parameter.name for parameter in tool.parameters if parameter.required}
+    )
+    schema_hash = _stable_hash(
+        {
+            "input_schema": tool.input_schema,
+            "parameters": [parameter.model_dump(mode="json") for parameter in tool.parameters],
+        }
+    )
+    policy_hash = _stable_hash(
+        {
+            "approval": approval.model_dump(mode="json"),
+            "safeguards": safeguards.model_dump(mode="json"),
+            "evidence": evidence.model_dump(mode="json"),
+        }
+    )
+    risk_hash = _stable_hash(
+        {
+            "effect": effect,
+            "risk_tags": risk_tag_values,
+            "required_scopes": scopes,
+        }
+    )
+    return ActionFact(
+        action_id=action_id,
+        agent_id=agent_id,
+        tool_id=tool.id,
+        tool_name=tool.name,
+        provider=provider,
+        source_type=tool.source_type,
+        source_id=tool.source_id,
+        operation=operation,
+        effect=effect,
+        risk_tags=risk_tag_values,
+        required_scopes=scopes,
+        approval_policy=approval,
+        safeguards=safeguards,
+        evidence=evidence,
+        input_fields=input_fields,
+        required_input_fields=required_input_fields,
+        input_schema_hash=schema_hash,
+        hashes=ActionSurfaceHashes(
+            identity_hash=_stable_hash(action_id),
+            schema_hash=schema_hash,
+            policy_hash=policy_hash,
+            risk_hash=risk_hash,
+        ),
+    )
+
+
+def _provider(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:
+    if declaration and declaration.provider:
+        return _normalize_token(declaration.provider)
+    if tool.source_id:
+        return _normalize_token(tool.source_id)
+    if "." in tool.name:
+        return _normalize_token(tool.name.split(".", 1)[0])
+    return _normalize_token(tool.source_type)
+
+
+def _operation(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:
+    if declaration and declaration.operation:
+        return _normalize_operation(declaration.operation)
+    method = tool.annotations.get("httpMethod")
+    path = tool.annotations.get("path")
+    if method and path:
+        return f"{str(method).upper()} {_normalize_path(str(path))}"
+    return _normalize_operation(tool.name)
+
+
+def _approval_fact(
+    manifest: AgentsShipgateManifest,
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+) -> ActionApprovalFact:
+    fact = ActionApprovalFact(required=tool.name in manifest.policies.approval_tools())
+    if declaration and declaration.approval:
+        update = {
+            key: value
+            for key, value in declaration.approval.model_dump().items()
+            if value is not None
+        }
+        fact = fact.model_copy(update=update)
+    return fact
+
+
+def _safeguards_fact(
+    manifest: AgentsShipgateManifest,
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+) -> ActionSafeguardsFact:
+    annotations = tool.annotations
+    fact = ActionSafeguardsFact(
+        # Idempotency has several existing declarative sources; the other
+        # safeguards stay nullable unless a source explicitly declares them.
+        idempotency=(
+            tool.name in manifest.policies.idempotency_tools()
+            or annotations.get("idempotentHint") is True
+            or any(parameter.name == "idempotency_key" for parameter in tool.parameters)
+        ),
+        audit_log=_annotation_bool(annotations, "audit_log", "auditLog"),
+        rollback=_annotation_bool(annotations, "rollback"),
+        dry_run=_annotation_bool(annotations, "dry_run", "dryRun"),
+    )
+    if declaration and declaration.safeguards:
+        update = {
+            key: value
+            for key, value in declaration.safeguards.model_dump().items()
+            if value is not None
+        }
+        fact = fact.model_copy(update=update)
+    return fact
+
+
+def _evidence_fact(
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+) -> ActionEvidenceFact:
+    fact = ActionEvidenceFact(owner=tool.owner)
+    if declaration and declaration.evidence:
+        update = {
+            key: value
+            for key, value in declaration.evidence.model_dump().items()
+            if value is not None
+        }
+        fact = fact.model_copy(update=update)
+    return fact
+
+
+def _normalized_risk_tags(tool: Tool) -> list[str]:
+    tags = {_RISK_TAG_MAP.get(tag, tag) for tag in risk_tags(tool)}
+    if is_effectively_read_only(tool):
+        tags.add("read_only")
+    return sorted(tags)
+
+
+def _infer_effect(tool: Tool, tags: list[str]) -> str:
+    tag_set = set(tags)
+    if "destructive" in tag_set:
+        return "destructive"
+    if "financial_write" in tag_set:
+        return "financial_write"
+    if "external_communication" in tag_set:
+        return "external_communication"
+    if "production_ops" in tag_set:
+        return "production_operation"
+    if "code_execution" in tag_set:
+        return "code_execution"
+    if "identity_access" in tag_set:
+        return "identity_access"
+    if "privileged_data" in tag_set:
+        return "privileged_data_access"
+    if "writes_data" in tag_set:
+        return "write"
+    method = str(tool.annotations.get("httpMethod") or "").upper()
+    if method in {"POST", "PUT", "PATCH"}:
+        return "write"
+    if method == "DELETE":
+        return "destructive"
+    return "read"
+
+
+def _action_added_change(action: ActionFact) -> ActionSurfaceChange:
+    severity = _severity_for_action(action)
+    return ActionSurfaceChange(
+        type="ACTION_ADDED",
+        action_id=action.action_id,
+        agent_id=action.agent_id,
+        tool_name=action.tool_name,
+        operation=action.operation,
+        severity=severity,
+        reason=f"Action added: {action.tool_name}",
+        after=_action_summary(action),
+    )
+
+
+def _action_removed_change(action: ActionFact) -> ActionSurfaceChange:
+    return ActionSurfaceChange(
+        type="ACTION_REMOVED",
+        action_id=action.action_id,
+        agent_id=action.agent_id,
+        tool_name=action.tool_name,
+        operation=action.operation,
+        severity="info",
+        reason=f"Action removed: {action.tool_name}",
+        before=_action_summary(action),
+    )
+
+
+def _modified_changes(current: ActionFact, base: ActionFact) -> list[ActionSurfaceChange]:
+    changes: list[ActionSurfaceChange] = []
+    added_scopes = sorted(set(current.required_scopes) - set(base.required_scopes))
+    if added_scopes:
+        severity: Severity = "critical" if any(is_broad_scope(s) for s in added_scopes) else "high"
+        changes.append(
+            _change(
+                "SCOPE_EXPANDED",
+                current,
+                severity,
+                "Action scope expanded.",
+                before=base.required_scopes,
+                after=current.required_scopes,
+                added=added_scopes,
+            )
+        )
+    if _EFFECT_RANK[current.effect] > _EFFECT_RANK[base.effect]:
+        changes.append(
+            _change(
+                "EFFECT_ESCALATED",
+                current,
+                "critical",
+                "Action effect escalated.",
+                before=base.effect,
+                after=current.effect,
+            )
+        )
+    added_tags = sorted(set(current.risk_tags) - set(base.risk_tags))
+    if added_tags:
+        severity = "critical" if set(added_tags) & _CRITICAL_RISK_TAGS else "high"
+        changes.append(
+            _change(
+                "RISK_TAG_ADDED",
+                current,
+                severity,
+                "Action risk tag added.",
+                before=base.risk_tags,
+                after=current.risk_tags,
+                added=added_tags,
+            )
+        )
+    if base.approval_policy.required is True and current.approval_policy.required is not True:
+        changes.append(
+            _change(
+                "APPROVAL_REMOVED",
+                current,
+                "critical",
+                "Action approval policy was removed.",
+                before=base.approval_policy.model_dump(mode="json"),
+                after=current.approval_policy.model_dump(mode="json"),
+            )
+        )
+    for field in _SAFEGUARD_FIELDS:
+        if getattr(base.safeguards, field) is True and getattr(current.safeguards, field) is not True:
+            changes.append(
+                _change(
+                    "SAFEGUARD_REMOVED",
+                    current,
+                    "critical" if field == "rollback" and current.effect == "destructive" else "high",
+                    f"Action safeguard removed: {field}.",
+                    before=base.safeguards.model_dump(mode="json"),
+                    after=current.safeguards.model_dump(mode="json"),
+                    removed=[field],
+                )
+            )
+    added_fields = sorted(set(current.input_fields) - set(base.input_fields))
+    added_required = sorted(
+        set(current.required_input_fields) - set(base.required_input_fields)
+    )
+    if added_fields or added_required:
+        changes.append(
+            _change(
+                "INPUT_SCHEMA_EXPANDED",
+                current,
+                "medium",
+                "Action input schema expanded.",
+                before={
+                    "input_fields": base.input_fields,
+                    "required_input_fields": base.required_input_fields,
+                },
+                after={
+                    "input_fields": current.input_fields,
+                    "required_input_fields": current.required_input_fields,
+                },
+                added=sorted(set(added_fields) | set(added_required)),
+            )
+        )
+    if not changes and current.hashes != base.hashes:
+        changes.append(
+            _change(
+                "ACTION_MODIFIED",
+                current,
+                "medium",
+                "Action metadata changed.",
+                before=base.hashes.model_dump(mode="json"),
+                after=current.hashes.model_dump(mode="json"),
+            )
+        )
+    return changes
+
+
+def _change(
+    change_type: str,
+    action: ActionFact,
+    severity: Severity,
+    reason: str,
+    *,
+    before: Any = None,
+    after: Any = None,
+    added: list[str] | None = None,
+    removed: list[str] | None = None,
+) -> ActionSurfaceChange:
+    return ActionSurfaceChange(
+        type=change_type,
+        action_id=action.action_id,
+        agent_id=action.agent_id,
+        tool_name=action.tool_name,
+        operation=action.operation,
+        severity=severity,
+        reason=reason,
+        before=before,
+        after=after,
+        added=added or [],
+        removed=removed or [],
+    )
+
+
+def _summary(
+    added: list[ActionSurfaceChange],
+    removed: list[ActionSurfaceChange],
+    modified: list[ActionSurfaceChange],
+) -> ActionSurfaceDiffSummary:
+    modified_action_ids = {change.action_id for change in modified}
+    return ActionSurfaceDiffSummary(
+        actions_added=len(added),
+        actions_removed=len(removed),
+        actions_modified=len(modified_action_ids),
+        scope_expansions=sum(1 for change in modified if change.type == "SCOPE_EXPANDED"),
+        effect_escalations=sum(
+            1 for change in modified if change.type == "EFFECT_ESCALATED"
+        ),
+        risk_tags_added=sum(1 for change in modified if change.type == "RISK_TAG_ADDED"),
+        approvals_removed=sum(
+            1 for change in modified if change.type == "APPROVAL_REMOVED"
+        ),
+        safeguards_removed=sum(
+            1 for change in modified if change.type == "SAFEGUARD_REMOVED"
+        ),
+        input_schema_expansions=sum(
+            1 for change in modified if change.type == "INPUT_SCHEMA_EXPANDED"
+        ),
+    )
+
+
+def _builtin_policy_findings(
+    diff: ActionSurfaceDiff,
+    by_action: dict[str, ActionFact],
+    *,
+    agent_id: str,
+) -> list[Finding]:
+    if not diff.enabled:
+        return []
+    findings: list[Finding] = []
+    for change in diff.added:
+        action = by_action.get(change.action_id)
+        if action is None:
+            continue
+        findings.extend(_added_action_policy_findings(action, agent_id=agent_id))
+    for change in diff.modified:
+        action = by_action.get(change.action_id)
+        if action is None:
+            continue
+        if change.type == "SCOPE_EXPANDED" and any(is_broad_scope(scope) for scope in change.added):
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-WILDCARD-SCOPE",
+                    title=f"{action.tool_name} expands to a broad action scope",
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"change": change.model_dump(mode="json")},
+                    recommendation="Replace wildcard or admin scopes with operation-specific scopes.",
+                    blocks_release=True,
+                )
+            )
+        elif change.type == "EFFECT_ESCALATED":
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-EFFECT-ESCALATED",
+                    title=f"{action.tool_name} escalates action effect",
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"change": change.model_dump(mode="json")},
+                    recommendation="Add reviewer approval for the effect escalation or reduce the action effect.",
+                    blocks_release=True,
+                )
+            )
+        elif change.type == "APPROVAL_REMOVED":
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-APPROVAL-REMOVED",
+                    title=f"{action.tool_name} removes an action approval policy",
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"change": change.model_dump(mode="json")},
+                    recommendation="Restore approval.required or document a reviewed override.",
+                    blocks_release=True,
+                )
+            )
+        elif change.type == "SAFEGUARD_REMOVED":
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-SAFEGUARD-REMOVED",
+                    title=f"{action.tool_name} removes an action safeguard",
+                    severity=change.severity,
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"change": change.model_dump(mode="json")},
+                    recommendation="Restore the removed safeguard or document a reviewed override.",
+                    blocks_release=True,
+                )
+            )
+    return findings
+
+
+def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[Finding]:
+    findings: list[Finding] = []
+    if any(is_broad_scope(scope) for scope in action.required_scopes):
+        findings.append(
+            _finding(
+                check_id="SHIP-ACTION-WILDCARD-SCOPE",
+                title=f"{action.tool_name} declares a broad action scope",
+                severity="critical",
+                action=action,
+                agent_id=agent_id,
+                evidence={
+                    "action_id": action.action_id,
+                    "scopes": action.required_scopes,
+                },
+                recommendation="Replace wildcard or admin scopes with operation-specific scopes.",
+                blocks_release=True,
+            )
+        )
+    if "financial_write" in action.risk_tags or action.effect == "financial_write":
+        missing = _missing_builtin_requirements(
+            action,
+            {
+                "approval.required": True,
+                "safeguards.audit_log": True,
+                "safeguards.idempotency": True,
+            },
+        )
+        if missing:
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+                    title=f"{action.tool_name} adds financial write capability without required controls",
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"action_id": action.action_id, "missing": missing},
+                    recommendation=(
+                        "Declare approval.required, safeguards.audit_log, and "
+                        "safeguards.idempotency for this financial write action."
+                    ),
+                    blocks_release=True,
+                )
+            )
+    if (
+        "external_communication" in action.risk_tags
+        or action.effect == "external_communication"
+    ) and action.safeguards.audit_log is not True:
+        findings.append(
+            _finding(
+                check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+                title=f"{action.tool_name} adds external communication without audit evidence",
+                severity="high",
+                action=action,
+                agent_id=agent_id,
+                evidence={"action_id": action.action_id, "missing": ["safeguards.audit_log"]},
+                recommendation="Declare safeguards.audit_log for this external communication action.",
+                blocks_release=True,
+            )
+        )
+    if "destructive" in action.risk_tags or action.effect == "destructive":
+        missing = _missing_builtin_requirements(
+            action,
+            {
+                "approval.required": True,
+                "safeguards.rollback": True,
+            },
+        )
+        if missing:
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+                    title=f"{action.tool_name} adds destructive capability without rollback controls",
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"action_id": action.action_id, "missing": missing},
+                    recommendation="Declare approval.required and safeguards.rollback for this destructive action.",
+                    blocks_release=True,
+                )
+            )
+    return findings
+
+
+def _missing_builtin_requirements(
+    action: ActionFact,
+    requirements: dict[str, Any],
+) -> list[str]:
+    missing: list[str] = []
+    for path, expected in requirements.items():
+        actual = _value_at_path(action, path)
+        if actual is _MISSING_PATH or actual != expected:
+            missing.append(path)
+    return missing
+
+
+def _policy_matches(policy: ActionPolicyConfig, action: ActionFact) -> bool:
+    match = policy.match
+    if match.action_ids and action.action_id not in match.action_ids:
+        return False
+    if match.tools and action.tool_name not in match.tools:
+        return False
+    if match.effects and action.effect not in match.effects:
+        return False
+    if match.risk_tags and not set(_normalize_risk_tag_values(match.risk_tags)).intersection(
+        action.risk_tags
+    ):
+        return False
+    if match.scopes and not set(match.scopes).intersection(action.required_scopes):
+        return False
+    return True
+
+
+def _missing_requirements(
+    policy: ActionPolicyConfig,
+    action: ActionFact,
+) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    for path, expected in sorted(policy.require.items()):
+        actual = _value_at_path(action, path)
+        if actual is _MISSING_PATH:
+            missing.append(
+                {
+                    "path": path,
+                    "expected": expected,
+                    "actual": None,
+                    "reason": "unknown_path",
+                }
+            )
+            continue
+        if actual != expected:
+            missing.append({"path": path, "expected": expected, "actual": actual})
+    return missing
+
+
+def _value_at_path(action: ActionFact, path: str) -> Any:
+    aliases = {
+        "approval.required": "approval_policy.required",
+        "approval.threshold": "approval_policy.threshold",
+        "scopes": "required_scopes",
+    }
+    path = aliases.get(path, path)
+    current: Any = action
+    parts = path.split(".")
+    for index, part in enumerate(parts):
+        if isinstance(current, dict):
+            if part not in current:
+                return _MISSING_PATH
+            current = current[part]
+        else:
+            if not hasattr(current, part):
+                return _MISSING_PATH
+            current = getattr(current, part)
+        if current is None and index < len(parts) - 1:
+            return _MISSING_PATH
+    return current
+
+
+def _finding(
+    *,
+    check_id: str,
+    title: str,
+    severity: Severity,
+    action: ActionFact,
+    agent_id: str,
+    evidence: dict[str, Any],
+    recommendation: str,
+    blocks_release: bool,
+) -> Finding:
+    return Finding(
+        check_id=check_id,
+        title=title,
+        severity=severity,
+        category="action_surface",
+        tool_id=action.tool_id,
+        tool_name=action.tool_name,
+        agent_id=agent_id,
+        evidence=evidence,
+        confidence="high",
+        provenance_kind="static_declaration",
+        source=SourceReference(type="action_surface", ref=action.action_id),
+        recommendation=recommendation,
+        blocks_release=blocks_release,
+    )
+
+
+def _dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    by_key: dict[tuple[str, str, str], Finding] = {}
+    for finding in findings:
+        evidence_key = json.dumps(finding.evidence, sort_keys=True, default=str)
+        by_key.setdefault(
+            (finding.check_id, finding.tool_name or "", evidence_key),
+            finding,
+        )
+    return [by_key[key] for key in sorted(by_key)]
+
+
+def _severity_for_action(action: ActionFact) -> Severity:
+    if set(action.risk_tags) & _CRITICAL_RISK_TAGS:
+        return "critical"
+    if "external_communication" in action.risk_tags:
+        return "high"
+    if "writes_data" in action.risk_tags or action.effect != "read":
+        return "medium"
+    return "info"
+
+
+def _action_summary(action: ActionFact) -> dict[str, Any]:
+    return {
+        "tool_name": action.tool_name,
+        "operation": action.operation,
+        "effect": action.effect,
+        "risk_tags": action.risk_tags,
+        "required_scopes": action.required_scopes,
+        "approval_policy": action.approval_policy.model_dump(mode="json"),
+        "safeguards": action.safeguards.model_dump(mode="json"),
+    }
+
+
+def _annotation_bool(annotations: dict[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        value = annotations.get(key)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def _normalize_strings(values: list[str]) -> list[str]:
+    return sorted({str(value).strip() for value in values if str(value).strip()})
+
+
+def _normalize_risk_tag_values(values: list[str]) -> list[str]:
+    return sorted(
+        {
+            _RISK_TAG_MAP.get(value, value)
+            for value in _normalize_strings(values)
+        }
+    )
+
+
+def _normalize_token(value: str) -> str:
+    return re.sub(r"\s+", "_", value.strip())
+
+
+def _normalize_operation(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _normalize_path(value: str) -> str:
+    path = value.strip() or "/"
+    if not path.startswith("/"):
+        path = f"/{path}"
+    path = re.sub(r"/:([A-Za-z_][A-Za-z0-9_]*)", r"/{\1}", path)
+    return path
+
+
+def _diff_base(reference: ActionSurfaceDiffReference | None) -> ToolSurfaceDiffBase:
+    if reference is None:
+        return ToolSurfaceDiffBase()
+    return ToolSurfaceDiffBase(
+        kind=reference.kind,
+        path=reference.path,
+        report_schema_version=reference.report_schema_version,
+        baseline_schema_version=reference.baseline_schema_version,
+    )
+
+
+def _action_notes(
+    reference: ActionSurfaceDiffReference | None,
+) -> list[str]:
+    if reference is None:
+        return []
+    notes = list(getattr(reference, "notes", ()) or ())
+    if reference.facts is None:
+        if reference.kind == "report":
+            notes.append("Reference report lacks action_surface_facts; action-surface diff disabled.")
+        elif reference.kind == "baseline":
+            notes.append("Reference baseline lacks action_surface_facts; action-surface diff disabled.")
+    return notes

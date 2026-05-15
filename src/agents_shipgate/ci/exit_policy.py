@@ -40,9 +40,11 @@ def exit_code_for_report(
     # Summary counts exclude suppressed findings, so strict mode intentionally
     # passes when every critical finding has an explicit suppression reason.
     fail_on_resolved = effective_fail_on(ci_mode, fail_on)
+    active = baseline_filtered_active(report, new_findings_only=new_findings_only)
+    if ci_mode == "strict" and any(finding.blocks_release for finding in active):
+        return GATE_FAILURE_EXIT_CODE
     if not fail_on_resolved:
         return 0
-    active = baseline_filtered_active(report, new_findings_only=new_findings_only)
     if any(finding.severity in fail_on_resolved for finding in active):
         return GATE_FAILURE_EXIT_CODE
     return 0
