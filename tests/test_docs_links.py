@@ -48,8 +48,10 @@ AGENT_FACING_DOCS = (
 )
 
 ADOPTION_DOCS_WITH_LINKS = (
+    REPO_ROOT / "README.md",
     DOCS_DIR / "target-repo-agent-snippets.md",
     DOCS_DIR / "agent-adoption-harness.md",
+    REPO_ROOT / "samples" / "README.md",
     REPO_ROOT / "examples" / "golden-prs" / "README.md",
     REPO_ROOT / "examples" / "golden-prs" / "openai-agents-sdk-refund-agent" / "README.md",
     REPO_ROOT / "examples" / "golden-prs" / "mcp-only-tool-server" / "README.md",
@@ -200,6 +202,26 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
     assert "broad-scope" in text
     assert "prohibited-action" in text
     assert "pure docs, tests, formatting" in text
+
+
+def test_readme_onboarding_copy_pins_agent_contract():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Static release checks for tool-using AI agents" in text
+    assert "5-minute" in text
+    assert "Copy this into your coding agent" in text
+    assert "https://github.com/marketplace/actions/agents-shipgate" in text
+    assert "Sample reports" in text
+    assert "release_decision.decision" in text
+    assert "agents-shipgate-reports/report.json" in text
+    assert "agents-shipgate contract --json" in text
+    assert "apply-patches" in text
+    assert "--confidence high --apply" in text
+    assert "Do not auto-assert approval" in text
+    assert "confirmation" in text
+    assert "idempotency" in text
+    assert "broad-scope" in text
+    assert "prohibited-action" in text
+    assert "agents-shipgate-reports/" in text
 
 
 def test_target_repo_cursor_globs_cover_shipgate_discovery_names():

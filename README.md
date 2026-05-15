@@ -13,7 +13,9 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**Static release-readiness gate for AI agent tool surfaces.**
+**Static release checks for tool-using AI agents.**
+
+<!-- Canonical tagline: Static release-readiness gate for AI agent tool surfaces. -->
 
 Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
 OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
@@ -29,6 +31,78 @@ production-like permissions.
 
 No agent execution. No LLM calls. No MCP server connections. No scanner network
 calls. No scanner telemetry. Apache-2.0.
+
+## One-command quickstart
+
+For a 5-minute first run, scan a bundled fixture and inspect the generated
+report. If you already have [`uv`](https://docs.astral.sh/uv/) installed, this
+is a one-command check with no persistent install:
+
+```bash
+uvx agents-shipgate fixture run support_refund_agent
+```
+
+Otherwise, install once with `pipx` and run the same fixture:
+
+```bash
+pipx install agents-shipgate
+agents-shipgate fixture run support_refund_agent
+```
+
+The fixture prints:
+
+```text
+Fixture: support_refund_agent
+Decision: blocked
+Blockers: 2  Review items: 16
+Counts:  critical=2 high=14 medium=2
+Reports: <tempdir>/reports
+Fixture copy at <tempdir>; pass --keep to retain after the run.
+```
+
+Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
+
+![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
+
+## GitHub Action Marketplace
+
+The public Action is listed on the
+[GitHub Action Marketplace](https://github.com/marketplace/actions/agents-shipgate).
+Use the snippet in [Use in CI](#use-in-ci) to add it to a workflow.
+
+## Sample reports
+
+Open a report first if you want to see the output shape before installing:
+
+| Sample | Markdown | JSON |
+|---|---|---|
+| `support_refund_agent` | [`report.md`](samples/support_refund_agent/expected/report.md) | [`report.json`](samples/support_refund_agent/expected/report.json) |
+| `simple_openai_api_agent` | [`report.md`](samples/simple_openai_api_agent/expected/report.md) | [`report.json`](samples/simple_openai_api_agent/expected/report.json) |
+| `simple_langchain_agent` | [`report.md`](samples/simple_langchain_agent/expected/report.md) | [`report.json`](samples/simple_langchain_agent/expected/report.json) |
+
+The `support_refund_agent` fixture also includes a reviewer-shaped Release
+Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md),
+[`packet.json`](samples/support_refund_agent/expected/packet.json), and
+[`packet.html`](samples/support_refund_agent/expected/packet.html).
+
+## Copy this into your coding agent
+
+```text
+Add static release checks for this tool-using AI agent with Agents Shipgate.
+Run:
+agents-shipgate detect --workspace . --json
+If Shipgate is relevant, run:
+agents-shipgate contract --json
+agents-shipgate init --workspace . --write --ci --json
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+agents-shipgate apply-patches --from agents-shipgate-reports/report.json --confidence high --apply
+Read `agents-shipgate-reports/report.json`, not Markdown. Summarize
+`release_decision.decision`, blocker count, review item count, top critical/high
+findings, and any safe patches applied. Auto-apply only high-confidence safe
+patches. Do not auto-assert approval, confirmation, idempotency, broad-scope,
+or prohibited-action policy decisions. Ensure `.gitignore` contains
+`agents-shipgate-reports/` before committing.
+```
 
 ## Who this is for
 
@@ -47,28 +121,6 @@ evidence around them:
 - Prompts, permission scopes, approval policies, confirmation policies,
   prohibited actions, or `shipgate.yaml`.
 - GitHub Actions or CI release gates for a tool-using AI agent.
-
-## Try it in 60 seconds
-
-```bash
-pipx install agents-shipgate
-agents-shipgate fixture run support_refund_agent
-```
-
-This runs a bundled fixture with no manifest required and prints:
-
-```text
-Fixture: support_refund_agent
-Decision: blocked
-Blockers: 2  Review items: 16
-Counts:  critical=2 high=14 medium=2
-Reports: <tempdir>/reports
-Fixture copy at <tempdir>; pass --keep to retain after the run.
-```
-
-Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
-
-![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
 
 ## Scan your repo
 
