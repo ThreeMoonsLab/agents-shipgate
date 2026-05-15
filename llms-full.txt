@@ -848,7 +848,7 @@ The Action Surface Diff fields (v0.16+), reviewer-facing PR/release delta:
 
 - `action_surface_facts.actions[]` — deterministic snapshot of the current agent action surface: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, and hashes.
 - `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` — what changed vs. a base report or v0.4 baseline. Policy findings generated from this diff can set `findings[].blocks_release=true` and appear in `release_decision.blockers`.
-- `findings[].blocks_release` and `release_decision.{blockers,review_items}[].blocks_release` — explicit release-policy blockers. Advisory CI may still exit 0; strict CI exits nonzero when an active unbaselined release blocker is present.
+- `findings[].blocks_release` and `release_decision.{blockers,review_items}[].blocks_release` — explicit release-policy blockers from Action Surface Diff policies and policy-pack rules with `block: true`. Advisory CI may still exit 0; strict CI exits nonzero when an active unbaselined release blocker is present.
 
 The tool-surface diff fields (v0.10+), lower-level explanatory data:
 

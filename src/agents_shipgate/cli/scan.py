@@ -20,6 +20,7 @@ from agents_shipgate.core.findings import (
     apply_suppressions,
     assign_finding_ids,
     build_report,
+    dedupe_findings,
     tool_inventory,
 )
 from agents_shipgate.core.models import (
@@ -241,6 +242,7 @@ def run_scan(
             tools=tools,
         )
     )
+    findings = dedupe_findings(findings)
     assign_finding_ids(findings)
     apply_severity_overrides(findings, manifest.severity_overrides())
     apply_suppressions(findings, manifest.checks.ignore)

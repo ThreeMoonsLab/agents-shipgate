@@ -418,6 +418,9 @@ stable explicit action ID across source refactors.
 current action surface even when `--diff-from` is enabled; built-in escalation
 policies remain change-based. The `require` map uses dot paths over the action
 fact, with aliases for `approval.required`, `approval.threshold`, and `scopes`.
+Known `require` paths are type-checked at manifest load time; boolean controls
+such as `safeguards.audit_log` must use YAML booleans (`true`/`false`), not
+quoted strings.
 When `block: true`, policy findings set `findings[].blocks_release` and
 participate in `release_decision.blockers` when active and unbaselined.
 

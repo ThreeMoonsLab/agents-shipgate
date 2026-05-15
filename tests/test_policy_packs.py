@@ -125,6 +125,41 @@ rules:
     assert "ORG-REFUND-AMOUNT-BOUNDS" in sarif
 
 
+def test_policy_pack_rule_can_block_release_independent_of_severity(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "release-pack.yaml").write_text(
+        """
+name: Release Policy
+rules:
+  - id: ORG-MEDIUM-BLOCKER
+    title: Medium org policy is release-blocking
+    category: org_policy
+    severity: medium
+    block: true
+    recommendation: Fix the org release rule before merge.
+    match:
+      source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(_manifest_without_policy_pack(), encoding="utf-8")
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="strict",
+        policy_pack_paths=[Path("release-pack.yaml")],
+    )
+
+    assert exit_code == 20
+    finding = next(item for item in report.findings if item.check_id == "ORG-MEDIUM-BLOCKER")
+    assert finding.severity == "medium"
+    assert finding.blocks_release is True
+    assert report.release_decision is not None
+    assert any(item.check_id == "ORG-MEDIUM-BLOCKER" for item in report.release_decision.blockers)
+
+
 def test_scan_cli_accepts_policy_pack_override(tmp_path):
     _write_openapi(tmp_path)
     (tmp_path / "cli-pack.yaml").write_text(

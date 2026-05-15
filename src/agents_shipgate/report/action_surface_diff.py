@@ -4,12 +4,14 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
 from agents_shipgate.config.schema import (
     ActionDeclarationConfig,
     ActionPolicyConfig,
     AgentsShipgateManifest,
 )
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.models import (
     ActionApprovalFact,
@@ -104,6 +106,7 @@ def build_action_surface_facts(
         )
         for tool in sorted(tools, key=lambda item: item.name)
     ]
+    _validate_unique_action_ids(actions)
     return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
 
 
@@ -123,8 +126,8 @@ def compute_action_surface_diff(
             notes=notes,
         )
 
-    current_by_id = {action.action_id: action for action in current.actions}
-    base_by_id = {action.action_id: action for action in base.actions}
+    current_by_id = _actions_by_id(current.actions)
+    base_by_id = _actions_by_id(base.actions)
     added = [
         _action_added_change(current_by_id[action_id])
         for action_id in sorted(current_by_id.keys() - base_by_id.keys())
@@ -342,6 +345,33 @@ def _action_from_tool(
             policy_hash=policy_hash,
             risk_hash=risk_hash,
         ),
+    )
+
+
+def _actions_by_id(actions: list[ActionFact]) -> dict[str, ActionFact]:
+    _validate_unique_action_ids(actions)
+    return {action.action_id: action for action in actions}
+
+
+def _validate_unique_action_ids(actions: list[ActionFact]) -> None:
+    by_id: dict[str, list[str]] = {}
+    for action in actions:
+        by_id.setdefault(action.action_id, []).append(action.tool_name)
+    duplicates = {
+        action_id: sorted(tool_names)
+        for action_id, tool_names in by_id.items()
+        if len(tool_names) > 1
+    }
+    if not duplicates:
+        return
+    details = "; ".join(
+        f"{action_id!r} used by {', '.join(tool_names)}"
+        for action_id, tool_names in sorted(duplicates.items())
+    )
+    raise ConfigError(
+        "Duplicate action_surface action_id values are not allowed: "
+        f"{details}. Set unique action_surface.actions[].id values or adjust "
+        "provider/operation metadata."
     )
 
 
@@ -1111,9 +1141,12 @@ def _normalize_operation(value: str) -> str:
 
 
 def _normalize_path(value: str) -> str:
-    path = value.strip() or "/"
+    path = unquote(value.strip()) or "/"
     if not path.startswith("/"):
         path = f"/{path}"
+    path = re.sub(r"/+", "/", path)
+    if len(path) > 1:
+        path = path.rstrip("/")
     path = re.sub(r"/:([A-Za-z_][A-Za-z0-9_]*)", r"/{\1}", path)
     return path
 

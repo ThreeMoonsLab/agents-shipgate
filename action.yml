@@ -31,7 +31,7 @@ inputs:
   diff_from:
     required: false
     default: ""
-    description: Optional prior report.json or v0.3 baseline JSON for tool-surface diff.
+    description: Optional prior report.json or v0.4 baseline JSON for tool/action surface diff.
   diff_base:
     required: false
     default: ""
@@ -243,6 +243,16 @@ runs:
         if [ -n "${resolved_diff_from}" ]; then
           args+=(--diff-from "${resolved_diff_from}")
         fi
+        if [ -n "${INPUT_HEAD_REF}" ]; then
+          if git rev-parse --verify --quiet "${INPUT_HEAD_REF}^{commit}" >/dev/null; then
+            git checkout --detach "${INPUT_HEAD_REF}"
+          elif git fetch --depth=1 origin "${INPUT_HEAD_REF}"; then
+            git checkout --detach FETCH_HEAD
+          else
+            echo "Agents Shipgate: could not resolve head_ref '${INPUT_HEAD_REF}'" >&2
+            exit 2
+          fi
+        fi
         if [ -n "${POLICY_PACKS}" ]; then
           while IFS= read -r policy_pack; do
             [ -z "${policy_pack}" ] && continue
@@ -377,7 +387,7 @@ runs:
                         "- Action-surface diff: "
                         f"{clean(action_surface_diff.get('notes')[0])}\n"
                     )
-                elif tool_surface_diff.get("enabled"):
+                if tool_surface_diff.get("enabled"):
                     summary_file.write(
                         "- What changed: "
                         f"+{clean(diff_summary.get('tools_added', 0))} tools, "
@@ -517,10 +527,8 @@ runs:
             }
             return [...lines, ...highlights];
           };
-          const preferredDiff = actionDiff.enabled || (actionDiff.notes || []).length
-            ? actionDiffHighlights()
-            : diffHighlights();
-          const whatChanged = truncate(preferredDiff.join("\n"), 1500);
+          const diffSections = [...actionDiffHighlights(), ...diffHighlights()];
+          const whatChanged = truncate(diffSections.join("\n"), 1500);
           const body = truncate([
             STICKY,
             "## Agents Shipgate",

@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.baseline import write_baseline
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings import assign_finding_ids
 from agents_shipgate.core.models import (
     ActionApprovalFact,
@@ -148,7 +151,7 @@ def test_action_surface_facts_normalize_openapi_operation():
         name="update_user",
         source_type="openapi",
         source_id="billing-api",
-        annotations={"httpMethod": "post", "path": "/users/:id"},
+        annotations={"httpMethod": "post", "path": "/users//:id/"},
         extraction_confidence="high",
     )
 
@@ -162,6 +165,76 @@ def test_action_surface_facts_normalize_openapi_operation():
     assert action.operation == "POST /users/{id}"
     assert action.action_id == "agent:action-test/agent:openapi:billing-api:POST /users/{id}"
     assert action.effect == "write"
+
+
+def test_action_surface_rejects_duplicate_tool_declarations():
+    with pytest.raises(ValueError, match=r"Duplicate action_surface\.actions\[\]\.tool"):
+        _manifest(
+            {
+                "action_surface": {
+                    "actions": [
+                        {"tool": "refund_customer", "approval": {"required": True}},
+                        {"tool": "refund_customer", "approval": {"required": False}},
+                    ]
+                }
+            }
+        )
+
+
+def test_action_surface_rejects_action_id_collisions():
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "actions": [
+                    {
+                        "tool": "alpha",
+                        "id": "agent:action-test/agent:mcp:tools:beta",
+                    }
+                ]
+            }
+        }
+    )
+    tools = [
+        Tool(
+            id="tool:alpha",
+            name="alpha",
+            source_type="mcp",
+            source_id="tools",
+            extraction_confidence="high",
+        ),
+        Tool(
+            id="tool:beta",
+            name="beta",
+            source_type="mcp",
+            source_id="tools",
+            extraction_confidence="high",
+        ),
+    ]
+
+    with pytest.raises(ConfigError, match="Duplicate action_surface action_id"):
+        build_action_surface_facts(
+            manifest,
+            agent_id="agent:action-test/agent",
+            tools=tools,
+        )
+
+
+def test_action_surface_policy_requires_typed_expected_values():
+    with pytest.raises(ValueError, match="safeguards.audit_log"):
+        _manifest(
+            {
+                "action_surface": {
+                    "policies": [
+                        {
+                            "id": "require-audit",
+                            "match": {"tools": ["lookup"]},
+                            "require": {"safeguards.audit_log": "true"},
+                            "severity": "high",
+                        }
+                    ]
+                }
+            }
+        )
 
 
 def test_action_surface_diff_reports_added_and_removed_actions():

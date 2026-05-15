@@ -54,6 +54,35 @@ def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
     return findings
 
 
+def dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    seen: set[tuple[str, str, str, str, str, str]] = set()
+    deduped: list[Finding] = []
+    for finding in findings:
+        evidence_key = json.dumps(
+            _canonicalize_for_fingerprint(finding.evidence),
+            sort_keys=True,
+            default=str,
+        )
+        source_key = json.dumps(
+            finding.source.model_dump(mode="json") if finding.source else None,
+            sort_keys=True,
+            default=str,
+        )
+        key = (
+            finding.check_id,
+            finding.title,
+            finding.tool_id or "",
+            finding.tool_name or "",
+            evidence_key,
+            source_key,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return deduped
+
+
 def apply_suppressions(
     findings: list[Finding], suppressions: list[SuppressionConfig]
 ) -> list[Finding]:

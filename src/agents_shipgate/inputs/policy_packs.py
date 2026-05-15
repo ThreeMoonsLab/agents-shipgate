@@ -55,6 +55,7 @@ class PolicyPackRule(BaseModel):
     description: str | None = None
     category: str = "policy_pack"
     severity: Severity
+    block: bool = False
     confidence: Confidence = "medium"
     recommendation: str
     match: PolicyPackMatch
@@ -153,6 +154,7 @@ def run_policy_pack_rules(
                     provenance_kind="policy_pack",
                     source=SourceReference(type="policy_pack", ref=resolved.pack.path),
                     recommendation=rule.recommendation,
+                    blocks_release=rule.block,
                 )
             )
     return findings
