@@ -13,7 +13,7 @@ Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
-- **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL. Discovery metadata at [`/.well-known/agents-shipgate.json`](https://threemoonslab.com/.well-known/agents-shipgate.json) (pinned to the latest released tag). Human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/).
+- **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL with human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/). The site also serves a [/.well-known/agents-shipgate.json](https://threemoonslab.com/.well-known/agents-shipgate.json) discovery file **pinned to the latest released tag** for external consumers and AI search. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the released file) for schema-version and gating-signal decisions.**
 
 ---
 
