@@ -348,8 +348,11 @@ Trace samples are JSON arrays or JSONL with simple normalized fields such as `to
 
 The optional top-level `action_surface:` block adds reviewer-facing action
 metadata and deterministic action policies on top of the loaded tool surface.
-It does not create new CLI commands; use this to compare the current action
-surface against a base report or baseline snapshot:
+It requires a CLI whose `agents-shipgate contract --json` reports
+`report_schema_version >= 0.16`; older CLIs reject the unknown top-level field
+instead of silently ignoring release policy. It does not create new CLI
+commands; use this to compare the current action surface against a base report
+or baseline snapshot:
 
 ```bash
 agents-shipgate scan --diff-from <path>

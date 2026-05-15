@@ -7,6 +7,7 @@ from typing import TypeVar
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.models import (
+    ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -29,6 +30,7 @@ class ScanContext:
     tools: list[Tool]
     config_path: Path
     framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
+    action_surface_facts: ActionSurfaceFacts = field(default_factory=ActionSurfaceFacts)
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

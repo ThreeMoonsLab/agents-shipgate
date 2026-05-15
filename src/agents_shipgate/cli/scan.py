@@ -185,13 +185,6 @@ def run_scan(
         anthropic_artifacts,
         adk_artifacts,
     )
-    context = ScanContext(
-        manifest=manifest,
-        agent=agent,
-        tools=tools,
-        config_path=config_path.resolve(),
-        framework_artifacts=artifact_bag,
-    )
     baseline_file = load_baseline(baseline_path) if baseline_path else None
     baseline_display_path = (
         _relative_display_path(baseline_path, base_dir) if baseline_path else None
@@ -225,6 +218,14 @@ def run_scan(
     if diff_reference_error:
         action_surface_diff.enabled = False
         action_surface_diff.notes = [diff_reference_error]
+    context = ScanContext(
+        manifest=manifest,
+        agent=agent,
+        tools=tools,
+        config_path=config_path.resolve(),
+        framework_artifacts=artifact_bag,
+        action_surface_facts=action_surface_facts,
+    )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
         context,

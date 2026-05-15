@@ -490,8 +490,9 @@ def _declaration_downgrade_findings(
                             "declared_effect": declaration.effect,
                         },
                         recommendation=(
-                            "Align action_surface.actions.effect with the inferred "
-                            "operation effect or remove the weaker declaration."
+                            "Set action_surface.actions[].effect for "
+                            f"{action.tool_name} to {inferred_effect}, or remove "
+                            "the weaker declaration."
                         ),
                         blocks_release=True,
                     )
@@ -576,8 +577,8 @@ def _control_downgrade_finding(
             "declared": declared,
         },
         recommendation=(
-            "Do not use action_surface metadata to weaken manifest-wide "
-            "approval or safeguard requirements."
+            f"Keep action_surface.actions[].{path} enabled for {action.tool_name}, "
+            "or remove the weakening action declaration."
         ),
         blocks_release=True,
     )
@@ -843,7 +844,11 @@ def _builtin_policy_findings(
                     action=action,
                     agent_id=agent_id,
                     evidence={"change": change.model_dump(mode="json")},
-                    recommendation="Replace wildcard or admin scopes with operation-specific scopes.",
+                    recommendation=(
+                        "Replace action_surface.actions[].scopes for "
+                        f"{action.tool_name} with operation-specific scopes; "
+                        "remove wildcard/admin scopes."
+                    ),
                     blocks_release=True,
                 )
             )
@@ -856,7 +861,11 @@ def _builtin_policy_findings(
                     action=action,
                     agent_id=agent_id,
                     evidence={"change": change.model_dump(mode="json")},
-                    recommendation="Add reviewer approval for the effect escalation or reduce the action effect.",
+                    recommendation=(
+                        f"Review action_surface.actions[].effect for {action.tool_name}; "
+                        f"restore {change.before} or document approval/evidence for "
+                        f"{change.after}."
+                    ),
                     blocks_release=True,
                 )
             )
@@ -869,7 +878,11 @@ def _builtin_policy_findings(
                     action=action,
                     agent_id=agent_id,
                     evidence={"change": change.model_dump(mode="json")},
-                    recommendation="Restore approval.required or document a reviewed override.",
+                    recommendation=(
+                        "Restore action_surface.actions[].approval.required: true "
+                        f"for {action.tool_name}, or document the reviewed exception "
+                        "under action_surface.actions[].evidence.approval_ticket."
+                    ),
                     blocks_release=True,
                 )
             )
@@ -882,7 +895,12 @@ def _builtin_policy_findings(
                     action=action,
                     agent_id=agent_id,
                     evidence={"change": change.model_dump(mode="json")},
-                    recommendation="Restore the removed safeguard or document a reviewed override.",
+                    recommendation=(
+                        "Restore action_surface.actions[].safeguards."
+                        f"{change.removed[0] if change.removed else '<removed>'}: true "
+                        f"for {action.tool_name}, or document the reviewed exception "
+                        "under action_surface.actions[].evidence."
+                    ),
                     blocks_release=True,
                 )
             )
@@ -903,7 +921,11 @@ def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[
                     "action_id": action.action_id,
                     "scopes": action.required_scopes,
                 },
-                recommendation="Replace wildcard or admin scopes with operation-specific scopes.",
+                recommendation=(
+                    "Replace action_surface.actions[].scopes for "
+                    f"{action.tool_name} with operation-specific scopes; "
+                    "remove wildcard/admin scopes."
+                ),
                 blocks_release=True,
             )
         )

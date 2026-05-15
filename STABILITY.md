@@ -60,6 +60,13 @@ Stable JSON fields:
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
 
+Package versions and schema versions are intentionally separate contract
+counters. `agents-shipgate` may bump `report_schema_version`,
+`baseline_schema_version`, or `packet_schema_version` inside a package release
+when the JSON contract changes. Consumers that need a specific report or packet
+shape should check `agents-shipgate contract --json` instead of inferring schema
+support from the package version alone.
+
 Signal paths use dotted notation; `[]` denotes an array field.
 
 ### JSON report fields (stable)
@@ -155,9 +162,14 @@ The scanner does not, under any circumstances:
 
 Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`.
 
-### Manifest schema
+### Manifest Schema
 
-The manifest schema version (`version: "0.1"`) is independent of the CLI version. Manifest schema changes follow their own deprecation cycle. A `0.1`-shaped manifest will load correctly across all `0.x.y` CLI releases.
+The manifest schema version (`version: "0.1"`) is independent of the CLI
+version and package version. Manifest schema changes follow their own
+deprecation cycle, and the manifest loader is intentionally strict: older CLIs
+reject unknown top-level fields instead of silently ignoring release policy.
+Manifests that use `action_surface:` require a CLI whose
+`agents-shipgate contract --json` reports `report_schema_version >= 0.16`.
 
 ### Tool-Surface Diff
 

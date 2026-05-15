@@ -6,6 +6,7 @@ from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import (
+    ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -43,6 +44,8 @@ def test_scan_context_artifact_returns_none_when_missing():
     context = _context()
 
     assert context.artifact("google_adk", GoogleAdkArtifacts) is None
+    assert isinstance(context.action_surface_facts, ActionSurfaceFacts)
+    assert context.action_surface_facts.actions == []
 
 
 @pytest.mark.parametrize(

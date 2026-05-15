@@ -141,6 +141,42 @@ def test_report_includes_loaded_plugin_provenance(monkeypatch, tmp_path):
     ]
 
 
+def test_plugin_checks_can_read_action_surface_facts(monkeypatch, tmp_path):
+    seen: dict[str, int] = {}
+
+    def plugin(context):
+        seen["action_count"] = len(context.action_surface_facts.actions)
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-ACTION-CHECK",
+        "category": "custom",
+        "default_severity": "medium",
+        "description": "Custom action-surface plugin check.",
+    }
+
+    class FakeEntryPoint:
+        name = "acme"
+        value = "acme_shipgate_checks:run"
+        dist = FakeDist()
+
+        def load(self):
+            return plugin
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    monkeypatch.setattr(registry, "entry_points", lambda group: [FakeEntryPoint()])
+
+    report, _ = run_scan(
+        config_path=Path("samples/clean_read_only_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert seen["action_count"] == len(report.action_surface_facts.actions)
+    assert seen["action_count"] > 0
+
+
 def test_no_plugins_with_suggest_patches_does_not_load_plugins(monkeypatch, tmp_path):
     """Combined --no-plugins + --suggest-patches must NOT load plugin
     entry points even when ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` is set

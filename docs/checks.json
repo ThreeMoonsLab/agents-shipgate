@@ -13,7 +13,7 @@
       "fires_when": "Base action approval.required was true and head no longer requires approval.",
       "id": "SHIP-ACTION-APPROVAL-REMOVED",
       "rationale": "Removing approval weakens the release boundary for an existing action.",
-      "recommendation": "Restore approval.required or document a reviewed override.",
+      "recommendation": "Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
@@ -32,7 +32,7 @@
       "fires_when": "action_surface.actions.approval or safeguards sets an inherited true control to false.",
       "id": "SHIP-ACTION-CONTROL-DOWNGRADE",
       "rationale": "Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.",
-      "recommendation": "Keep the inherited control enabled or remove the weakening action declaration.",
+      "recommendation": "Keep the inherited action_surface.actions[] approval/safeguard control enabled or remove the weakening declaration.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
@@ -67,7 +67,7 @@
       "fires_when": "action_surface.actions.effect is lower risk than the effect inferred from the loaded tool metadata.",
       "id": "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
       "rationale": "Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.",
-      "recommendation": "Align the declared effect with the inferred operation effect or remove the weaker declaration.",
+      "recommendation": "Set action_surface.actions[].effect to the inferred operation effect or remove the weaker declaration.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
@@ -83,7 +83,7 @@
       "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive.",
       "id": "SHIP-ACTION-EFFECT-ESCALATED",
       "rationale": "Effect escalation changes what the agent can do in the real world and needs explicit review.",
-      "recommendation": "Add reviewer approval for the escalation or reduce the action effect.",
+      "recommendation": "Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
@@ -151,7 +151,7 @@
       "fires_when": "A previously true action safeguard is false or absent in the head surface.",
       "id": "SHIP-ACTION-SAFEGUARD-REMOVED",
       "rationale": "Removing audit, idempotency, rollback, or dry-run safeguards expands blast radius.",
-      "recommendation": "Restore the removed safeguard or document a reviewed override.",
+      "recommendation": "Restore the removed action_surface.actions[].safeguards field or document the reviewed exception under action_surface.actions[].evidence.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
@@ -186,7 +186,7 @@
       "fires_when": "An added action declares a broad scope, or a modified action expands into a broad scope.",
       "id": "SHIP-ACTION-WILDCARD-SCOPE",
       "rationale": "Wildcard scopes make action blast radius too broad for deterministic release review.",
-      "recommendation": "Replace wildcard/admin scopes with operation-specific scopes.",
+      "recommendation": "Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },
