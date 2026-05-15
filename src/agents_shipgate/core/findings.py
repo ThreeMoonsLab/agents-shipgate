@@ -70,6 +70,10 @@ def dedupe_findings(findings: list[Finding]) -> list[Finding]:
         )
         key = (
             finding.check_id,
+            # Title is intentionally part of local de-dupe identity. Some
+            # checks share structured evidence across distinct user-visible
+            # targets, and the interpolated title is the only stable context
+            # that keeps those findings separate before IDs are assigned.
             finding.title,
             finding.tool_id or "",
             finding.tool_name or "",

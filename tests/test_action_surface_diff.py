@@ -260,6 +260,22 @@ def test_action_surface_policy_requires_typed_expected_values():
         )
 
 
+def test_action_surface_risk_tags_reject_unknown_values():
+    with pytest.raises(ValueError, match="not_a_real_action_tag"):
+        _manifest(
+            {
+                "action_surface": {
+                    "actions": [
+                        {
+                            "tool": "lookup",
+                            "risk_tags": ["not_a_real_action_tag"],
+                        }
+                    ]
+                }
+            }
+        )
+
+
 def test_action_surface_external_side_effect_alias_matches_external_communication_policy():
     manifest = _manifest(
         {

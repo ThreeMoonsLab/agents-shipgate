@@ -161,6 +161,12 @@ def evaluate_action_surface_policies(
     agent_id: str,
     tools: list[Tool] | None = None,
 ) -> list[Finding]:
+    """Evaluate action-surface policies for a current action snapshot.
+
+    ``tools`` is optional for callers that only have serialized action facts.
+    When omitted, declaration-downgrade checks that compare declarations with
+    inferred tool metadata are skipped; the scan pipeline always passes tools.
+    """
     findings: list[Finding] = []
     by_action = {action.action_id: action for action in facts.actions}
     if manifest.action_surface.require_explicit_actions:

@@ -59,6 +59,21 @@ def test_dedupe_findings_collapses_equivalent_evidence():
     assert dedupe_findings([first, second]) == [first]
 
 
+def test_dedupe_findings_preserves_distinct_titles():
+    first = Finding(
+        check_id="ORG-DUPLICATE",
+        title="Duplicate policy for refund",
+        severity="medium",
+        category="org_policy",
+        tool_name="refund",
+        evidence={"a": 1},
+        recommendation="Fix duplicate.",
+    )
+    second = first.model_copy(update={"title": "Duplicate policy for email"})
+
+    assert dedupe_findings([first, second]) == [first, second]
+
+
 def test_legacy_api_operational_readiness_suppression_matches_split_check():
     finding = Finding(
         check_id="SHIP-API-TIMEOUT-MISSING",

@@ -309,7 +309,7 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     )
     action_diff = report.action_surface_diff
     if action_diff.enabled:
-        if _action_surface_diff_has_changes(action_diff.summary):
+        if _action_surface_has_signal(action_diff.summary):
             typer.echo(
                 "Action-surface diff: "
                 f"+{action_diff.summary.actions_added} actions, "
@@ -389,7 +389,7 @@ def _tool_surface_diff_has_changes(summary) -> bool:
     )
 
 
-def _action_surface_diff_has_changes(summary) -> bool:
+def _action_surface_has_signal(summary) -> bool:
     return any(
         (
             summary.actions_added,
