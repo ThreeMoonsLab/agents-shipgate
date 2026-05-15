@@ -30,11 +30,20 @@ RISKY_NUMERIC_PARAMETER_NAMES = {
 
 def is_broad_scope(scope: str) -> bool:
     normalized = scope.strip().lower()
+    admin_like = (
+        normalized == "admin"
+        or normalized.startswith("admin:")
+        or normalized.endswith(":admin")
+        or ":admin:" in normalized
+        or normalized.startswith("admin/")
+        or normalized.endswith("/admin")
+        or "/admin/" in normalized
+    )
     return (
         normalized in {"*", "admin"}
         or normalized.endswith(":*")
         or normalized.endswith("/*")
-        or "admin" in normalized
+        or admin_like
         or "write-all" in normalized
         or "write_all" in normalized
     )

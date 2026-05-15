@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.models import (
+    ActionSurfaceDiffSummary,
     BaselineDelta,
     EvidenceCoverageDecision,
     FailPolicy,
@@ -111,6 +112,20 @@ class ToolSurfaceDiffSection(BaseModel):
     base_kind: str = "none"
     summary: ToolSurfaceDiffSummary = Field(default_factory=ToolSurfaceDiffSummary)
     highlights: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class ActionSurfaceDiffSection(BaseModel):
+    """§3B — compact action-surface diff for reviewers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: SectionStatus
+    enabled: bool = False
+    base_kind: str = "none"
+    summary: ActionSurfaceDiffSummary = Field(default_factory=ActionSurfaceDiffSummary)
+    highlights: list[str] = Field(default_factory=list)
+    blocking_reasons: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -261,7 +276,7 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.4"] = "0.4"
+    packet_schema_version: Literal["0.5"] = "0.5"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)
@@ -277,6 +292,12 @@ class EvidencePacket(BaseModel):
             notes=["No tool-surface diff was recorded."],
         )
     )
+    action_surface_diff: ActionSurfaceDiffSection = Field(
+        default_factory=lambda: ActionSurfaceDiffSection(
+            status="not_declared",
+            notes=["No action-surface diff was recorded."],
+        )
+    )
     approval_coverage: ApprovalCoverageSection
     idempotency_risk: IdempotencyRiskSection
     scope_coverage: ScopeCoverageSection
@@ -287,6 +308,7 @@ class EvidencePacket(BaseModel):
 
 
 __all__ = [
+    "ActionSurfaceDiffSection",
     "ApprovalCoverageRow",
     "ApprovalCoverageSection",
     "CapabilityIntentDiff",

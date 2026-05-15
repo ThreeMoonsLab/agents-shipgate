@@ -33,15 +33,27 @@ from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _
 _RISK_TAG_MAP = {
     "read_only": "read_only",
     "write": "writes_data",
+    "writes_data": "writes_data",
     "external_write": "external_communication",
+    "external_communication": "external_communication",
     "customer_communication": "external_communication",
     "financial_action": "financial_write",
+    "financial_write": "financial_write",
+    "external_side_effect": "external_side_effect",
     "destructive": "destructive",
     "infrastructure_change": "production_ops",
     "production_operation": "production_ops",
+    "production_ops": "production_ops",
     "sensitive_data_access": "privileged_data",
     "privileged_data_access": "privileged_data",
+    "privileged_data": "privileged_data",
     "code_execution": "code_execution",
+    "identity_access": "identity_access",
+    "network_access": "network_access",
+    "filesystem_write": "filesystem_write",
+    "customer_data": "customer_data",
+    "secret_access": "secret_access",
+    "irreversible": "irreversible",
 }
 _CRITICAL_RISK_TAGS = {
     "financial_write",
@@ -144,6 +156,7 @@ def evaluate_action_surface_policies(
     diff: ActionSurfaceDiff,
     *,
     agent_id: str,
+    tools: list[Tool] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
     by_action = {action.action_id: action for action in facts.actions}
@@ -168,32 +181,53 @@ def evaluate_action_surface_policies(
                 )
             )
 
+    if tools is not None:
+        findings.extend(
+            _declaration_downgrade_findings(
+                manifest,
+                facts,
+                tools,
+                agent_id=agent_id,
+            )
+        )
+
     findings.extend(_builtin_policy_findings(diff, by_action, agent_id=agent_id))
     for policy in manifest.action_surface.policies:
         for action in facts.actions:
             if not _policy_matches(policy, action):
                 continue
-            missing = _missing_requirements(policy, action)
+            missing, observed = _missing_requirements(policy, action)
             if not missing:
                 continue
-            findings.append(
-                _finding(
-                    check_id="SHIP-ACTION-POLICY-VIOLATION",
-                    title=policy.message
-                    or f"Action surface policy {policy.id} failed for {action.tool_name}",
-                    severity=policy.severity,
-                    action=action,
-                    agent_id=agent_id,
-                    evidence={
-                        "policy_id": policy.id,
-                        "action_id": action.action_id,
-                        "missing": missing,
-                    },
-                    recommendation=policy.recommendation
-                    or f"Satisfy action surface policy {policy.id} for {action.tool_name}.",
-                    blocks_release=policy.block,
+            for missing_item in missing:
+                path = missing_item["path"]
+                evidence: dict[str, Any] = {
+                    "policy_id": policy.id,
+                    "action_id": action.action_id,
+                    "missing": [missing_item],
+                }
+                if path in observed:
+                    evidence["observed"] = {path: observed[path]}
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-POLICY-VIOLATION",
+                        title=policy.message
+                        or (
+                            f"Action surface policy {policy.id} failed for "
+                            f"{action.tool_name}"
+                        ),
+                        severity=policy.severity,
+                        action=action,
+                        agent_id=agent_id,
+                        evidence=evidence,
+                        recommendation=policy.recommendation
+                        or (
+                            f"Satisfy action surface policy {policy.id} for "
+                            f"{action.tool_name}."
+                        ),
+                        blocks_release=policy.block,
+                    )
                 )
-            )
     return _dedupe_findings(findings)
 
 
@@ -373,6 +407,156 @@ def _safeguards_fact(
         }
         fact = fact.model_copy(update=update)
     return fact
+
+
+def _declaration_downgrade_findings(
+    manifest: AgentsShipgateManifest,
+    facts: ActionSurfaceFacts,
+    tools: list[Tool],
+    *,
+    agent_id: str,
+) -> list[Finding]:
+    declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
+    by_tool = {action.tool_name: action for action in facts.actions}
+    findings: list[Finding] = []
+    for tool in sorted(tools, key=lambda item: item.name):
+        declaration = declarations.get(tool.name)
+        action = by_tool.get(tool.name)
+        if declaration is None or action is None:
+            continue
+        findings.extend(
+            _control_downgrade_findings(
+                manifest,
+                tool,
+                declaration,
+                action,
+                agent_id=agent_id,
+            )
+        )
+        if declaration.effect is not None:
+            inferred_effect = _strongest_effect(
+                [
+                    _infer_effect(tool, _normalized_risk_tags(tool)),
+                    _infer_effect(
+                        tool,
+                        _normalize_risk_tag_values(declaration.risk_tags)
+                        if declaration.risk_tags
+                        else _normalized_risk_tags(tool),
+                    ),
+                ]
+            )
+            if _EFFECT_RANK[declaration.effect] < _EFFECT_RANK[inferred_effect]:
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
+                        title=(
+                            f"{action.tool_name} declares a weaker action effect "
+                            "than Shipgate inferred"
+                        ),
+                        severity="high",
+                        action=action,
+                        agent_id=agent_id,
+                        evidence={
+                            "action_id": action.action_id,
+                            "inferred_effect": inferred_effect,
+                            "declared_effect": declaration.effect,
+                        },
+                        recommendation=(
+                            "Align action_surface.actions.effect with the inferred "
+                            "operation effect or remove the weaker declaration."
+                        ),
+                        blocks_release=True,
+                    )
+                )
+    return findings
+
+
+def _control_downgrade_findings(
+    manifest: AgentsShipgateManifest,
+    tool: Tool,
+    declaration: ActionDeclarationConfig,
+    action: ActionFact,
+    *,
+    agent_id: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    inherited_approval = ActionApprovalFact(
+        required=tool.name in manifest.policies.approval_tools()
+    )
+    if (
+        inherited_approval.required is True
+        and declaration.approval is not None
+        and declaration.approval.required is False
+    ):
+        findings.append(
+            _control_downgrade_finding(
+                action,
+                agent_id=agent_id,
+                path="approval.required",
+                inherited=True,
+                declared=False,
+            )
+        )
+
+    inherited_safeguards = ActionSafeguardsFact(
+        idempotency=(
+            tool.name in manifest.policies.idempotency_tools()
+            or tool.annotations.get("idempotentHint") is True
+            or any(parameter.name == "idempotency_key" for parameter in tool.parameters)
+        ),
+        audit_log=_annotation_bool(tool.annotations, "audit_log", "auditLog"),
+        rollback=_annotation_bool(tool.annotations, "rollback"),
+        dry_run=_annotation_bool(tool.annotations, "dry_run", "dryRun"),
+    )
+    if declaration.safeguards is None:
+        return findings
+    for field in _SAFEGUARD_FIELDS:
+        if (
+            getattr(inherited_safeguards, field) is True
+            and getattr(declaration.safeguards, field) is False
+        ):
+            findings.append(
+                _control_downgrade_finding(
+                    action,
+                    agent_id=agent_id,
+                    path=f"safeguards.{field}",
+                    inherited=True,
+                    declared=False,
+                )
+            )
+    return findings
+
+
+def _control_downgrade_finding(
+    action: ActionFact,
+    *,
+    agent_id: str,
+    path: str,
+    inherited: bool,
+    declared: bool,
+) -> Finding:
+    return _finding(
+        check_id="SHIP-ACTION-CONTROL-DOWNGRADE",
+        title=f"{action.tool_name} declares a weaker action control at {path}",
+        severity="high",
+        action=action,
+        agent_id=agent_id,
+        evidence={
+            "action_id": action.action_id,
+            "path": path,
+            "inherited": inherited,
+            "declared": declared,
+        },
+        recommendation=(
+            "Do not use action_surface metadata to weaken manifest-wide "
+            "approval or safeguard requirements."
+        ),
+        blocks_release=True,
+    )
+
+
+def _strongest_effect(effects: list[str]) -> str:
+    return max(effects, key=lambda item: _EFFECT_RANK[item])
 
 
 def _evidence_fact(
@@ -792,8 +976,9 @@ def _policy_matches(policy: ActionPolicyConfig, action: ActionFact) -> bool:
 def _missing_requirements(
     policy: ActionPolicyConfig,
     action: ActionFact,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     missing: list[dict[str, Any]] = []
+    observed: dict[str, Any] = {}
     for path, expected in sorted(policy.require.items()):
         actual = _value_at_path(action, path)
         if actual is _MISSING_PATH:
@@ -801,14 +986,15 @@ def _missing_requirements(
                 {
                     "path": path,
                     "expected": expected,
-                    "actual": None,
                     "reason": "unknown_path",
                 }
             )
+            observed[path] = None
             continue
         if actual != expected:
-            missing.append({"path": path, "expected": expected, "actual": actual})
-    return missing
+            missing.append({"path": path, "expected": expected})
+            observed[path] = actual
+    return missing, observed
 
 
 def _value_at_path(action: ActionFact, path: str) -> Any:

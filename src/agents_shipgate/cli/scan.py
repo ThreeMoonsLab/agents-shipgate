@@ -238,6 +238,7 @@ def run_scan(
             action_surface_facts,
             action_surface_diff,
             agent_id=agent.id,
+            tools=tools,
         )
     )
     assign_finding_ids(findings)
@@ -385,6 +386,7 @@ def run_scan(
             source_warnings=warnings,
             validation_artifacts=validation_artifacts,
             tool_surface_diff=report.tool_surface_diff,
+            action_surface_diff=report.action_surface_diff,
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )

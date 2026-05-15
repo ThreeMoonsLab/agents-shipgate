@@ -20,6 +20,25 @@
     {
       "autofix_safe": false,
       "category": "action_surface",
+      "default_severity": "high",
+      "description": "Action declaration weakens an inherited approval or safeguard control.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-control-downgrade",
+      "evidence_fields": [
+        "action_id",
+        "path",
+        "inherited",
+        "declared"
+      ],
+      "fires_when": "action_surface.actions.approval or safeguards sets an inherited true control to false.",
+      "id": "SHIP-ACTION-CONTROL-DOWNGRADE",
+      "rationale": "Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.",
+      "recommendation": "Keep the inherited control enabled or remove the weakening action declaration.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
       "default_severity": "critical",
       "description": "New destructive action lacks approval or rollback controls.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-destructive-rollback-missing",
@@ -31,6 +50,24 @@
       "id": "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
       "rationale": "Destructive actions need explicit approval and rollback evidence before release.",
       "recommendation": "Declare approval.required and safeguards.rollback or remove the destructive action.",
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "action_surface",
+      "default_severity": "high",
+      "description": "Action declaration weakens the inferred effect.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-downgrade-declared",
+      "evidence_fields": [
+        "action_id",
+        "inferred_effect",
+        "declared_effect"
+      ],
+      "fires_when": "action_surface.actions.effect is lower risk than the effect inferred from the loaded tool metadata.",
+      "id": "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
+      "rationale": "Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.",
+      "recommendation": "Align the declared effect with the inferred operation effect or remove the weaker declaration.",
       "requires_human_review": true,
       "suggested_patch_kind": "manual"
     },

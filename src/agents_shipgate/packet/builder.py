@@ -27,6 +27,7 @@ from agents_shipgate.config.schema import (
     RiskOverridesConfig,
 )
 from agents_shipgate.core.models import (
+    ActionSurfaceDiff,
     AnthropicArtifacts,
     AuthInfo,
     Finding,
@@ -47,6 +48,7 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF_HEADLINE,
 )
 from agents_shipgate.packet.models import (
+    ActionSurfaceDiffSection,
     ApprovalCoverageRow,
     ApprovalCoverageSection,
     CapabilityIntentDiff,
@@ -119,6 +121,7 @@ def build_packet(
     source_warnings: list[str],
     validation_artifacts: ValidationArtifacts | None = None,
     tool_surface_diff: ToolSurfaceDiff | None = None,
+    action_surface_diff: ActionSurfaceDiff | None = None,
     generated_at: str | None = None,
     config_ref: str = "shipgate.yaml",
     hitl_provenance_mode: str = "fresh_scan",
@@ -151,6 +154,10 @@ def build_packet(
             tools, approval_declared, idempotency_declared
         ),
         tool_surface_diff=_build_tool_surface_diff(tool_surface_diff),
+        action_surface_diff=_build_action_surface_diff(
+            action_surface_diff,
+            active,
+        ),
         approval_coverage=_build_approval_coverage(
             manifest, api_artifacts, anthropic_artifacts, tools, active
         ),
@@ -225,6 +232,7 @@ def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
         anthropic_artifacts=None,
         source_warnings=list(report.source_warnings),
         tool_surface_diff=report.tool_surface_diff,
+        action_surface_diff=report.action_surface_diff,
         hitl_provenance_mode="rebuilt_from_findings",
     )
     packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)
@@ -381,6 +389,68 @@ def _tool_surface_diff_highlights(diff: ToolSurfaceDiff) -> list[str]:
     for item in diff.policy_drift:
         highlights.append(f"{item.kind.title()} {item.policy_kind} {item.key}")
     return highlights[:5]
+
+
+def _build_action_surface_diff(
+    diff: ActionSurfaceDiff | None,
+    findings: list[Finding],
+) -> ActionSurfaceDiffSection:
+    if diff is None:
+        return ActionSurfaceDiffSection(
+            status="not_declared",
+            notes=["No action-surface diff was recorded."],
+        )
+    if not diff.enabled:
+        return ActionSurfaceDiffSection(
+            status="not_declared",
+            enabled=False,
+            base_kind=diff.base.kind,
+            summary=diff.summary,
+            notes=list(diff.notes),
+        )
+    blocking = [
+        finding
+        for finding in findings
+        if finding.blocks_release
+        and not finding.suppressed
+        and finding.check_id.startswith("SHIP-ACTION-")
+    ]
+    status: SectionStatus = "missing" if blocking else "covered"
+    return ActionSurfaceDiffSection(
+        status=status,
+        enabled=True,
+        base_kind=diff.base.kind,
+        summary=diff.summary,
+        highlights=_action_surface_diff_highlights(diff),
+        blocking_reasons=_action_surface_blocking_reasons(blocking),
+        notes=list(diff.notes[:3]),
+    )
+
+
+def _action_surface_diff_highlights(diff: ActionSurfaceDiff) -> list[str]:
+    highlights: list[str] = []
+    for item in diff.added:
+        highlights.append(
+            f"Added action {item.tool_name or item.action_id} ({item.severity})"
+        )
+    for item in diff.modified:
+        highlights.append(
+            f"Modified action {item.tool_name or item.action_id}: {item.type} ({item.severity})"
+        )
+    for item in diff.removed:
+        highlights.append(f"Removed action {item.tool_name or item.action_id}")
+    return highlights[:8]
+
+
+def _action_surface_blocking_reasons(findings: list[Finding]) -> list[str]:
+    reasons: list[str] = []
+    for finding in sorted(
+        findings,
+        key=lambda item: (item.severity, item.check_id, item.tool_name or ""),
+    ):
+        target = finding.tool_name or finding.evidence.get("action_id") or "action"
+        reasons.append(f"{target}: {finding.title}")
+    return reasons[:8]
 
 
 def _build_capability_intent(
@@ -963,6 +1033,7 @@ def _to_decision_items(findings: list[Finding]) -> list[ReleaseDecisionItem]:
                 severity=finding.severity,
                 title=finding.title,
                 baseline_status=finding.baseline_status,
+                blocks_release=finding.blocks_release,
             )
         )
     return items

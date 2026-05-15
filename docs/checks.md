@@ -55,6 +55,8 @@ baseline summary and do not fail CI.
 | `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
 | `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
 | `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
+| `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` | high | An action declaration weakens the effect inferred from the loaded tool surface. |
+| `SHIP-ACTION-CONTROL-DOWNGRADE` | high | An action declaration weakens an inherited approval or safeguard control. |
 | `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
 | `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
 | `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | Local HITL approval trace evidence is missing or incomplete for an approval-required tool. |
@@ -216,6 +218,18 @@ scopes.
 
 An action changed to a higher-risk effect, such as read to write or write to
 destructive. Add reviewer approval for the escalation or reduce the effect.
+
+### SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED
+
+An `action_surface.actions[]` declaration sets a lower-risk effect than
+Shipgate inferred from the loaded tool metadata. Align the declared effect
+with the inferred operation or remove the weaker declaration.
+
+### SHIP-ACTION-CONTROL-DOWNGRADE
+
+An `action_surface.actions[]` declaration sets an inherited approval or
+safeguard control from `true` to `false`. Keep the inherited control enabled
+or remove the weakening declaration.
 
 ### SHIP-ACTION-APPROVAL-REMOVED
 

@@ -5,7 +5,7 @@
 - Environment: production\_like
 - Run id: agents\_shipgate\_6150f69e2312264e
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.4
+- Packet schema: 0\.5
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -85,6 +85,11 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 ## §3A Tool-surface diff — not declared
 
 - Status: disabled — No --diff-from report or v0.3 baseline snapshot was provided.
+- Base: `none`
+
+## §3B Action-surface diff — not declared
+
+- Status: disabled — No action-surface comparison source was provided.
 - Base: `none`
 
 ## §4 Approval policy coverage — partial

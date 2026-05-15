@@ -4,6 +4,7 @@ from pathlib import Path
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.baseline import write_baseline
+from agents_shipgate.core.findings import assign_finding_ids
 from agents_shipgate.core.models import (
     ActionApprovalFact,
     ActionEvidenceFact,
@@ -326,6 +327,172 @@ def test_dedupe_findings_uses_canonical_evidence_order():
     )
 
     assert len(_dedupe_findings([first, second])) == 1
+
+
+def test_user_policy_fingerprint_stays_stable_across_partial_remediation():
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "policies": [
+                    {
+                        "id": "require-controls",
+                        "match": {"tools": ["lookup"]},
+                        "require": {
+                            "approval.required": True,
+                            "safeguards.audit_log": True,
+                        },
+                        "severity": "high",
+                        "block": True,
+                    }
+                ]
+            }
+        }
+    )
+    current = ActionSurfaceFacts(
+        actions=[
+            _action(
+                "agent:action-test/agent:mcp:tools:lookup",
+                approval_required=False,
+                safeguards={"audit_log": False},
+            )
+        ]
+    )
+    partially_fixed = ActionSurfaceFacts(
+        actions=[
+            _action(
+                "agent:action-test/agent:mcp:tools:lookup",
+                approval_required=False,
+                safeguards={"audit_log": True},
+            )
+        ]
+    )
+
+    first = assign_finding_ids(
+        evaluate_action_surface_policies(
+            manifest,
+            current,
+            ActionSurfaceDiff(),
+            agent_id="agent:action-test/agent",
+        )
+    )
+    second = assign_finding_ids(
+        evaluate_action_surface_policies(
+            manifest,
+            partially_fixed,
+            ActionSurfaceDiff(),
+            agent_id="agent:action-test/agent",
+        )
+    )
+
+    approval_first = next(
+        finding
+        for finding in first
+        if finding.evidence["missing"][0]["path"] == "approval.required"
+    )
+    approval_second = next(
+        finding
+        for finding in second
+        if finding.evidence["missing"][0]["path"] == "approval.required"
+    )
+    assert approval_second.fingerprint == approval_first.fingerprint
+    assert len(second) == 1
+
+
+def test_action_declaration_control_downgrade_blocks_release():
+    manifest = _manifest(
+        {
+            "policies": {
+                "require_approval_for_tools": ["lookup"],
+                "require_idempotency_for_tools": ["lookup"],
+            },
+            "action_surface": {
+                "actions": [
+                    {
+                        "tool": "lookup",
+                        "approval": {"required": False},
+                        "safeguards": {"idempotency": False},
+                    }
+                ]
+            },
+        }
+    )
+    tool = Tool(
+        id="tool:lookup",
+        name="lookup",
+        source_type="mcp",
+        source_id="tools",
+        extraction_confidence="high",
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    downgraded_paths = {
+        finding.evidence["path"]
+        for finding in findings
+        if finding.check_id == "SHIP-ACTION-CONTROL-DOWNGRADE"
+    }
+    assert downgraded_paths == {"approval.required", "safeguards.idempotency"}
+    assert all(
+        finding.blocks_release
+        for finding in findings
+        if finding.check_id == "SHIP-ACTION-CONTROL-DOWNGRADE"
+    )
+
+
+def test_action_declaration_effect_downgrade_blocks_release():
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "actions": [
+                    {
+                        "tool": "create_ticket",
+                        "effect": "read",
+                    }
+                ]
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:create_ticket",
+        name="create_ticket",
+        source_type="openapi",
+        source_id="support-api",
+        annotations={"httpMethod": "POST", "path": "/tickets"},
+        extraction_confidence="high",
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+
+    finding = next(
+        item
+        for item in findings
+        if item.check_id == "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED"
+    )
+    assert finding.blocks_release is True
+    assert finding.evidence["inferred_effect"] == "write"
+    assert finding.evidence["declared_effect"] == "read"
 
 
 def test_scan_diff_from_prior_report_blocks_new_financial_action(tmp_path):

@@ -33,7 +33,11 @@ from agents_shipgate.core.patches import ManualPatch
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {"default_severity", "source_provenance"}
+FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {
+    "default_severity",
+    "observed",
+    "source_provenance",
+}
 
 
 def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
@@ -172,9 +176,11 @@ def annotate_remediation(
 def derive_agent_action(finding: Finding) -> AgentAction:
     """Project ``finding`` to a single ``AgentAction`` enum value.
 
-    Deterministic projection of (``patches``, ``autofix_safe``,
-    ``requires_human_review``). Order-invariant: the result depends
-    on the SET of patches, not on their list ordering. The first
+    Deterministic projection of (``blocks_release``, ``patches``,
+    ``autofix_safe``, ``requires_human_review``). A release-blocking
+    finding always escalates to a human unless it is suppressed.
+    Order-invariant: the result depends on the SET of patches, not on
+    their list ordering. The first
     non-manual patch's confidence drives the verdict, mirroring
     :func:`_derive_from_patches` (which derives ``suggested_patch_kind``
     from the first non-manual patch). Earlier this function used
@@ -201,6 +207,8 @@ def derive_agent_action(finding: Finding) -> AgentAction:
     """
     if finding.suppressed:
         return "informational"
+    if finding.blocks_release:
+        return "escalate_to_human"
 
     patches = finding.patches
 

@@ -116,6 +116,15 @@ def test_derive_agent_action_suppressed_finding():
     assert derive_agent_action(finding) == "informational"
 
 
+def test_derive_agent_action_release_blocking_finding_escalates():
+    finding = _make_finding(
+        blocks_release=True,
+        requires_human_review=False,
+        autofix_safe=True,
+    )
+    assert derive_agent_action(finding) == "escalate_to_human"
+
+
 def test_derive_agent_action_no_patches_human_review_required():
     """No patches + check needs human review → escalate_to_human.
     This is the most common shape for documentation/policy findings."""

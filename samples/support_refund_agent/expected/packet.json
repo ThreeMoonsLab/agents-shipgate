@@ -1,4 +1,26 @@
 {
+  "action_surface_diff": {
+    "base_kind": "none",
+    "blocking_reasons": [],
+    "enabled": false,
+    "highlights": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ],
+    "status": "not_declared",
+    "summary": {
+      "actions_added": 0,
+      "actions_modified": 0,
+      "actions_removed": 0,
+      "approvals_removed": 0,
+      "blocking_findings": 0,
+      "effect_escalations": 0,
+      "input_schema_expansions": 0,
+      "risk_tags_added": 0,
+      "safeguards_removed": 0,
+      "scope_expansions": 0
+    }
+  },
   "agent": {
     "declared_purpose": [
       "answer refund policy questions",
@@ -407,7 +429,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.4",
+  "packet_schema_version": "0.5",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",

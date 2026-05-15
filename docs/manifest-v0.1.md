@@ -394,8 +394,12 @@ action_surface:
 
 `actions[]` entries are keyed by loaded tool name through `tool`. Explicit
 declarations override inferred operation, effect, risk tags, scopes, approval,
-safeguards, and evidence. Agents Shipgate still creates an action fact for
-every loaded tool when no declaration is present; set
+safeguards, and evidence, but weaker declarations are visible: declaring a
+lower-risk effect than Shipgate inferred emits
+`SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED`, and setting inherited approval or
+safeguards from `true` to `false` emits `SHIP-ACTION-CONTROL-DOWNGRADE`.
+Agents Shipgate still creates an action fact for every loaded tool when no
+declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
 that lack an explicit action declaration.
 
@@ -419,8 +423,8 @@ participate in `release_decision.blockers` when active and unbaselined.
 
 Built-in action policies cover new financial writes without approval/audit/
 idempotency, destructive actions without rollback, external communication
-without audit evidence, wildcard/admin scopes, effect escalation, approval
-removal, and safeguard removal.
+without audit evidence, wildcard/admin scopes, effect escalation, declared
+effect/control downgrades, approval removal, and safeguard removal.
 
 ## Validation Evidence Artifacts
 

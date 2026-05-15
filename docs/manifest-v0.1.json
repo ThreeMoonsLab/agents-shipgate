@@ -117,6 +117,31 @@
         },
         "risk_tags": {
           "items": {
+            "enum": [
+              "read_only",
+              "write",
+              "writes_data",
+              "destructive",
+              "external_write",
+              "external_communication",
+              "customer_communication",
+              "financial_action",
+              "financial_write",
+              "external_side_effect",
+              "infrastructure_change",
+              "production_operation",
+              "production_ops",
+              "sensitive_data_access",
+              "privileged_data_access",
+              "privileged_data",
+              "code_execution",
+              "identity_access",
+              "network_access",
+              "filesystem_write",
+              "customer_data",
+              "secret_access",
+              "irreversible"
+            ],
             "type": "string"
           },
           "title": "Risk Tags",
@@ -287,6 +312,31 @@
         },
         "risk_tags": {
           "items": {
+            "enum": [
+              "read_only",
+              "write",
+              "writes_data",
+              "destructive",
+              "external_write",
+              "external_communication",
+              "customer_communication",
+              "financial_action",
+              "financial_write",
+              "external_side_effect",
+              "infrastructure_change",
+              "production_operation",
+              "production_ops",
+              "sensitive_data_access",
+              "privileged_data_access",
+              "privileged_data",
+              "code_execution",
+              "identity_access",
+              "network_access",
+              "filesystem_write",
+              "customer_data",
+              "secret_access",
+              "irreversible"
+            ],
             "type": "string"
           },
           "title": "Risk Tags",

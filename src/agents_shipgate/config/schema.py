@@ -544,6 +544,31 @@ ActionEffect = Literal[
     "code_execution",
     "identity_access",
 ]
+ActionRiskTag = Literal[
+    "read_only",
+    "write",
+    "writes_data",
+    "destructive",
+    "external_write",
+    "external_communication",
+    "customer_communication",
+    "financial_action",
+    "financial_write",
+    "external_side_effect",
+    "infrastructure_change",
+    "production_operation",
+    "production_ops",
+    "sensitive_data_access",
+    "privileged_data_access",
+    "privileged_data",
+    "code_execution",
+    "identity_access",
+    "network_access",
+    "filesystem_write",
+    "customer_data",
+    "secret_access",
+    "irreversible",
+]
 
 
 class ActionApprovalConfig(BaseModel):
@@ -578,7 +603,7 @@ class ActionDeclarationConfig(BaseModel):
     provider: str | None = None
     operation: str | None = None
     effect: ActionEffect | None = None
-    risk_tags: list[str] = Field(default_factory=list)
+    risk_tags: list[ActionRiskTag] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     approval: ActionApprovalConfig | None = None
     safeguards: ActionSafeguardsConfig | None = None
@@ -591,7 +616,7 @@ class ActionPolicyMatchConfig(BaseModel):
     action_ids: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     effects: list[ActionEffect] = Field(default_factory=list)
-    risk_tags: list[str] = Field(default_factory=list)
+    risk_tags: list[ActionRiskTag] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
 
 

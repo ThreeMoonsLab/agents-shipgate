@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.packet.models import (
+    ActionSurfaceDiffSection,
     ApprovalCoverageSection,
     CapabilityIntentDiff,
     DynamicScenariosSection,
@@ -67,6 +68,7 @@ def render_packet_markdown(packet: EvidencePacket) -> str:
     _append_capability_intent(lines, packet.capability_intent)
     _append_high_risk_surface(lines, packet.high_risk_surface)
     _append_tool_surface_diff(lines, packet.tool_surface_diff)
+    _append_action_surface_diff(lines, packet.action_surface_diff)
     _append_approval_coverage(lines, packet.approval_coverage)
     _append_idempotency_risk(lines, packet.idempotency_risk)
     _append_scope_coverage(lines, packet.scope_coverage)
@@ -261,6 +263,51 @@ def _append_tool_surface_diff(
         lines.append("### What changed")
         lines.append("")
         for item in section.highlights:
+            lines.append(f"- {_escape(item)}")
+    lines.append("")
+
+
+def _append_action_surface_diff(
+    lines: list[str], section: ActionSurfaceDiffSection
+) -> None:
+    lines.append(f"## §3B Action-surface diff — {_STATUS_LABEL[section.status]}")
+    lines.append("")
+    if not section.enabled:
+        note = section.notes[0] if section.notes else "No comparison source was available."
+        lines.append(f"- Status: disabled — {_escape(note)}")
+        lines.append(f"- Base: `{_escape(section.base_kind)}`")
+        lines.append("")
+        return
+    summary = section.summary
+    lines.append(f"- Base: `{_escape(section.base_kind)}`")
+    lines.append(
+        "- Actions: "
+        f"+{summary.actions_added}, -{summary.actions_removed}, "
+        f"{summary.actions_modified} modified"
+    )
+    lines.append(
+        "- Escalations: "
+        f"{summary.scope_expansions} scope expansion(s), "
+        f"{summary.effect_escalations} effect escalation(s), "
+        f"{summary.risk_tags_added} risk tag addition(s)"
+    )
+    lines.append(
+        "- Controls: "
+        f"{summary.approvals_removed} approval removal(s), "
+        f"{summary.safeguards_removed} safeguard removal(s)"
+    )
+    lines.append(f"- Blocking action findings: {summary.blocking_findings}")
+    if section.highlights:
+        lines.append("")
+        lines.append("### Action changes")
+        lines.append("")
+        for item in section.highlights:
+            lines.append(f"- {_escape(item)}")
+    if section.blocking_reasons:
+        lines.append("")
+        lines.append("### Blocking action reasons")
+        lines.append("")
+        for item in section.blocking_reasons:
             lines.append(f"- {_escape(item)}")
     lines.append("")
 

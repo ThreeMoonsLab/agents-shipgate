@@ -19,6 +19,7 @@ from html import escape
 from pathlib import Path
 
 from agents_shipgate.packet.models import (
+    ActionSurfaceDiffSection,
     ApprovalCoverageSection,
     CapabilityIntentDiff,
     DynamicScenariosSection,
@@ -100,6 +101,7 @@ def render_packet_html(packet: EvidencePacket) -> str:
     parts.append(_render_capability_intent(packet.capability_intent))
     parts.append(_render_high_risk_surface(packet.high_risk_surface))
     parts.append(_render_tool_surface_diff(packet.tool_surface_diff))
+    parts.append(_render_action_surface_diff(packet.action_surface_diff))
     parts.append(_render_approval_coverage(packet.approval_coverage))
     parts.append(_render_idempotency_risk(packet.idempotency_risk))
     parts.append(_render_scope_coverage(packet.scope_coverage))
@@ -286,6 +288,52 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
     if section.highlights:
         parts.append("<h3>What changed</h3><ul>")
         for item in section.highlights:
+            parts.append(f"<li>{escape(item)}</li>")
+        parts.append("</ul>")
+    return "".join(parts)
+
+
+def _render_action_surface_diff(section: ActionSurfaceDiffSection) -> str:
+    parts = [
+        "<h2>§3B Action-surface diff — "
+        f"<span class=\"status-{section.status}\">"
+        f"{_STATUS_LABEL[section.status]}</span></h2>"
+    ]
+    if not section.enabled:
+        note = section.notes[0] if section.notes else "No comparison source was available."
+        parts.append(
+            f"<p>Status: disabled — {escape(note)}<br>"
+            f"Base: <code>{escape(section.base_kind)}</code></p>"
+        )
+        return "".join(parts)
+    summary = section.summary
+    parts.append("<ul>")
+    parts.append(f"<li>Base: <code>{escape(section.base_kind)}</code></li>")
+    parts.append(
+        f"<li>Actions: +{summary.actions_added}, -{summary.actions_removed}, "
+        f"{summary.actions_modified} modified</li>"
+    )
+    parts.append(
+        f"<li>Escalations: {summary.scope_expansions} scope expansion(s), "
+        f"{summary.effect_escalations} effect escalation(s), "
+        f"{summary.risk_tags_added} risk tag addition(s)</li>"
+    )
+    parts.append(
+        f"<li>Controls: {summary.approvals_removed} approval removal(s), "
+        f"{summary.safeguards_removed} safeguard removal(s)</li>"
+    )
+    parts.append(
+        f"<li>Blocking action findings: {summary.blocking_findings}</li>"
+    )
+    parts.append("</ul>")
+    if section.highlights:
+        parts.append("<h3>Action changes</h3><ul>")
+        for item in section.highlights:
+            parts.append(f"<li>{escape(item)}</li>")
+        parts.append("</ul>")
+    if section.blocking_reasons:
+        parts.append("<h3>Blocking action reasons</h3><ul>")
+        for item in section.blocking_reasons:
             parts.append(f"<li>{escape(item)}</li>")
         parts.append("</ul>")
     return "".join(parts)
