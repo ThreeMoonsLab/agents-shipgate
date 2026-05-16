@@ -186,6 +186,31 @@ The scanner does not, under any circumstances:
 - Invoke LLMs
 - Send telemetry
 
+The no-execute / no-import property is enforced by two complementary
+tests on every CI run, not by convention:
+
+- **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
+  AST scan of every source under `src/agents_shipgate/inputs/`. Any call to
+  `exec` / `eval` / `__import__` / `compile`, or any use of dynamic-import
+  surfaces (`importlib.import_module`, `importlib.util.spec_from_file_location`,
+  `runpy.run_path`, `subprocess.run`, `os.system`, etc.), fails the build. The
+  matching `import runpy`/`import subprocess`/`import importlib*` forms are
+  forbidden too so an aliased re-export cannot slip past the call-site checks.
+  Runs as a dedicated CI step labeled *Trust-model invariant lint* before the
+  main test suite so a regression is visible at the top of CI logs.
+- **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
+  per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
+  SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n) is driven against
+  a fixture whose Python content (or a sibling `trap.py`, for declarative
+  adapters) raises `RuntimeError` at module load. Each test additionally
+  snapshots `sys.modules` and asserts no module whose `__file__` resolves
+  under the fixture root ends up cached after the scan — a stronger property
+  than relying on the runtime raise alone.
+
+If a contributor introduces a real need for one of the forbidden surfaces,
+update this section in the same PR. The intent is not "we tried to forbid X"
+— it is that X is *structurally absent* from the scanner's parsing path.
+
 Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`.
 
 ### Manifest Schema
