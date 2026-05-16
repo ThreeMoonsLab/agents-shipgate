@@ -76,12 +76,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.10.0'
+          shipgate_version: '0.8.0'
 ```
 
 The full template lives at [`examples/github-actions/01-advisory-pr-comment.yml`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/examples/github-actions/01-advisory-pr-comment.yml).

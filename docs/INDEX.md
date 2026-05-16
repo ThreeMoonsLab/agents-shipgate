@@ -20,6 +20,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
+- [`public-contract.json`](public-contract.json) — committed public-surface constants for published release, tagline, install commands, trigger URL, and current-main schema URLs
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
 - [`report-schema.v0.16.json`](report-schema.v0.16.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.16"`, which adds first-class Action Surface Diff fields)
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)

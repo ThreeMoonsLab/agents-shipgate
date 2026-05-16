@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "0.10.0"
-description = "Static release-readiness gate for AI agent tool surfaces. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, n8n."
+description = "Static release-readiness gate for AI agent tool surfaces. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, n8n, Codex plugins."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -28,6 +28,8 @@ keywords = [
   "github-action",
   "sarif",
   "agent-tools",
+  "n8n",
+  "codex-plugin",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -63,6 +65,7 @@ Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELO
 "LLMs Full" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt"
 "Trigger Catalog" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json"
 "Well-Known" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json"
+"Public Contract" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/public-contract.json"
 
 [project.optional-dependencies]
 pdf = [

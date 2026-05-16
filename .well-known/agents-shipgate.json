@@ -4,6 +4,13 @@
   "display_name": "Agents Shipgate",
   "tagline": "Static release-readiness gate for AI agent tool surfaces",
   "version": "0.10.0",
+  "version_context": "current main / in-tree CLI contract; may be ahead of the published release",
+  "published_release": {
+    "version": "0.8.0",
+    "tag": "v0.8.0",
+    "github_release_url": "https://github.com/ThreeMoonsLab/agents-shipgate/releases/tag/v0.8.0",
+    "pypi_url": "https://pypi.org/project/agents-shipgate/0.8.0/"
+  },
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -11,7 +18,7 @@
   },
   "package": {
     "pypi": "agents-shipgate",
-    "github_action": "ThreeMoonsLab/agents-shipgate@v0.10.0",
+    "github_action": "ThreeMoonsLab/agents-shipgate@v0.8.0",
     "github_repo": "ThreeMoonsLab/agents-shipgate"
   },
   "install": {
@@ -25,10 +32,11 @@
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
   "contract_version": "1",
-  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_messages_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin"],
+  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_messages_api", "google_adk", "langchain", "crewai", "n8n", "openai_api", "codex_plugin"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html"],
   "gating_signal": "release_decision.decision",
   "trust_model": "static_by_default",
+  "schemas_context": "current main / in-tree schemas; may be ahead of the published release",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
     "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json",
@@ -37,6 +45,7 @@
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
   "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",
+  "public_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/public-contract.json",
   "stability_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/STABILITY.md",
   "triggers_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json",
   "errors_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/errors.json",

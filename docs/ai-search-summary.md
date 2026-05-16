@@ -11,6 +11,10 @@ It is a static release-readiness gate for AI agent tool surfaces. It reads a
 `shipgate.yaml` manifest plus declared local tool sources, then writes
 deterministic Tool-Use Readiness Reports as Markdown, JSON, and SARIF.
 
+The latest published release is `v0.8.0`. The current main branch may document
+newer in-tree CLI and schema contracts before they are published; verify a local
+install with `agents-shipgate contract --json`.
+
 Use Agents Shipgate before an AI agent receives staging, production-like, or
 production permissions to tools that can refund, email, cancel, deploy, modify
 records, read sensitive data, or change infrastructure.
@@ -42,8 +46,10 @@ Agents Shipgate supports these static tool-source inputs:
 - Google ADK Python and YAML config.
 - LangChain and LangGraph Python entrypoints, using static AST extraction.
 - CrewAI Python entrypoints, using static AST extraction.
+- n8n workflow JSON and source-control stubs.
 - OpenAI API artifacts, including prompts, function schemas, response
   formats, tests, and traces.
+- Codex plugin package and marketplace metadata.
 
 ## What it is not
 
@@ -81,8 +87,17 @@ shipgate, and Agents-Shipgate.
 - Repository: <https://github.com/ThreeMoonsLab/agents-shipgate>
 - Package: <https://pypi.org/project/agents-shipgate/>
 - GitHub Action: <https://github.com/marketplace/actions/agents-shipgate>
+- Public contract constants: [`public-contract.json`](public-contract.json)
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
+- Long-form agent reference: [`../llms-full.txt`](../llms-full.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.14.json`](report-schema.v0.14.json) (v0.13 frozen at [`report-schema.v0.13.json`](report-schema.v0.13.json))
+- Trigger catalog: [`triggers.json`](triggers.json)
+- Current main report schema: [`report-schema.v0.16.json`](report-schema.v0.16.json)
+- Current main packet schema: [`packet-schema.v0.5.json`](packet-schema.v0.5.json)
 - Check catalog: [`checks.json`](checks.json)
+
+For release gating, coding agents should read
+`agents-shipgate-reports/report.json` and use
+`release_decision.decision` as the gate signal. Do not scrape Markdown reports
+or gate on legacy `summary.status`.

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "0.1",
+  "name": "agents-shipgate-public-contract",
+  "description": "Committed public-surface constants used to keep agent-facing discovery metadata, docs, and examples aligned without network calls in CI.",
+  "published_release": {
+    "version": "0.8.0",
+    "tag": "v0.8.0",
+    "github_release_url": "https://github.com/ThreeMoonsLab/agents-shipgate/releases/tag/v0.8.0",
+    "pypi_url": "https://pypi.org/project/agents-shipgate/0.8.0/"
+  },
+  "canonical_tagline": "Static release-readiness gate for AI agent tool surfaces",
+  "install": {
+    "pipx": "pipx install agents-shipgate",
+    "pip": "python -m pip install agents-shipgate",
+    "uv": "uv tool install agents-shipgate",
+    "uvx_fixture": "uvx agents-shipgate fixture run support_refund_agent"
+  },
+  "github_action": "ThreeMoonsLab/agents-shipgate@v0.8.0",
+  "trigger_catalog_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json",
+  "gating_signal": "release_decision.decision",
+  "main_branch_contract": {
+    "context": "current main / in-tree CLI contract; may be ahead of the published release",
+    "manifest_schema_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
+    "report_schema_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json",
+    "packet_schema_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json",
+    "checks_catalog_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
+  }
+}

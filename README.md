@@ -19,9 +19,9 @@
 
 Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
 OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
-LangChain/LangGraph, CrewAI, n8n, and OpenAI API artifacts, then writes a
-deterministic **Tool-Use Readiness Report** before your agent gets
-production-like permissions.
+LangChain/LangGraph, CrewAI, n8n, OpenAI API artifacts, and Codex plugin
+metadata, then writes a deterministic **Tool-Use Readiness Report** before your
+agent gets production-like permissions.
 
 **Website:** [threemoonslab.com](https://threemoonslab.com/) —
 [quickstart](https://threemoonslab.com/quickstart/),
@@ -163,7 +163,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 ## Use in CI
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.8.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -190,7 +190,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.16](docs/report-schema.v0.16.json); gating signal is `release_decision.decision`; v0.16 adds first-class Action Surface Diff fields on top of v0.15's per-finding `provenance_kind`), SARIF for GitHub code-scanning workflows.
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current main schema [v0.16](docs/report-schema.v0.16.json); gating signal is `release_decision.decision`; v0.16 adds first-class Action Surface Diff fields on top of v0.15's per-finding `provenance_kind`), SARIF for GitHub code-scanning workflows.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including tool-surface and action-surface diffs when available. Governed by [packet schema v0.5](docs/packet-schema.v0.5.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v05).
 
 ## Exit codes
@@ -213,6 +213,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`llms.txt`](llms.txt)** — short index of every machine-readable surface, one fetch.
 - **[`llms-full.txt`](llms-full.txt)** — long-form concatenation of `AGENTS.md` + recipes + checks + concepts + autofix policy, in one document. Built by `scripts/build-llms-full.py`.
 - **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
+- **[`docs/public-contract.json`](docs/public-contract.json)** — committed public constants: latest published release, canonical tagline, install commands, GitHub Action pin, trigger URL, and current-main schema URLs.
 - **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to propose `agents-shipgate detect`. Schema is stable for `0.x`.
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
@@ -226,7 +227,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.16"`). v0.16 adds `action_surface_facts` and `action_surface_diff`; v0.15 added the per-finding `provenance_kind` enum. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next step.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json)** — JSON Schemas for current main / in-tree live editor validation (emitted reports carry `report_schema_version: "0.16"`). v0.16 adds `action_surface_facts` and `action_surface_diff`; v0.15 added the per-finding `provenance_kind` enum. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next step.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -446,12 +447,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.8.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.10.0'
+          shipgate_version: '0.8.0'
 ```
 
 Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.

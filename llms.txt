@@ -12,7 +12,8 @@
 - Publisher: Three Moons Lab
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
-- Latest public release: v0.10.0
+- Latest public release: v0.8.0
+- In-tree CLI version on current main: v0.10.0
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -49,15 +50,17 @@
 - Google ADK Python and YAML config.
 - LangChain and LangGraph Python entrypoints, using static AST extraction.
 - CrewAI Python entrypoints, using static AST extraction.
+- n8n workflow JSON and source-control stubs.
 - OpenAI API artifacts: prompts, function schemas, response formats, tests, and traces.
+- Codex plugin package and marketplace metadata.
 
 ## Outputs
 
 - Markdown report: `agents-shipgate-reports/report.md`.
 - JSON report: `agents-shipgate-reports/report.json`.
-- JSON report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json
+- JSON report schema (current main / in-tree): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json
 - Release Evidence Packet (Markdown / JSON / HTML, optional PDF): `agents-shipgate-reports/packet.{md,json,html}`.
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
+- Packet schema (current main / in-tree): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` in `report.json` (baseline-aware; v0.8+; `insufficient_evidence` added v0.14; consumers should treat unknown future values as `review_required`).
@@ -71,7 +74,7 @@
 - Run a zero-config fixture: `agents-shipgate fixture run support_refund_agent`.
 - Initialize a repo manifest: `agents-shipgate init --workspace . --write`.
 - Scan a repo: `agents-shipgate scan -c shipgate.yaml`.
-- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.10.0`.
+- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.8.0`.
 
 ## Source of truth
 
@@ -88,14 +91,15 @@
 - STABILITY.md: https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md
 - Discovery metadata: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
 - Website discovery metadata: https://threemoonslab.com/.well-known/agents-shipgate.json
+- Public contract constants: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/public-contract.json
 - Trigger catalog (machine-readable mirror of the AGENTS.md trigger table): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json
 - Error-kind catalog (machine-readable enumeration of agent-mode error kinds with exit codes and recovery hints): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/errors.json
 - Long-form agent reference (AGENTS.md + recipes + checks + concepts + autofix policy concatenated): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt
 - Zero-install detector (stdlib-only Python; same structural verdict as `agents-shipgate detect --json` — emits the canonical `DetectResult` fields plus `script_version`, but NOT the CLI's `diagnostics` or `next_actions` arrays): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py
 - Zero-install paths overview (single-file detector, uvx, GitHub Action): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/zero-install.md
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
-- Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
+- Report schema (current main / in-tree): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.16.json
+- Packet schema (current main / in-tree): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 
 ## Category vocabulary
