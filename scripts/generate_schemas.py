@@ -2,25 +2,34 @@
 
 Run from the repo root:
 
-    python scripts/generate_schemas.py
+    python scripts/generate_schemas.py            # write
+    python scripts/generate_schemas.py --check    # verify no drift; exit 1 on diff
 
-Writes:
+Writes / verifies:
 - docs/manifest-v0.1.json       (from agents_shipgate.config.schema)
-- docs/checks.json              (from agents-shipgate list-checks --json)
+- docs/checks.json              (from agents_shipgate.checks.registry.check_catalog)
 - docs/report-schema.v0.<minor>.json
                                 (from agents_shipgate.core.models.ReadinessReport;
                                  minor derived from report_schema_version default)
+- docs/packet-schema.v0.<minor>.json
+                                (from agents_shipgate.packet.models.EvidencePacket)
 
-CI calls this script and asserts the working tree is clean afterward, so
-out-of-date generated files fail the build — drift protection for any
-field changes on Finding (e.g., patches) or ReadinessReport
-(e.g., manifest_dir).
+``--check`` mode is the M4 trust-hardening gate: it generates each schema in
+memory (running the same post-processing as ``write``) and compares it to the
+committed file. Drift exits non-zero with a unified diff preview, so a Pydantic
+model edit that forgets to regenerate fails CI fast with an actionable message.
+
+Tests should import ``build_*_schema`` directly — they return ``(Path, str)``
+tuples without touching disk, so unit tests stay subprocess-free.
 """
 
 from __future__ import annotations
 
+import argparse
+import difflib
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,7 +40,62 @@ SRC = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 
-def write_manifest_schema() -> None:
+# --- Shared helpers ---------------------------------------------------------
+
+# Canonical JSON form for every schema we emit. Matches the v0.x convention
+# already on disk: 2-space indent, sorted keys, trailing newline. Tests and
+# the --check path both consume this exact form, so any future field reorder
+# in Pydantic stays diffable as one logical change.
+def _canonical_json(payload: object) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+_DIFF_PREVIEW_LINES = 40
+
+
+def _emit(target: Path, content: str, *, check_only: bool, drift: list[str]) -> bool:
+    """Write ``content`` to ``target`` (write mode) or compare (check mode).
+
+    In check mode, on mismatch, appends a short unified-diff preview to
+    ``drift`` and returns False; the caller aggregates and exits 1. In write
+    mode, always writes and returns True.
+    """
+    try:
+        relative = target.relative_to(REPO_ROOT)
+    except ValueError:
+        # Target outside the repo (e.g., test fixture with monkeypatched DOCS).
+        # Fall back to the bare path so error messages stay readable.
+        relative = target
+    if check_only:
+        if not target.exists():
+            drift.append(f"{relative}: missing (run scripts/generate_schemas.py)")
+            return False
+        existing = target.read_text(encoding="utf-8")
+        if existing == content:
+            return True
+        diff_lines = list(
+            difflib.unified_diff(
+                existing.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"{relative} (committed)",
+                tofile=f"{relative} (generated)",
+                n=2,
+            )
+        )
+        preview = "".join(diff_lines[:_DIFF_PREVIEW_LINES])
+        suffix = (
+            f"\n... ({len(diff_lines) - _DIFF_PREVIEW_LINES} more diff lines truncated)\n"
+            if len(diff_lines) > _DIFF_PREVIEW_LINES
+            else ""
+        )
+        drift.append(f"{relative}: drift detected\n{preview}{suffix}")
+        return False
+    target.write_text(content, encoding="utf-8")
+    print(f"Wrote {relative}")
+    return True
+
+
+def build_manifest_schema() -> tuple[Path, str]:
     from agents_shipgate.config.schema import AgentsShipgateManifest
 
     schema = AgentsShipgateManifest.model_json_schema()
@@ -46,11 +110,15 @@ def write_manifest_schema() -> None:
         "agents_shipgate.config.schema.AgentsShipgateManifest. Do not edit by hand."
     )
     target = DOCS / "manifest-v0.1.json"
-    target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {target.relative_to(REPO_ROOT)}")
+    return target, _canonical_json(schema)
 
 
-def write_report_schema() -> None:
+def write_manifest_schema(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
+    target, content = build_manifest_schema()
+    return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
+
+
+def build_report_schema() -> tuple[Path, str]:
     """Generate docs/report-schema.v0.<minor>.json from the Pydantic
     ReadinessReport model.
 
@@ -252,6 +320,10 @@ def write_report_schema() -> None:
     # the full block being present (Pydantic only marks fields without
     # defaults as required, but our consumers depend on the whole shape).
     if "ReleaseDecision" in defs:
+        # v0.17 adds contribution_rules — a deterministic per-finding
+        # audit of how each finding contributed to the decision. Required
+        # + always present (defaults to []) so consumers never need an
+        # existence check.
         defs["ReleaseDecision"]["required"] = sorted(
             [
                 "decision",
@@ -261,6 +333,24 @@ def write_report_schema() -> None:
                 "evidence_coverage",
                 "baseline_delta",
                 "fail_policy",
+                "contribution_rules",
+            ]
+        )
+    if "ContributionRule" in defs:
+        # v0.17: pin the full audit-row contract. `fingerprint` is
+        # nullable but required-as-key (every emitted row carries the
+        # field; the value may be null for findings without a computed
+        # fingerprint). All other fields are required and non-nullable
+        # on the wire — build_release_decision emits one
+        # ContributionRule per report finding.
+        defs["ContributionRule"]["required"] = sorted(
+            [
+                "finding_id",
+                "fingerprint",
+                "check_id",
+                "category",
+                "rule",
+                "rationale",
             ]
         )
     if "ReleaseDecisionItem" in defs:
@@ -597,7 +687,21 @@ def write_report_schema() -> None:
             "type": "object",
             "additionalProperties": True,
             "required": sorted(
-                ["name", "value", "distribution", "version", "check_id"]
+                # v0.17 (M5): plugin validation provenance is now required
+                # on every emitted loaded_plugins entry. ``validation_status``
+                # is one of ``valid | load_failed | bad_signature |
+                # bad_metadata | id_collision | bad_floor`` and the two
+                # error lists are always present (empty for clean plugins).
+                [
+                    "name",
+                    "value",
+                    "distribution",
+                    "version",
+                    "check_id",
+                    "validation_status",
+                    "validation_errors",
+                    "runtime_errors",
+                ]
             ),
         }
 
@@ -667,11 +771,15 @@ def write_report_schema() -> None:
     }
 
     target = DOCS / f"report-schema.v{minor}.json"
-    target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {target.relative_to(REPO_ROOT)}")
+    return target, _canonical_json(schema)
 
 
-def write_checks_catalog() -> None:
+def write_report_schema(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
+    target, content = build_report_schema()
+    return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
+
+
+def build_checks_catalog() -> tuple[Path, str]:
     from agents_shipgate.checks.registry import check_catalog
 
     payload = {
@@ -687,11 +795,15 @@ def write_checks_catalog() -> None:
         "checks": [check.model_dump(mode="json") for check in check_catalog()],
     }
     target = DOCS / "checks.json"
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {target.relative_to(REPO_ROOT)}")
+    return target, _canonical_json(payload)
 
 
-def write_packet_schema() -> None:
+def write_checks_catalog(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
+    target, content = build_checks_catalog()
+    return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
+
+
+def build_packet_schema() -> tuple[Path, str]:
     """Generate docs/packet-schema.v0.<minor>.json from EvidencePacket.
 
     Versioned independently from the report schema; bumping requires a
@@ -714,18 +826,54 @@ def write_packet_schema() -> None:
         "agents_shipgate.packet.models.EvidencePacket. Do not edit by hand."
     )
     target = DOCS / f"packet-schema.v{minor}.json"
-    target.write_text(
-        json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    return target, _canonical_json(schema)
+
+
+def write_packet_schema(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
+    target, content = build_packet_schema()
+    return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
+
+
+# Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
+# instead of hardcoding individual calls, so adding a new schema is one edit.
+BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
+    ("manifest", build_manifest_schema),
+    ("checks_catalog", build_checks_catalog),
+    ("report", build_report_schema),
+    ("packet", build_packet_schema),
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="generate_schemas",
+        description=(
+            "Regenerate docs/*.json schemas (default) or verify they match the "
+            "current Pydantic models (--check)."
+        ),
     )
-    print(f"Wrote {target.relative_to(REPO_ROOT)}")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify committed schemas match the generators; exit 1 on drift.",
+    )
+    args = parser.parse_args(argv)
 
-
-def main() -> int:
     DOCS.mkdir(parents=True, exist_ok=True)
-    write_manifest_schema()
-    write_checks_catalog()
-    write_report_schema()
-    write_packet_schema()
+    drift: list[str] = []
+    for _name, builder in BUILDERS:
+        target, content = builder()
+        _emit(target, content, check_only=args.check, drift=drift)
+
+    if args.check and drift:
+        sys.stderr.write("\n".join(drift))
+        sys.stderr.write(
+            "\n\nSchema drift detected in "
+            f"{len(drift)} file(s). To resolve:\n"
+            "  python scripts/generate_schemas.py\n"
+            "  git add docs/ && git commit\n"
+        )
+        return 1
     return 0
 
 

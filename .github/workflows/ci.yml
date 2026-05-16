@@ -33,6 +33,9 @@ jobs:
       - name: Compile
         run: python -m compileall -q src tests
 
+      - name: Verify generated schemas are up to date
+        run: python scripts/generate_schemas.py --check
+
       - name: Test
         run: python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=75
 

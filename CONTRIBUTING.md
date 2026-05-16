@@ -26,6 +26,27 @@ agents-shipgate list-checks
 - false-positive reduction tests;
 - report/schema compatibility tests.
 
+## Schema Changes
+
+The JSON Schemas under `docs/` (`manifest-v0.1.json`, `checks.json`,
+`report-schema.v0.<minor>.json`, `packet-schema.v0.<minor>.json`) are
+**generated artifacts**, not hand-written. They are checked into the
+repo so external consumers can validate against a stable URL.
+
+If you change a Pydantic model — adding/removing a field, bumping
+`report_schema_version`, editing `CheckMetadata` — you must regenerate
+the schemas and commit them in the same PR:
+
+```bash
+python scripts/generate_schemas.py
+git add docs/ && git commit
+```
+
+CI runs `python scripts/generate_schemas.py --check` and fails fast
+with a unified diff if a committed schema drifts from the live model.
+The same drift is also caught by `tests/test_schema_roundtrip.py`, so
+your test suite will reject the change locally before CI does.
+
 ## Check Contributions
 
 Checks should be deterministic, explainable, and covered by tests. Avoid LLM calls, network calls, user-code import, or runtime tool execution.
