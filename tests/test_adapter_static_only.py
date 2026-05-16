@@ -146,16 +146,24 @@ def _is_forbidden_chain(chain: str) -> bool:
     return chain.startswith(FORBIDDEN_ATTR_CALL_PREFIXES)
 
 
-def _resolve_attribute_chain(
-    node: ast.Attribute, module_aliases: dict[str, str]
-) -> str | None:
-    """Reduce ``a.b.c`` Attribute chain to a canonical dotted string.
+def _resolve_attribute_chain_all(
+    node: ast.Attribute, module_aliases: dict[str, set[str]]
+) -> list[str]:
+    """Return every canonical dotted chain a ``a.b.c`` Attribute could resolve to.
 
-    Substitutes the root Name through ``module_aliases`` so
-    ``import os as oo; oo.system`` resolves to ``"os.system"``.
+    Substitutes the root Name through ``module_aliases`` for **all** modules the
+    local name was ever bound to in the file. If the root was bound to multiple
+    modules (``import os as p; import pathlib as p``), each binding produces one
+    candidate chain. The caller flags the call if *any* candidate is forbidden.
 
-    Returns None for chains rooted in something that is not a Name
+    Returns an empty list for chains rooted in something other than a Name
     (e.g. ``func().attr``) — those are out of scope for static lint.
+
+    Conservative union-of-bindings: an order-aware single-pass walk would be
+    more precise, but for trust-model lint we want to flag a chain as soon as
+    *any* possible binding leads to a forbidden surface. False positives here
+    force a code review of suspicious aliasing patterns, which is the right
+    failure mode.
     """
     parts: list[str] = []
     current: ast.AST = node
@@ -163,24 +171,39 @@ def _resolve_attribute_chain(
         parts.append(current.attr)
         current = current.value
     if not isinstance(current, ast.Name):
-        return None
+        return []
     parts.append(current.id)
     parts.reverse()
     root = parts[0]
-    if root in module_aliases:
-        canonical_root = module_aliases[root]
-        parts = canonical_root.split(".") + parts[1:]
-    return ".".join(parts)
+    if root not in module_aliases:
+        # Root was never bound by an import in this file. Treat the
+        # textual root as canonical — catches ``os.system(...)`` written
+        # without a prior ``import os`` (broken code that the lint should
+        # still call out structurally).
+        return [".".join(parts)]
+    return [
+        ".".join(canonical_root.split(".") + parts[1:])
+        for canonical_root in module_aliases[root]
+    ]
 
 
 def _scan_source(source: str, path: Path) -> list[str]:
     """Return a list of human-readable violation strings.
 
-    Two passes: pass 1 walks every ``Import`` / ``ImportFrom`` to build
-    alias maps; pass 2 walks every ``Call`` and resolves names back to
-    the canonical module-qualified path before checking the forbidden
-    sets. This catches aliased re-exports that a single-pass call-site
-    scan would miss.
+    Two passes:
+
+    1. Walk every ``Import`` / ``ImportFrom`` and accumulate alias maps as
+       **unions of bindings**. ``module_aliases[local]`` is the set of every
+       canonical module that local name was ever bound to in the file;
+       ``name_aliases[local]`` is the set of every ``(module, attr)`` pair
+       a from-import alias could resolve to. This deliberately ignores
+       statement order — a later ``import pathlib as os`` does NOT erase
+       an earlier ``import os`` binding, because the earlier ``os.system(...)``
+       call at lines between still resolves through the original ``os``.
+    2. Walk every ``Call`` and resolve names through the alias unions. A
+       call is flagged if *any* possible resolution hits the forbidden
+       surface. False positives are acceptable for trust-model lint —
+       suspicious aliasing should be a code-review trigger.
     """
     try:
         tree = ast.parse(source, filename=str(path))
@@ -190,16 +213,19 @@ def _scan_source(source: str, path: Path) -> list[str]:
     violations: list[str] = []
 
     # --- Pass 1: imports ---------------------------------------------------
-    # module_aliases: locally-bound name -> canonical dotted module path.
-    #   ``import os``            -> {"os": "os"}
-    #   ``import os as op``      -> {"op": "os"}
-    #   ``import os.path``       -> {"os": "os"}      (top-level binding)
-    #   ``import os.path as p``  -> {"p": "os.path"}
-    module_aliases: dict[str, str] = {}
-    # name_aliases: locally-bound name -> (canonical_module, canonical_attr).
-    #   ``from os import system``        -> {"system": ("os", "system")}
-    #   ``from os import system as sh``  -> {"sh":     ("os", "system")}
-    name_aliases: dict[str, tuple[str, str]] = {}
+    # module_aliases: locally-bound name -> {every canonical module path it
+    # was ever bound to in this file}.
+    #   ``import os``                              -> {"os": {"os"}}
+    #   ``import os as op``                        -> {"op": {"os"}}
+    #   ``import os; import pathlib as os``        -> {"os": {"os", "pathlib"}}
+    #   ``import os.path``                         -> {"os": {"os"}}
+    #   ``import os.path as p``                    -> {"p": {"os.path"}}
+    module_aliases: dict[str, set[str]] = {}
+    # name_aliases: locally-bound name -> {every (canonical_module, attr) it
+    # was ever bound to in this file}.
+    #   ``from os import system``        -> {"system": {("os", "system")}}
+    #   ``from os import system as sh``  -> {"sh":     {("os", "system")}}
+    name_aliases: dict[str, set[tuple[str, str]]] = {}
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -210,11 +236,11 @@ def _scan_source(source: str, path: Path) -> list[str]:
                         f"{alias.name!r} (dynamic Python loading surface)"
                     )
                 if alias.asname:
-                    module_aliases[alias.asname] = alias.name
+                    module_aliases.setdefault(alias.asname, set()).add(alias.name)
                 else:
                     # ``import os.path`` binds the top-level ``os`` locally.
                     top = alias.name.split(".")[0]
-                    module_aliases[top] = top
+                    module_aliases.setdefault(top, set()).add(top)
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             if mod in FORBIDDEN_MODULES:
@@ -244,7 +270,7 @@ def _scan_source(source: str, path: Path) -> list[str]:
                             f"of {canonical!r}"
                         )
                     local = alias.asname or alias.name
-                    name_aliases[local] = (mod, alias.name)
+                    name_aliases.setdefault(local, set()).add((mod, alias.name))
 
     # --- Pass 2: call sites ------------------------------------------------
     for node in ast.walk(tree):
@@ -258,26 +284,33 @@ def _scan_source(source: str, path: Path) -> list[str]:
                     f"{rel}:{node.lineno}: forbidden builtin call {func.id!r}"
                 )
                 continue
-            # Aliased ``from X import Y[ as Z]; Z(...)``.
+            # Aliased ``from X import Y[ as Z]; Z(...)``. Iterate every
+            # possible (module, attr) binding for this local name. Flag
+            # the call once if any resolution is forbidden.
             if func.id in name_aliases:
-                mod, attr = name_aliases[func.id]
-                canonical = f"{mod}.{attr}"
-                if _is_forbidden_chain(canonical):
-                    via = (
-                        f" (via from-import alias {func.id!r})"
-                        if func.id != attr
-                        else f" (via from-import of {attr!r})"
-                    )
-                    violations.append(
-                        f"{rel}:{node.lineno}: forbidden call "
-                        f"{canonical!r}{via}"
-                    )
+                for mod, attr in sorted(name_aliases[func.id]):
+                    canonical = f"{mod}.{attr}"
+                    if _is_forbidden_chain(canonical):
+                        via = (
+                            f" (via from-import alias {func.id!r})"
+                            if func.id != attr
+                            else f" (via from-import of {attr!r})"
+                        )
+                        violations.append(
+                            f"{rel}:{node.lineno}: forbidden call "
+                            f"{canonical!r}{via}"
+                        )
+                        break
         elif isinstance(func, ast.Attribute):
-            chain = _resolve_attribute_chain(func, module_aliases)
-            if chain and _is_forbidden_chain(chain):
-                violations.append(
-                    f"{rel}:{node.lineno}: forbidden call {chain!r}"
-                )
+            # Iterate every possible resolution of the attribute chain
+            # (the root may have been bound to multiple modules in the
+            # file). Flag the call once if any resolution is forbidden.
+            for chain in _resolve_attribute_chain_all(func, module_aliases):
+                if _is_forbidden_chain(chain):
+                    violations.append(
+                        f"{rel}:{node.lineno}: forbidden call {chain!r}"
+                    )
+                    break
     return violations
 
 
@@ -416,6 +449,32 @@ def test_adapter_source_contains_no_forbidden_calls_or_imports(
         (
             "from os import *",
             "forbidden wildcard from-import from 'os'",
+        ),
+        # --- Order-of-import rebind bypass ---
+        # The reviewer's case: a later ``import pathlib as os`` must not
+        # erase the earlier ``import os`` binding for purposes of the
+        # call-site check at the lines between. Union-of-bindings means
+        # ``os.system(...)`` resolves through *both* ``os`` and ``pathlib``
+        # and ``os.system`` is forbidden regardless of statement order.
+        (
+            "import os\nos.system('echo hi')\nimport pathlib as os\n",
+            "forbidden call 'os.system'",
+        ),
+        (
+            "import os as runner\nrunner.execve('/bin/sh', ['sh'])\n"
+            "import pathlib as runner\n",
+            "forbidden call 'os.execve'",
+        ),
+        (
+            "from os import system\nsystem('ls')\n"
+            "from pathlib import system\n",
+            "forbidden from-import of 'os.system'",
+        ),
+        # Even when the FORBIDDEN binding comes *after* the safe one,
+        # the union catches it.
+        (
+            "import pathlib as os\nos.system('echo hi')\nimport os\n",
+            "forbidden call 'os.system'",
         ),
         # --- ``builtins`` module surfaces ---
         ("import builtins", "forbidden import 'builtins'"),

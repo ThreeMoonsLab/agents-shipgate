@@ -190,13 +190,30 @@ The no-execute / no-import property is enforced by two complementary
 tests on every CI run, not by convention:
 
 - **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
-  AST scan of every source under `src/agents_shipgate/inputs/`. Any call to
-  `exec` / `eval` / `__import__` / `compile`, or any use of dynamic-import
-  surfaces (`importlib.import_module`, `importlib.util.spec_from_file_location`,
-  `runpy.run_path`, `subprocess.run`, `os.system`, etc.), fails the build. The
-  matching `import runpy`/`import subprocess`/`import importlib*` forms are
-  forbidden too so an aliased re-export cannot slip past the call-site checks.
-  Runs as a dedicated CI step labeled *Trust-model invariant lint* before the
+  AST scan of every source under `src/agents_shipgate/inputs/`. The scan
+  rejects:
+  - Bare-name calls to `exec` / `eval` / `__import__` / `compile`.
+  - Attribute calls to `importlib.import_module`,
+    `importlib.util.spec_from_file_location`,
+    `importlib.util.module_from_spec`,
+    `importlib.machinery.SourceFileLoader`,
+    `runpy.run_path`, `runpy.run_module`,
+    `subprocess.{run, call, Popen, check_call, check_output}`,
+    `os.system`, `os.popen`, and every variant under the
+    `os.exec*` / `os.spawn*` / `os.posix_spawn*` prefixes.
+  - Module imports of `runpy`, `subprocess`, `importlib`,
+    `importlib.util`, `importlib.machinery`, and `builtins` — in any
+    `import X`, `import X as Y`, or `from X import …` form.
+  - Wildcard `from os import *`.
+
+  `importlib.metadata` is intentionally allowed: the plugin registry
+  under `checks/` (not `inputs/`) uses it for entry-point discovery,
+  and discovery happens against the *installed* environment, not user
+  workspace files. Aliased re-exports (`import os as oo`,
+  `from os import system as sh`, `import os; import pathlib as os`) are
+  resolved through union-of-bindings alias maps so a later import
+  cannot erase an earlier forbidden binding. The lint runs as a
+  dedicated CI step labeled *Trust-model invariant lint* before the
   main test suite so a regression is visible at the top of CI logs.
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
