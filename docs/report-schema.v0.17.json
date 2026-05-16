@@ -3790,6 +3790,9 @@
           "check_id",
           "distribution",
           "name",
+          "runtime_errors",
+          "validation_errors",
+          "validation_status",
           "value",
           "version"
         ],

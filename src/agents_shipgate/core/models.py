@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.core.patches import Patch
 
@@ -1430,7 +1430,14 @@ SuggestedPatchKind = Literal[
 
 
 class CheckMetadata(BaseModel):
-    id: str
+    # Plugins may supply ``AGENTS_SHIPGATE_METADATA`` with either ``id`` or
+    # ``check_id`` as the identifier key. Built-ins continue to use ``id``;
+    # ``check_id`` is accepted for symmetry with the field name used in
+    # ``Finding.check_id`` so newer plugins can use a single spelling
+    # across metadata + emitted findings.
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(validation_alias=AliasChoices("id", "check_id"))
     category: str
     default_severity: Severity
     description: str
@@ -1446,6 +1453,26 @@ class CheckMetadata(BaseModel):
     autofix_safe: bool = False
     requires_human_review: bool = True
     suggested_patch_kind: SuggestedPatchKind = "manual"
+    # v0.17 (M5): the lowest severity that ``checks.severity_overrides``
+    # is allowed to apply to this check, and the lowest severity a plugin
+    # may declare for findings under this check ID. ``None`` (default)
+    # means no floor — preserves v0.x behavior for every check that doesn't
+    # opt in. The M1 manifest-side floor enforcement consumes this field;
+    # M5 enforces plugin self-consistency by rejecting plugins whose
+    # ``floor_severity`` exceeds their own ``default_severity``.
+    floor_severity: Severity | None = None
+
+    @model_validator(mode="after")
+    def _check_floor_not_above_default(self) -> CheckMetadata:
+        if self.floor_severity is None:
+            return self
+        order = list(get_args(Severity))
+        if order.index(self.floor_severity) > order.index(self.default_severity):
+            raise ValueError(
+                f"floor_severity={self.floor_severity!r} must not exceed "
+                f"default_severity={self.default_severity!r} for {self.id!r}"
+            )
+        return self
 
 
 def _string_list(value: Any) -> list[str]:

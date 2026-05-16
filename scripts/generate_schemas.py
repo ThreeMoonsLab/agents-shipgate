@@ -685,8 +685,25 @@ def build_report_schema() -> tuple[Path, str]:
         properties["loaded_plugins"]["items"] = {
             "type": "object",
             "additionalProperties": True,
+            # v0.17 (M5): plugin validation provenance is required on
+            # every emitted loaded_plugins entry. ``validation_status``
+            # is one of ``valid | load_failed | bad_signature |
+            # bad_metadata | id_collision | bad_floor`` and the two
+            # error lists are always present (empty for clean plugins).
+            # The v0.7 frozen schema preserves the original 5-field
+            # required list — those frozen-schema tests pin the
+            # pre-M5 shape; this required list is the current contract.
             "required": sorted(
-                ["name", "value", "distribution", "version", "check_id"]
+                [
+                    "name",
+                    "value",
+                    "distribution",
+                    "version",
+                    "check_id",
+                    "validation_status",
+                    "validation_errors",
+                    "runtime_errors",
+                ]
             ),
         }
 

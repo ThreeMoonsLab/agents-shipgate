@@ -130,6 +130,9 @@ def test_report_includes_loaded_plugin_provenance(monkeypatch, tmp_path):
         ci_mode="advisory",
     )
 
+    # v0.17 (M5): every loaded_plugins entry now carries validation
+    # provenance fields. A clean plugin shows ``valid`` status with
+    # empty ``validation_errors`` and ``runtime_errors`` arrays.
     assert report.loaded_plugins == [
         {
             "name": "acme",
@@ -137,6 +140,9 @@ def test_report_includes_loaded_plugin_provenance(monkeypatch, tmp_path):
             "distribution": "acme-shipgate-checks",
             "version": "1.2.3",
             "check_id": "ACME-CHECK",
+            "validation_status": "valid",
+            "validation_errors": [],
+            "runtime_errors": [],
         }
     ]
 

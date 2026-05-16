@@ -730,6 +730,31 @@ def test_v07_schema_preserves_nested_required_lists():
     assert "dynamic_toolset_count" in google_adk_required
 
 
+def test_v17_loaded_plugins_required_includes_validation_fields():
+    """v0.17 (M5): plugin validation provenance fields are required at
+    the JSON-schema level on every emitted ``loaded_plugins[]`` entry.
+
+    Paired with ``test_v07_schema_preserves_nested_required_lists``
+    above, which locks the original 5-field contract for the frozen
+    v0.7 schema. Generator wiring lives in
+    ``scripts/generate_schemas.py::_postprocess_report`` near the
+    ``loaded_plugins`` block.
+    """
+
+    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
+    required = set(schema["properties"]["loaded_plugins"]["items"]["required"])
+    assert required == {
+        "name",
+        "value",
+        "distribution",
+        "version",
+        "check_id",
+        "validation_status",
+        "validation_errors",
+        "runtime_errors",
+    }
+
+
 def test_v08_schema_requires_release_decision():
     """Top-level required must include `release_decision` and the
     ReleaseDecision $def must require all leaf blocks. Catches drift
