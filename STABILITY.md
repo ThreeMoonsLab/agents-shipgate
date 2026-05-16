@@ -186,6 +186,49 @@ The scanner does not, under any circumstances:
 - Invoke LLMs
 - Send telemetry
 
+The no-execute / no-import property is enforced by two complementary
+tests on every CI run, not by convention:
+
+- **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
+  AST scan of every source under `src/agents_shipgate/inputs/`. The scan
+  rejects:
+  - Bare-name calls to `exec` / `eval` / `__import__` / `compile`.
+  - Attribute calls to `importlib.import_module`,
+    `importlib.util.spec_from_file_location`,
+    `importlib.util.module_from_spec`,
+    `importlib.machinery.SourceFileLoader`,
+    `runpy.run_path`, `runpy.run_module`,
+    `subprocess.{run, call, Popen, check_call, check_output}`,
+    `os.system`, `os.popen`, and every variant under the
+    `os.exec*` / `os.spawn*` / `os.posix_spawn*` prefixes.
+  - Module imports of `runpy`, `subprocess`, `importlib`,
+    `importlib.util`, `importlib.machinery`, and `builtins` — in any
+    `import X`, `import X as Y`, `import X.child`, or
+    `from X.child import …` form.
+  - Wildcard `from os import *`.
+
+  `importlib.metadata` is intentionally allowed: the plugin registry
+  under `checks/` (not `inputs/`) uses it for entry-point discovery,
+  and discovery happens against the *installed* environment, not user
+  workspace files. Aliased re-exports (`import os as oo`,
+  `from os import system as sh`, `import os; import pathlib as os`) are
+  resolved through union-of-bindings alias maps so a later import
+  cannot erase an earlier forbidden binding. The lint runs as a
+  dedicated CI step labeled *Trust-model invariant lint* before the
+  main test suite so a regression is visible at the top of CI logs.
+- **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
+  per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
+  SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is
+  driven against a fixture whose Python content (or a sibling `trap.py`, for
+  declarative adapters) raises `RuntimeError` at module load. Each test
+  additionally snapshots `sys.modules` and asserts no module whose `__file__`
+  resolves under the fixture root ends up cached after the scan — a stronger
+  property than relying on the runtime raise alone.
+
+If a contributor introduces a real need for one of the forbidden surfaces,
+update this section in the same PR. The intent is not "we tried to forbid X"
+— it is that X is *structurally absent* from the scanner's parsing path.
+
 Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`.
 
 ### Manifest Schema
