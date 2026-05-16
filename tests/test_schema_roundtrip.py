@@ -162,3 +162,82 @@ def test_builders_are_pure(generator):
             f"{builder.__name__} output missing trailing newline; canonical "
             "form requires it for stable git diffs."
         )
+
+
+def test_checks_catalog_ignores_enabled_plugins(generator, monkeypatch):
+    """Regression: the generated docs/checks.json must be the built-in
+    catalog only, regardless of ``AGENTS_SHIPGATE_ENABLE_PLUGINS``.
+
+    Before the fix, ``build_checks_catalog()`` called
+    ``check_catalog()`` without an explicit ``plugins_enabled=False``.
+    With the env var set and any third-party plugin installed, the
+    function would resolve plugins from entry points and include them
+    in the generated catalog. ``--check`` would then either falsely
+    flag drift against the built-in-only committed
+    ``docs/checks.json``, or — on a `write` run — silently overwrite
+    the committed artifact with a plugin-augmented one.
+
+    The fix forces ``plugins_enabled=False`` at the build site. This
+    test installs a fake plugin entry point with a distinctive
+    ``check_id`` and asserts:
+
+    1. the plugin's check_id is absent from the generator output, and
+    2. the generator output is byte-identical to a clean run with
+       plugins env unset.
+    """
+    from agents_shipgate.checks import registry
+
+    def plugin(_context):  # pragma: no cover — never executed
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "PLUGIN-DETERMINISM-CANARY",
+        "category": "custom",
+        "default_severity": "medium",
+        "description": "Canary plugin for generator determinism test.",
+    }
+
+    class FakeEntryPoint:
+        value = "acme_shipgate_checks:run"
+
+        def load(self):
+            return plugin
+
+    # First, generate the baseline (plugins env unset).
+    monkeypatch.delenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", raising=False)
+    monkeypatch.setattr(registry, "entry_points", lambda group: [])
+    _baseline_target, baseline_content = generator.build_checks_catalog()
+    assert "PLUGIN-DETERMINISM-CANARY" not in baseline_content, (
+        "sanity: baseline must not already contain the canary id"
+    )
+
+    # Now enable plugins AND install the canary plugin via a fake
+    # entry point. The generator must still produce byte-identical
+    # output — plugins must not leak into the deterministic artifact.
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    monkeypatch.setattr(registry, "entry_points", lambda group: [FakeEntryPoint()])
+
+    # Cross-check the threat model: with plugins enabled at the
+    # registry call site, the catalog WOULD include the canary. If
+    # this assertion ever flips, the upstream check_catalog()
+    # plugin-resolution path no longer works the way the regression
+    # is testing for, and this test needs to be reworked rather than
+    # falsely passing.
+    augmented = registry.check_catalog()
+    assert any(check.id == "PLUGIN-DETERMINISM-CANARY" for check in augmented), (
+        "test setup did not actually enable the plugin path; the "
+        "regression check below would pass vacuously"
+    )
+
+    _target, content = generator.build_checks_catalog()
+    assert "PLUGIN-DETERMINISM-CANARY" not in content, (
+        "AGENTS_SHIPGATE_ENABLE_PLUGINS=1 leaked a plugin into the "
+        "generated docs/checks.json — generator must force "
+        "plugins_enabled=False so the committed artifact is "
+        "deterministic regardless of host environment."
+    )
+    assert content == baseline_content, (
+        "generator output diverged between plugins-off and "
+        "plugins-on runs; the committed artifact must be a pure "
+        "function of the built-in catalog."
+    )

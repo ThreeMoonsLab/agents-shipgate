@@ -746,6 +746,15 @@ def write_report_schema(*, check_only: bool = False, drift: list[str] | None = N
 def build_checks_catalog() -> tuple[Path, str]:
     from agents_shipgate.checks.registry import check_catalog
 
+    # Plugins are explicitly disabled here. The committed docs/checks.json
+    # is the built-in catalog only — if a developer has
+    # ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` set in their shell and any
+    # third-party check plugin installed, the default ``check_catalog()``
+    # would augment the result with that plugin's metadata, and
+    # ``--check`` would then either falsely flag drift or, worse,
+    # silently overwrite the committed catalog with a plugin-augmented
+    # one. Force plugins off so the artifact is deterministic regardless
+    # of the host environment.
     payload = {
         "$id": (
             "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -756,7 +765,10 @@ def build_checks_catalog() -> tuple[Path, str]:
             "Machine-readable catalog of built-in checks. Generated from "
             "agents_shipgate.checks.registry.check_catalog(). Do not edit by hand."
         ),
-        "checks": [check.model_dump(mode="json") for check in check_catalog()],
+        "checks": [
+            check.model_dump(mode="json")
+            for check in check_catalog(plugins_enabled=False)
+        ],
     }
     target = DOCS / "checks.json"
     return target, _canonical_json(payload)
