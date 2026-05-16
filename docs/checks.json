@@ -11,6 +11,7 @@
         "change"
       ],
       "fires_when": "Base action approval.required was true and head no longer requires approval.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-APPROVAL-REMOVED",
       "rationale": "Removing approval weakens the release boundary for an existing action.",
       "recommendation": "Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket.",
@@ -30,6 +31,7 @@
         "declared"
       ],
       "fires_when": "action_surface.actions.approval or safeguards sets an inherited true control to false.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-CONTROL-DOWNGRADE",
       "rationale": "Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.",
       "recommendation": "Keep the inherited action_surface.actions[] approval/safeguard control enabled or remove the weakening declaration.",
@@ -47,6 +49,7 @@
         "missing"
       ],
       "fires_when": "An added destructive action lacks approval.required or safeguards.rollback.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
       "rationale": "Destructive actions need explicit approval and rollback evidence before release.",
       "recommendation": "Declare approval.required and safeguards.rollback or remove the destructive action.",
@@ -65,6 +68,7 @@
         "declared_effect"
       ],
       "fires_when": "action_surface.actions.effect is lower risk than the effect inferred from the loaded tool metadata.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
       "rationale": "Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.",
       "recommendation": "Set action_surface.actions[].effect to the inferred operation effect or remove the weaker declaration.",
@@ -81,6 +85,7 @@
         "change"
       ],
       "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-EFFECT-ESCALATED",
       "rationale": "Effect escalation changes what the agent can do in the real world and needs explicit review.",
       "recommendation": "Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation.",
@@ -98,6 +103,7 @@
         "missing"
       ],
       "fires_when": "An added external_communication action lacks safeguards.audit_log.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
       "rationale": "External communication changes agent blast radius and should be auditable.",
       "recommendation": "Declare safeguards.audit_log for the external communication action.",
@@ -115,6 +121,7 @@
         "missing"
       ],
       "fires_when": "An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
       "rationale": "Financial write actions need approval, audit, and idempotency evidence before release.",
       "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency.",
@@ -133,6 +140,7 @@
         "missing"
       ],
       "fires_when": "A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-POLICY-VIOLATION",
       "rationale": "Action Surface Diff policies are the reviewer-facing release boundary for external action capability.",
       "recommendation": "Satisfy the action-surface policy requirements or remove/narrow the action.",
@@ -149,6 +157,7 @@
         "change"
       ],
       "fires_when": "A previously true action safeguard is false or absent in the head surface.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-SAFEGUARD-REMOVED",
       "rationale": "Removing audit, idempotency, rollback, or dry-run safeguards expands blast radius.",
       "recommendation": "Restore the removed action_surface.actions[].safeguards field or document the reviewed exception under action_surface.actions[].evidence.",
@@ -166,6 +175,7 @@
         "tool_name"
       ],
       "fires_when": "action_surface.require_explicit_actions is true and a loaded tool has no matching action_surface.actions entry.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-UNDECLARED",
       "rationale": "Action Surface Diff depends on reviewer-visible action metadata for release decisions.",
       "recommendation": "Add action_surface.actions metadata for the tool or disable require_explicit_actions.",
@@ -184,6 +194,7 @@
         "change"
       ],
       "fires_when": "An added action declares a broad scope, or a modified action expands into a broad scope.",
+      "floor_severity": null,
       "id": "SHIP-ACTION-WILDCARD-SCOPE",
       "rationale": "Wildcard scopes make action blast radius too broad for deterministic release review.",
       "recommendation": "Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes.",
@@ -201,6 +212,7 @@
         "explicit_inventory"
       ],
       "fires_when": "A Google ADK toolset is dynamic or unresolved and no explicit MCP/OpenAPI/tool inventory input is declared.",
+      "floor_severity": null,
       "id": "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE",
       "rationale": "Release review needs an explicit tool inventory; ADK MCP/OpenAPI toolsets may resolve tools dynamically at runtime.",
       "recommendation": "Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK toolsets.",
@@ -218,6 +230,7 @@
         "eval_file_count"
       ],
       "fires_when": "Google ADK inputs target production_like or production and no eval files are declared.",
+      "floor_severity": null,
       "id": "SHIP-ADK-EVAL-COVERAGE-MISSING",
       "rationale": "ADK releases should include response and tool-trajectory eval evidence before promotion.",
       "recommendation": "Declare ADK eval files for expected responses and tool-use trajectories.",
@@ -235,6 +248,7 @@
         "source_type"
       ],
       "fires_when": "A Google ADK function/config tool lacks description or parameter metadata.",
+      "floor_severity": null,
       "id": "SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING",
       "rationale": "Static review depends on descriptions and parameter schemas because user ADK code is not imported.",
       "recommendation": "Add docstrings, annotations, or explicit local inventory metadata.",
@@ -251,6 +265,7 @@
         "tools"
       ],
       "fires_when": "High-risk ADK tools are present without callbacks, plugins, or equivalent manifest policy evidence.",
+      "floor_severity": null,
       "id": "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING",
       "rationale": "Callbacks and plugins are the static ADK surface where release reviewers can see guardrail intent.",
       "recommendation": "Attach ADK callbacks/plugins or manifest policies that document guardrails.",
@@ -267,6 +282,7 @@
         "output_schema"
       ],
       "fires_when": "A LongRunningFunctionTool lacks structured status/progress and operation id output evidence.",
+      "floor_severity": null,
       "id": "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING",
       "rationale": "Long-running tools need explicit status and operation-id semantics for safe continuation.",
       "recommendation": "Document operation id, status/progress fields, and completion behavior.",
@@ -285,6 +301,7 @@
         "inventory_path"
       ],
       "fires_when": "A Google ADK McpToolset has no static tool_filter.",
+      "floor_severity": null,
       "id": "SHIP-ADK-MCP-TOOLSET-UNFILTERED",
       "rationale": "Unfiltered MCP toolsets can expose more tools than reviewers expect.",
       "recommendation": "Declare a tool_filter and provide a local MCP tool inventory.",
@@ -302,6 +319,7 @@
         "risk_tags"
       ],
       "fires_when": "An OpenAI API function lacks strict=true, object parameters, additionalProperties=false, complete required fields, or bounded risky fields.",
+      "floor_severity": null,
       "id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
       "rationale": "Strict schemas reduce ambiguous tool arguments and downstream side-effect risk.",
       "recommendation": "Use strict function schemas with explicit required fields and constrained risky parameters.",
@@ -318,6 +336,7 @@
         "legacy_check_id"
       ],
       "fires_when": "Not emitted by v0.4 scans; matching configuration expands to the v0.4 atomic OpenAI API operational readiness checks.",
+      "floor_severity": null,
       "id": "SHIP-API-OPERATIONAL-READINESS",
       "rationale": "v0.4 emits atomic OpenAI API readiness check IDs, but this ID remains available for existing suppressions, severity overrides, baselines, SARIF consumers, and explain/list-checks workflows during the deprecation window.",
       "recommendation": "Migrate suppressions, severity overrides, and baselines to the specific v0.4 SHIP-API-* readiness check IDs.",
@@ -334,6 +353,7 @@
         "tools"
       ],
       "fires_when": "Prompt text says read-only/advice-only while write tools are enabled, or high-risk tools lack approval/confirmation instructions.",
+      "floor_severity": null,
       "id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "rationale": "Prompt instructions should match the actual write/high-risk tool surface.",
       "recommendation": "Align prompt scope with enabled tools and add approval/confirmation instructions.",
@@ -350,6 +370,7 @@
         "high_risk_tools"
       ],
       "fires_when": "High-risk OpenAI API tools exist and no retry_policy is declared.",
+      "floor_severity": null,
       "id": "SHIP-API-RETRY-POLICY-MISSING",
       "rationale": "Retries need explicit policy metadata so reviewers can reason about duplicate side effects.",
       "recommendation": "Declare retry_policy in openai_api.policy_rules or model_config.",
@@ -367,6 +388,7 @@
         "risk_tags"
       ],
       "fires_when": "Retry policy is declared and a risky write tool lacks idempotency evidence.",
+      "floor_severity": null,
       "id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
       "rationale": "Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.",
       "recommendation": "Add idempotency evidence for retried risky OpenAI API tools or avoid retrying those side effects.",
@@ -385,6 +407,7 @@
         "high_risk_tools"
       ],
       "fires_when": "No response format exists, a response schema is too broad, decision/status fields lack enums, or refusal/needs_review/error modeling is absent.",
+      "floor_severity": null,
       "id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
       "rationale": "Downstream release decisions need explicit, structured success/refusal/review modeling.",
       "recommendation": "Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields.",
@@ -401,6 +424,7 @@
         "high_risk_tools"
       ],
       "fires_when": "High-risk OpenAI API tools exist and no test cases are declared.",
+      "floor_severity": null,
       "id": "SHIP-API-TEST-CASES-MISSING",
       "rationale": "High-risk tool-call flows should have release evidence before promotion.",
       "recommendation": "Add simple OpenAI API test cases for high-risk tool-call flows.",
@@ -417,6 +441,7 @@
         "high_risk_tools"
       ],
       "fires_when": "High-risk OpenAI API tools exist and no timeout metadata is declared.",
+      "floor_severity": null,
       "id": "SHIP-API-TIMEOUT-MISSING",
       "rationale": "Timeouts define failure behavior and reduce ambiguous tool-call continuation.",
       "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows.",
@@ -433,6 +458,7 @@
         "tool_output_schemas"
       ],
       "fires_when": "A high-risk OpenAI API tool lacks declared success/failure output schema metadata.",
+      "floor_severity": null,
       "id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
       "rationale": "Tool output schemas help release reviewers reason about downstream failure handling.",
       "recommendation": "Declare success_fields and failure_fields for high-risk OpenAI API tools.",
@@ -450,6 +476,7 @@
         "approved"
       ],
       "fires_when": "A trace sample marks approved=false for a tool with approval policy evidence.",
+      "floor_severity": null,
       "id": "SHIP-API-TRACE-APPROVAL-MISSING",
       "rationale": "Trace samples should demonstrate approval behavior for tools that require approval.",
       "recommendation": "Require approval before calling policy-controlled OpenAI API tools.",
@@ -467,6 +494,7 @@
         "confirmed"
       ],
       "fires_when": "A trace sample marks confirmed=false for a tool with confirmation policy evidence.",
+      "floor_severity": null,
       "id": "SHIP-API-TRACE-CONFIRMATION-MISSING",
       "rationale": "Trace samples should demonstrate explicit confirmation for tools that require confirmation.",
       "recommendation": "Require explicit confirmation before calling policy-controlled OpenAI API tools.",
@@ -483,6 +511,7 @@
         "scopes"
       ],
       "fires_when": "permissions.scopes contains wildcard/admin-like scopes.",
+      "floor_severity": null,
       "id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
       "rationale": "Broad manifest scopes weaken least-privilege review.",
       "recommendation": "Replace with operation-specific scopes.",
@@ -499,6 +528,7 @@
         "risk_tags"
       ],
       "fires_when": "A write or sensitive-data tool has no auth scopes.",
+      "floor_severity": null,
       "id": "SHIP-AUTH-MISSING-SCOPE",
       "rationale": "Reviewers cannot assess least privilege without scope metadata.",
       "recommendation": "Declare scopes in OpenAPI, MCP, or manifest metadata.",
@@ -517,6 +547,7 @@
         "missing_scopes"
       ],
       "fires_when": "A tool scope is absent from permissions.scopes and not covered by a wildcard.",
+      "floor_severity": null,
       "id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
       "rationale": "The manifest should describe the actual permissions needed by the release.",
       "recommendation": "Add or reconcile required scopes.",
@@ -533,6 +564,7 @@
         "scopes"
       ],
       "fires_when": "A tool auth scope is wildcard/admin-like.",
+      "floor_severity": null,
       "id": "SHIP-AUTH-TOOL-BROAD-SCOPE",
       "rationale": "Tool-level broad scopes may grant more power than the operation needs.",
       "recommendation": "Use narrower tool scopes.",
@@ -552,6 +584,7 @@
         "path"
       ],
       "fires_when": "A Codex plugin declares an app connector without an explicit local enumerable tool surface.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE",
       "rationale": "Connector-backed app capabilities are externally mediated and cannot be proven from local plugin metadata alone.",
       "recommendation": "Treat connector app capabilities as a review item or provide explicit local inventory/policy evidence.",
@@ -571,6 +604,7 @@
         "reason"
       ],
       "fires_when": "A plugin component path is missing, outside the plugin root, or outside the manifest directory.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING",
       "rationale": "Release review cannot inspect declared skills, MCP servers, apps, or hooks when component paths are missing or escape the package.",
       "recommendation": "Fix component paths so every declared plugin artifact resolves locally.",
@@ -589,6 +623,7 @@
         "missing"
       ],
       "fires_when": "A marketplace plugin entry lacks policy.installation, policy.authentication, or category.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING",
       "rationale": "Marketplace installation and authentication policy are part of the release surface coding agents need to review.",
       "recommendation": "Add policy.installation, policy.authentication, and category to the marketplace entry.",
@@ -608,6 +643,7 @@
         "inventory_path"
       ],
       "fires_when": "A Codex plugin declares an MCP server and no matching codex_plugins.mcp_tool_inventories entry loaded successfully.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE",
       "rationale": "Agents Shipgate does not execute MCP commands, so reviewer-visible tool metadata requires an explicit local inventory.",
       "recommendation": "Provide a local MCP tool inventory for the plugin server.",
@@ -627,6 +663,7 @@
         "issues"
       ],
       "fires_when": "A Codex plugin manifest is missing required identity metadata, its name does not match the package root, or duplicate plugin names are present.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-METADATA-MISSING",
       "rationale": "Plugin identity needs to be stable before publication or downstream agent adoption.",
       "recommendation": "Fill required plugin metadata and make plugin names unambiguous.",
@@ -647,6 +684,7 @@
         "duplicate"
       ],
       "fires_when": "A SKILL.md lacks name or description frontmatter, or two skills in the same plugin share a name.",
+      "floor_severity": null,
       "id": "SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING",
       "rationale": "Skill frontmatter is the static routing surface agents use to decide whether a skill applies.",
       "recommendation": "Give each skill a unique name and clear description frontmatter.",
@@ -664,6 +702,7 @@
         "explicit_inventory"
       ],
       "fires_when": "A CrewAI agent tool binding is dynamic or unresolved and no explicit local inventory is declared.",
+      "floor_severity": null,
       "id": "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
       "rationale": "CrewAI exposes ad hoc agent-bound tool lists rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.",
       "recommendation": "Provide explicit MCP-style tool inventory metadata for dynamic CrewAI tool lists.",
@@ -681,6 +720,7 @@
         "source_type"
       ],
       "fires_when": "A CrewAI @tool or BaseTool class lacks description or parameter metadata.",
+      "floor_severity": null,
       "id": "SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING",
       "rationale": "Static review depends on descriptions and parameter schemas because user CrewAI code is not imported.",
       "recommendation": "Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata.",
@@ -697,6 +737,7 @@
         "matched"
       ],
       "fires_when": "Description text matches instruction override patterns. Severity is high only when multiple patterns match on a write/high-risk tool.",
+      "floor_severity": null,
       "id": "SHIP-DOC-INJECTION-RISK",
       "rationale": "Tool metadata can be placed into model context and should not contain prompt-like directives.",
       "recommendation": "Rewrite the description as neutral metadata.",
@@ -713,6 +754,7 @@
         "description_length"
       ],
       "fires_when": "A tool description is missing or shorter than the minimum.",
+      "floor_severity": null,
       "id": "SHIP-DOC-MISSING-DESCRIPTION",
       "rationale": "Poor tool descriptions increase wrong-tool and reviewer misunderstanding risk.",
       "recommendation": "Add a clear capability description.",
@@ -729,6 +771,7 @@
         "matched"
       ],
       "fires_when": "Description contains known key formats or labeled secret-like values. Severity is high only when multiple patterns match on a write/high-risk tool.",
+      "floor_severity": null,
       "id": "SHIP-DOC-SECRET-IN-DESCRIPTION",
       "rationale": "Credentials in tool metadata can leak into reports, prompts, or logs.",
       "recommendation": "Remove and rotate the exposed secret.",
@@ -750,6 +793,7 @@
         "source_provenance"
       ],
       "fires_when": "validation.required_evidence.approval_trace_required is true and no loaded local approval trace shows approved=true for an approval-required tool.",
+      "floor_severity": null,
       "id": "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
       "rationale": "Limited automation review depends on reviewer-visible local evidence that approval-controlled actions were approved before the tool call; absence of local evidence does not prove the runtime control is absent.",
       "recommendation": "Add or fix local approval trace evidence, or change the validation review posture.",
@@ -771,6 +815,7 @@
         "source_provenance"
       ],
       "fires_when": "validation.required_evidence.high_risk_auto_approval_exclusion_required is true and a high-risk tool with declared approval policy is not listed in loaded high_risk_auto_approval_exclusions.",
+      "floor_severity": null,
       "id": "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING",
       "rationale": "High-risk tools that already declare approval policy need separate local evidence that they are excluded from auto-approval review posture; absence of local evidence does not prove the runtime control is absent.",
       "recommendation": "Document high-risk approval-controlled tools in local high_risk_auto_approval_exclusions with reasons.",
@@ -792,6 +837,7 @@
         "source_provenance"
       ],
       "fires_when": "validation.target_review_posture is limited_auto_approval and promotion criteria are absent, unloadable, or the canonical required-evidence flags are not true in the manifest and criteria file.",
+      "floor_severity": null,
       "id": "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING",
       "rationale": "A limited auto-approval review posture needs local criteria evidence; Shipgate structures the missing evidence for reviewers but does not certify runtime enforcement.",
       "recommendation": "Add or fix local promotion criteria evidence documenting the review posture and required evidence flags.",
@@ -812,6 +858,7 @@
         "source_provenance"
       ],
       "fires_when": "validation.required_evidence.override_reason_required is true and override logs are absent, empty, unloadable, or contain events without non-empty reasons.",
+      "floor_severity": null,
       "id": "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
       "rationale": "Override, bypass, and auto-approval events need reviewer-visible local reasons for governance review; absence of local evidence does not prove the runtime control is absent.",
       "recommendation": "Record non-empty reasons in local override, bypass, and auto-approval evidence.",
@@ -828,6 +875,7 @@
         "tools"
       ],
       "fires_when": "environment.target is production and tools include lower-confidence extraction.",
+      "floor_severity": null,
       "id": "SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE",
       "rationale": "Production promotion should not depend primarily on best-effort SDK inference.",
       "recommendation": "Declare those tools through manifest, MCP, or OpenAPI inputs.",
@@ -844,6 +892,7 @@
         "tool_sources"
       ],
       "fires_when": "No tools are loaded from required manifest sources.",
+      "floor_severity": null,
       "id": "SHIP-INVENTORY-NOT-ENUMERABLE",
       "rationale": "A release gate must fail closed when it cannot see the agent's tools.",
       "recommendation": "Declare at least one local MCP JSON or OpenAPI tool source.",
@@ -861,6 +910,7 @@
         "threshold"
       ],
       "fires_when": "The normalized tool count exceeds the built-in threshold.",
+      "floor_severity": null,
       "id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
       "rationale": "Large tool surfaces are harder to reason about during promotion.",
       "recommendation": "Split or reduce the tool surface before release.",
@@ -878,6 +928,7 @@
         "source_ref"
       ],
       "fires_when": "A source declares all tools or wildcard exposure.",
+      "floor_severity": null,
       "id": "SHIP-INVENTORY-WILDCARD-TOOLS",
       "rationale": "Wildcard tools make review and least-privilege reasoning impossible.",
       "recommendation": "Replace wildcard exposure with an explicit allowlist.",
@@ -895,6 +946,7 @@
         "explicit_inventory"
       ],
       "fires_when": "A LangChain or LangGraph tool binding is dynamic or unresolved and no explicit local inventory is declared.",
+      "floor_severity": null,
       "id": "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
       "rationale": "LangChain and LangGraph expose ad hoc tool lists and agent-bound tools rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.",
       "recommendation": "Provide explicit MCP-style tool inventory metadata for dynamic LangChain tool lists.",
@@ -912,6 +964,7 @@
         "source_type"
       ],
       "fires_when": "A LangChain @tool or StructuredTool lacks description or parameter metadata.",
+      "floor_severity": null,
       "id": "SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING",
       "rationale": "Static review depends on descriptions and parameter schemas because user LangChain code is not imported.",
       "recommendation": "Add docstrings, descriptions, type annotations, args_schema, or explicit local inventory metadata.",
@@ -929,6 +982,7 @@
         "risk_tags"
       ],
       "fires_when": "environment.target is production_like or production and a high-risk tool lacks owner metadata.",
+      "floor_severity": null,
       "id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
       "rationale": "High-risk production tools need an accountable owning team for review and remediation.",
       "recommendation": "Declare an owner for each high-risk production tool.",
@@ -946,6 +1000,7 @@
         "tool"
       ],
       "fires_when": "A policy entry names a tool that is not loaded.",
+      "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-POLICY",
       "rationale": "Approval, confirmation, and idempotency policies should map to the actual release surface.",
       "recommendation": "Remove stale policy entries or update them to current tool names.",
@@ -962,6 +1017,7 @@
         "tool"
       ],
       "fires_when": "risk_overrides.tools contains a tool that is not loaded.",
+      "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
       "rationale": "Risk overrides should not outlive the tool they describe.",
       "recommendation": "Remove stale risk overrides or update them to current tool names.",
@@ -980,6 +1036,7 @@
         "issues"
       ],
       "fires_when": "checks.ignore contains an unknown check_id or a tool name that is not loaded.",
+      "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-SUPPRESSION",
       "rationale": "Stale suppressions hide intent and make release review harder to audit.",
       "recommendation": "Remove stale suppressions or update them to current check IDs and tool names.",
@@ -997,6 +1054,7 @@
         "tool_scopes"
       ],
       "fires_when": "permissions.scopes includes a scope not required by any loaded tool.",
+      "floor_severity": null,
       "id": "SHIP-MANIFEST-UNUSED-SCOPE",
       "rationale": "Unused permissions weaken least-privilege review and often indicate stale config.",
       "recommendation": "Remove unused scopes or add tool metadata showing why they are required.",
@@ -1014,6 +1072,7 @@
         "source_type"
       ],
       "fires_when": "An n8n AI-exposed tool lacks description or static parameter metadata.",
+      "floor_severity": null,
       "id": "SHIP-N8N-AI-TOOL-METADATA-MISSING",
       "rationale": "Static review depends on descriptions and parameter schemas because Shipgate does not execute n8n workflows.",
       "recommendation": "Add n8n tool descriptions, $fromAI() parameter metadata, workflow input schemas, or explicit inventory metadata.",
@@ -1031,6 +1090,7 @@
         "credential_stub_file_count"
       ],
       "fires_when": "Production-like n8n workflows reference credentials but no local credential stubs are declared.",
+      "floor_severity": null,
       "id": "SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING",
       "rationale": "Credential type evidence lets reviewers assess high-risk integrations without exposing secret values.",
       "recommendation": "Declare local n8n credential stubs.",
@@ -1048,6 +1108,7 @@
         "explicit_inventory"
       ],
       "fires_when": "An n8n workflow has an unresolved DB workflow id, runtime expression in a tool name, wildcard MCP Server/Client exposure without an inventory, or an uninventoried community/custom tool node.",
+      "floor_severity": null,
       "id": "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
       "rationale": "Release review needs an explicit local inventory when n8n workflow JSON uses runtime tool names, unresolved workflow references, wildcard MCP exposure, or community tool nodes without static metadata. This is high severity in every environment because static release evidence cannot prove the actual tool inventory.",
       "recommendation": "Provide explicit local n8n/MCP tool inventory metadata or replace runtime/wildcard n8n tool exposure.",
@@ -1066,6 +1127,7 @@
         "eval_file_count"
       ],
       "fires_when": "n8n inputs target production_like or production and no eval files are declared.",
+      "floor_severity": null,
       "id": "SHIP-N8N-EVAL-COVERAGE-MISSING",
       "rationale": "n8n AI workflow releases should include response and tool-trajectory eval evidence before promotion.",
       "recommendation": "Declare n8n eval files for expected responses and tool-use trajectories.",
@@ -1085,6 +1147,7 @@
         "explicit_inventory"
       ],
       "fires_when": "An n8n MCP Client Tool uses All or All Except selection and no explicit local inventory is declared.",
+      "floor_severity": null,
       "id": "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED",
       "rationale": "All-tools and all-except MCP client selections can expose more tools than reviewers expect. The check is environment-sensitive because the selector is straightforward to narrow before production, while production-like use increases blast radius.",
       "recommendation": "Select an explicit MCP tool allowlist in n8n or provide a local MCP inventory.",
@@ -1103,6 +1166,7 @@
         "secret_kind"
       ],
       "fires_when": "A static n8n workflow parameter, node note, pinData entry, or staticData entry matches a secret-like token pattern. Evidence is redacted and contains only source location and secret kind, never a secret verifier.",
+      "floor_severity": null,
       "id": "SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER",
       "rationale": "Workflow JSON, pinned data, static data, and node notes can be committed or reported; hardcoded secret-like values should be moved into credentials or variables.",
       "recommendation": "Move secret values into n8n credentials or variables and rotate the exposed value.",
@@ -1120,6 +1184,7 @@
         "policy_match"
       ],
       "fires_when": "Financial/destructive/infrastructure/code-exec risk exists without approval policy.",
+      "floor_severity": null,
       "id": "SHIP-POLICY-APPROVAL-MISSING",
       "rationale": "High-risk actions need explicit approval before promotion.",
       "recommendation": "Declare an approval policy or remove the tool.",
@@ -1137,6 +1202,7 @@
         "policy_match"
       ],
       "fires_when": "Risk tags require confirmation but no confirmation policy matches.",
+      "floor_severity": null,
       "id": "SHIP-POLICY-CONFIRMATION-MISSING",
       "rationale": "Destructive and external actions should require explicit confirmation.",
       "recommendation": "Declare confirmation policy or remove the tool.",
@@ -1154,6 +1220,7 @@
         "type"
       ],
       "fires_when": "A write/action-like tool has free-form command/action/update-style parameters.",
+      "floor_severity": null,
       "id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
       "rationale": "Broad action/body/update fields increase blast radius for write tools.",
       "recommendation": "Constrain the field with structured schema or enums.",
@@ -1170,6 +1237,7 @@
         "output_schema"
       ],
       "fires_when": "A tool output schema is string or an SDK function returns str.",
+      "floor_severity": null,
       "id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
       "rationale": "Free-form tool output may carry prompt injection into later model context.",
       "recommendation": "Prefer structured output for model-consumed tool results.",
@@ -1187,6 +1255,7 @@
         "type"
       ],
       "fires_when": "A risky numeric parameter lacks a maximum.",
+      "floor_severity": null,
       "id": "SHIP-SCHEMA-MISSING-BOUNDS",
       "rationale": "Unbounded counts or financial amounts weaken blast-radius control.",
       "recommendation": "Add a maximum or equivalent policy limit.",
@@ -1204,6 +1273,7 @@
         "risk_tags"
       ],
       "fires_when": "Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.",
+      "floor_severity": null,
       "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "rationale": "Prohibited actions should not be contradicted by attached tool capabilities.",
       "recommendation": "Remove or narrow the tool, or revise policy/scope text.",
@@ -1221,6 +1291,7 @@
         "risk_tags"
       ],
       "fires_when": "Purpose text is read-only but attached tools are write-capable.",
+      "floor_severity": null,
       "id": "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE",
       "rationale": "Declared purpose should constrain the attached tool surface.",
       "recommendation": "Remove the tool or update release scope.",
@@ -1238,6 +1309,7 @@
         "retry_policy_known"
       ],
       "fires_when": "Risky write tool lacks idempotency annotation, key, or policy.",
+      "floor_severity": null,
       "id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
       "rationale": "Retries against non-idempotent writes can duplicate financial or external side effects.",
       "recommendation": "Add idempotency evidence or policy.",

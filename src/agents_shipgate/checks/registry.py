@@ -23,7 +23,15 @@ from agents_shipgate.checks import (
     schema,
     side_effects,
 )
-from agents_shipgate.core.check_ids import known_check_ids_with_legacy
+from agents_shipgate.checks.plugin_validation import (
+    ValidatedPlugin,
+    run_validated_plugin,
+    validate_entry_point,
+)
+from agents_shipgate.core.check_ids import (
+    LEGACY_CHECK_ID_ALIASES,
+    known_check_ids_with_legacy,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
 
@@ -199,31 +207,48 @@ CHECK_METADATA: list[CheckMetadata] = [
 ]
 
 
+# Back-compat alias. v0.x callers (third-party tooling that imported
+# ``LoadedPluginCheck`` for typing) get the same shape — a frozen pair
+# of ``check`` callable and ``info`` dict. ``ValidatedPlugin`` is the
+# richer record used internally by the registry post-M5.
 @dataclass(frozen=True)
 class LoadedPluginCheck:
     check: Callable[[ScanContext], list[Finding]]
-    info: dict[str, str | None]
+    info: dict[str, Any]
 
 
 def run_checks(
     context: ScanContext,
     *,
     plugins_enabled: bool | None = None,
-    loaded_plugins: list[dict[str, str | None]] | None = None,
+    loaded_plugins: list[dict[str, Any]] | None = None,
     extra_known_check_ids: set[str] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    plugin_checks = _plugin_check_records(plugins_enabled=plugins_enabled)
+    plugin_records = _plugin_check_records(plugins_enabled=plugins_enabled)
+    # Order: surface plugin provenance into ``loaded_plugins`` first so
+    # invalid plugins still appear in the report even when they don't
+    # run. ``run_validated_plugin`` will mutate ``record.info`` in place
+    # to append ``runtime_errors`` after the check fires.
     if loaded_plugins is not None:
-        loaded_plugins.extend(record.info for record in plugin_checks)
-    for check in [*BUILTIN_CHECKS, *(record.check for record in plugin_checks)]:
+        loaded_plugins.extend(record.info for record in plugin_records)
+    for check in BUILTIN_CHECKS:
         findings.extend(check(context))
+    for record in plugin_records:
+        if not record.valid:
+            continue
+        findings.extend(run_validated_plugin(record, context))
     findings.extend(
         manifest_consistency.run(
             context,
             known_check_ids=known_check_ids_with_legacy(
                 {
                     *(metadata.id for metadata in CHECK_METADATA),
+                    *(
+                        record.metadata.id
+                        for record in plugin_records
+                        if record.metadata is not None
+                    ),
                     *(extra_known_check_ids or set()),
                 }
             ),
@@ -234,11 +259,13 @@ def run_checks(
 
 def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]:
     metadata = [*CHECK_METADATA]
-    for check in _plugin_checks(plugins_enabled=plugins_enabled):
-        plugin_metadata = getattr(check, "AGENTS_SHIPGATE_METADATA", None)
-        if plugin_metadata is None:
+    for record in _plugin_check_records(plugins_enabled=plugins_enabled):
+        if record.metadata is None:
+            # Invalid plugins (failed load/signature/metadata gates) do
+            # not appear in the catalog. Their provenance still shows up
+            # in ``report.loaded_plugins`` when a scan runs.
             continue
-        metadata.append(_metadata_from_plugin(plugin_metadata))
+        metadata.append(record.metadata)
     for check in metadata:
         if check.docs_url is None:
             check.docs_url = f"docs/checks.md#{check.id.lower()}"
@@ -248,37 +275,67 @@ def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]
 def check_functions(
     *, plugins_enabled: bool | None = None
 ) -> list[Callable[[ScanContext], list[Finding]]]:
-    return [*BUILTIN_CHECKS, *_plugin_checks(plugins_enabled=plugins_enabled)]
+    return [
+        *BUILTIN_CHECKS,
+        *(
+            record.check
+            for record in _plugin_check_records(plugins_enabled=plugins_enabled)
+            if record.valid and record.check is not None
+        ),
+    ]
 
 
 def _plugin_checks(
     *, plugins_enabled: bool | None = None
 ) -> list[Callable[[ScanContext], list[Finding]]]:
+    """Back-compat accessor for the bare list of valid plugin callables.
+
+    Kept stable for ``tests/test_plugins.py`` and any external code that
+    imported the helper. Invalid plugins are filtered out — matching the
+    v0.x behavior of "callable plugins only".
+    """
+
     return [
         record.check
         for record in _plugin_check_records(plugins_enabled=plugins_enabled)
+        if record.valid and record.check is not None
     ]
 
 
 def _plugin_check_records(
     *,
     plugins_enabled: bool | None = None,
-) -> list[LoadedPluginCheck]:
+) -> list[ValidatedPlugin]:
+    """Discover and validate every third-party plugin entry point.
+
+    Returns one ``ValidatedPlugin`` per non-builtin entry point — including
+    those that failed validation. Invalid records carry ``check=None`` and
+    appear in ``report.loaded_plugins`` so the operator can see what was
+    skipped and why without reading scanner logs.
+    """
+
     if not _plugins_enabled(plugins_enabled):
         return []
-    checks: list[LoadedPluginCheck] = []
+
+    builtin_ids: set[str] = {metadata.id for metadata in CHECK_METADATA}
+    builtin_ids.update(LEGACY_CHECK_ID_ALIASES.keys())
+
+    records: list[ValidatedPlugin] = []
+    already_registered: set[str] = set()
+
     for entry_point in entry_points(group="agents_shipgate.checks"):
         if _is_builtin_entry_point(entry_point):
             continue
-        loaded = entry_point.load()
-        if callable(loaded):
-            checks.append(
-                LoadedPluginCheck(
-                    check=loaded,
-                    info=_plugin_info(entry_point, loaded),
-                )
-            )
-    return checks
+        record = validate_entry_point(
+            entry_point,
+            builtin_ids=builtin_ids,
+            already_registered_plugin_ids=already_registered,
+        )
+        records.append(record)
+        if record.metadata is not None:
+            already_registered.add(record.metadata.id)
+
+    return records
 
 
 def _plugins_enabled(override: bool | None = None) -> bool:
@@ -300,52 +357,28 @@ def _is_builtin_entry_point(entry_point: Any) -> bool:
     return False
 
 
-def _plugin_info(
-    entry_point: Any,
-    loaded: Callable[[ScanContext], list[Finding]],
-) -> dict[str, str | None]:
-    metadata = getattr(loaded, "AGENTS_SHIPGATE_METADATA", None)
-    check_id: str | None = None
-    if isinstance(metadata, CheckMetadata):
-        check_id = metadata.id
-    elif isinstance(metadata, dict) and isinstance(metadata.get("id"), str):
-        check_id = metadata["id"]
-    dist = getattr(entry_point, "dist", None)
-    return {
-        "name": str(getattr(entry_point, "name", "")) or None,
-        "value": str(getattr(entry_point, "value", "")) or None,
-        "distribution": _distribution_name(dist),
-        "version": _distribution_version(dist),
-        "check_id": check_id,
-    }
-
-
-def _distribution_name(dist: Any) -> str | None:
-    if dist is None:
-        return None
-    metadata = getattr(dist, "metadata", None)
-    if metadata is not None:
-        name = metadata.get("Name")
-        if isinstance(name, str):
-            return name
-    name = getattr(dist, "name", None)
-    return str(name) if name else None
-
-
-def _distribution_version(dist: Any) -> str | None:
-    if dist is None:
-        return None
-    version = getattr(dist, "version", None)
-    return str(version) if version else None
-
-
 def _normalize_distribution_name(value: str | None) -> str:
     return (value or "").replace("_", "-").lower()
 
 
-def _metadata_from_plugin(value: Any) -> CheckMetadata:
-    if isinstance(value, CheckMetadata):
-        return value
-    if isinstance(value, dict):
-        return CheckMetadata.model_validate(value)
-    raise TypeError("AGENTS_SHIPGATE_METADATA must be CheckMetadata or dict")
+def _distribution_name(dist: Any) -> str | None:
+    """Internal helper retained for ``_is_builtin_entry_point``.
+
+    The richer entry-point introspection moved to
+    ``plugin_validation._distribution_name``; this thin wrapper exists
+    so builtin detection logic doesn't need to import private symbols
+    from the validation module.
+    """
+
+    if dist is None:
+        return None
+    metadata = getattr(dist, "metadata", None)
+    if metadata is not None:
+        try:
+            name = metadata.get("Name")
+        except AttributeError:
+            name = None
+        if isinstance(name, str):
+            return name
+    name = getattr(dist, "name", None)
+    return str(name) if name else None
