@@ -396,3 +396,289 @@ def test_decision_reason_strings_are_deterministic(
     report = _report(findings=[_finding(**findings_kwargs)])
     decision = _build(report, **build_kwargs)
     assert expected_keyword in decision.reason
+
+
+# ---------------------------------------------------------------------------
+# v0.17 contribution_rules truth table.
+#
+# The truth-table contract documented in STABILITY.md
+# "Release decision truth table" describes which (rule, category) pair
+# fires for every (blocks_release, severity, baseline_status, fail_on)
+# combination. Each parametrized case below is one row of that table;
+# the row is named so a failure points at the exact contract it
+# violates.
+#
+# Inputs are kept minimal — one finding per case — so a regression in
+# build_release_decision picks exactly one named test, and the
+# contribution rule under test is the only audit row produced.
+# ---------------------------------------------------------------------------
+
+
+def _policy_finding(
+    *,
+    severity: str = "high",
+    baseline_status: str | None = None,
+    suppressed: bool = False,
+) -> Finding:
+    f = _finding(
+        severity=severity,
+        baseline_status=baseline_status,
+        suppressed=suppressed,
+        check_id="check.policy",
+    )
+    f.blocks_release = True
+    return f
+
+
+@pytest.mark.parametrize(
+    "case_name,finding_factory,build_kwargs,expected_category,expected_rule,expected_in_blockers,expected_in_review",
+    [
+        # ---- blocks_release=true paths -----------------------------------
+        (
+            "policy_block_new_unbaselined",
+            lambda: _policy_finding(severity="high", baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "blocker",
+            "policy_block_new",
+            True,
+            False,
+        ),
+        (
+            "policy_block_new_no_baseline",
+            lambda: _policy_finding(severity="high", baseline_status=None),
+            {"ci_mode": "advisory"},
+            "blocker",
+            "policy_block_new",
+            True,
+            False,
+        ),
+        (
+            "policy_baseline_accepted_review_tier",
+            # severity in {C,H,M} → falls into review tier when matched
+            lambda: _policy_finding(severity="high", baseline_status="matched"),
+            {"ci_mode": "advisory"},
+            "review_item",
+            "policy_baseline_accepted",
+            False,
+            True,
+        ),
+        (
+            "policy_baseline_accepted_below_review_tier",
+            # severity below review tier → silently dropped in v0.16; v0.17
+            # records the audit row but the finding stays excluded.
+            lambda: _policy_finding(severity="low", baseline_status="matched"),
+            {"ci_mode": "advisory"},
+            "excluded",
+            "policy_baseline_accepted",
+            False,
+            False,
+        ),
+        # ---- severity-driven paths --------------------------------------
+        (
+            "severity_block_new_critical_default",
+            lambda: _finding(severity="critical", baseline_status="new"),
+            {"ci_mode": "advisory"},  # critical always in blocker_severities floor
+            "blocker",
+            "severity_block_new",
+            True,
+            False,
+        ),
+        (
+            "severity_block_new_high_via_fail_on",
+            lambda: _finding(severity="high", baseline_status="new"),
+            {"ci_mode": "advisory", "fail_on": ["high"]},
+            "blocker",
+            "severity_block_new",
+            True,
+            False,
+        ),
+        (
+            "severity_baseline_accepted_critical",
+            lambda: _finding(severity="critical", baseline_status="matched"),
+            {"ci_mode": "advisory"},
+            "review_item",
+            "severity_baseline_accepted",
+            False,
+            True,
+        ),
+        # ---- review-tier paths ------------------------------------------
+        (
+            "review_required_high_no_fail_on",
+            # severity=high but advisory-default fail_on=[] → not a blocker;
+            # severity in {C,H,M} → review_required.
+            lambda: _finding(severity="high", baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "review_item",
+            "review_required",
+            False,
+            True,
+        ),
+        (
+            "review_required_medium_no_fail_on",
+            lambda: _finding(severity="medium", baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "review_item",
+            "review_required",
+            False,
+            True,
+        ),
+        (
+            "review_required_low_with_human_review_flag",
+            # severity below review tier but requires_human_review=True
+            # explicitly routes to review_items.
+            lambda: _finding(
+                severity="low", baseline_status="new", requires_human_review=True
+            ),
+            {"ci_mode": "advisory"},
+            "review_item",
+            "review_required",
+            False,
+            True,
+        ),
+        # ---- sub-threshold (excluded) ----------------------------------
+        (
+            "sub_threshold_low",
+            lambda: _finding(severity="low", baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "excluded",
+            "sub_threshold",
+            False,
+            False,
+        ),
+        (
+            "sub_threshold_info",
+            lambda: _finding(severity="info", baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "excluded",
+            "sub_threshold",
+            False,
+            False,
+        ),
+        # ---- suppressed ------------------------------------------------
+        (
+            "suppressed_critical_excluded",
+            lambda: _finding(
+                severity="critical", baseline_status="new", suppressed=True
+            ),
+            {"ci_mode": "strict"},
+            "excluded",
+            "suppressed",
+            False,
+            False,
+        ),
+    ],
+)
+def test_contribution_rules_truth_table(
+    case_name,
+    finding_factory,
+    build_kwargs,
+    expected_category,
+    expected_rule,
+    expected_in_blockers,
+    expected_in_review,
+):
+    """Every row of STABILITY.md "Release decision truth table" is
+    exercised here. The audit's (category, rule) pair must match the
+    documented contract, and the underlying blockers[]/review_items[]
+    membership must agree with the audit (no contradictions allowed).
+    """
+    finding = finding_factory()
+    report = _report(findings=[finding])
+    decision = _build(report, **build_kwargs)
+
+    # Audit row must exist for this finding.
+    rules_for = [r for r in decision.contribution_rules if r.finding_id == finding.id]
+    assert len(rules_for) == 1, (
+        f"{case_name}: expected exactly one contribution rule for the "
+        f"finding, got {len(rules_for)}: {rules_for}"
+    )
+    rule = rules_for[0]
+    assert rule.category == expected_category, (
+        f"{case_name}: expected category={expected_category!r}, "
+        f"got {rule.category!r}; rationale: {rule.rationale}"
+    )
+    assert rule.rule == expected_rule, (
+        f"{case_name}: expected rule={expected_rule!r}, "
+        f"got {rule.rule!r}; rationale: {rule.rationale}"
+    )
+
+    # Audit must agree with the underlying lists.
+    in_blockers = any(b.id == finding.id for b in decision.blockers)
+    in_review = any(r.id == finding.id for r in decision.review_items)
+    assert in_blockers is expected_in_blockers, (
+        f"{case_name}: in_blockers mismatch (rule said {expected_category!r})"
+    )
+    assert in_review is expected_in_review, (
+        f"{case_name}: in_review_items mismatch (rule said {expected_category!r})"
+    )
+
+
+def test_contribution_rules_audit_row_per_finding():
+    """The audit must be exhaustive: one row per report.findings entry,
+    including suppressed findings. No finding can be silently absent.
+    """
+    findings = [
+        _finding(check_id="c1", severity="critical", baseline_status="new"),
+        _finding(check_id="c2", severity="high", baseline_status="matched"),
+        _finding(check_id="c3", severity="low", baseline_status="new"),
+        _finding(
+            check_id="c4", severity="critical", baseline_status="new", suppressed=True
+        ),
+    ]
+    report = _report(findings=findings)
+    decision = _build(report, ci_mode="strict")
+
+    audit_finding_ids = {r.finding_id for r in decision.contribution_rules}
+    expected = {f.id for f in findings}
+    assert audit_finding_ids == expected, (
+        "contribution_rules must contain exactly one row per finding "
+        f"(missing: {expected - audit_finding_ids}, "
+        f"extra: {audit_finding_ids - expected})"
+    )
+
+    # Each audit row's category is one of the documented values.
+    for rule in decision.contribution_rules:
+        assert rule.category in {"blocker", "review_item", "excluded"}
+        assert rule.rule in {
+            "policy_block_new",
+            "severity_block_new",
+            "policy_baseline_accepted",
+            "severity_baseline_accepted",
+            "review_required",
+            "sub_threshold",
+            "suppressed",
+        }
+        assert rule.rationale, "rationale must be non-empty"
+
+
+def test_contribution_rules_default_to_empty_for_legacy_report():
+    """A `ReleaseDecision` constructed without `contribution_rules`
+    (e.g., loaded from a v0.16 report via explain-finding, or built by
+    minimal test helpers) must accept the missing field and default to
+    an empty list. Forward-compat for old reports."""
+    from agents_shipgate.core.models import (
+        BaselineDelta,
+        EvidenceCoverageDecision,
+        FailPolicy,
+        ReleaseDecision,
+    )
+
+    decision = ReleaseDecision(
+        decision="passed",
+        reason="ok",
+        evidence_coverage=EvidenceCoverageDecision(
+            level="full",
+            human_review_recommended=False,
+            source_warning_count=0,
+            low_confidence_tool_count=0,
+        ),
+        baseline_delta=BaselineDelta(enabled=False),
+        fail_policy=FailPolicy(
+            ci_mode="advisory",
+            fail_on=[],
+            new_findings_only=False,
+            would_fail_ci=False,
+            exit_code=0,
+        ),
+    )
+    assert decision.contribution_rules == []

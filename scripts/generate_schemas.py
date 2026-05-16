@@ -251,6 +251,9 @@ def write_report_schema() -> None:
     # v0.8 release_decision: pin required keys so consumers can rely on
     # the full block being present (Pydantic only marks fields without
     # defaults as required, but our consumers depend on the whole shape).
+    # v0.17 adds contribution_rules — a deterministic per-finding audit
+    # of how each finding contributed to the decision. Required + always
+    # present (defaults to []) so consumers never need an existence check.
     if "ReleaseDecision" in defs:
         defs["ReleaseDecision"]["required"] = sorted(
             [
@@ -261,6 +264,24 @@ def write_report_schema() -> None:
                 "evidence_coverage",
                 "baseline_delta",
                 "fail_policy",
+                "contribution_rules",
+            ]
+        )
+    if "ContributionRule" in defs:
+        # v0.17: pin the full audit-row contract. `fingerprint` is
+        # nullable but required-as-key (every emitted row carries the
+        # field; the value may be null for findings without a computed
+        # fingerprint). All other fields are required and non-nullable
+        # on the wire — build_release_decision emits one
+        # ContributionRule per report finding.
+        defs["ContributionRule"]["required"] = sorted(
+            [
+                "finding_id",
+                "fingerprint",
+                "check_id",
+                "category",
+                "rule",
+                "rationale",
             ]
         )
     if "ReleaseDecisionItem" in defs:

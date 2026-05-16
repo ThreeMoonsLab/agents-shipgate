@@ -30,6 +30,7 @@ REPORT_SCHEMA_V13 = Path("docs/report-schema.v0.13.json")
 REPORT_SCHEMA_V14 = Path("docs/report-schema.v0.14.json")
 REPORT_SCHEMA_V15 = Path("docs/report-schema.v0.15.json")
 REPORT_SCHEMA_V16 = Path("docs/report-schema.v0.16.json")
+REPORT_SCHEMA_V17 = Path("docs/report-schema.v0.17.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -510,8 +511,9 @@ def test_json_schema_is_published():
 
 
 def test_json_report_validates_against_current_schema(tmp_path):
-    """Current schema includes action-surface diff fields on top of
-    v0.15 provenance_kind. Emitted reports must validate against it."""
+    """Current schema (v0.17) adds release_decision.contribution_rules[]
+    on top of v0.16's action-surface diff fields and v0.15's
+    provenance_kind. Emitted reports must validate against it."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -520,7 +522,7 @@ def test_json_report_validates_against_current_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -861,6 +863,56 @@ def test_v10_schema_requires_release_decision_and_diffs():
     } <= diff_required
 
 
+def test_v17_schema_requires_contribution_rules():
+    """v0.17 adds release_decision.contribution_rules[] — a deterministic
+    per-finding audit of how each finding contributed to the decision.
+    The field is required + always present (defaults to []) so consumers
+    never need an existence check. Locks the v0.17 contract; M8 of the
+    trust-hardening pass."""
+    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.17"}
+    # ReleaseDecision still requires the v0.8 baseline of fields plus
+    # the v0.17 audit field.
+    release_decision_required = set(schema["$defs"]["ReleaseDecision"]["required"])
+    assert "contribution_rules" in release_decision_required
+    # Every prior required key is preserved.
+    assert {
+        "decision",
+        "reason",
+        "blockers",
+        "review_items",
+        "evidence_coverage",
+        "baseline_delta",
+        "fail_policy",
+    } <= release_decision_required
+    # ContributionRule shape is pinned: every emitted row carries
+    # finding_id / fingerprint(key, may be null) / check_id / category /
+    # rule / rationale.
+    contrib_def = schema["$defs"]["ContributionRule"]
+    assert set(contrib_def["required"]) == {
+        "finding_id",
+        "fingerprint",
+        "check_id",
+        "category",
+        "rule",
+        "rationale",
+    }
+    # Both the rule enum and the category enum are inlined; agents that
+    # switch on the audit need to know the closed grammar.
+    rule_enum = set(contrib_def["properties"]["rule"]["enum"])
+    assert rule_enum == {
+        "policy_block_new",
+        "severity_block_new",
+        "policy_baseline_accepted",
+        "severity_baseline_accepted",
+        "review_required",
+        "sub_threshold",
+        "suppressed",
+    }
+    category_enum = set(contrib_def["properties"]["category"]["enum"])
+    assert category_enum == {"blocker", "review_item", "excluded"}
+
+
 def test_v16_schema_requires_action_surface_fields():
     """v0.16 adds first-class Action Surface Diff facts and diff fields."""
     schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
@@ -892,7 +944,7 @@ def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
     """A current payload with null release blocks MUST fail validation.
     Regression for the original schema which emitted
     `anyOf: [ReleaseDecision, null]` and silently accepted null. Invariant
-    carries forward unchanged from v0.13/v0.14."""
+    carries forward unchanged from v0.13/v0.14/v0.15/v0.16."""
     import jsonschema
 
     from agents_shipgate.report.json_report import report_json_payload
@@ -903,7 +955,7 @@ def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.
