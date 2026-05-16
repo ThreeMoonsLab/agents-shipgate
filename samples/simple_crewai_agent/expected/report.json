@@ -2,7 +2,7 @@
   "schema_version": "0.1",
   "report_schema_version": "0.17",
   "run_id": "agents_shipgate_bdd9eed51efd7740",
-  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/heuristic-panini-4d4332/samples/simple_crewai_agent",
+  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/kind-bardeen-54bd2a/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
   },
@@ -80,8 +80,7 @@
       "new_findings_only": false,
       "would_fail_ci": false,
       "exit_code": 0
-    },
-    "contribution_rules": []
+    }
   },
   "capability_facts": [],
   "declared_intentions": [
@@ -401,8 +400,7 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/tmp/m1-scan-66763/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -457,5 +455,8 @@
       "command": null,
       "why": "Evidence coverage below threshold (3 low-confidence tool(s) and 1 source warning(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
     }
+  },
+  "policy_audit": {
+    "severity_overrides_applied": []
   }
 }

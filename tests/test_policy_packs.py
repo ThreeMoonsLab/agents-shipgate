@@ -52,6 +52,13 @@ checks:
     - path: org-pack.yaml
   severity_overrides:
     ORG-HIGH-RISK-OWNER-MISSING: medium
+  acknowledge_overrides:
+    # v0.17 (M1): high → medium crosses the high → normal tier
+    # boundary, so the override requires explicit acknowledgement.
+    # Policy-pack rule IDs go through the same tier contract as
+    # built-ins.
+    - check_id: ORG-HIGH-RISK-OWNER-MISSING
+      reason: internal tracker covers owner attribution off-band
   ignore:
     - check_id: ORG-HIGH-RISK-OWNER-MISSING
       tool: create_refund

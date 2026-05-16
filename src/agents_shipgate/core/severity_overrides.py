@@ -122,6 +122,7 @@ def resolve_severity_overrides(
     overrides: dict[str, SeverityOverrideEntry],
     acknowledgements: list[OverrideAcknowledgement],
     catalog: list[CheckMetadata],
+    extra_known_check_defaults: dict[str, Severity] | None = None,
     manifest_path_prefix: str = "shipgate.yaml#/checks/severity_overrides",
     today: date | None = None,
 ) -> SeverityOverrideResolution:
@@ -130,8 +131,8 @@ def resolve_severity_overrides(
     Raises ``ConfigError`` (exit 2) for any of:
 
     - Override targeting an unknown check ID (no built-in, no legacy
-      alias, not produced by a loaded plugin). The unknown-check_id
-      surface is otherwise already covered by
+      alias, not produced by a loaded plugin or policy pack). The
+      unknown-check_id surface is otherwise already covered by
       ``SHIP-MANIFEST-STALE-SUPPRESSION`` for the ``ignore`` path; the
       override path keeps its own pre-check because applying an unknown
       override silently is exactly the trust hole M1 closes.
@@ -139,31 +140,58 @@ def resolve_severity_overrides(
       contract; no acknowledgement bypasses it.
     - Tier-crossing downgrade without a matching
       ``acknowledge_overrides`` entry.
+    - Rich-form override entry whose ``expires`` is on or before
+      ``today``. Same hard contract as expired acknowledgements — the
+      user asserted a review date and the date passed.
     - Acknowledgement whose ``expires`` is on or before ``today``.
 
     Upgrades (override stronger than default) never require
     acknowledgement and never fail — they are strictly conservative.
+
+    ``extra_known_check_defaults`` carries check IDs that are valid
+    targets but live outside the built-in/plugin catalog — primarily
+    policy-pack rules whose IDs flow through ``run_checks(extra_known_check_ids=...)``.
+    Each value is the rule's declared default severity (used as the
+    audit row's ``default_severity``). Policy-pack rules don't carry a
+    ``floor_severity``; the floor concept is built-in only, by design.
     """
     today = today or date.today()
     catalog_by_id = _catalog_index(catalog)
     known_ids = _known_check_ids(catalog)
     ack_by_id = _ack_by_check_id(acknowledgements)
+    extra_defaults = extra_known_check_defaults or {}
 
     # 1. Expired acknowledgements are a config error regardless of
     #    whether the matching override is tier-crossing — the user
     #    asserted a review date, that date passed, the gate refuses.
     _enforce_ack_expiry(acknowledgements, today=today)
 
+    # 1b. Expired rich-form override entries are the same hard contract.
+    #     STABILITY.md promises ``expires`` is a hard expiry; treating
+    #     it as advisory only on ack-bound entries would be a footgun.
+    _enforce_override_expiry(overrides, today=today)
+
     audit = PolicyAudit()
     applied: dict[str, Severity] = {}
 
     for check_id, entry in overrides.items():
-        # Resolve target check metadata. The override can be configured
-        # against either a current check ID or a legacy alias (e.g.
-        # SHIP-API-OPERATIONAL-READINESS that fanned out in v0.4).
+        # Resolve target check metadata. Three lookup paths:
+        # 1. Direct catalog hit (built-in or plugin check).
+        # 2. Legacy alias expansion (e.g. SHIP-API-OPERATIONAL-READINESS).
+        # 3. Policy-pack rule ID — passed in via
+        #    ``extra_known_check_defaults`` because policy-pack rules
+        #    don't carry a CheckMetadata entry in the catalog. These
+        #    have no floor (floors are a built-in trust contract).
         target_metadata = _resolve_metadata(
             check_id, catalog_by_id=catalog_by_id, known_ids=known_ids
         )
+        if target_metadata is None and check_id in extra_defaults:
+            target_metadata = CheckMetadata(
+                id=check_id,
+                category="policy_pack",
+                default_severity=extra_defaults[check_id],
+                description="Policy-pack rule (no built-in floor).",
+            )
         if target_metadata is None:
             raise ConfigError(
                 f"checks.severity_overrides[{check_id!r}] targets an "
@@ -174,7 +202,8 @@ def resolve_severity_overrides(
         applied_severity = entry.severity
         default_severity = target_metadata.default_severity
 
-        # 2. Floor enforcement. Hard. No ack bypass.
+        # 2. Floor enforcement. Hard. No ack bypass. Policy-pack rules
+        #    fall through with floor=None (extra_defaults path above).
         floor = target_metadata.floor_severity
         if floor is not None and _is_weaker(applied_severity, floor):
             raise ConfigError(
@@ -201,6 +230,9 @@ def resolve_severity_overrides(
                     f"{severity_tier(applied_severity)} tier boundary. "
                     f"Add an acknowledge_overrides entry with a reason."
                 )
+            # Ack reason wins when both are set — ack is the explicit
+            # tier-crossing audit signal. Rich-form ``reason`` on the
+            # entry still appears in audit only via the entry path.
             reason: str | None = ack.reason
             expires_iso = ack.expires.isoformat() if ack.expires else None
         else:
@@ -264,6 +296,41 @@ def _enforce_ack_expiry(
         f"Renew the review and update the expires date{plural}, or remove "
         f"the acknowledgement{plural} (which will re-require the override "
         f"to be raised back into-tier)."
+    )
+
+
+def _enforce_override_expiry(
+    overrides: dict[str, SeverityOverrideEntry],
+    *,
+    today: date,
+) -> None:
+    """v0.17 (M1): rich-form override entries with ``expires`` are a hard
+    time gate, parallel to ``acknowledge_overrides``.
+
+    Without this check, an expired rich-form override would silently
+    keep applying — STABILITY.md and the schema docstring promise
+    otherwise. Same hard contract as ack expiry: exit 2 on/past the
+    expires date, no advisory bypass.
+    """
+    expired = [
+        (check_id, entry)
+        for check_id, entry in overrides.items()
+        if entry.expires is not None and entry.expires <= today
+    ]
+    if not expired:
+        return
+    bullets = "\n".join(
+        f"  - {check_id}: expired on {entry.expires.isoformat()}"  # type: ignore[union-attr]
+        for check_id, entry in expired
+    )
+    plural = "s" if len(expired) > 1 else ""
+    raise ConfigError(
+        f"checks.severity_overrides has {len(expired)} expired "
+        f"entr{('ies' if len(expired) > 1 else 'y')} (today={today.isoformat()}):\n"
+        f"{bullets}\n"
+        f"Renew the review and update the expires date{plural}, or remove "
+        f"the rich-form override entries (which lets the check fire at "
+        f"its declared default severity)."
     )
 
 

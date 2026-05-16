@@ -607,6 +607,13 @@
     "ChecksConfig": {
       "additionalProperties": false,
       "properties": {
+        "acknowledge_overrides": {
+          "items": {
+            "$ref": "#/$defs/OverrideAcknowledgement"
+          },
+          "title": "Acknowledge Overrides",
+          "type": "array"
+        },
         "ignore": {
           "items": {
             "$ref": "#/$defs/SuppressionConfig"
@@ -623,15 +630,23 @@
         },
         "severity_overrides": {
           "additionalProperties": {
-            "enum": [
-              "info",
-              "low",
-              "medium",
-              "high",
-              "critical"
-            ],
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "info",
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ],
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/SeverityOverrideEntry"
+              }
+            ]
           },
+          "description": "Per-check severity overrides. Accepts either a severity scalar (legacy form) or a SeverityOverrideEntry object with optional reason and expires.",
           "title": "Severity Overrides",
           "type": "object"
         }
@@ -1051,6 +1066,39 @@
       "title": "OutputConfig",
       "type": "object"
     },
+    "OverrideAcknowledgement": {
+      "additionalProperties": false,
+      "description": "One entry in ``checks.acknowledge_overrides`` (v0.17 / M1).\n\nRequired for any ``severity_overrides`` entry whose application\ncrosses a severity tier boundary (critical / high / medium-low) as a\ndowngrade. Tier-crossing upgrades never require ack (strictly more\nconservative). Below-floor downgrades are rejected outright; ack does\nnot bypass the floor.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "reason"
+      ],
+      "title": "OverrideAcknowledgement",
+      "type": "object"
+    },
     "PacketOutputConfig": {
       "additionalProperties": false,
       "description": "Optional ``output.packet`` block for ``shipgate.yaml``.\n\nControls whether ``scan`` emits the Release Evidence Packet\nalongside ``report.{md,json}``. Independent of ``output.formats``\nso the existing ``--format`` contract is unchanged. ``pdf`` is\naccepted but only written when the optional ``[pdf]`` extras\n(``weasyprint``) are installed.",
@@ -1250,6 +1298,53 @@
         }
       },
       "title": "RiskOverridesConfig",
+      "type": "object"
+    },
+    "SeverityOverrideEntry": {
+      "additionalProperties": false,
+      "description": "Rich form of a ``checks.severity_overrides`` entry (v0.17 / M1).\n\nThe legacy scalar form (``SHIP-XYZ: medium``) continues to work via the\n``ChecksConfig.severity_overrides`` validator below; the rich form is\nadditive and lets reviewers attach a reason and an expiry to any\nindividual override.\n\nExample::\n\n    checks:\n      severity_overrides:\n        # Legacy scalar \u2014 still supported\n        SHIP-SCHEMA-MISSING-BOUNDS: medium\n        # Rich form \u2014 preferred for tier-crossing overrides because\n        # ``reason`` is the only thing that lands in the audit row.\n        SHIP-AUTH-MANIFEST-BROAD-SCOPE:\n          severity: medium\n          reason: \"internal-network agent; scope reviewed JIRA-1234\"\n          expires: 2026-09-01",
+      "properties": {
+        "expires": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity"
+      ],
+      "title": "SeverityOverrideEntry",
       "type": "object"
     },
     "SuppressionConfig": {

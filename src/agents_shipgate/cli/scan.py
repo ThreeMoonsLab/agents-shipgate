@@ -36,6 +36,7 @@ from agents_shipgate.core.models import (
     N8nArtifacts,
     OpenAIApiArtifacts,
     ReadinessReport,
+    Severity,
     Tool,
     ValidationArtifacts,
     parse_severity,
@@ -248,15 +249,26 @@ def run_scan(
     assign_finding_ids(findings)
     # v0.17 (M1): resolve overrides up front. The resolver enforces
     # ``floor_severity``, validates tier-crossing acknowledgements, and
-    # rejects expired acks — all raise ConfigError (exit 2) so the
-    # mutation pass below operates only on a manifest that has passed
-    # policy validation. The audit envelope is carried through to
+    # rejects expired acks/overrides — all raise ConfigError (exit 2) so
+    # the mutation pass below operates only on a manifest that has
+    # passed policy validation. The audit envelope is carried through to
     # ``build_report`` so reviewers see overrides at the top of the
     # report instead of buried in per-finding evidence.
+    #
+    # Policy-pack rule IDs are known check IDs for the purposes of
+    # ``run_checks(extra_known_check_ids=...)`` above, so manifests
+    # overriding their severity must not fail as "unknown check_id".
+    # We pass each rule's declared default severity as the audit row's
+    # ``default_severity`` and leave floor=None — floors are a built-in
+    # trust contract by design.
+    policy_pack_defaults: dict[str, Severity] = {
+        resolved.rule.id: resolved.rule.severity for resolved in policy_packs.rules
+    }
     override_resolution = resolve_severity_overrides(
         overrides=manifest.severity_override_entries(),
         acknowledgements=manifest.acknowledge_overrides(),
         catalog=check_catalog(plugins_enabled=plugins_enabled),
+        extra_known_check_defaults=policy_pack_defaults,
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)

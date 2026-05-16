@@ -2060,6 +2060,21 @@
       "title": "Misalignment",
       "type": "object"
     },
+    "PolicyAudit": {
+      "additionalProperties": false,
+      "description": "v0.17 (M1) top-of-report audit envelope for policy decisions\napplied during scan.\n\nCarries severity-override audit today; M2 (baseline integrity) and\nM5 (plugin validation) will land sibling fields here so the audit\nenvelope stays stable across the trust-hardening releases.",
+      "properties": {
+        "severity_overrides_applied": {
+          "items": {
+            "$ref": "#/$defs/SeverityOverrideAuditEntry"
+          },
+          "title": "Severity Overrides Applied",
+          "type": "array"
+        }
+      },
+      "title": "PolicyAudit",
+      "type": "object"
+    },
     "ReleaseConsequence": {
       "properties": {
         "blocker_misalignment_count": {
@@ -2405,6 +2420,89 @@
         "target_sha256"
       ],
       "title": "SetPointerPatch",
+      "type": "object"
+    },
+    "SeverityOverrideAuditEntry": {
+      "additionalProperties": false,
+      "description": "One row in ``ReadinessReport.policy_audit.severity_overrides_applied``.\n\nv0.17 (M1). Surfaces every manifest-driven severity override so a\nreviewer can see what was downgraded (or upgraded) without diving\ninto per-finding evidence. Emitted regardless of whether the override\nmatched any active finding \u2014 entries for checks that did not fire\nstill document reviewer intent.",
+      "properties": {
+        "applied_severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Applied Severity",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "default_severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Default Severity",
+          "type": "string"
+        },
+        "direction": {
+          "default": "same",
+          "enum": [
+            "downgrade",
+            "upgrade",
+            "same"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "tier_crossed": {
+          "default": false,
+          "title": "Tier Crossed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "check_id",
+        "default_severity",
+        "applied_severity",
+        "manifest_path"
+      ],
+      "title": "SeverityOverrideAuditEntry",
       "type": "object"
     },
     "SourceReference": {
@@ -3827,6 +3925,9 @@
       "title": "Misalignments",
       "type": "array"
     },
+    "policy_audit": {
+      "$ref": "#/$defs/PolicyAudit"
+    },
     "project": {
       "additionalProperties": true,
       "title": "Project",
@@ -3912,6 +4013,7 @@
     "loaded_plugins",
     "loaded_policy_packs",
     "misalignments",
+    "policy_audit",
     "project",
     "recommended_actions",
     "release_consequence",

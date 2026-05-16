@@ -45,7 +45,6 @@ from agents_shipgate.core.severity_overrides import (
     severity_tier,
 )
 
-
 # --- Fixtures ---------------------------------------------------------------
 
 
@@ -223,9 +222,14 @@ def test_upgrade_never_requires_ack() -> None:
 
 
 def test_rich_entry_reason_lands_on_same_tier_audit_row() -> None:
+    # medium → low: both in "normal" tier, no ack required. The
+    # rich-form ``reason`` flows into the audit row directly. (Earlier
+    # versions of this test mistakenly used a high → medium override,
+    # which is tier-crossing — the resolver correctly rejects that
+    # without an ack. See PR 80 review fixup.)
     overrides = {
-        "SHIP-SCHEMA-MISSING-BOUNDS": SeverityOverrideEntry(
-            severity="medium",
+        "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+            severity="low",
             reason="reviewed under SOC2 audit 2026-Q2",
         ),
     }
@@ -236,12 +240,16 @@ def test_rich_entry_reason_lands_on_same_tier_audit_row() -> None:
     )
     [row] = resolution.audit.severity_overrides_applied
     assert row.reason == "reviewed under SOC2 audit 2026-Q2"
+    assert row.tier_crossed is False
+    assert row.direction == "downgrade"
 
 
 def test_rich_entry_expires_lands_on_audit_row() -> None:
+    # Same-tier downgrade so we exercise the rich-form audit-row
+    # passthrough cleanly. medium → low, no ack required.
     overrides = {
-        "SHIP-SCHEMA-MISSING-BOUNDS": SeverityOverrideEntry(
-            severity="medium",
+        "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+            severity="low",
             reason="quarterly review",
             expires=date(2027, 1, 1),
         ),
@@ -319,6 +327,151 @@ def test_ack_expiring_tomorrow_is_accepted() -> None:
     [row] = resolution.audit.severity_overrides_applied
     assert row.applied_severity == "high"
     assert row.expires == (today + timedelta(days=1)).isoformat()
+
+
+# --- Rich-form override expiry (parallel to ack expiry, hard contract) -----
+
+
+def test_expired_rich_form_override_raises_config_error() -> None:
+    """STABILITY.md and the schema docstring both promise rich-form
+    ``expires`` is a hard expiry — same contract as ack expiry. An
+    expired rich-form override must raise, not silently apply.
+    """
+    today = date(2026, 5, 15)
+    overrides = {
+        "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+            severity="low",
+            reason="quarterly review (now stale)",
+            expires=date(2026, 1, 1),
+        ),
+    }
+    with pytest.raises(ConfigError, match=r"expired"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=_catalog(),
+            today=today,
+        )
+
+
+def test_rich_form_override_expiring_today_is_expired() -> None:
+    today = date(2026, 5, 15)
+    overrides = {
+        "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+            severity="low",
+            expires=today,
+        ),
+    }
+    with pytest.raises(ConfigError, match=r"expired"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=_catalog(),
+            today=today,
+        )
+
+
+def test_rich_form_override_expiring_tomorrow_applies_cleanly() -> None:
+    today = date(2026, 5, 15)
+    overrides = {
+        "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+            severity="low",
+            expires=today + timedelta(days=1),
+        ),
+    }
+    resolution = resolve_severity_overrides(
+        overrides=overrides,
+        acknowledgements=[],
+        catalog=_catalog(),
+        today=today,
+    )
+    assert resolution.override_by_check_id == {
+        "SHIP-DOC-MISSING-DESCRIPTION": "low"
+    }
+
+
+# --- Policy-pack rule IDs (no built-in floor) ------------------------------
+
+
+def test_policy_pack_rule_override_resolves_when_id_passed_as_known() -> None:
+    """Policy-pack rule IDs are valid override targets. The resolver
+    accepts them via ``extra_known_check_defaults`` and applies no
+    floor — floors are a built-in trust contract by design.
+
+    Exercises the same-tier path here so the test only covers the
+    "ID known to the resolver" promise; tier-crossing semantics for
+    policy-pack rules are covered by the two tests below.
+    """
+    overrides = {
+        "ORG-CUSTOM-CHECK": SeverityOverrideEntry(severity="low"),
+    }
+    resolution = resolve_severity_overrides(
+        overrides=overrides,
+        acknowledgements=[],
+        catalog=_catalog(),
+        extra_known_check_defaults={"ORG-CUSTOM-CHECK": "medium"},
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert row.default_severity == "medium"
+    assert row.applied_severity == "low"
+    assert row.tier_crossed is False
+    assert row.direction == "downgrade"
+
+
+def test_policy_pack_rule_override_tier_crossing_requires_ack() -> None:
+    """Policy-pack rule IDs respect tier-crossing semantics: a
+    downgrade that crosses a tier needs an acknowledgement, same as
+    built-ins. This is what the test above relied on — split out
+    explicitly so a regression here is loud.
+    """
+    overrides = {
+        "ORG-HIGH-RISK-OWNER-MISSING": SeverityOverrideEntry(severity="medium"),
+    }
+    with pytest.raises(ConfigError, match=r"crossing.*tier boundary"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=_catalog(),
+            extra_known_check_defaults={"ORG-HIGH-RISK-OWNER-MISSING": "high"},
+        )
+
+
+def test_policy_pack_rule_override_same_tier_needs_no_ack() -> None:
+    """medium → low policy-pack downgrade is same-tier (both normal).
+    Goes through cleanly with no ack."""
+    overrides = {
+        "ORG-CUSTOM-CHECK": SeverityOverrideEntry(severity="low"),
+    }
+    resolution = resolve_severity_overrides(
+        overrides=overrides,
+        acknowledgements=[],
+        catalog=_catalog(),
+        extra_known_check_defaults={"ORG-CUSTOM-CHECK": "medium"},
+    )
+    assert resolution.override_by_check_id == {"ORG-CUSTOM-CHECK": "low"}
+
+
+def test_policy_pack_rule_override_with_ack_passes() -> None:
+    """Same as the prior tier-crossing test, but the ack is present.
+    The override applies and the audit row picks up the ack reason."""
+    overrides = {
+        "ORG-HIGH-RISK-OWNER-MISSING": SeverityOverrideEntry(severity="medium"),
+    }
+    acks = [
+        OverrideAcknowledgement(
+            check_id="ORG-HIGH-RISK-OWNER-MISSING",
+            reason="internal-only release",
+        ),
+    ]
+    resolution = resolve_severity_overrides(
+        overrides=overrides,
+        acknowledgements=acks,
+        catalog=_catalog(),
+        extra_known_check_defaults={"ORG-HIGH-RISK-OWNER-MISSING": "high"},
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert row.applied_severity == "medium"
+    assert row.reason == "internal-only release"
 
 
 # --- Unknown check_id rejection --------------------------------------------
