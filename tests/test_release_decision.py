@@ -651,6 +651,51 @@ def test_contribution_rules_audit_row_per_finding():
         assert rule.rationale, "rationale must be non-empty"
 
 
+def test_contribution_rules_audit_works_without_finding_id():
+    """`Finding.id` is Python-Optional. Direct callers — internal tests,
+    plugin checks that emit Findings before `assign_finding_ids` runs,
+    `explain-finding` rebuilding from a stripped report — may invoke
+    `build_release_decision` with `finding.id is None`. The audit row's
+    `finding_id` is required-as-string on the wire, so the gate must
+    fall back through `fingerprint` to `check_id` rather than raising
+    a Pydantic ValidationError. Regression for P2 review feedback on
+    PR #81."""
+    finding_with_fingerprint = Finding(
+        id=None,
+        fingerprint="fp_unit_test_fingerprint",
+        check_id="SHIP-UNIT-TEST-CHECK",
+        title="title",
+        severity="critical",
+        category="test",
+        recommendation="do the thing",
+    )
+    finding_without_anything = Finding(
+        id=None,
+        fingerprint=None,
+        check_id="SHIP-UNIT-TEST-NOID",
+        title="title",
+        severity="high",
+        category="test",
+        recommendation="do the thing",
+    )
+    report = _report(findings=[finding_with_fingerprint, finding_without_anything])
+    # Should not raise.
+    decision = _build(report, ci_mode="strict", fail_on=["high"])
+
+    # Both audit rows present; fallback chain produced a usable id.
+    assert len(decision.contribution_rules) == 2
+    by_check = {r.check_id: r for r in decision.contribution_rules}
+    # Fingerprint fallback when id is None but fingerprint is set.
+    assert (
+        by_check["SHIP-UNIT-TEST-CHECK"].finding_id == "fp_unit_test_fingerprint"
+    )
+    # check_id fallback when both id and fingerprint are None.
+    assert by_check["SHIP-UNIT-TEST-NOID"].finding_id == "SHIP-UNIT-TEST-NOID"
+    # finding_id is never the empty string.
+    for rule in decision.contribution_rules:
+        assert rule.finding_id, "finding_id must be non-empty"
+
+
 def test_contribution_rules_default_to_empty_for_legacy_report():
     """A `ReleaseDecision` constructed without `contribution_rules`
     (e.g., loaded from a v0.16 report via explain-finding, or built by

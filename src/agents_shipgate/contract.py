@@ -15,6 +15,12 @@ GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision
 # Adding `gating_signal_values` would be a `contract_version: "2"` change.
 MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.review_items",
+    # v0.17: per-finding decision audit. Reviewers triaging
+    # `release_decision.review_items` use the corresponding
+    # `contribution_rules[]` row to see WHY each item was classified
+    # as a review item (`policy_baseline_accepted`,
+    # `severity_baseline_accepted`, or `review_required`).
+    "release_decision.contribution_rules",
     "findings[].requires_human_review",
     "findings[].blocks_release",
     "summary.human_review_recommended",

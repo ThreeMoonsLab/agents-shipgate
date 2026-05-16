@@ -401,8 +401,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate_regen/simple_crewai_agent/report.md",
-    "json": "/private/tmp/shipgate_regen/simple_crewai_agent/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

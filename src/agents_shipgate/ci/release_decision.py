@@ -221,8 +221,19 @@ def _rule(
     rule: ContributionRuleName,
     rationale: str,
 ) -> ContributionRule:
+    # `Finding.id` and `Finding.fingerprint` are Python-Optional —
+    # `assign_finding_ids()` populates them on the normal scan path,
+    # but direct/internal callers (tests constructing minimal Findings,
+    # `explain-finding` rebuilding from a stripped report, plugin
+    # checks that emit Findings before id assignment) may pass
+    # findings with both unset. ContributionRule.finding_id is
+    # required-as-string on the wire, so fall back through fingerprint
+    # to check_id (which is always a non-empty string per the model
+    # contract). The audit row stays useful in every case: even
+    # without an id, a reviewer can match the row back to the finding
+    # via fingerprint or, last resort, the check_id.
     return ContributionRule(
-        finding_id=finding.id,
+        finding_id=finding.id or finding.fingerprint or finding.check_id,
         fingerprint=finding.fingerprint,
         check_id=finding.check_id,
         category=category,  # type: ignore[arg-type]

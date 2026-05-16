@@ -2093,8 +2093,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate_regen/simple_openai_api_agent/report.md",
-    "json": "/private/tmp/shipgate_regen/simple_openai_api_agent/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
