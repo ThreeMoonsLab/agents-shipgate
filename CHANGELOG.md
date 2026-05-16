@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added `release_decision.contribution_rules[]` — a deterministic
+  per-finding audit of how each finding contributed to the release
+  decision (M8 of the Trust Hardening Pass). Bumps
+  `report_schema_version` to `0.17`. Exactly one row per
+  `report.findings` entry (including suppressed) with `category` ∈
+  `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new,
+  severity_block_new, policy_baseline_accepted,
+  severity_baseline_accepted, review_required, sub_threshold,
+  suppressed}`. The new `STABILITY.md` "Release decision truth table"
+  documents which `(rule, category)` pair fires for every
+  `(blocks_release, severity, baseline_status, fail_on)` combination.
+  Additive only: no semantic change to `decision`, `blockers[]`,
+  `review_items[]`, `fail_policy.exit_code`, or strict-mode exit codes —
+  the audit reflects existing behavior, it does not modify it. The
+  field defaults to `[]` for legacy reports loaded via
+  `explain-finding` so consumers never need an existence check.
 - Replaced the hardcoded `if/elif` source-dispatch in `cli/scan.py` with a
   real `ToolSourceAdapter` Protocol and `AdapterRegistry`. Every loader
   (MCP, OpenAPI, OpenAI Agents SDK, Google ADK, LangChain, CrewAI, n8n,

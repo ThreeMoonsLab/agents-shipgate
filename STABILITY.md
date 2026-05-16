@@ -96,6 +96,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Built-in and user-defined Action Surface Diff policies, plus declarative policy-pack rules with `block: true`, set it for findings that must block release when active and unbaselined; ordinary severity-based gating still works for existing checks.
 - `action_surface_facts.actions[]` (v0.16+) — deterministic current action snapshot: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, input fields, and stable hashes.
 - `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` (v0.16+) — reviewer-facing delta for what the agent can do vs. a prior report or v0.4 baseline. Policy findings derived from this diff can set `findings[].blocks_release=true` and affect `release_decision.decision` and strict-mode exit behavior.
+- `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present (defaults to `[]` for legacy reports loaded via `explain-finding`). Exactly one row per `report.findings` entry, including suppressed findings, so the audit set is exhaustive over the full findings list. `category` enum: `blocker | review_item | excluded`. `rule` enum: `policy_block_new | severity_block_new | policy_baseline_accepted | severity_baseline_accepted | review_required | sub_threshold | suppressed`. The (rule, category) pairs the gate can produce are exhaustively documented in [Release decision truth table](#release-decision-truth-table) below — reading the contribution rule is sufficient to predict the outcome for that finding without re-deriving the decision logic. The audit cannot disagree with `release_decision.{blockers,review_items}[]`: the same classification powers both. Adding `contribution_rules` does not change any existing behavior — `decision`, `blockers[]`, `review_items[]`, `fail_policy.exit_code`, and strict-mode exit codes are byte-identical to v0.16.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
@@ -125,6 +126,31 @@ These are **intentionally different signals**, kept apart for backwards compatib
 |---|---|---|
 | `release_decision.decision` | yes — baseline-matched criticals appear in `review_items`, not `blockers` | **yes (v0.8+)** |
 | `summary.status` | no — any unsuppressed critical flips status to `release_blockers_detected` | preserved for v0.7 callers |
+
+#### Release decision truth table
+
+The classification below is the contract for how every active finding lands in `release_decision.{blockers, review_items}[]` and which `contribution_rules[].rule` (v0.17+) fires for it. Same shape as the v0.8 implementation: this section documents existing behavior, it does not change it. Suppressed findings (`finding.suppressed=true`) are excluded entirely from the active set and audited as `category="excluded", rule="suppressed"`.
+
+Notation: `fail_on` is `release_decision.fail_policy.fail_on` after `ci_mode` resolution (advisory → empty, strict → `["critical"]`, plus any explicit `--fail-on` override). `blocker_severities` = `{critical} ∪ fail_on`. `review_tier` = `{critical, high, medium}` (or any severity when `requires_human_review=true`).
+
+| `blocks_release` | severity | baseline_status | severity in `blocker_severities`? | severity in `review_tier`? | category | `rule` | strict-mode exit |
+|---|---|---|---|---|---|---|---|
+| true | any | new / null | n/a | n/a | **blocker** | `policy_block_new` | 20 |
+| true | any | matched | n/a | yes | review_item | `policy_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| true | any | matched | n/a | no | excluded | `policy_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| true | any | resolved | n/a | n/a | excluded | (not produced; resolved findings are absent from the active set) | 0 |
+| false | any | new / null | yes | n/a | **blocker** | `severity_block_new` | 20 |
+| false | any | matched | yes | yes | review_item | `severity_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| false | any | matched | yes | no | excluded | `severity_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| false | any | new / null | no | yes | review_item | `review_required` | 0 |
+| false | any | matched | no | yes | review_item | `review_required` | 0 |
+| false | any | new / null / matched | no | no | excluded | `sub_threshold` | 0 |
+
+**Why baseline-matched policy findings drop to `review_items`, not `blockers`.** `blocks_release=true` represents an explicit *policy* decision (Action Surface Diff rule, `action_surface:` manifest entry, or policy-pack rule with `block: true`) that the finding must block release **on first appearance**. A baseline accepts technical debt that already passed prior review — the project agreed to ship with that finding present. Treating baselined policy debt as a hard blocker would defeat the purpose of `baseline save`. The baseline-aware drop is symmetric for severity-driven blockers and policy blockers: both land in `review_items` once accepted into the baseline, both become hard blockers if newly introduced.
+
+**Why `severity ∈ blocker_severities + matched + below review_tier` lands in `excluded`, not `review_items`.** A finding whose severity isn't in `{critical, high, medium}` (and which doesn't carry `requires_human_review=true`) has nothing for a human reviewer to act on per the v0.8 contract — it's been baselined and isn't severe enough to warrant attention. v0.17 records this in the audit so the (rare) edge case isn't silently invisible, but the `blockers[]`/`review_items[]` lists themselves are unchanged.
+
+**Why exit code 20 depends on `--baseline-mode`.** `release_decision.{blockers, review_items}[]` always include the full set computed against `report.findings` (with suppressed excluded). The strict-mode exit code, however, is computed from `baseline_filtered_active(report, new_findings_only=...)` — when `--baseline-mode new-findings` is set (the default for the GitHub Action when `baseline:` is provided), baseline-matched policy and severity blockers are filtered out before the exit check, so exit is `0`. With `new_findings_only=False`, a matched policy blocker still triggers exit 20. The `release_decision` block remains baseline-aware in all cases; only the exit-code path changes mode.
 
 Concretely: a scan with one baseline-matched critical and zero new findings produces `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"`. Both are correct under their respective contracts. New consumers should read `release_decision.decision`.
 

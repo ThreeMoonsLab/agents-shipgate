@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.16",
+  "report_schema_version": "0.17",
   "run_id": "agents_shipgate_0adc60e9f77f2b2a",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/e9c4/shipgate/samples/simple_openai_api_agent",
+  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/heuristic-panini-4d4332/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -262,7 +262,169 @@
       "new_findings_only": false,
       "would_fail_ci": false,
       "exit_code": 0
-    }
+    },
+    "contribution_rules": [
+      {
+        "finding_id": "fp_c2d773062468ceac",
+        "fingerprint": "fp_c2d773062468ceac",
+        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_07538ba8f9532359",
+        "fingerprint": "fp_07538ba8f9532359",
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_58b3202c0a4d9793",
+        "fingerprint": "fp_58b3202c0a4d9793",
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_45ef3ff3ce2cf187",
+        "fingerprint": "fp_45ef3ff3ce2cf187",
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_a8a615b5a4f2597b",
+        "fingerprint": "fp_a8a615b5a4f2597b",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_cf260ff7c72d64b7",
+        "fingerprint": "fp_cf260ff7c72d64b7",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_e9d63903757dfe07",
+        "fingerprint": "fp_e9d63903757dfe07",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_4466eb2871434dc5",
+        "fingerprint": "fp_4466eb2871434dc5",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_9675d1799680d81d",
+        "fingerprint": "fp_9675d1799680d81d",
+        "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_29e718b3bbde0e7d",
+        "fingerprint": "fp_29e718b3bbde0e7d",
+        "check_id": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_64f825faa751b7f8",
+        "fingerprint": "fp_64f825faa751b7f8",
+        "check_id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_1b64e136ace3472a_d6a46917",
+        "fingerprint": "fp_1b64e136ace3472a",
+        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_1b64e136ace3472a_6f6fb033",
+        "fingerprint": "fp_1b64e136ace3472a",
+        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_28483a22a9ed40cb",
+        "fingerprint": "fp_28483a22a9ed40cb",
+        "check_id": "SHIP-API-TIMEOUT-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_b8df99c94ef3aa60",
+        "fingerprint": "fp_b8df99c94ef3aa60",
+        "check_id": "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_2bf957380e89863f",
+        "fingerprint": "fp_2bf957380e89863f",
+        "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_efb42c5b5aea7be6",
+        "fingerprint": "fp_efb42c5b5aea7be6",
+        "check_id": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_245bcdb96d8220e2",
+        "fingerprint": "fp_245bcdb96d8220e2",
+        "check_id": "SHIP-API-TRACE-APPROVAL-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_d9059d0c1f3540af",
+        "fingerprint": "fp_d9059d0c1f3540af",
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_a95adeb6338f8b3e",
+        "fingerprint": "fp_a95adeb6338f8b3e",
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      }
+    ]
   },
   "capability_facts": [
     {

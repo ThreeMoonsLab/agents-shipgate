@@ -720,6 +720,56 @@ class FailPolicy(BaseModel):
     exit_code: int
 
 
+# v0.17: explicit, deterministic per-finding audit of *why* each finding
+# landed in `blockers[]`, `review_items[]`, or was excluded. The set of
+# rule names below is the entire grammar of decisions the gate can make;
+# the truth table in STABILITY.md "Release decision truth table" is the
+# external contract for what each name means and when it fires.
+ContributionRuleName = Literal[
+    # Active blockers (drive `decision="blocked"` and, in strict mode,
+    # exit code 20 when the underlying finding is not baseline-matched
+    # via `--baseline-mode new-findings`).
+    "policy_block_new",
+    "severity_block_new",
+    # Accepted as baseline debt; visible in `review_items[]` instead of
+    # `blockers[]`. Never escalates the decision past `review_required`.
+    "policy_baseline_accepted",
+    "severity_baseline_accepted",
+    # Routed to `review_items[]` for human attention but does not block
+    # by itself.
+    "review_required",
+    # Below the active gate threshold AND below review tier; recorded
+    # for completeness so the audit table is exhaustive over
+    # report.findings.
+    "sub_threshold",
+    # Suppressed via `checks.ignore[]` in the manifest; excluded from
+    # the active set entirely.
+    "suppressed",
+]
+
+
+class ContributionRule(BaseModel):
+    """Per-finding audit row explaining how a finding contributed to the
+    release decision.
+
+    Additive in v0.17. Every finding in `report.findings` produces
+    exactly one ContributionRule. Reading the contribution rule is
+    sufficient to predict the gate outcome for that finding without
+    re-deriving the decision logic; the set of valid `(rule, category)`
+    pairs is the contract documented in STABILITY.md "Release decision
+    truth table".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    fingerprint: str | None = None
+    check_id: str
+    category: Literal["blocker", "review_item", "excluded"]
+    rule: ContributionRuleName
+    rationale: str
+
+
 class ReleaseDecision(BaseModel):
     decision: ReleaseDecisionStatus
     reason: str
@@ -728,6 +778,12 @@ class ReleaseDecision(BaseModel):
     evidence_coverage: EvidenceCoverageDecision
     baseline_delta: BaselineDelta
     fail_policy: FailPolicy
+    # v0.17: deterministic per-finding audit of how each finding
+    # contributed to the decision. Always present (defaults to []) so
+    # consumers that read `release_decision.contribution_rules` never
+    # need an existence check; older reports loaded via
+    # `explain-finding` or test helpers naturally get an empty list.
+    contribution_rules: list[ContributionRule] = Field(default_factory=list)
 
 
 DeclaredIntentionKind = Literal[
@@ -1306,7 +1362,7 @@ class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.16"
+    report_schema_version: str = "0.17"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.16",
+  "report_schema_version": "0.17",
   "run_id": "agents_shipgate_bdd9eed51efd7740",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/e9c4/shipgate/samples/simple_crewai_agent",
+  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/heuristic-panini-4d4332/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
   },
@@ -80,7 +80,8 @@
       "new_findings_only": false,
       "would_fail_ci": false,
       "exit_code": 0
-    }
+    },
+    "contribution_rules": []
   },
   "capability_facts": [],
   "declared_intentions": [

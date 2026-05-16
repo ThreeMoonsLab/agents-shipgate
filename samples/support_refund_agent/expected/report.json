@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.16",
+  "report_schema_version": "0.17",
   "run_id": "agents_shipgate_6150f69e2312264e",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/e9c4/shipgate/samples/support_refund_agent",
+  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/heuristic-panini-4d4332/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -264,7 +264,153 @@
       "new_findings_only": false,
       "would_fail_ci": false,
       "exit_code": 0
-    }
+    },
+    "contribution_rules": [
+      {
+        "finding_id": "fp_fc02d8ecd30f2578",
+        "fingerprint": "fp_fc02d8ecd30f2578",
+        "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_ab60b01cb53cfcbe",
+        "fingerprint": "fp_ab60b01cb53cfcbe",
+        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_ff2f028953d1c220",
+        "fingerprint": "fp_ff2f028953d1c220",
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_acd63b899d49aa1c",
+        "fingerprint": "fp_acd63b899d49aa1c",
+        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_85f8513ad72cd9ea",
+        "fingerprint": "fp_85f8513ad72cd9ea",
+        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
+      {
+        "finding_id": "fp_d27325cbdbbf5483",
+        "fingerprint": "fp_d27325cbdbbf5483",
+        "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_83852fbd6b440524",
+        "fingerprint": "fp_83852fbd6b440524",
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_d8e6d1865dae97cc",
+        "fingerprint": "fp_d8e6d1865dae97cc",
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_1f6cfd6b7daa9b7c",
+        "fingerprint": "fp_1f6cfd6b7daa9b7c",
+        "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_12985c36a06026de",
+        "fingerprint": "fp_12985c36a06026de",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_e090c62e390e70ab",
+        "fingerprint": "fp_e090c62e390e70ab",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_f092940f62fbb012",
+        "fingerprint": "fp_f092940f62fbb012",
+        "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+        "category": "blocker",
+        "rule": "severity_block_new",
+        "rationale": "severity=critical is in blocker tier (['critical']); baseline_status=null."
+      },
+      {
+        "finding_id": "fp_a62ca2fd9a68a1d1",
+        "fingerprint": "fp_a62ca2fd9a68a1d1",
+        "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_8e08a4fe6b0917f6",
+        "fingerprint": "fp_8e08a4fe6b0917f6",
+        "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_dac8011e14c53777",
+        "fingerprint": "fp_dac8011e14c53777",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "category": "blocker",
+        "rule": "severity_block_new",
+        "rationale": "severity=critical is in blocker tier (['critical']); baseline_status=null."
+      },
+      {
+        "finding_id": "fp_0f8aaa912d589cf0",
+        "fingerprint": "fp_0f8aaa912d589cf0",
+        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_fd2577850cef1f87",
+        "fingerprint": "fp_fd2577850cef1f87",
+        "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_39b9ae878f343d1b",
+        "fingerprint": "fp_39b9ae878f343d1b",
+        "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      }
+    ]
   },
   "capability_facts": [
     {
