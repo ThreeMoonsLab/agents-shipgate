@@ -18,10 +18,11 @@ Two fixture shapes:
    *is* a Python file with a module-level ``raise RuntimeError(...)``;
    if the adapter ever ``import``s it, the test fails.
 
-2. **Declarative adapters** (MCP, OpenAPI, Anthropic, OpenAI API, n8n)
-   ingest JSON/YAML/Markdown. The fixture places a sibling
-   ``trap.py`` with the same ``raise`` at module top. The adapter must
-   never touch that file even though it sits in the workspace.
+2. **Declarative adapters** (MCP, OpenAPI, Anthropic, OpenAI API, n8n,
+   Codex plugin) ingest JSON/YAML/Markdown/plugin manifests. The fixture
+   places a sibling ``trap.py`` with the same ``raise`` at module top.
+   The adapter must never touch that file even though it sits in the
+   workspace.
 
 The strongest cross-cutting assertion is the ``sys.modules`` snapshot:
 no module whose ``__file__`` resolves under the workspace root may
@@ -395,6 +396,61 @@ def _write_sibling_trap(workspace: Path) -> None:
     _write(workspace / "trap.py", TRAP + "\n")
 
 
+def _write_codex_plugin_package(root: Path) -> None:
+    """Write a minimal Codex plugin package with executable-looking stubs.
+
+    The scanner may parse these JSON/Markdown files, but it must never execute
+    the hook command or launch the MCP server command.
+    """
+    _write(
+        root / ".codex-plugin/plugin.json",
+        """
+        {
+          "name": "browserish",
+          "version": "1.0.0",
+          "description": "Review browser automation from static Codex plugin files.",
+          "skills": "./skills/",
+          "mcpServers": "./.mcp.json",
+          "hooks": "./hooks.json"
+        }
+        """,
+    )
+    _write(
+        root / "skills/browser/SKILL.md",
+        """
+        ---
+        name: browser
+        description: Use browser automation for local UI inspection.
+        ---
+
+        # Browser
+        """,
+    )
+    _write(
+        root / ".mcp.json",
+        """
+        {
+          "mcpServers": {
+            "browser": {
+              "command": "python",
+              "args": ["-c", "raise SystemExit('must not execute')"]
+            }
+          }
+        }
+        """,
+    )
+    _write(
+        root / "hooks.json",
+        """
+        {
+          "preRun": {
+            "command": "touch should-never-run"
+          }
+        }
+        """,
+    )
+
+
 def test_mcp_adapter_does_not_import_sibling_python(tmp_path: Path) -> None:
     """MCP adapter loads JSON only — sibling trap.py must remain untouched."""
     workspace = tmp_path / "mcp"
@@ -433,6 +489,45 @@ def test_mcp_adapter_does_not_import_sibling_python(tmp_path: Path) -> None:
     )
     report = _run_and_assert_no_import(workspace)
     _assert_did_work_tool_inventory(report, minimum=1)
+
+
+def test_codex_plugin_adapter_does_not_import_sibling_python(
+    tmp_path: Path,
+) -> None:
+    """Codex plugin adapter loads package files only.
+
+    The sibling trap.py stays untouched.
+    """
+    workspace = tmp_path / "codex_plugin"
+    _write_codex_plugin_package(workspace / "plugins/browserish")
+    _write_sibling_trap(workspace)
+    marker = workspace / "should-never-run"
+    _write(
+        workspace / "shipgate.yaml",
+        """
+        version: "0.1"
+        project:
+          name: codex-plugin-no-import
+        agent:
+          name: codex-plugin-agent
+          declared_purpose:
+            - review a plugin package
+        environment:
+          target: local
+        tool_sources:
+          - id: browserish
+            type: codex_plugin
+            mode: package
+            path: plugins/browserish
+        """,
+    )
+    report = _run_and_assert_no_import(workspace)
+    assert marker.exists() is False, "Codex plugin hook command must not run."
+    assert report.codex_plugin_surface is not None
+    assert report.codex_plugin_surface.plugin_count == 1
+    assert report.codex_plugin_surface.skill_count == 1
+    assert report.codex_plugin_surface.mcp_server_stub_count == 1
+    assert report.codex_plugin_surface.hook_stub_count == 1
 
 
 def test_openapi_adapter_does_not_import_sibling_python(tmp_path: Path) -> None:

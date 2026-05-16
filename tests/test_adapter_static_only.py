@@ -19,7 +19,10 @@ What the scanner catches:
   caught without an enumeration update.
 - Module imports from a forbidden set (``runpy``, ``subprocess``,
   ``importlib``, ``importlib.util``, ``importlib.machinery``, ``builtins``)
-  — including ``import X as Y`` and ``from X import ...`` forms.
+  — including ``import X as Y``, ``import X.child``, and
+  ``from X.child import ...`` forms. ``importlib.metadata`` is the one
+  explicit exception because it reads installed-package metadata, not user
+  workspace code.
 - **Aliased re-exports.** A two-pass walk first builds alias maps from
   ``import`` and ``from-import`` statements, then resolves attribute chains
   and bare-name calls back to their canonical dotted path before checking
@@ -114,8 +117,9 @@ FORBIDDEN_ATTR_CALL_PREFIXES: tuple[str, ...] = (
     "os.posix_spawn",
 )
 
-# Module imports we forbid outright. ``import X`` and ``import X as Y``
-# both bind ``X``'s code into the process namespace and are rejected.
+# Module imports we forbid outright. ``import X`` / ``import X as Y`` and
+# child imports like ``import X.child`` all bind code into the process namespace
+# and are rejected.
 # ``builtins`` is included because ``builtins.exec`` / ``builtins.eval``
 # would otherwise bypass the bare-name checks.
 FORBIDDEN_MODULES: frozenset[str] = frozenset(
@@ -128,6 +132,11 @@ FORBIDDEN_MODULES: frozenset[str] = frozenset(
         "builtins",
     }
 )
+
+# Exact module import exceptions that would otherwise be caught by a
+# forbidden parent module. Keep this small: each exception needs a trust-model
+# reason in STABILITY.md.
+ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset({"importlib.metadata"})
 
 # Modules we allow at the import line (legitimate adapter use) but whose
 # specific attributes are still subject to the forbidden-chain checks.
@@ -144,6 +153,16 @@ def _is_forbidden_chain(chain: str) -> bool:
     if chain in FORBIDDEN_ATTR_CALLS_EXACT:
         return True
     return chain.startswith(FORBIDDEN_ATTR_CALL_PREFIXES)
+
+
+def _is_forbidden_module_import(module: str) -> bool:
+    """True if ``module`` imports a forbidden module or one of its children."""
+    if module in ALLOWED_FORBIDDEN_MODULE_IMPORTS:
+        return False
+    return any(
+        module == forbidden or module.startswith(f"{forbidden}.")
+        for forbidden in FORBIDDEN_MODULES
+    )
 
 
 def _resolve_attribute_chain_all(
@@ -230,7 +249,7 @@ def _scan_source(source: str, path: Path) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in FORBIDDEN_MODULES:
+                if _is_forbidden_module_import(alias.name):
                     violations.append(
                         f"{rel}:{node.lineno}: forbidden import "
                         f"{alias.name!r} (dynamic Python loading surface)"
@@ -243,7 +262,7 @@ def _scan_source(source: str, path: Path) -> list[str]:
                     module_aliases.setdefault(top, set()).add(top)
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            if mod in FORBIDDEN_MODULES:
+            if _is_forbidden_module_import(mod):
                 violations.append(
                     f"{rel}:{node.lineno}: forbidden from-import "
                     f"{mod!r} (dynamic Python loading surface)"
@@ -489,6 +508,16 @@ def test_adapter_source_contains_no_forbidden_calls_or_imports(
         ("from runpy import run_path", "forbidden from-import 'runpy'"),
         ("import subprocess", "forbidden import 'subprocess'"),
         ("import importlib.util", "forbidden import 'importlib.util'"),
+        ("import subprocess.run", "forbidden import 'subprocess.run'"),
+        ("import runpy.extra", "forbidden import 'runpy.extra'"),
+        (
+            "from subprocess.foo import bar",
+            "forbidden from-import 'subprocess.foo'",
+        ),
+        (
+            "from importlib.util.extra import loader",
+            "forbidden from-import 'importlib.util.extra'",
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) and len(x) < 40 else "case",
 )
@@ -538,6 +567,9 @@ def test_lint_scanner_does_not_false_positive_on_safe_shapes() -> None:
         "from os import environ\nval = environ.get('FOO')\n"
         # yaml.safe_load + json.loads are the declared declarative paths.
         "import yaml\nimport json\nx = yaml.safe_load('a: 1')\ny = json.loads('{}')\n"
+        # importlib.metadata is explicitly allowed for installed-package metadata.
+        "import importlib.metadata\n"
+        "from importlib.metadata import version\npkg_version = version('agents-shipgate')\n"
     )
     fake_path = INPUTS_DIR / "__synthetic_safe__.py"
     violations = _scan_source(safe, fake_path)

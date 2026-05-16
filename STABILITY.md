@@ -203,7 +203,8 @@ tests on every CI run, not by convention:
     `os.exec*` / `os.spawn*` / `os.posix_spawn*` prefixes.
   - Module imports of `runpy`, `subprocess`, `importlib`,
     `importlib.util`, `importlib.machinery`, and `builtins` — in any
-    `import X`, `import X as Y`, or `from X import …` form.
+    `import X`, `import X as Y`, `import X.child`, or
+    `from X.child import …` form.
   - Wildcard `from os import *`.
 
   `importlib.metadata` is intentionally allowed: the plugin registry
@@ -217,12 +218,12 @@ tests on every CI run, not by convention:
   main test suite so a regression is visible at the top of CI logs.
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
-  SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n) is driven against
-  a fixture whose Python content (or a sibling `trap.py`, for declarative
-  adapters) raises `RuntimeError` at module load. Each test additionally
-  snapshots `sys.modules` and asserts no module whose `__file__` resolves
-  under the fixture root ends up cached after the scan — a stronger property
-  than relying on the runtime raise alone.
+  SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is
+  driven against a fixture whose Python content (or a sibling `trap.py`, for
+  declarative adapters) raises `RuntimeError` at module load. Each test
+  additionally snapshots `sys.modules` and asserts no module whose `__file__`
+  resolves under the fixture root ends up cached after the scan — a stronger
+  property than relying on the runtime raise alone.
 
 If a contributor introduces a real need for one of the forbidden surfaces,
 update this section in the same PR. The intent is not "we tried to forbid X"
