@@ -73,7 +73,7 @@ pdf = [
 ]
 dev = [
   "build>=1.5.0,<2",
-  "cyclonedx-bom>=5,<8",
+  "cyclonedx-bom>=7.3.0,<8",
   "hypothesis>=6.152.4,<7",
   "jsonschema>=4,<5",
   "pip-audit>=2.7,<3",
