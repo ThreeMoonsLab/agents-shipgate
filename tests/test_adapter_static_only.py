@@ -3,10 +3,46 @@
 This test enforces the core trust property of agents-shipgate at the source
 level: every adapter under ``src/agents_shipgate/inputs/`` must parse user
 files with ``ast.parse``, ``yaml.safe_load``, or ``json.loads`` only — never
-through ``exec``/``eval``/``__import__``/``compile`` builtins, and never via
-dynamic-import or subprocess surfaces (``importlib.import_module``,
-``importlib.util.spec_from_file_location``, ``runpy.run_path``,
-``subprocess.run``, etc.).
+through ``exec`` / ``eval`` / ``__import__`` / ``compile`` builtins, and
+never via dynamic-import or process-execution surfaces.
+
+What the scanner catches:
+
+- Bare-name calls to ``exec`` / ``eval`` / ``__import__`` / ``compile``.
+- Attribute calls to a fixed forbidden set
+  (``importlib.import_module``, ``importlib.util.spec_from_file_location``,
+  ``importlib.util.module_from_spec``, ``importlib.machinery.SourceFileLoader``,
+  ``runpy.run_path``, ``runpy.run_module``, ``subprocess.{run,call,Popen,
+  check_call,check_output}``, ``os.system``, ``os.popen``).
+- The full ``os.exec*`` / ``os.spawn*`` / ``os.posix_spawn*`` families
+  via prefix matching, so a future Python addition like ``os.execlpe`` is
+  caught without an enumeration update.
+- Module imports from a forbidden set (``runpy``, ``subprocess``,
+  ``importlib``, ``importlib.util``, ``importlib.machinery``, ``builtins``)
+  — including ``import X as Y`` and ``from X import ...`` forms.
+- **Aliased re-exports.** A two-pass walk first builds alias maps from
+  ``import`` and ``from-import`` statements, then resolves attribute chains
+  and bare-name calls back to their canonical dotted path before checking
+  the forbidden sets. ``import os as oo; oo.system(...)``,
+  ``from os import system as sh; sh(...)``, and
+  ``from os import execve as runner; runner(...)`` all resolve to
+  ``os.system`` / ``os.execve`` and are flagged.
+- **Wildcard from-imports** from any tracked module
+  (``from os import *``) — they would alias forbidden names into local
+  scope and defeat the call-site checks.
+
+What the scanner does NOT catch (acknowledged limitations):
+
+- Flow-sensitive aliasing: ``ev = eval; ev("1+1")`` — no AST signal at the
+  call site once the name is reassigned. Requires dataflow.
+- Reflective access: ``getattr(os, "system")("ls")``,
+  ``globals()["eval"]("...")``, ``__builtins__["eval"](...)``.
+- ``import os.path`` followed by ``os.system(...)`` — caught (the top-level
+  ``os`` binding is tracked) — but ``import os.path as p; p.path.system(...)``
+  is not, because we don't follow attribute paths through aliased submodules.
+
+These bypasses are flow-sensitive and require code review to catch. The lint
+is the structural floor; code review is the dataflow ceiling.
 
 Tests live in two layers:
 
@@ -32,8 +68,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INPUTS_DIR = REPO_ROOT / "src" / "agents_shipgate" / "inputs"
 
-# Bare-name calls. These have no legitimate use anywhere under inputs/ —
-# the adapter contract is "parse user data, never execute it".
+# Bare-name forbidden builtins. Catches direct calls like ``exec("...")``.
 FORBIDDEN_NAME_CALLS: frozenset[str] = frozenset(
     {
         "exec",
@@ -43,11 +78,11 @@ FORBIDDEN_NAME_CALLS: frozenset[str] = frozenset(
     }
 )
 
-# Attribute-chain calls. Dynamic Python loading or subprocess execution
-# are out of scope for any adapter. We deliberately do NOT forbid
-# ``importlib.metadata.*`` here — that surface is used by the plugin
-# registry under ``checks/`` and never under ``inputs/``.
-FORBIDDEN_ATTR_CALLS: frozenset[str] = frozenset(
+# Forbidden attribute-chain calls (exact match). Each entry is the
+# canonical dotted path AFTER alias resolution. ``os.exec*`` and
+# ``os.spawn*`` are intentionally NOT enumerated here — they are caught
+# by ``FORBIDDEN_ATTR_CALL_PREFIXES`` below.
+FORBIDDEN_ATTR_CALLS_EXACT: frozenset[str] = frozenset(
     {
         "importlib.import_module",
         "importlib.util.spec_from_file_location",
@@ -62,15 +97,27 @@ FORBIDDEN_ATTR_CALLS: frozenset[str] = frozenset(
         "subprocess.check_output",
         "os.system",
         "os.popen",
-        "os.execv",
-        "os.execvp",
-        "os.spawnv",
     }
 )
 
-# Module imports. Forbidden so that aliased re-exports (e.g.
-# ``from runpy import run_path as r``) can't sneak past the call-site
-# checks above.
+# Prefix-matched forbidden families. Covers every ``os.exec*`` /
+# ``os.spawn*`` / ``os.posix_spawn*`` variant the os module
+# documents — including current names (``execv``, ``execve``,
+# ``execvp``, ``execvpe``, ``execl``, ``execle``, ``execlp``,
+# ``execlpe``, ``spawnv``, ``spawnve``, ``spawnvp``, ``spawnvpe``,
+# ``spawnl``, ``spawnle``, ``spawnlp``, ``spawnlpe``,
+# ``posix_spawn``, ``posix_spawnp``) and any future addition under
+# these prefixes.
+FORBIDDEN_ATTR_CALL_PREFIXES: tuple[str, ...] = (
+    "os.exec",
+    "os.spawn",
+    "os.posix_spawn",
+)
+
+# Module imports we forbid outright. ``import X`` and ``import X as Y``
+# both bind ``X``'s code into the process namespace and are rejected.
+# ``builtins`` is included because ``builtins.exec`` / ``builtins.eval``
+# would otherwise bypass the bare-name checks.
 FORBIDDEN_MODULES: frozenset[str] = frozenset(
     {
         "runpy",
@@ -78,14 +125,37 @@ FORBIDDEN_MODULES: frozenset[str] = frozenset(
         "importlib",
         "importlib.util",
         "importlib.machinery",
+        "builtins",
     }
 )
 
+# Modules we allow at the import line (legitimate adapter use) but whose
+# specific attributes are still subject to the forbidden-chain checks.
+# ``os`` is the canonical example: ``os.path`` / ``os.environ`` /
+# ``os.getcwd`` are fine, but ``os.system`` / ``os.exec*`` / ``os.spawn*``
+# / ``os.popen`` are out of bounds. We track aliases on these modules so
+# ``import os as oo; oo.system(...)`` and
+# ``from os import system as sh; sh(...)`` are resolved before checking.
+TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset({"os"})
 
-def _attr_chain(node: ast.AST) -> str | None:
-    """Reduce ``a.b.c`` Attribute chain to the dotted string ``"a.b.c"``.
 
-    Returns None for chains rooted in a non-Name (e.g. ``func()``.attr).
+def _is_forbidden_chain(chain: str) -> bool:
+    """True if a canonical dotted call chain hits the forbidden surface."""
+    if chain in FORBIDDEN_ATTR_CALLS_EXACT:
+        return True
+    return chain.startswith(FORBIDDEN_ATTR_CALL_PREFIXES)
+
+
+def _resolve_attribute_chain(
+    node: ast.Attribute, module_aliases: dict[str, str]
+) -> str | None:
+    """Reduce ``a.b.c`` Attribute chain to a canonical dotted string.
+
+    Substitutes the root Name through ``module_aliases`` so
+    ``import os as oo; oo.system`` resolves to ``"os.system"``.
+
+    Returns None for chains rooted in something that is not a Name
+    (e.g. ``func().attr``) — those are out of scope for static lint.
     """
     parts: list[str] = []
     current: ast.AST = node
@@ -95,17 +165,42 @@ def _attr_chain(node: ast.AST) -> str | None:
     if not isinstance(current, ast.Name):
         return None
     parts.append(current.id)
-    return ".".join(reversed(parts))
+    parts.reverse()
+    root = parts[0]
+    if root in module_aliases:
+        canonical_root = module_aliases[root]
+        parts = canonical_root.split(".") + parts[1:]
+    return ".".join(parts)
 
 
 def _scan_source(source: str, path: Path) -> list[str]:
-    """Return a list of human-readable violation strings."""
+    """Return a list of human-readable violation strings.
+
+    Two passes: pass 1 walks every ``Import`` / ``ImportFrom`` to build
+    alias maps; pass 2 walks every ``Call`` and resolves names back to
+    the canonical module-qualified path before checking the forbidden
+    sets. This catches aliased re-exports that a single-pass call-site
+    scan would miss.
+    """
     try:
         tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:  # pragma: no cover - adapter files compile in CI step
         return [f"{path}:{exc.lineno}: failed to parse: {exc.msg}"]
     rel = path.relative_to(REPO_ROOT)
     violations: list[str] = []
+
+    # --- Pass 1: imports ---------------------------------------------------
+    # module_aliases: locally-bound name -> canonical dotted module path.
+    #   ``import os``            -> {"os": "os"}
+    #   ``import os as op``      -> {"op": "os"}
+    #   ``import os.path``       -> {"os": "os"}      (top-level binding)
+    #   ``import os.path as p``  -> {"p": "os.path"}
+    module_aliases: dict[str, str] = {}
+    # name_aliases: locally-bound name -> (canonical_module, canonical_attr).
+    #   ``from os import system``        -> {"system": ("os", "system")}
+    #   ``from os import system as sh``  -> {"sh":     ("os", "system")}
+    name_aliases: dict[str, tuple[str, str]] = {}
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -114,6 +209,12 @@ def _scan_source(source: str, path: Path) -> list[str]:
                         f"{rel}:{node.lineno}: forbidden import "
                         f"{alias.name!r} (dynamic Python loading surface)"
                     )
+                if alias.asname:
+                    module_aliases[alias.asname] = alias.name
+                else:
+                    # ``import os.path`` binds the top-level ``os`` locally.
+                    top = alias.name.split(".")[0]
+                    module_aliases[top] = top
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             if mod in FORBIDDEN_MODULES:
@@ -121,18 +222,62 @@ def _scan_source(source: str, path: Path) -> list[str]:
                     f"{rel}:{node.lineno}: forbidden from-import "
                     f"{mod!r} (dynamic Python loading surface)"
                 )
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id in FORBIDDEN_NAME_CALLS:
+                # Skip the per-name pass below — the whole module is forbidden.
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    if mod in TRACKED_NON_FORBIDDEN_MODULES:
+                        violations.append(
+                            f"{rel}:{node.lineno}: forbidden wildcard "
+                            f"from-import from {mod!r} "
+                            f"(would alias forbidden names into local scope)"
+                        )
+                    continue
+                # Flag the from-import line itself when the imported
+                # attribute resolves to a forbidden surface — gives a
+                # clearer error than waiting for the call site.
+                if mod in TRACKED_NON_FORBIDDEN_MODULES:
+                    canonical = f"{mod}.{alias.name}"
+                    if _is_forbidden_chain(canonical):
+                        violations.append(
+                            f"{rel}:{node.lineno}: forbidden from-import "
+                            f"of {canonical!r}"
+                        )
+                    local = alias.asname or alias.name
+                    name_aliases[local] = (mod, alias.name)
+
+    # --- Pass 2: call sites ------------------------------------------------
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            # Direct bare-name builtin: e.g. ``exec("...")``.
+            if func.id in FORBIDDEN_NAME_CALLS:
                 violations.append(
                     f"{rel}:{node.lineno}: forbidden builtin call {func.id!r}"
                 )
-            elif isinstance(func, ast.Attribute):
-                chain = _attr_chain(func)
-                if chain and chain in FORBIDDEN_ATTR_CALLS:
-                    violations.append(
-                        f"{rel}:{node.lineno}: forbidden call {chain!r}"
+                continue
+            # Aliased ``from X import Y[ as Z]; Z(...)``.
+            if func.id in name_aliases:
+                mod, attr = name_aliases[func.id]
+                canonical = f"{mod}.{attr}"
+                if _is_forbidden_chain(canonical):
+                    via = (
+                        f" (via from-import alias {func.id!r})"
+                        if func.id != attr
+                        else f" (via from-import of {attr!r})"
                     )
+                    violations.append(
+                        f"{rel}:{node.lineno}: forbidden call "
+                        f"{canonical!r}{via}"
+                    )
+        elif isinstance(func, ast.Attribute):
+            chain = _resolve_attribute_chain(func, module_aliases)
+            if chain and _is_forbidden_chain(chain):
+                violations.append(
+                    f"{rel}:{node.lineno}: forbidden call {chain!r}"
+                )
     return violations
 
 
@@ -174,12 +319,12 @@ def test_adapter_source_contains_no_forbidden_calls_or_imports(
 @pytest.mark.parametrize(
     "snippet,expected_substring",
     [
-        # Bare-name forbidden builtins.
+        # --- Bare-name forbidden builtins ---
         ("exec('print(1)')", "forbidden builtin call 'exec'"),
         ("eval('1+1')", "forbidden builtin call 'eval'"),
         ("__import__('os')", "forbidden builtin call '__import__'"),
         ("compile('x', '<f>', 'exec')", "forbidden builtin call 'compile'"),
-        # Attribute-chain forbidden calls.
+        # --- Attribute-chain forbidden calls (exact set) ---
         (
             "import importlib\nimportlib.import_module('os')",
             "forbidden call 'importlib.import_module'",
@@ -192,7 +337,95 @@ def test_adapter_source_contains_no_forbidden_calls_or_imports(
             "import subprocess\nsubprocess.run(['ls'])",
             "forbidden call 'subprocess.run'",
         ),
-        # Imports alone (catches aliased forms).
+        (
+            "import os\nos.system('ls')",
+            "forbidden call 'os.system'",
+        ),
+        (
+            "import os\nos.popen('ls')",
+            "forbidden call 'os.popen'",
+        ),
+        # --- os.exec* / os.spawn* / os.posix_spawn* prefix families ---
+        (
+            "import os\nos.execv('/bin/sh', ['sh'])",
+            "forbidden call 'os.execv'",
+        ),
+        (
+            "import os\nos.execve('/bin/sh', ['sh'], {})",
+            "forbidden call 'os.execve'",
+        ),
+        (
+            "import os\nos.execvpe('sh', ['sh'], {})",
+            "forbidden call 'os.execvpe'",
+        ),
+        (
+            "import os\nos.execlpe('sh', 'sh', {})",
+            "forbidden call 'os.execlpe'",
+        ),
+        (
+            "import os\nos.spawnv(0, '/bin/sh', ['sh'])",
+            "forbidden call 'os.spawnv'",
+        ),
+        (
+            "import os\nos.spawnvp(0, 'sh', ['sh'])",
+            "forbidden call 'os.spawnvp'",
+        ),
+        (
+            "import os\nos.spawnvpe(0, 'sh', ['sh'], {})",
+            "forbidden call 'os.spawnvpe'",
+        ),
+        (
+            "import os\nos.posix_spawn('/bin/sh', ['sh'], {})",
+            "forbidden call 'os.posix_spawn'",
+        ),
+        (
+            "import os\nos.posix_spawnp('sh', ['sh'], {})",
+            "forbidden call 'os.posix_spawnp'",
+        ),
+        # --- Module-alias bypass: ``import X as Y; Y.forbidden(...)`` ---
+        (
+            "import os as operating_system\noperating_system.system('ls')",
+            "forbidden call 'os.system'",
+        ),
+        (
+            "import os as o\no.execv('/bin/sh', ['sh'])",
+            "forbidden call 'os.execv'",
+        ),
+        (
+            "import os as o\no.posix_spawn('sh', ['sh'], {})",
+            "forbidden call 'os.posix_spawn'",
+        ),
+        # --- From-import alias bypass ---
+        (
+            "from os import system\nsystem('ls')",
+            "forbidden from-import of 'os.system'",
+        ),
+        (
+            "from os import system as sh\nsh('ls')",
+            "forbidden from-import of 'os.system'",
+        ),
+        (
+            "from os import execv as run_binary\nrun_binary('/bin/sh', ['sh'])",
+            "forbidden from-import of 'os.execv'",
+        ),
+        (
+            "from os import execve\nexecve('/bin/sh', ['sh'], {})",
+            "forbidden from-import of 'os.execve'",
+        ),
+        # --- Wildcard from-import from tracked module ---
+        (
+            "from os import *",
+            "forbidden wildcard from-import from 'os'",
+        ),
+        # --- ``builtins`` module surfaces ---
+        ("import builtins", "forbidden import 'builtins'"),
+        ("import builtins as b", "forbidden import 'builtins'"),
+        ("from builtins import eval", "forbidden from-import 'builtins'"),
+        (
+            "from builtins import eval as e",
+            "forbidden from-import 'builtins'",
+        ),
+        # --- Existing imports-alone checks for forbidden modules ---
         ("import runpy", "forbidden import 'runpy'"),
         ("from runpy import run_path", "forbidden from-import 'runpy'"),
         ("import subprocess", "forbidden import 'subprocess'"),
@@ -207,7 +440,10 @@ def test_lint_scanner_catches_known_violation_shapes(
 
     This is the negative-control test for the lint. Without it, a refactor
     that broke the scanner's NodeVisitor logic could silently make the
-    invariant tests pass vacuously.
+    invariant tests pass vacuously. Cases below cover every bypass pattern
+    documented in the module docstring (bare names, attribute chains, prefix
+    families, module aliases, from-import aliases, wildcard imports, and
+    the ``builtins`` surface).
     """
     fake_path = INPUTS_DIR / "__synthetic__.py"
     violations = _scan_source(snippet, fake_path)
@@ -226,34 +462,29 @@ def test_lint_scanner_does_not_false_positive_on_safe_shapes() -> None:
     """Common safe patterns must not trip the scanner.
 
     Documents the boundary so a future "be stricter" patch knows what to
-    avoid breaking.
+    avoid breaking. Anything an adapter under inputs/ legitimately does
+    with ``re``, ``ast``, ``os.path`` / ``os.environ`` / ``os.getcwd``,
+    ``yaml``, or ``json`` must remain green.
     """
     safe = (
         # re.compile is a method call, not the builtin.
         "import re\nPATTERN = re.compile(r'foo')\n"
         # ast.parse is the canonical safe parsing path.
         "import ast\ntree = ast.parse('1+1')\n"
-        # importlib.metadata is OK — used elsewhere for plugin discovery,
-        # not for loading user code. (It's not in inputs/, but the scanner
-        # logic should not flag the import path itself if a future module
-        # legitimately needs metadata.)
-        "from importlib import metadata\neps = metadata.entry_points()\n"
+        # Legitimate os surface used by real adapters.
+        "import os\nROOT = os.environ.get('FOO', '')\n"
+        "import os\nABS = os.path.join('a', 'b')\n"
+        "import os.path\nABS = os.path.abspath('x')\n"
+        "from os import getcwd\ncwd = getcwd()\n"
+        "from os import environ\nval = environ.get('FOO')\n"
         # yaml.safe_load + json.loads are the declared declarative paths.
         "import yaml\nimport json\nx = yaml.safe_load('a: 1')\ny = json.loads('{}')\n"
     )
     fake_path = INPUTS_DIR / "__synthetic_safe__.py"
     violations = _scan_source(safe, fake_path)
-    # Note: ``from importlib import metadata`` triggers an import of the
-    # parent ``importlib`` package which is on the forbidden list.
-    # Document that here and assert the expected single violation — if
-    # an adapter ever genuinely needs importlib.metadata, treat that as
-    # a discussion point rather than a silent allowlist.
-    expected_only = {
-        v for v in violations if "importlib" in v
-    }
-    assert set(violations) == expected_only, (
+    assert not violations, (
         "Safe parsing patterns must not be flagged. Unexpected violations:\n  "
-        + "\n  ".join(sorted(set(violations) - expected_only))
+        + "\n  ".join(sorted(violations))
     )
 
 
