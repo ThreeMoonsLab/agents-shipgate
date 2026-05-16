@@ -255,20 +255,33 @@ def run_scan(
     # ``build_report`` so reviewers see overrides at the top of the
     # report instead of buried in per-finding evidence.
     #
-    # Policy-pack rule IDs are known check IDs for the purposes of
-    # ``run_checks(extra_known_check_ids=...)`` above, so manifests
-    # overriding their severity must not fail as "unknown check_id".
-    # We pass each rule's declared default severity as the audit row's
-    # ``default_severity`` and leave floor=None — floors are a built-in
-    # trust contract by design.
-    policy_pack_defaults: dict[str, Severity] = {
+    # ``extra_known_check_defaults`` is the resolver's escape hatch for
+    # check IDs whose effective emitted severity is NOT the static
+    # catalog default. Two contributors today:
+    #
+    # 1. Policy-pack rule IDs — outside the catalog entirely.
+    # 2. Action-surface policies (``manifest.action_surface.policies[]``)
+    #    emit ``SHIP-ACTION-POLICY-VIOLATION`` findings at the
+    #    user-declared ``policy.severity``. Without this signal the
+    #    resolver would compare a manifest-declared `critical` policy
+    #    against the catalog's static `high` and silently bypass the
+    #    critical → high tier-crossing gate. We aggregate the
+    #    *strongest* declared severity across all matching policies.
+    #
+    # For check IDs in both inputs (e.g. SHIP-ACTION-POLICY-VIOLATION
+    # exists in the catalog), the resolver takes max(catalog default,
+    # supplied default) — see ``severity_overrides.py`` doc.
+    effective_dynamic_defaults: dict[str, Severity] = {
         resolved.rule.id: resolved.rule.severity for resolved in policy_packs.rules
     }
+    action_policy_max = _strongest_action_policy_severity(manifest)
+    if action_policy_max is not None:
+        effective_dynamic_defaults["SHIP-ACTION-POLICY-VIOLATION"] = action_policy_max
     override_resolution = resolve_severity_overrides(
         overrides=manifest.severity_override_entries(),
         acknowledgements=manifest.acknowledge_overrides(),
         catalog=check_catalog(plugins_enabled=plugins_enabled),
-        extra_known_check_defaults=policy_pack_defaults,
+        extra_known_check_defaults=effective_dynamic_defaults,
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
@@ -929,6 +942,40 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
     if rel == ".." or rel.startswith(f"..{os.sep}"):
         return str(resolved)
     return rel
+
+
+_SEVERITY_RANK_FOR_MAX = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+
+
+def _strongest_action_policy_severity(
+    manifest: AgentsShipgateManifest,
+) -> Severity | None:
+    """v0.17 (M1): for ``SHIP-ACTION-POLICY-VIOLATION`` tier-crossing
+    semantics, the effective default severity is the strongest
+    severity declared across ``manifest.action_surface.policies[]``.
+
+    Returns ``None`` when the manifest has no action policies — the
+    caller leaves ``extra_known_check_defaults[SHIP-ACTION-POLICY-VIOLATION]``
+    unset so the resolver falls back to the catalog static default.
+
+    See ``severity_overrides.py::resolve_severity_overrides`` for how
+    this is used: when the supplied value is stronger than the catalog
+    default, it becomes the comparison base for tier-crossing and the
+    audit row's ``default_severity``.
+    """
+    policies = manifest.action_surface.policies
+    if not policies:
+        return None
+    return min(
+        (policy.severity for policy in policies),
+        key=lambda severity: _SEVERITY_RANK_FOR_MAX[severity],
+    )
 
 
 def _check_metadata_lookup(

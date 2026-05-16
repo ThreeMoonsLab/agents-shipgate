@@ -80,7 +80,8 @@
       "new_findings_only": false,
       "would_fail_ci": false,
       "exit_code": 0
-    }
+    },
+    "contribution_rules": []
   },
   "capability_facts": [],
   "declared_intentions": [
@@ -400,7 +401,7 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/tmp/m1-scan-66763/report.json"
+    "json": "/private/tmp/m1-final/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

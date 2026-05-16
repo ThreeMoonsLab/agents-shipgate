@@ -148,12 +148,25 @@ def resolve_severity_overrides(
     Upgrades (override stronger than default) never require
     acknowledgement and never fail — they are strictly conservative.
 
-    ``extra_known_check_defaults`` carries check IDs that are valid
-    targets but live outside the built-in/plugin catalog — primarily
-    policy-pack rules whose IDs flow through ``run_checks(extra_known_check_ids=...)``.
-    Each value is the rule's declared default severity (used as the
-    audit row's ``default_severity``). Policy-pack rules don't carry a
-    ``floor_severity``; the floor concept is built-in only, by design.
+    ``extra_known_check_defaults`` carries the *effective* default
+    severity per check ID, used in two cases:
+
+    1. **Outside-catalog check IDs.** Policy-pack rules whose IDs flow
+       through ``run_checks(extra_known_check_ids=...)`` are valid
+       override targets but live outside the built-in catalog. The
+       resolver synthesizes a metadata entry with the supplied default
+       and no floor (floors are a built-in trust contract).
+    2. **Catalog checks with manifest-declared dynamic severity.**
+       ``SHIP-ACTION-POLICY-VIOLATION`` findings emit at the matching
+       action policy's declared severity (see
+       ``action_surface.policies[].severity``), not the static catalog
+       default. Without this signal, a `severity: critical` action
+       policy with override `high` would compare against the catalog
+       default `high` and silently bypass the critical→high tier-crossing
+       gate. When the supplied default is *stronger* than the catalog
+       default, the resolver uses the supplied value for tier-crossing
+       and audit purposes. Floor enforcement still uses the catalog
+       floor (the static gate floor for the check class).
     """
     today = today or date.today()
     catalog_by_id = _catalog_index(catalog)
@@ -200,7 +213,21 @@ def resolve_severity_overrides(
             )
 
         applied_severity = entry.severity
-        default_severity = target_metadata.default_severity
+        # Effective default for tier-crossing: max(catalog default,
+        # manifest-declared dynamic default). Closes the
+        # SHIP-ACTION-POLICY-VIOLATION bypass — an action policy
+        # declared at ``severity: critical`` makes the effective
+        # default critical, even though the catalog static default
+        # for that check is high. See ``cli/scan.py`` for the
+        # call-site that aggregates action-policy declarations.
+        catalog_default_severity = target_metadata.default_severity
+        dynamic_default = extra_defaults.get(check_id)
+        if dynamic_default is not None and _is_weaker(
+            catalog_default_severity, dynamic_default
+        ):
+            default_severity = dynamic_default
+        else:
+            default_severity = catalog_default_severity
 
         # 2. Floor enforcement. Hard. No ack bypass. Policy-pack rules
         #    fall through with floor=None (extra_defaults path above).

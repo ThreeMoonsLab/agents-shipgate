@@ -81,6 +81,16 @@ def _catalog() -> list[CheckMetadata]:
             default_severity="medium",
             description="No floor.",
         ),
+        # Built-in for the action-surface policy bypass test below. The
+        # static catalog default is "high", but findings emit at the
+        # user-declared ``action_surface.policies[].severity``, which
+        # can be critical.
+        CheckMetadata(
+            id="SHIP-ACTION-POLICY-VIOLATION",
+            category="action_surface",
+            default_severity="high",
+            description="Action-surface policy violation.",
+        ),
     ]
 
 
@@ -451,6 +461,84 @@ def test_policy_pack_rule_override_same_tier_needs_no_ack() -> None:
     assert resolution.override_by_check_id == {"ORG-CUSTOM-CHECK": "low"}
 
 
+# --- Action-surface policies declare per-finding severity ------------------
+
+
+def test_action_policy_critical_overrides_to_high_is_tier_crossing() -> None:
+    """Regression for PR 80 review P1.2. An action policy declared
+    ``severity: critical`` makes the effective default for
+    ``SHIP-ACTION-POLICY-VIOLATION`` critical, even though the catalog
+    static default is high. Override → high is therefore tier-crossing
+    (critical tier → high tier) and requires an acknowledgement.
+
+    Without ``extra_known_check_defaults`` carrying the manifest-declared
+    severity, the resolver would compare high → high and silently
+    accept, downgrading a severity-driven blocker to review_required.
+    """
+    overrides = {
+        "SHIP-ACTION-POLICY-VIOLATION": SeverityOverrideEntry(severity="high"),
+    }
+    with pytest.raises(ConfigError, match=r"crossing.*tier boundary"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=_catalog(),
+            extra_known_check_defaults={
+                "SHIP-ACTION-POLICY-VIOLATION": "critical",
+            },
+        )
+
+
+def test_action_policy_critical_overrides_to_high_with_ack_passes() -> None:
+    """Same as above, with the acknowledgement present. The audit row
+    reports critical → high (the *effective* default, not the catalog
+    static one) so reviewers can see the actual downgrade."""
+    overrides = {
+        "SHIP-ACTION-POLICY-VIOLATION": SeverityOverrideEntry(severity="high"),
+    }
+    acks = [
+        OverrideAcknowledgement(
+            check_id="SHIP-ACTION-POLICY-VIOLATION",
+            reason="release-board approved this policy at high",
+        ),
+    ]
+    resolution = resolve_severity_overrides(
+        overrides=overrides,
+        acknowledgements=acks,
+        catalog=_catalog(),
+        extra_known_check_defaults={
+            "SHIP-ACTION-POLICY-VIOLATION": "critical",
+        },
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert row.default_severity == "critical"
+    assert row.applied_severity == "high"
+    assert row.tier_crossed is True
+    assert row.direction == "downgrade"
+    assert row.reason == "release-board approved this policy at high"
+
+
+def test_action_policy_dynamic_default_only_used_when_stronger() -> None:
+    """If the manifest declares an action policy at ``severity: medium``
+    (weaker than the catalog static default of high), the resolver
+    keeps the catalog default for tier-crossing semantics. The dynamic
+    default only escalates, never de-escalates."""
+    overrides = {
+        "SHIP-ACTION-POLICY-VIOLATION": SeverityOverrideEntry(severity="medium"),
+    }
+    # high (catalog) → medium IS tier-crossing — needs ack.
+    with pytest.raises(ConfigError, match=r"crossing.*tier boundary"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=_catalog(),
+            # Manifest weaker than catalog: catalog wins.
+            extra_known_check_defaults={
+                "SHIP-ACTION-POLICY-VIOLATION": "medium",
+            },
+        )
+
+
 def test_policy_pack_rule_override_with_ack_passes() -> None:
     """Same as the prior tier-crossing test, but the ack is present.
     The override applies and the audit row picks up the ack reason."""
@@ -629,7 +717,7 @@ def test_resolver_output_feeds_apply_severity_overrides_cleanly() -> None:
 
 
 def test_check_metadata_rejects_floor_above_default() -> None:
-    with pytest.raises(ValueError, match=r"cannot be stronger"):
+    with pytest.raises(ValueError, match=r"must not exceed"):
         CheckMetadata(
             id="SHIP-X",
             category="x",
