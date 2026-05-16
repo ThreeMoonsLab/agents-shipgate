@@ -736,6 +736,34 @@ class ActionSurfaceConfig(BaseModel):
         return self
 
 
+BaselineIntegrityMode = Literal["off", "warn", "strict"]
+
+
+class BaselineConfig(BaseModel):
+    """Manifest knob governing v0.5 baseline integrity checks.
+
+    ``integrity_mode`` decides what happens when ``scan`` (with
+    ``--baseline``) detects an integrity issue:
+
+    - ``off``: no integrity checks run (back-compat escape hatch for
+      repos that have not migrated to v0.5 baselines yet).
+    - ``warn`` (default in v0.17): integrity findings are emitted but
+      ``blocks_release`` is false; release decision is unaffected.
+    - ``strict``: ``SHIP-BASELINE-INTEGRITY-MISMATCH`` findings get
+      ``blocks_release=true`` and ``agents-shipgate baseline verify``
+      exits with code 6 on the same condition. Recommended target for
+      v0.18.
+
+    ``audit_log`` overrides the default audit log path (relative to
+    the baseline file's directory). Usually left at its default.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    integrity_mode: BaselineIntegrityMode = "warn"
+    audit_log: str | None = None
+
+
 class CiConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -796,6 +824,7 @@ class AgentsShipgateManifest(BaseModel):
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
     action_surface: ActionSurfaceConfig = Field(default_factory=ActionSurfaceConfig)
     ci: CiConfig = Field(default_factory=CiConfig)
+    baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
     @model_validator(mode="after")

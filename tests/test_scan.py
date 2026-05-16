@@ -320,7 +320,7 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
         baseline_path=baseline_path,
     )
 
-    assert baseline.schema_version == "0.4"
+    assert baseline.schema_version == "0.5"
     assert baseline.tool_surface_facts is not None
     assert baseline.action_surface_facts is not None
     assert first_report.run_id == second_report.run_id

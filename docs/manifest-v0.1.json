@@ -604,6 +604,36 @@
       "title": "ArtifactPathConfig",
       "type": "object"
     },
+    "BaselineConfig": {
+      "additionalProperties": false,
+      "description": "Manifest knob governing v0.5 baseline integrity checks.\n\n``integrity_mode`` decides what happens when ``scan`` (with\n``--baseline``) detects an integrity issue:\n\n- ``off``: no integrity checks run (back-compat escape hatch for\n  repos that have not migrated to v0.5 baselines yet).\n- ``warn`` (default in v0.17): integrity findings are emitted but\n  ``blocks_release`` is false; release decision is unaffected.\n- ``strict``: ``SHIP-BASELINE-INTEGRITY-MISMATCH`` findings get\n  ``blocks_release=true`` and ``agents-shipgate baseline verify``\n  exits with code 6 on the same condition. Recommended target for\n  v0.18.\n\n``audit_log`` overrides the default audit log path (relative to\nthe baseline file's directory). Usually left at its default.",
+      "properties": {
+        "audit_log": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audit Log"
+        },
+        "integrity_mode": {
+          "default": "warn",
+          "enum": [
+            "off",
+            "warn",
+            "strict"
+          ],
+          "title": "Integrity Mode",
+          "type": "string"
+        }
+      },
+      "title": "BaselineConfig",
+      "type": "object"
+    },
     "ChecksConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1506,6 +1536,9 @@
         }
       ],
       "default": null
+    },
+    "baseline": {
+      "$ref": "#/$defs/BaselineConfig"
     },
     "checks": {
       "$ref": "#/$defs/ChecksConfig"

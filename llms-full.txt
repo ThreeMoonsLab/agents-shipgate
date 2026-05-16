@@ -1481,6 +1481,37 @@ who is accountable for remediation.
 unused scopes or add tool metadata showing why the permission is needed. Broad
 unused write/admin scopes are `high`; other unused scopes are `medium`.
 
+### SHIP-BASELINE-INTEGRITY-MISMATCH
+
+Baseline file integrity check failed. Emitted when the baseline JSON has been
+edited outside `agents-shipgate baseline save` (hash mismatch against the
+audit log), when the audit log is missing or empty for a non-empty baseline,
+when an entry's `provenance.run_id` is not present in the audit log, or when
+an entry pre-dates the v0.5 provenance contract. In
+`baseline.integrity_mode: strict` the finding carries `blocks_release=true`
+and `agents-shipgate baseline verify --strict` exits with code 6.
+Re-run `agents-shipgate baseline save` to refresh the baseline alongside its
+audit row; investigate the diff before accepting.
+
+### SHIP-BASELINE-ENTRY-EXPIRED
+
+A baseline entry's reviewer-set `provenance.expires` date is past today.
+Renewable consent is a deliberate choice: accepted technical debt should
+need re-review on a schedule, not a silent extension. Re-review the entry
+and either remove it, fix the underlying finding, or extend
+`provenance.expires` with a new `reason`.
+
+### SHIP-BASELINE-ENTRY-STALE
+
+A baseline entry no longer corresponds to an active finding or check ID.
+Two sub-kinds, both `low` severity:
+
+- `deprecated_check_id` — entry references an alias in `LEGACY_CHECK_ID_ALIASES`.
+  Update the entry to the canonical replacement check IDs (re-running
+  `baseline save` does not rewrite check IDs).
+- `resolved_not_pruned` — entry matched no active scan finding. Re-run
+  `agents-shipgate baseline save` to drop the entry from the baseline.
+
 ## Risk Tags
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
