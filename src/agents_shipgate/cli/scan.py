@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 
-from agents_shipgate.checks.registry import run_checks
+from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
@@ -41,6 +41,7 @@ from agents_shipgate.core.models import (
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
+from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
@@ -245,7 +246,19 @@ def run_scan(
     )
     findings = dedupe_findings(findings)
     assign_finding_ids(findings)
-    apply_severity_overrides(findings, manifest.severity_overrides())
+    # v0.17 (M1): resolve overrides up front. The resolver enforces
+    # ``floor_severity``, validates tier-crossing acknowledgements, and
+    # rejects expired acks — all raise ConfigError (exit 2) so the
+    # mutation pass below operates only on a manifest that has passed
+    # policy validation. The audit envelope is carried through to
+    # ``build_report`` so reviewers see overrides at the top of the
+    # report instead of buried in per-finding evidence.
+    override_resolution = resolve_severity_overrides(
+        overrides=manifest.severity_override_entries(),
+        acknowledgements=manifest.acknowledge_overrides(),
+        catalog=check_catalog(plugins_enabled=plugins_enabled),
+    )
+    apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
     if suggest_patches:
         _attach_patches(
@@ -370,6 +383,10 @@ def run_scan(
         tool_surface_diff=tool_surface_diff,
         action_surface_facts=action_surface_facts,
         action_surface_diff=action_surface_diff,
+        # v0.17 (M1): top-of-report policy audit. Always emitted (may
+        # be an empty envelope) so consumers can rely on the field
+        # existing in v0.17 reports.
+        policy_audit=override_resolution.audit,
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)

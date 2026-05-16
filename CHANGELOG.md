@@ -2,13 +2,71 @@
 
 ## Unreleased
 
+- **v0.17 / M1 trust-hardening: severity-override floor + audit.**
+  - `core.models.CheckMetadata` gains an optional `floor_severity` field
+    (Severity | None). 16 release-critical built-in checks now declare a
+    hard floor:
+    - `SHIP-POLICY-APPROVAL-MISSING` (critical → floor "high")
+    - `SHIP-ACTION-{FINANCIAL-WRITE-CONTROL-MISSING, DESTRUCTIVE-ROLLBACK-MISSING,
+      WILDCARD-SCOPE, EFFECT-ESCALATED, APPROVAL-REMOVED}` (critical → floor "high")
+    - `SHIP-AUTH-{MISSING-SCOPE, MANIFEST-BROAD-SCOPE, TOOL-BROAD-SCOPE,
+      SCOPE-COVERAGE-MISSING}` (high → floor "medium")
+    - `SHIP-SCOPE-{TOOL-OUTSIDE-PURPOSE, PROHIBITED-TOOL-PRESENT}` (high → floor "medium")
+    - `SHIP-INVENTORY-{WILDCARD-TOOLS, LOW-CONFIDENCE-PRODUCTION-SURFACE}` (high → floor "medium")
+    - `SHIP-POLICY-CONFIRMATION-MISSING` (high → floor "medium")
+    - `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (high → floor "medium")
+  - Any `checks.severity_overrides` entry that resolves below the floor
+    is rejected as a manifest config error (exit 2). The floor is hard;
+    no acknowledgement bypasses it. **Breaking** for manifests that
+    previously downgraded these checks below their new floor — fix by
+    raising the override to floor-or-above, or removing the override.
+  - `checks.severity_overrides` accepts both the legacy scalar form
+    (`SHIP-XYZ: medium`) and a new rich form
+    (`SHIP-XYZ: { severity, reason, expires }`). Reason flows into the
+    new audit row; expires gives reviewers a time-bounded override.
+  - New `checks.acknowledge_overrides[]` block. Required for any
+    severity override whose application crosses a severity tier
+    boundary (critical ↔ high, high ↔ medium/low/info) as a downgrade.
+    Tier-crossing **upgrades** never require ack (strictly more
+    conservative). Same-tier downgrades (medium → low) don't require ack.
+    For checks emitted with manifest-declared severity (action-surface
+    policies via `SHIP-ACTION-POLICY-VIOLATION`, policy-pack rules)
+    the resolver compares against the strongest declared severity
+    across the manifest, not the static catalog default — so a
+    `severity: critical` action policy with override `high` is
+    correctly tier-crossing and requires ack.
+  - Expired `acknowledge_overrides` entry raises a manifest config error
+    (exit 2) — no advisory-mode bypass. Same hard contract applies to
+    `expires` on rich-form `severity_overrides` entries.
+  - New top-level `report.policy_audit` block surfacing every applied
+    override:
+    `policy_audit.severity_overrides_applied[].{check_id,
+    default_severity, applied_severity, manifest_path, reason,
+    tier_crossed, direction, expires}`. Always emitted on scans (empty
+    envelope when no overrides applied); required + non-nullable on
+    the wire (mirrors the v0.12 `agent_summary` pattern). Lands at
+    `report_schema_version: "0.17"` alongside M8's
+    `release_decision.contribution_rules[]` — both audits are additive
+    and share the same schema bump.
+  - Markdown report renders a new "Policy Audit" section between
+    Release Decision and Summary when overrides exist. GitHub step
+    summary adds a one-liner counting overrides + tier-crossed +
+    upgrades/downgrades.
+  - New module `core/severity_overrides.py` owns floor/tier/ack/expiry
+    resolution as a pure function; `core/findings.py::apply_severity_overrides`
+    still consumes a flat `dict[str, Severity]` so existing direct
+    callers and tests stay byte-compatible.
+  - `AgentsShipgateManifest.severity_overrides()` still returns the
+    flat scalar projection for back-compat; new
+    `severity_override_entries()` returns the rich shape and
+    `acknowledge_overrides()` returns the ack list.
 - Added `release_decision.contribution_rules[]` — a deterministic
   per-finding audit of how each finding contributed to the release
   decision (M8 of the Trust Hardening Pass). Bumps
-  `report_schema_version` to `0.17`. Exactly one row per
-  `report.findings` entry (including suppressed) with `category` ∈
-  `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new,
-  severity_block_new, policy_baseline_accepted,
+  `report_schema_version` to `0.17` (shared with M1's `policy_audit`).
+  Exactly one row per `report.findings` entry (including suppressed)
+  with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈
+  `{policy_block_new, severity_block_new, policy_baseline_accepted,
   severity_baseline_accepted, review_required, sub_threshold,
   suppressed}`. The new `STABILITY.md` "Release decision truth table"
   documents which `(rule, category)` pair fires for every

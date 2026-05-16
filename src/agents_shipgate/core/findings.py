@@ -19,6 +19,7 @@ from agents_shipgate.core.models import (
     CodexPluginSurface,
     Finding,
     LoadedPolicyPack,
+    PolicyAudit,
     ReadinessReport,
     ReleaseDecision,
     ReportSummary,
@@ -794,6 +795,7 @@ def build_report(
     tool_surface_diff: ToolSurfaceDiff | None = None,
     action_surface_facts: ActionSurfaceFacts | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
+    policy_audit: PolicyAudit | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -819,6 +821,11 @@ def build_report(
         loaded_plugins=loaded_plugins or [],
         tool_inventory=tool_inventory(tools),
         source_warnings=source_warnings or [],
+        # v0.17 (M1): policy audit envelope. Always present on emitted
+        # scans (empty when no overrides applied) so consumers can read
+        # ``report.policy_audit.severity_overrides_applied`` without a
+        # null check.
+        policy_audit=policy_audit or PolicyAudit(),
     )
     report.release_decision = build_release_decision(
         report=report,

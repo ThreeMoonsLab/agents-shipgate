@@ -195,6 +195,12 @@ def build_report_schema() -> tuple[Path, str]:
             # populates it. Mark required at the schema level so a
             # payload missing the field fails validation.
             "agent_summary",
+            # v0.17 (M1): policy_audit is the top-of-report audit envelope
+            # for severity overrides applied during scan. Optional in
+            # Python for back-compat with older fixtures; emitted scans
+            # always populate it (empty envelope when no overrides), so
+            # we mark it required + non-nullable on the wire.
+            "policy_audit",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -218,6 +224,13 @@ def build_report_schema() -> tuple[Path, str]:
     # `anyOf: [AgentSummary, null]`, which would let a payload silently
     # ship with `agent_summary: null` and violate the v0.12 contract.
     properties["agent_summary"] = {"$ref": "#/$defs/AgentSummary"}
+    # v0.17 (M1): same tightening for policy_audit. Pydantic emits
+    # `anyOf: [PolicyAudit, null]` for the Optional Python field; on
+    # the wire every emitted report carries a real PolicyAudit
+    # envelope (may be empty), never null. The const + non-nullable
+    # form lets consumers read ``policy_audit.severity_overrides_applied``
+    # without a null check.
+    properties["policy_audit"] = {"$ref": "#/$defs/PolicyAudit"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
