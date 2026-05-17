@@ -11,7 +11,7 @@
         "change"
       ],
       "fires_when": "Base action approval.required was true and head no longer requires approval.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-ACTION-APPROVAL-REMOVED",
       "rationale": "Removing approval weakens the release boundary for an existing action.",
       "recommendation": "Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket.",
@@ -49,7 +49,7 @@
         "missing"
       ],
       "fires_when": "An added destructive action lacks approval.required or safeguards.rollback.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
       "rationale": "Destructive actions need explicit approval and rollback evidence before release.",
       "recommendation": "Declare approval.required and safeguards.rollback or remove the destructive action.",
@@ -85,7 +85,7 @@
         "change"
       ],
       "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-ACTION-EFFECT-ESCALATED",
       "rationale": "Effect escalation changes what the agent can do in the real world and needs explicit review.",
       "recommendation": "Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation.",
@@ -121,7 +121,7 @@
         "missing"
       ],
       "fires_when": "An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
       "rationale": "Financial write actions need approval, audit, and idempotency evidence before release.",
       "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency.",
@@ -194,7 +194,7 @@
         "change"
       ],
       "fires_when": "An added action declares a broad scope, or a modified action expands into a broad scope.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-ACTION-WILDCARD-SCOPE",
       "rationale": "Wildcard scopes make action blast radius too broad for deterministic release review.",
       "recommendation": "Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes.",
@@ -511,7 +511,7 @@
         "scopes"
       ],
       "fires_when": "permissions.scopes contains wildcard/admin-like scopes.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
       "rationale": "Broad manifest scopes weaken least-privilege review.",
       "recommendation": "Replace with operation-specific scopes.",
@@ -528,7 +528,7 @@
         "risk_tags"
       ],
       "fires_when": "A write or sensitive-data tool has no auth scopes.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-AUTH-MISSING-SCOPE",
       "rationale": "Reviewers cannot assess least privilege without scope metadata.",
       "recommendation": "Declare scopes in OpenAPI, MCP, or manifest metadata.",
@@ -547,7 +547,7 @@
         "missing_scopes"
       ],
       "fires_when": "A tool scope is absent from permissions.scopes and not covered by a wildcard.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
       "rationale": "The manifest should describe the actual permissions needed by the release.",
       "recommendation": "Add or reconcile required scopes.",
@@ -564,7 +564,7 @@
         "scopes"
       ],
       "fires_when": "A tool auth scope is wildcard/admin-like.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-AUTH-TOOL-BROAD-SCOPE",
       "rationale": "Tool-level broad scopes may grant more power than the operation needs.",
       "recommendation": "Use narrower tool scopes.",
@@ -875,7 +875,7 @@
         "tools"
       ],
       "fires_when": "environment.target is production and tools include lower-confidence extraction.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE",
       "rationale": "Production promotion should not depend primarily on best-effort SDK inference.",
       "recommendation": "Declare those tools through manifest, MCP, or OpenAPI inputs.",
@@ -928,7 +928,7 @@
         "source_ref"
       ],
       "fires_when": "A source declares all tools or wildcard exposure.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-INVENTORY-WILDCARD-TOOLS",
       "rationale": "Wildcard tools make review and least-privilege reasoning impossible.",
       "recommendation": "Replace wildcard exposure with an explicit allowlist.",
@@ -1184,7 +1184,7 @@
         "policy_match"
       ],
       "fires_when": "Financial/destructive/infrastructure/code-exec risk exists without approval policy.",
-      "floor_severity": null,
+      "floor_severity": "high",
       "id": "SHIP-POLICY-APPROVAL-MISSING",
       "rationale": "High-risk actions need explicit approval before promotion.",
       "recommendation": "Declare an approval policy or remove the tool.",
@@ -1202,7 +1202,7 @@
         "policy_match"
       ],
       "fires_when": "Risk tags require confirmation but no confirmation policy matches.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-POLICY-CONFIRMATION-MISSING",
       "rationale": "Destructive and external actions should require explicit confirmation.",
       "recommendation": "Declare confirmation policy or remove the tool.",
@@ -1273,7 +1273,7 @@
         "risk_tags"
       ],
       "fires_when": "Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "rationale": "Prohibited actions should not be contradicted by attached tool capabilities.",
       "recommendation": "Remove or narrow the tool, or revise policy/scope text.",
@@ -1291,7 +1291,7 @@
         "risk_tags"
       ],
       "fires_when": "Purpose text is read-only but attached tools are write-capable.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE",
       "rationale": "Declared purpose should constrain the attached tool surface.",
       "recommendation": "Remove the tool or update release scope.",
@@ -1309,7 +1309,7 @@
         "retry_policy_known"
       ],
       "fires_when": "Risky write tool lacks idempotency annotation, key, or policy.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
       "rationale": "Retries against non-idempotent writes can duplicate financial or external side effects.",
       "recommendation": "Add idempotency evidence or policy.",

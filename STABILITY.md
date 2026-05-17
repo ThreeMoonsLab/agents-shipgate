@@ -101,6 +101,41 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
 - `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`.
+- `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
+
+### Severity-override floor
+
+`checks.severity_overrides` continues to accept the legacy scalar form
+(`SHIP-XYZ: medium`) and additionally accepts a rich form
+(`SHIP-XYZ: { severity, reason, expires }`). Reviewers should prefer the
+rich form for any tier-crossing or release-critical override.
+
+Some built-in checks declare a per-check **hard floor**
+(`CheckMetadata.floor_severity`). When set, a manifest override that
+resolves to a weaker severity than the floor is rejected as a config
+error (exit 2). The floor is hard — `acknowledge_overrides` does NOT
+bypass it. Use `agents-shipgate list-checks --json` to inspect each
+check's floor.
+
+`checks.acknowledge_overrides[]` (v0.17+) — required for severity
+overrides whose application crosses a severity tier boundary as a
+downgrade. Stable shape: `{check_id, reason, expires?}`. Within-tier
+downgrades (e.g., medium → low) and any upgrade never require ack.
+Tiers (stable within `0.x`): `critical / high / medium-low`. Expired
+ack entries are a manifest config error.
+
+**Dynamic-severity check classes** (v0.17+). For check IDs whose
+emitted finding severity depends on user-declared manifest values —
+specifically `SHIP-ACTION-POLICY-VIOLATION` (emits at
+`action_surface.policies[].severity`) and policy-pack rule IDs (emit
+at the pack rule's `severity`) — the resolver uses the **strongest
+declared severity** across the manifest as the tier-crossing
+comparison base, not the static catalog default. This closes the
+bypass where a `severity: critical` action policy with override
+`high` could appear same-tier against the catalog's `high` default.
+The `policy_audit.severity_overrides_applied[].default_severity`
+row reports the effective (dynamic-aware) default so reviewers see
+the real before/after.
 
 ### Scenario Suggestion YAML
 

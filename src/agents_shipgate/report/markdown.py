@@ -77,6 +77,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
             ]
         )
     _append_release_decision(lines, report)
+    _append_policy_audit(lines, report)
     lines.extend(
         [
             "## Summary",
@@ -153,6 +154,56 @@ def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
         f"would_fail_ci={str(fp.would_fail_ci).lower()} "
         f"(exit {fp.exit_code})"
     )
+    lines.append("")
+
+
+def _append_policy_audit(lines: list[str], report: ReadinessReport) -> None:
+    """v0.17 (M1) policy audit block.
+
+    Surfaces every applied severity override at the top of the markdown
+    report so reviewers don't have to spelunk through per-finding
+    evidence to know what was downgraded. Skipped entirely when no
+    overrides were applied — keeps the existing markdown byte-identical
+    for repos that don't use ``severity_overrides``.
+    """
+    audit = report.policy_audit
+    if audit is None or not audit.severity_overrides_applied:
+        return
+    rows = audit.severity_overrides_applied
+    downgrades = [row for row in rows if row.direction == "downgrade"]
+    upgrades = [row for row in rows if row.direction == "upgrade"]
+    same = [row for row in rows if row.direction == "same"]
+    summary_parts: list[str] = []
+    if downgrades:
+        summary_parts.append(
+            f"{len(downgrades)} downgrade{'s' if len(downgrades) != 1 else ''}"
+        )
+    if upgrades:
+        summary_parts.append(
+            f"{len(upgrades)} upgrade{'s' if len(upgrades) != 1 else ''}"
+        )
+    if same:
+        summary_parts.append(
+            f"{len(same)} no-op{'s' if len(same) != 1 else ''}"
+        )
+    lines.append("## Policy Audit")
+    lines.append("")
+    lines.append(
+        f"{len(rows)} severity override{'s' if len(rows) != 1 else ''} applied "
+        f"({', '.join(summary_parts)})."
+    )
+    lines.append("")
+    for row in rows:
+        tier_note = " · tier-crossed" if row.tier_crossed else ""
+        expiry_note = f" · expires {row.expires}" if row.expires else ""
+        reason_note = (
+            f" — {_safe_markdown_text(row.reason)}" if row.reason else ""
+        )
+        lines.append(
+            f"- {_safe_markdown_text(row.check_id)}: "
+            f"{row.default_severity} → **{row.applied_severity}** "
+            f"({row.direction}{tier_note}{expiry_note}){reason_note}"
+        )
     lines.append("")
 
 

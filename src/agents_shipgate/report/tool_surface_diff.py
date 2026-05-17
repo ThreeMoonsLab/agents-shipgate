@@ -415,13 +415,18 @@ def _policy_facts(
                 summary=suppression.reason,
             )
         )
-    for check_id, severity in sorted(manifest.checks.severity_overrides.items()):
+    # v0.17 (M1): ``severity_overrides`` values are now ``SeverityOverrideEntry``
+    # objects (legacy scalar form is coerced at load time). The diff surface
+    # only needs the resolved severity for change-detection — extract it,
+    # don't dump the whole entry, so the hash stays stable across the v0.16
+    # → v0.17 shape change for repos that didn't add reason/expires.
+    for check_id, entry in sorted(manifest.checks.severity_overrides.items()):
         facts.append(
             ToolSurfacePolicyFact(
                 kind="severity_override",
                 key=check_id,
-                value_hash=_stable_hash(severity),
-                summary=severity,
+                value_hash=_stable_hash(entry.severity),
+                summary=entry.severity,
             )
         )
     for tool_name, override in sorted(manifest.risk_overrides.tools.items()):

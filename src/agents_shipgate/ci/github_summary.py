@@ -58,6 +58,23 @@ def write_github_step_summary(report: ReadinessReport) -> None:
             ),
         ]
     )
+    # v0.17 (M1): single-line surface of severity overrides applied.
+    # Reviewers see this immediately in the GH step summary so a silently
+    # downgraded critical can't hide behind aggregate counts.
+    audit = report.policy_audit
+    if audit and audit.severity_overrides_applied:
+        rows = audit.severity_overrides_applied
+        downgrades = sum(1 for r in rows if r.direction == "downgrade")
+        upgrades = sum(1 for r in rows if r.direction == "upgrade")
+        tier_crossed = sum(1 for r in rows if r.tier_crossed)
+        parts = [f"{len(rows)} severity override{'s' if len(rows) != 1 else ''}"]
+        if downgrades:
+            parts.append(f"{downgrades} downgrade{'s' if downgrades != 1 else ''}")
+        if upgrades:
+            parts.append(f"{upgrades} upgrade{'s' if upgrades != 1 else ''}")
+        if tier_crossed:
+            parts.append(f"{tier_crossed} tier-crossed")
+        lines.append(f"Policy audit: {' · '.join(parts)}.")
     diff = report.tool_surface_diff
     action_diff = report.action_surface_diff
     if action_diff.enabled:

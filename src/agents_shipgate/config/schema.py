@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -520,17 +521,145 @@ def _parse_policy_pack_entries(value: Any) -> list[PolicyPackConfig]:
     return entries
 
 
+class SeverityOverrideEntry(BaseModel):
+    """Rich form of a ``checks.severity_overrides`` entry (v0.17 / M1).
+
+    The legacy scalar form (``SHIP-XYZ: medium``) continues to work via the
+    ``ChecksConfig.severity_overrides`` validator below; the rich form is
+    additive and lets reviewers attach a reason and an expiry to any
+    individual override.
+
+    Example::
+
+        checks:
+          severity_overrides:
+            # Legacy scalar — still supported
+            SHIP-SCHEMA-MISSING-BOUNDS: medium
+            # Rich form — preferred for tier-crossing overrides because
+            # ``reason`` is the only thing that lands in the audit row.
+            SHIP-AUTH-MANIFEST-BROAD-SCOPE:
+              severity: medium
+              reason: "internal-network agent; scope reviewed JIRA-1234"
+              expires: 2026-09-01
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    severity: Severity
+    reason: str | None = None
+    # Optional ISO-8601 date. When present, the manifest loader rejects
+    # the manifest after the date with a structured ``override_ack_expired``
+    # config error. Allows time-bounded acceptance of weakened severity.
+    expires: date | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _strip_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class OverrideAcknowledgement(BaseModel):
+    """One entry in ``checks.acknowledge_overrides`` (v0.17 / M1).
+
+    Required for any ``severity_overrides`` entry whose application
+    crosses a severity tier boundary (critical / high / medium-low) as a
+    downgrade. Tier-crossing upgrades never require ack (strictly more
+    conservative). Below-floor downgrades are rejected outright; ack does
+    not bypass the floor.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    check_id: str
+    reason: str
+    expires: date | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _require_non_empty_reason(cls, value: str) -> str:
+        stripped = (value or "").strip()
+        if not stripped:
+            raise ValueError("acknowledge_overrides reason must be non-empty")
+        return stripped
+
+
 class ChecksConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     ignore: list[SuppressionConfig] = Field(default_factory=list)
     policy_packs: list[PolicyPackConfig] = Field(default_factory=list)
-    severity_overrides: dict[str, Severity] = Field(default_factory=dict)
+    # v0.17 (M1): rich shape accepts either ``Severity`` scalar (legacy)
+    # or ``SeverityOverrideEntry`` (preferred). The validator coerces
+    # scalars so every entry is a ``SeverityOverrideEntry`` after load —
+    # downstream code never sees the raw scalar form.
+    severity_overrides: dict[str, SeverityOverrideEntry] = Field(
+        default_factory=dict
+    )
+    # v0.17 (M1): explicit per-check acknowledgement of tier-crossing
+    # severity downgrades. Empty by default. The loader cross-checks
+    # this list against the resolved overrides and raises ``ConfigError``
+    # (exit 2) for missing acks or expired entries.
+    acknowledge_overrides: list[OverrideAcknowledgement] = Field(
+        default_factory=list
+    )
 
     @field_validator("policy_packs", mode="before")
     @classmethod
     def parse_policy_packs(cls, value: Any) -> list[PolicyPackConfig]:
         return _parse_policy_pack_entries(value)
+
+    @field_validator("severity_overrides", mode="before")
+    @classmethod
+    def _coerce_severity_overrides(
+        cls, value: Any
+    ) -> dict[str, SeverityOverrideEntry]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError("checks.severity_overrides must be a mapping")
+        valid_severities = set(get_args(Severity))
+        coerced: dict[str, SeverityOverrideEntry] = {}
+        for check_id, raw in value.items():
+            if isinstance(raw, SeverityOverrideEntry):
+                coerced[check_id] = raw
+                continue
+            if isinstance(raw, str):
+                if raw not in valid_severities:
+                    raise ValueError(
+                        f"severity_overrides[{check_id!r}]: "
+                        f"{raw!r} is not a valid severity "
+                        f"(expected one of {sorted(valid_severities)})"
+                    )
+                coerced[check_id] = SeverityOverrideEntry(
+                    severity=raw  # type: ignore[arg-type]
+                )
+                continue
+            if isinstance(raw, dict):
+                coerced[check_id] = SeverityOverrideEntry.model_validate(raw)
+                continue
+            raise TypeError(
+                f"severity_overrides[{check_id!r}] must be a severity "
+                f"string or a mapping; got {type(raw).__name__}"
+            )
+        return coerced
+
+    @model_validator(mode="after")
+    def _ack_check_ids_unique(self) -> ChecksConfig:
+        # Catch duplicate acknowledgements early so audit accounting is
+        # unambiguous. A check_id appearing twice would create surprising
+        # "latest entry wins" behavior.
+        seen: set[str] = set()
+        for ack in self.acknowledge_overrides:
+            if ack.check_id in seen:
+                raise ValueError(
+                    f"acknowledge_overrides contains duplicate entry for "
+                    f"check_id={ack.check_id!r}"
+                )
+            seen.add(ack.check_id)
+        return self
 
 
 ActionEffect = Literal[
@@ -853,4 +982,27 @@ class AgentsShipgateManifest(BaseModel):
         return self
 
     def severity_overrides(self) -> dict[str, Severity]:
+        """Back-compat accessor: ``{check_id: severity}`` scalar form.
+
+        Pre-v0.17 callers passed this dict directly to
+        ``apply_severity_overrides``. v0.17 introduced the rich shape
+        (``SeverityOverrideEntry``) but the scalar projection is still
+        useful when the caller does not need reason/expires metadata.
+        """
+        return {
+            check_id: entry.severity
+            for check_id, entry in self.checks.severity_overrides.items()
+        }
+
+    def severity_override_entries(self) -> dict[str, SeverityOverrideEntry]:
+        """v0.17 (M1): rich ``{check_id: SeverityOverrideEntry}`` map.
+
+        The current ``apply_severity_overrides`` implementation consumes
+        this form so it can record ``reason`` and ``expires`` in the
+        per-override audit row.
+        """
         return self.checks.severity_overrides
+
+    def acknowledge_overrides(self) -> list[OverrideAcknowledgement]:
+        """v0.17 (M1): list of explicit override acknowledgements."""
+        return self.checks.acknowledge_overrides

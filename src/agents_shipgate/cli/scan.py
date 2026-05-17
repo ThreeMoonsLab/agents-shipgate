@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 
-from agents_shipgate.checks.registry import run_checks
+from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
@@ -36,11 +36,13 @@ from agents_shipgate.core.models import (
     N8nArtifacts,
     OpenAIApiArtifacts,
     ReadinessReport,
+    Severity,
     Tool,
     ValidationArtifacts,
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
+from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
@@ -245,7 +247,43 @@ def run_scan(
     )
     findings = dedupe_findings(findings)
     assign_finding_ids(findings)
-    apply_severity_overrides(findings, manifest.severity_overrides())
+    # v0.17 (M1): resolve overrides up front. The resolver enforces
+    # ``floor_severity``, validates tier-crossing acknowledgements, and
+    # rejects expired acks/overrides — all raise ConfigError (exit 2) so
+    # the mutation pass below operates only on a manifest that has
+    # passed policy validation. The audit envelope is carried through to
+    # ``build_report`` so reviewers see overrides at the top of the
+    # report instead of buried in per-finding evidence.
+    #
+    # ``extra_known_check_defaults`` is the resolver's escape hatch for
+    # check IDs whose effective emitted severity is NOT the static
+    # catalog default. Two contributors today:
+    #
+    # 1. Policy-pack rule IDs — outside the catalog entirely.
+    # 2. Action-surface policies (``manifest.action_surface.policies[]``)
+    #    emit ``SHIP-ACTION-POLICY-VIOLATION`` findings at the
+    #    user-declared ``policy.severity``. Without this signal the
+    #    resolver would compare a manifest-declared `critical` policy
+    #    against the catalog's static `high` and silently bypass the
+    #    critical → high tier-crossing gate. We aggregate the
+    #    *strongest* declared severity across all matching policies.
+    #
+    # For check IDs in both inputs (e.g. SHIP-ACTION-POLICY-VIOLATION
+    # exists in the catalog), the resolver takes max(catalog default,
+    # supplied default) — see ``severity_overrides.py`` doc.
+    effective_dynamic_defaults: dict[str, Severity] = {
+        resolved.rule.id: resolved.rule.severity for resolved in policy_packs.rules
+    }
+    action_policy_max = _strongest_action_policy_severity(manifest)
+    if action_policy_max is not None:
+        effective_dynamic_defaults["SHIP-ACTION-POLICY-VIOLATION"] = action_policy_max
+    override_resolution = resolve_severity_overrides(
+        overrides=manifest.severity_override_entries(),
+        acknowledgements=manifest.acknowledge_overrides(),
+        catalog=check_catalog(plugins_enabled=plugins_enabled),
+        extra_known_check_defaults=effective_dynamic_defaults,
+    )
+    apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
     if suggest_patches:
         _attach_patches(
@@ -370,6 +408,10 @@ def run_scan(
         tool_surface_diff=tool_surface_diff,
         action_surface_facts=action_surface_facts,
         action_surface_diff=action_surface_diff,
+        # v0.17 (M1): top-of-report policy audit. Always emitted (may
+        # be an empty envelope) so consumers can rely on the field
+        # existing in v0.17 reports.
+        policy_audit=override_resolution.audit,
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -900,6 +942,40 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
     if rel == ".." or rel.startswith(f"..{os.sep}"):
         return str(resolved)
     return rel
+
+
+_SEVERITY_RANK_FOR_MAX = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+
+
+def _strongest_action_policy_severity(
+    manifest: AgentsShipgateManifest,
+) -> Severity | None:
+    """v0.17 (M1): for ``SHIP-ACTION-POLICY-VIOLATION`` tier-crossing
+    semantics, the effective default severity is the strongest
+    severity declared across ``manifest.action_surface.policies[]``.
+
+    Returns ``None`` when the manifest has no action policies — the
+    caller leaves ``extra_known_check_defaults[SHIP-ACTION-POLICY-VIOLATION]``
+    unset so the resolver falls back to the catalog static default.
+
+    See ``severity_overrides.py::resolve_severity_overrides`` for how
+    this is used: when the supplied value is stronger than the catalog
+    default, it becomes the comparison base for tier-crossing and the
+    audit row's ``default_severity``.
+    """
+    policies = manifest.action_surface.policies
+    if not policies:
+        return None
+    return min(
+        (policy.severity for policy in policies),
+        key=lambda severity: _SEVERITY_RANK_FOR_MAX[severity],
+    )
 
 
 def _check_metadata_lookup(
