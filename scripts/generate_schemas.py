@@ -234,6 +234,7 @@ def build_report_schema() -> tuple[Path, str]:
             # always populate it (empty envelope when no overrides), so
             # we mark it required + non-nullable on the wire.
             "policy_audit",
+            "privacy_audit",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -264,6 +265,9 @@ def build_report_schema() -> tuple[Path, str]:
     # form lets consumers read ``policy_audit.severity_overrides_applied``
     # without a null check.
     properties["policy_audit"] = {"$ref": "#/$defs/PolicyAudit"}
+    # v0.18: same tightening for privacy_audit. Emitted scans always
+    # carry the default-on privacy envelope after public output redaction.
+    properties["privacy_audit"] = {"$ref": "#/$defs/PrivacyAudit"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
@@ -271,6 +275,22 @@ def build_report_schema() -> tuple[Path, str]:
     # Optional v0.6 additions (Finding.patches) intentionally stay
     # optional — additive only.
     defs = schema.setdefault("$defs", {})
+    if "PrivacyAudit" in defs:
+        defs["PrivacyAudit"]["required"] = sorted(
+            [
+                "enabled",
+                "rules_version",
+                "sensitive_field_inventory_version",
+                "redacted_occurrence_count",
+                "redacted_paths",
+                "output_surfaces",
+                "notes",
+            ]
+        )
+    if "RedactedPathSummary" in defs:
+        defs["RedactedPathSummary"]["required"] = sorted(
+            ["path", "count", "kinds"]
+        )
     if "Finding" in defs:
         defs["Finding"]["required"] = sorted(
             [

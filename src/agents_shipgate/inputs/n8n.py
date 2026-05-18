@@ -19,6 +19,9 @@ from agents_shipgate.core.models import (
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.privacy import SECRET_PATTERNS
+from agents_shipgate.core.privacy import redact_data as _privacy_redact_data
+from agents_shipgate.core.privacy import redact_text as _privacy_redact_text
 from agents_shipgate.inputs.common import (
     json_pointer_escape,
     load_structured_file,
@@ -32,31 +35,6 @@ from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 
 N8N_NODE_TYPE_RE = re.compile(r"^(@n8n/)?n8n-nodes-")
-SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")),
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("github_token", re.compile(r"\bgh[opusr]_[A-Za-z0-9_]{20,}\b")),
-    (
-        "stripe_key",
-        re.compile(r"\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b"),
-    ),
-    ("slack_token", re.compile(r"\bxox[boprs]-[A-Za-z0-9-]{10,}\b")),
-    (
-        "jwt",
-        re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
-    ),
-    (
-        "database_url",
-        re.compile(
-            r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?)://"
-            r"[^:\s/@]+:[^@\s]+@[^ \t\r\n'\"]+"
-        ),
-    ),
-    (
-        "bearer_token",
-        re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE),
-    ),
-)
 FROM_AI_RE = re.compile(
     r"\$fromAI\(\s*['\"]([^'\"]+)['\"]"
     r"(?:\s*,\s*['\"]([^'\"]*)['\"])?"
@@ -1365,28 +1343,11 @@ def _secret_values(value: Any, *, prefix: str) -> list[tuple[str, str]]:
 
 
 def _redact_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    redacted = value
-    for kind, pattern in SECRET_PATTERNS:
-        redacted = pattern.sub(
-            lambda _match, secret_kind=kind: f"[REDACTED:{secret_kind}]",
-            redacted,
-        )
-    return redacted
+    return _privacy_redact_text(value)
 
 
 def _redact_structured_strings(value: Any) -> Any:
-    if isinstance(value, str):
-        return _redact_text(value) or value
-    if isinstance(value, dict):
-        return {
-            (_redact_text(str(key)) or str(key)): _redact_structured_strings(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_structured_strings(item) for item in value]
-    return value
+    return _privacy_redact_data(value)
 
 
 def _selection_mode(parameters: dict[str, Any]) -> str:

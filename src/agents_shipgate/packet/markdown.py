@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.models import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
@@ -62,6 +63,7 @@ _STATUS_LABEL: dict[SectionStatus, str] = {
 def render_packet_markdown(packet: EvidencePacket) -> str:
     """Return the packet rendered as Markdown."""
 
+    packet = sanitize_packet(packet)
     lines: list[str] = []
     _append_header(lines, packet)
     _append_release_decision(lines, packet.release_decision)

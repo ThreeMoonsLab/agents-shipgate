@@ -7,6 +7,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from agents_shipgate.core.privacy import RedactionStats, redact_data
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -21,6 +23,7 @@ class JsonFormatter(logging.Formatter):
         for key, value in record.__dict__.items():
             if key.startswith("agents_shipgate_"):
                 payload[key.removeprefix("agents_shipgate_")] = value
+        payload = redact_data(payload, stats=RedactionStats(), path="$")
         return json.dumps(payload, sort_keys=True, default=str)
 
 

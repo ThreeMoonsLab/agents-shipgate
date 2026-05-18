@@ -30,6 +30,7 @@ from agents_shipgate.core.models import (
     Finding,
     ReadinessReport,
 )
+from agents_shipgate.core.privacy import sanitize_report_payload
 
 _MIN_SUPPORTED_SCHEMA = "0.12"
 
@@ -118,6 +119,8 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
             "that this command depends on. Re-scan with the current "
             "CLI: `agents-shipgate scan -c shipgate.yaml --format json`."
         )
+
+    payload = sanitize_report_payload(payload)
 
     try:
         return ReadinessReport.model_validate(payload), payload

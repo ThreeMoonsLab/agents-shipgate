@@ -12,6 +12,7 @@ from agents_shipgate.core.models import (
     Misalignment,
     ReadinessReport,
 )
+from agents_shipgate.core.privacy import sanitize_report
 
 DISCLAIMER = (
     "Agents Shipgate is an advisory release-readiness scanner. It does not certify "
@@ -57,6 +58,7 @@ def write_markdown_report(report: ReadinessReport, path: Path) -> None:
 
 
 def render_markdown_report(report: ReadinessReport) -> str:
+    report = sanitize_report(report)
     lines: list[str] = []
     summary = report.summary
     lines.extend(

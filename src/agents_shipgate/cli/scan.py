@@ -36,6 +36,7 @@ from agents_shipgate.core.models import (
     ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
+    BaselineSummary,
     CheckMetadata,
     CodexPluginArtifacts,
     CodexPluginSurface,
@@ -45,11 +46,21 @@ from agents_shipgate.core.models import (
     LoadedToolSource,
     N8nArtifacts,
     OpenAIApiArtifacts,
+    PolicyAudit,
     ReadinessReport,
     Severity,
     Tool,
+    ToolSurfaceFacts,
     ValidationArtifacts,
     parse_severity,
+)
+from agents_shipgate.core.privacy import (
+    RedactionStats,
+    build_privacy_audit,
+    redact_data,
+    sanitize_findings,
+    sanitize_model,
+    sanitize_tools,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
@@ -84,6 +95,7 @@ from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
 from agents_shipgate.report.tool_surface_diff import (
+    ToolSurfaceDiffReference,
     build_tool_surface_facts,
     compute_tool_surface_diff,
     disabled_tool_surface_diff,
@@ -166,8 +178,8 @@ def run_scan(
     warnings.extend(duplicate_warnings)
     warnings.extend(_artifact_warnings(artifact_bag))
     policy_packs = load_policy_packs(
-        manifest,
-        base_dir,
+        manifest=manifest,
+        base_dir=base_dir,
         cli_policy_packs=policy_pack_paths,
     )
     warnings.extend(policy_packs.warnings)
@@ -260,7 +272,6 @@ def run_scan(
         )
     )
     findings = dedupe_findings(findings)
-    assign_finding_ids(findings)
     # v0.17 (M1): resolve overrides up front. The resolver enforces
     # ``floor_severity``, validates tier-crossing acknowledgements, and
     # rejects expired acks/overrides — all raise ConfigError (exit 2) so
@@ -318,63 +329,6 @@ def run_scan(
         findings,
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
-    baseline_summary = None
-    if baseline_file and baseline_display_path:
-        baseline_summary = apply_baseline(
-            findings,
-            baseline_file,
-            display_path=baseline_display_path,
-        )
-        # v0.5 baseline-integrity (M2). Runs only when a baseline is in
-        # use and `baseline.integrity_mode` is `warn` or `strict`. In
-        # `off` mode (escape hatch for repos that have not migrated yet)
-        # the check is skipped entirely. Integrity findings flow through
-        # the standard report pipeline but bypass suppression / severity
-        # overrides — silencing tamper detection would defeat the trust
-        # property the audit log defends.
-        integrity_mode = manifest.baseline.integrity_mode
-        if integrity_mode != "off" and baseline_path is not None:
-            audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
-            try:
-                static_issues = verify_baseline(
-                    baseline_path, audit_log_path
-                )
-            except InputParseError as exc:
-                # Audit log corruption is itself an integrity signal —
-                # surface it as a finding rather than failing the scan.
-                logger.warning(
-                    "baseline integrity verification failed",
-                    extra={
-                        "agents_shipgate_baseline_path": str(baseline_path),
-                        "agents_shipgate_error": str(exc),
-                    },
-                )
-                static_issues = []
-                warnings.append(
-                    f"Baseline integrity check skipped: {exc}"
-                )
-            stale_issues = baseline_resolved_fingerprints(
-                findings, baseline_file
-            )
-            integrity_findings = build_integrity_findings(
-                static_issues + stale_issues,
-                context=context,
-                integrity_mode=integrity_mode,
-            )
-            if integrity_findings:
-                # Assign IDs to the new findings. assign_finding_ids is
-                # idempotent — already-IDed findings get re-computed
-                # against the same evidence, producing identical
-                # fingerprints. annotate_remediation re-runs cleanly
-                # because its inputs are per-finding state, not
-                # cross-finding aggregates.
-                findings.extend(integrity_findings)
-                assign_finding_ids(findings)
-                annotate_remediation(
-                    findings,
-                    _check_metadata_lookup(plugins_enabled=plugins_enabled),
-                )
-    attach_action_surface_finding_summary(action_surface_diff, findings)
     logger.debug(
         "checks completed",
         extra={
@@ -407,79 +361,283 @@ def run_scan(
         packet_enabled=packet_cfg.enabled,
         packet_formats=packet_format_set,
     )
-    anthropic_surface = (
-        anthropic_artifacts.surface_summary() if anthropic_artifacts else None
-    )
-    frameworks_surface = _frameworks_surface(
-        adk_artifacts,
-        langchain_artifacts,
-        crewai_artifacts,
-        n8n_artifacts,
-    )
-    tool_surface_facts = build_tool_surface_facts(
-        manifest,
-        tools,
-        findings,
-        api_artifacts,
-        anthropic_artifacts,
-    )
-    if diff_reference_error:
-        tool_surface_diff = disabled_tool_surface_diff(diff_reference_error)
-    else:
-        tool_surface_diff = compute_tool_surface_diff(
-            tool_surface_facts,
-            diff_reference.facts if diff_reference else None,
-            findings,
-            reference=diff_reference,
-        )
-    report = build_report(
-        run_id=_run_id(
-            manifest,
-            tools,
-            findings,
-            api_surface=api_artifacts.surface_summary() if api_artifacts else None,
-            anthropic_surface=anthropic_surface,
-            frameworks=frameworks_surface,
-            codex_plugin_surface=(
-                codex_plugin_artifacts.surface_summary()
-                if codex_plugin_artifacts
-                else None
-            ),
-            action_surface_facts=action_surface_facts,
-        ),
-        manifest=manifest,
-        manifest_dir=str(config_path.resolve().parent),
-        agent=agent.model_dump(exclude_none=True),
-        environment=manifest.environment.model_dump(exclude_none=True),
-        tools=tools,
-        findings=findings,
-        generated_reports={
+
+    privacy_stats = RedactionStats()
+    generated_report_refs = redact_data(
+        {
             key: _relative_display_path(path, base_dir)
             for key, path in generated_paths.items()
         },
-        ci_mode=manifest.ci.mode,
-        fail_on=manifest.ci.fail_on,
-        new_findings_only=baseline_summary is not None,
-        loaded_policy_packs=policy_packs.loaded,
-        loaded_plugins=loaded_plugins,
-        source_warnings=warnings,
-        api_surface=api_artifacts.surface_summary() if api_artifacts else None,
-        anthropic_surface=anthropic_surface,
-        frameworks=frameworks_surface,
-        codex_plugin_surface=(
-            codex_plugin_artifacts.surface_summary() if codex_plugin_artifacts else None
+        stats=privacy_stats,
+        path="generated_reports",
+    )
+    output_surfaces = list(generated_paths)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        output_surfaces.append("github_step_summary")
+
+    public_manifest = sanitize_model(
+        manifest,
+        AgentsShipgateManifest,
+        stats=privacy_stats,
+        path="manifest",
+    )
+    public_manifest_dir = redact_data(
+        str(config_path.resolve().parent),
+        stats=privacy_stats,
+        path="manifest_dir",
+    )
+    public_api_artifacts = (
+        sanitize_model(
+            api_artifacts,
+            OpenAIApiArtifacts,
+            stats=privacy_stats,
+            path="api_artifacts",
+        )
+        if api_artifacts
+        else None
+    )
+    public_anthropic_artifacts = (
+        sanitize_model(
+            anthropic_artifacts,
+            AnthropicArtifacts,
+            stats=privacy_stats,
+            path="anthropic_artifacts",
+        )
+        if anthropic_artifacts
+        else None
+    )
+    public_validation_artifacts = (
+        sanitize_model(
+            validation_artifacts,
+            ValidationArtifacts,
+            stats=privacy_stats,
+            path="validation_artifacts",
+        )
+        if validation_artifacts
+        else None
+    )
+    public_tools = sanitize_tools(tools, stats=privacy_stats)
+    public_findings = dedupe_findings(sanitize_findings(findings, stats=privacy_stats))
+    assign_finding_ids(public_findings)
+
+    public_project = redact_data(
+        public_manifest.project.model_dump(exclude_none=True),
+        stats=privacy_stats,
+        path="project",
+    )
+    public_agent = sanitize_model(agent, Agent, stats=privacy_stats, path="agent")
+    public_environment = redact_data(
+        public_manifest.environment.model_dump(exclude_none=True),
+        stats=privacy_stats,
+        path="environment",
+    )
+    public_source_warnings = redact_data(
+        warnings,
+        stats=privacy_stats,
+        path="source_warnings[]",
+    )
+    public_api_surface = redact_data(
+        public_api_artifacts.surface_summary() if public_api_artifacts else None,
+        stats=privacy_stats,
+        path="api_surface",
+    )
+    public_anthropic_surface = redact_data(
+        public_anthropic_artifacts.surface_summary()
+        if public_anthropic_artifacts
+        else None,
+        stats=privacy_stats,
+        path="anthropic_surface",
+    )
+    public_frameworks_surface = redact_data(
+        _frameworks_surface(
+            adk_artifacts,
+            langchain_artifacts,
+            crewai_artifacts,
+            n8n_artifacts,
         ),
+        stats=privacy_stats,
+        path="frameworks",
+    )
+    public_codex_plugin_surface = _sanitize_codex_plugin_surface(
+        codex_plugin_artifacts.surface_summary() if codex_plugin_artifacts else None,
+        stats=privacy_stats,
+    )
+    public_policy_audit = sanitize_model(
+        override_resolution.audit,
+        PolicyAudit,
+        stats=privacy_stats,
+        path="policy_audit",
+    )
+
+    public_diff_reference = _sanitize_diff_reference(
+        diff_reference,
+        stats=privacy_stats,
+    )
+    public_action_surface_facts = sanitize_model(
+        build_action_surface_facts(
+            public_manifest,
+            agent_id=public_agent.id,
+            tools=public_tools,
+        ),
+        ActionSurfaceFacts,
+        stats=privacy_stats,
+        path="action_surface_facts",
+    )
+    public_action_reference = action_reference_from_scan_reference(public_diff_reference)
+    public_action_surface_diff = compute_action_surface_diff(
+        public_action_surface_facts,
+        public_action_reference.facts if public_action_reference else None,
+        reference=public_action_reference,
+    )
+    if diff_reference_error:
+        public_action_surface_diff.enabled = False
+        public_action_surface_diff.notes = redact_data(
+            [diff_reference_error],
+            stats=privacy_stats,
+            path="action_surface_diff.notes",
+        )
+
+    baseline_summary = None
+    if baseline_file and baseline_display_path:
+        baseline_summary = apply_baseline(
+            public_findings,
+            baseline_file,
+            display_path=baseline_display_path,
+        )
+        baseline_summary = sanitize_model(
+            baseline_summary,
+            BaselineSummary,
+            stats=privacy_stats,
+            path="baseline",
+        )
+        # v0.5 baseline-integrity (M2). Run this after public finding
+        # fingerprints are assigned so integrity output does not depend on
+        # raw secret-bearing finding IDs.
+        integrity_mode = manifest.baseline.integrity_mode
+        if integrity_mode != "off" and baseline_path is not None:
+            audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
+            try:
+                static_issues = verify_baseline(baseline_path, audit_log_path)
+            except InputParseError as exc:
+                logger.warning(
+                    "baseline integrity verification failed",
+                    extra={
+                        "agents_shipgate_baseline_path": str(baseline_path),
+                        "agents_shipgate_error": str(exc),
+                    },
+                )
+                static_issues = []
+                warning = f"Baseline integrity check skipped: {exc}"
+                warnings.append(warning)
+                public_source_warnings.append(
+                    redact_data(
+                        warning,
+                        stats=privacy_stats,
+                        path="source_warnings[]",
+                    )
+                )
+            stale_issues = baseline_resolved_fingerprints(
+                public_findings, baseline_file
+            )
+            integrity_findings = build_integrity_findings(
+                static_issues + stale_issues,
+                context=context,
+                integrity_mode=integrity_mode,
+            )
+            if integrity_findings:
+                public_findings.extend(
+                    sanitize_findings(integrity_findings, stats=privacy_stats)
+                )
+                assign_finding_ids(public_findings)
+                annotate_remediation(
+                    public_findings,
+                    _check_metadata_lookup(plugins_enabled=plugins_enabled),
+                )
+    attach_action_surface_finding_summary(public_action_surface_diff, public_findings)
+
+    public_tool_surface_facts = sanitize_model(
+        build_tool_surface_facts(
+            public_manifest,
+            public_tools,
+            public_findings,
+            public_api_artifacts,
+            public_anthropic_artifacts,
+        ),
+        ToolSurfaceFacts,
+        stats=privacy_stats,
+        path="tool_surface_facts",
+    )
+    if diff_reference_error:
+        public_tool_surface_diff = disabled_tool_surface_diff(
+            redact_data(diff_reference_error, stats=privacy_stats, path="tool_surface_diff.notes")
+        )
+    else:
+        public_tool_surface_diff = compute_tool_surface_diff(
+            public_tool_surface_facts,
+            public_diff_reference.facts if public_diff_reference else None,
+            public_findings,
+            reference=public_diff_reference,
+        )
+    privacy_audit = build_privacy_audit(
+        privacy_stats,
+        output_surfaces=output_surfaces,
+        notes=[
+            "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
+            "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted.",
+        ],
+    )
+    report = build_report(
+        run_id=_run_id(
+            manifest,
+            public_tools,
+            public_findings,
+            project=public_project,
+            agent_name=public_agent.name,
+            environment=public_environment,
+            api_surface=public_api_surface,
+            anthropic_surface=public_anthropic_surface,
+            frameworks=public_frameworks_surface,
+            codex_plugin_surface=public_codex_plugin_surface,
+            action_surface_facts=public_action_surface_facts,
+        ),
+        manifest=public_manifest,
+        project=public_project,
+        manifest_dir=public_manifest_dir,
+        agent=public_agent.model_dump(exclude_none=True),
+        environment=public_environment,
+        tools=public_tools,
+        findings=public_findings,
+        generated_reports=generated_report_refs,
+        ci_mode=public_manifest.ci.mode,
+        fail_on=public_manifest.ci.fail_on,
+        new_findings_only=baseline_summary is not None,
+        loaded_policy_packs=redact_data(
+            policy_packs.loaded,
+            stats=privacy_stats,
+            path="loaded_policy_packs[]",
+        ),
+        loaded_plugins=redact_data(
+            loaded_plugins,
+            stats=privacy_stats,
+            path="loaded_plugins[]",
+        ),
+        source_warnings=public_source_warnings,
+        api_surface=public_api_surface,
+        anthropic_surface=public_anthropic_surface,
+        frameworks=public_frameworks_surface,
+        codex_plugin_surface=public_codex_plugin_surface,
         baseline=baseline_summary,
-        tool_surface_facts=tool_surface_facts,
-        tool_surface_diff=tool_surface_diff,
-        action_surface_facts=action_surface_facts,
-        action_surface_diff=action_surface_diff,
+        tool_surface_facts=public_tool_surface_facts,
+        tool_surface_diff=public_tool_surface_diff,
+        action_surface_facts=public_action_surface_facts,
+        action_surface_diff=public_action_surface_diff,
         # v0.17 (M1): top-of-report policy audit. Always emitted (may
         # be an empty envelope) so consumers can rely on the field
         # existing in v0.17 reports.
-        policy_audit=override_resolution.audit,
+        policy_audit=public_policy_audit,
+        privacy_audit=privacy_audit,
     )
-    apply_capability_diff(report, tools)
+    apply_capability_diff(report, public_tools)
     _write_reports(report, generated_paths, manifest.output.formats)
     if packet_cfg.enabled and packet_format_set:
         assert report.release_decision is not None
@@ -489,13 +647,13 @@ def run_scan(
             project=report.project,
             environment=report.environment,
             run_id=report.run_id,
-            tools=tools,
-            findings=findings,
+            tools=public_tools,
+            findings=public_findings,
             release_decision=report.release_decision,
-            api_artifacts=api_artifacts,
-            anthropic_artifacts=anthropic_artifacts,
-            source_warnings=warnings,
-            validation_artifacts=validation_artifacts,
+            api_artifacts=public_api_artifacts,
+            anthropic_artifacts=public_anthropic_artifacts,
+            source_warnings=public_source_warnings,
+            validation_artifacts=public_validation_artifacts,
             tool_surface_diff=report.tool_surface_diff,
             action_surface_diff=report.action_surface_diff,
             generated_at=packet_generated_at,
@@ -542,7 +700,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep doctor warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
-    return {
+    payload = {
         "project": manifest.project.name,
         "agent": manifest.agent.name,
         "config": str(config_path),
@@ -589,6 +747,7 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             "scope_count": len(manifest.permissions.scopes),
         },
     }
+    return redact_data(payload, stats=RedactionStats(), path="$")
 
 
 def _resolve_source_paths(
@@ -1192,6 +1351,9 @@ def _run_id(
     manifest,
     tools: list[Tool],
     findings,
+    project: dict[str, object] | None = None,
+    agent_name: str | None = None,
+    environment: dict[str, object] | None = None,
     api_surface: dict[str, object] | None = None,
     anthropic_surface: dict[str, object] | None = None,
     frameworks: dict[str, object] | None = None,
@@ -1199,9 +1361,13 @@ def _run_id(
     action_surface_facts: ActionSurfaceFacts | None = None,
 ) -> str:
     payload = {
-        "project": manifest.project.model_dump(mode="json", exclude_none=False),
-        "agent_name": manifest.agent.name,
-        "environment": manifest.environment.model_dump(mode="json", exclude_none=False),
+        "project": project
+        if project is not None
+        else manifest.project.model_dump(mode="json", exclude_none=False),
+        "agent_name": agent_name if agent_name is not None else manifest.agent.name,
+        "environment": environment
+        if environment is not None
+        else manifest.environment.model_dump(mode="json", exclude_none=False),
         "tool_inventory": tool_inventory(tools),
         "findings": [
             finding.model_dump(
@@ -1279,6 +1445,87 @@ def _frameworks_surface(
     if n8n_artifacts:
         surface["n8n"] = n8n_artifacts.surface_summary()
     return surface
+
+
+def _sanitize_codex_plugin_surface(
+    surface: CodexPluginSurface | None,
+    *,
+    stats: RedactionStats,
+) -> CodexPluginSurface | None:
+    if surface is None:
+        return None
+    return sanitize_model(
+        surface,
+        CodexPluginSurface,
+        stats=stats,
+        path="codex_plugin_surface",
+    )
+
+
+def _sanitize_diff_reference(
+    reference: ToolSurfaceDiffReference | None,
+    *,
+    stats: RedactionStats,
+) -> ToolSurfaceDiffReference | None:
+    if reference is None:
+        return None
+    facts = (
+        sanitize_model(
+            reference.facts,
+            ToolSurfaceFacts,
+            stats=stats,
+            path="tool_surface_diff.base.facts",
+        )
+        if reference.facts is not None
+        else None
+    )
+    action_facts = (
+        sanitize_model(
+            reference.action_facts,
+            ActionSurfaceFacts,
+            stats=stats,
+            path="action_surface_diff.base.facts",
+        )
+        if reference.action_facts is not None
+        else None
+    )
+    findings = (
+        [
+            item.__class__.model_validate(
+                redact_data(
+                    item.model_dump(mode="python"),
+                    stats=stats,
+                    path="tool_surface_diff.base.findings[]",
+                )
+            )
+            for item in reference.findings
+        ]
+        if reference.findings is not None
+        else None
+    )
+    return ToolSurfaceDiffReference(
+        kind=reference.kind,
+        facts=facts,
+        path=redact_data(reference.path, stats=stats, path="tool_surface_diff.base.path"),
+        report_schema_version=reference.report_schema_version,
+        baseline_schema_version=reference.baseline_schema_version,
+        action_facts=action_facts,
+        findings=findings,
+        notes=tuple(
+            redact_data(
+                list(reference.notes),
+                stats=stats,
+                path="tool_surface_diff.base.notes[]",
+            )
+        ),
+        action_notes=tuple(
+            redact_data(
+                list(reference.action_notes),
+                stats=stats,
+                path="action_surface_diff.base.notes[]",
+            )
+        ),
+    )
 
 
 def _default_baseline_status(base_dir: Path) -> dict[str, object]:

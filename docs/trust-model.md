@@ -49,6 +49,21 @@ By default Agents Shipgate does not:
   execute code, connect to services, or weaken the default no-execution model.
 - Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.
 
+## Privacy Boundary
+
+- Reports and Release Evidence Packets are local artifacts only. Agents
+  Shipgate does not upload tool schemas, prompts, manifests, reports, or packet
+  files.
+- Public outputs are redacted by default before being written: report JSON,
+  Markdown, SARIF, packet JSON/Markdown/HTML/PDF, GitHub step summaries,
+  `explain-finding` output, and JSON logs.
+- Redaction is best-effort pattern/key based, not a complete secret scanner.
+  It preserves source paths, JSON pointers, scopes, and other local routing
+  metadata while replacing secret-like substrings with `[REDACTED:<kind>]`.
+- v0.18+ reports include `privacy_audit`, which records rules and inventory
+  versions, covered output surfaces, and aggregate redaction counts by
+  structural path. It never stores raw values or raw-value hashes.
+
 ## Plugin Trust Boundary
 
 Plugins are Python code. When plugin loading is enabled, Agents Shipgate imports every installed non-core entry point in the `agents_shipgate.checks` group and runs callable checks from those entry points. The default zero-execution guarantee stops at that opt-in boundary.
