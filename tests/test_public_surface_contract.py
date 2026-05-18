@@ -115,10 +115,13 @@ DO_NOT_USE_CONTEXT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 POSITIONING_PHRASE = (
+    "Local-first, static Tool-Use Readiness release gate for "
+    "AI agent tool surfaces"
+)
+POSITIONING_SCAN_DOCSTRING = (
     "local-first, static Tool-Use Readiness release gate for "
     "AI agent tool surfaces"
 )
-POSITIONING_SCAN_DOCSTRING = "static Tool-Use Readiness release-gate scan"
 POSITIONING_SURFACES = (
     "README.md",
     "AGENTS.md",
@@ -149,9 +152,11 @@ PRIMARY_POSITIONING_SURFACES = (
     "src/agents_shipgate/packet/disclaimer.py",
 )
 BROAD_POSITIONING_PATTERN = re.compile(
-    r"healthcare\s+for\s+agents|agent\s+lifecycle\s+readiness|"
-    r"governance\s+platform|enterprise\s+governance|"
-    r"across\s+the\s+agent\s+lifecycle",
+    r"healthcare[\s\-]+for[\s\-]+agents|"
+    r"agent[\s\-]+lifecycle[\s\-]+readiness|"
+    r"governance[\s\-]+platform|"
+    r"enterprise[\s\-]+governance|"
+    r"across[\s\-]+the[\s\-]+agent[\s\-]+lifecycle",
     re.IGNORECASE,
 )
 
@@ -1205,15 +1210,44 @@ def test_primary_surfaces_use_mvp_wedge_positioning(relpath):
 
 def test_scan_help_uses_tool_use_readiness_positioning():
     text = _normalize_ws(_read("src/agents_shipgate/cli/_register_scan.py"))
-    assert POSITIONING_SCAN_DOCSTRING in text, (
-        "scan command docstring must say it runs a static Tool-Use "
-        "Readiness release-gate scan."
+    assert POSITIONING_SCAN_DOCSTRING.lower() in text.lower(), (
+        "scan command docstring must use the local-first, static Tool-Use "
+        "Readiness release gate positioning."
     )
 
 
+def test_structured_metadata_fields_use_mvp_wedge_positioning():
+    well_known = json.loads(_read(".well-known/agents-shipgate.json"))
+    assert well_known["tagline"] == POSITIONING_PHRASE
+
+    pyproject = tomllib.loads(_read("pyproject.toml"))
+    description = pyproject["project"]["description"]
+    assert description.startswith(f"{POSITIONING_PHRASE}.")
+
+
 def test_report_and_packet_disclaimers_use_mvp_wedge_positioning():
-    assert POSITIONING_PHRASE in DISCLAIMER
-    assert POSITIONING_PHRASE in PACKET_NON_PROOF_HEADLINE
+    assert POSITIONING_PHRASE.lower() in DISCLAIMER.lower()
+    assert POSITIONING_PHRASE.lower() in PACKET_NON_PROOF_HEADLINE.lower()
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "healthcare for agents",
+        "healthcare-for-agents",
+        "agent lifecycle readiness",
+        "agent-lifecycle readiness",
+        "agent-lifecycle-readiness",
+        "governance platform",
+        "governance-platform",
+        "enterprise governance",
+        "enterprise-governance",
+        "across the agent lifecycle",
+        "across-the-agent-lifecycle",
+    ],
+)
+def test_broad_positioning_pattern_catches_space_and_hyphen_variants(phrase):
+    assert BROAD_POSITIONING_PATTERN.search(phrase)
 
 
 @pytest.mark.parametrize("relpath", PRIMARY_POSITIONING_SURFACES)

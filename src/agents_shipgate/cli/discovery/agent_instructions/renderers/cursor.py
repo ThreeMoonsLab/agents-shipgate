@@ -15,7 +15,7 @@ from __future__ import annotations
 def render_file() -> str:
     """Return the full file body for ``.cursor/rules/agents-shipgate.mdc``."""
     return """---
-description: Run Agents Shipgate as the Tool-Use Readiness static release gate.
+description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"

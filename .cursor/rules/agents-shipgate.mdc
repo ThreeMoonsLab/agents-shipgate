@@ -1,5 +1,5 @@
 ---
-description: Run Agents Shipgate as the Tool-Use Readiness static release gate.
+description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"

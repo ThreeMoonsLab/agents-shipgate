@@ -3,7 +3,7 @@
 You are working in a repo that may contain an AI agent — likely one of: an MCP server tool list (`*mcp*.json` or `.agents-shipgate/*.json`), an OpenAPI spec the agent calls, a Codex plugin package (`.codex-plugin/plugin.json`) or marketplace (`.agents/plugins/marketplace.json`), a Python file with `@function_tool` / `@tool` decorators (OpenAI Agents SDK, LangChain, CrewAI), a Google ADK agent in `agent.py`, an Anthropic Messages API artifact set under `prompts/`/`tools/anthropic-tools.json`/`policies/anthropic-policy.yaml`, or an OpenAI API artifact set under `prompts/`/`tools/openai-tools.json`/`openai-config.json`.
 
 Your job is to drive the canonical 4-call flow end-to-end in one tool-using
-turn and add a local-first, static Tool-Use Readiness release gate.
+turn, which adds a local-first, static Tool-Use Readiness release gate.
 
 ## Your task
 

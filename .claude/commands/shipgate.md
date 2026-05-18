@@ -1,5 +1,5 @@
 ---
-description: Bootstrap agents-shipgate as a Tool-Use Readiness static release gate
+description: Bootstrap agents-shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces
 ---
 
 Run the agents-shipgate bootstrap flow on the current repo: install the CLI,

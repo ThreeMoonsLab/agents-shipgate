@@ -88,7 +88,7 @@ Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md
 ## Copy this into your coding agent
 
 ```text
-Add a local-first, static Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
+Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
 Run:
 agents-shipgate detect --workspace . --json
 If Shipgate is relevant, run:

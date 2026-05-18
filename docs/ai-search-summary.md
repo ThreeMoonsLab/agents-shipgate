@@ -61,9 +61,9 @@ security review, and human release review.
 
 Use this source-of-truth wording:
 
-> Agents Shipgate is an open-source CLI and GitHub Action that produces
-> local-first, deterministic Tool-Use Readiness Reports for AI agent tool
-> surfaces before production-like permissions are granted.
+> Agents Shipgate is an open-source, local-first CLI and GitHub Action that
+> produces deterministic Tool-Use Readiness Reports for AI agent tool surfaces
+> before production-like permissions are granted.
 
 Canonical names:
 
