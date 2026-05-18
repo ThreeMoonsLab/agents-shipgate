@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- **v0.18 / PR #1 trust-hardening: `dynamic_default` contract in
+  `CheckMetadata`.** Formalizes the M1 dynamic-severity contract closed
+  in v0.17.
+  - `CheckMetadata.dynamic_default: bool = False` opts a check into the
+    swing-severity category — its emitted finding severity depends on
+    user-declared manifest values rather than the static catalog
+    default. The severity-override resolver must receive the
+    manifest-effective default via `extra_known_check_defaults`;
+    otherwise tier-crossing comparison runs against the static catalog
+    default and an aggressive override can silently bypass the gate.
+  - A new model validator rejects `dynamic_default=True` without
+    `floor_severity` — a swing check without a floor has no safety net.
+  - `SHIP-ACTION-POLICY-VIOLATION` now declares `dynamic_default=True`
+    and `floor_severity="medium"`. Two distinct contracts apply to
+    existing manifests; both produce loud `ConfigError` (exit 2):
+    - **Hard floor (no bypass).** Manifests resolving the check below
+      `medium` — i.e., to `low` or `info` — are rejected by the
+      `floor_severity` validator. `acknowledge_overrides` does NOT
+      bypass the floor; the only remedies are to raise the override to
+      `medium` or above, or remove the override entirely.
+    - **Tier-crossing requires ack.** Downgrading from the catalog
+      default `high` to the floor `medium` crosses the high → normal
+      tier boundary. This case is allowed only with an
+      `acknowledge_overrides` entry that supplies a reason; without one
+      it is rejected with a tier-boundary error (not a floor error).
+    Manifests currently overriding `SHIP-ACTION-POLICY-VIOLATION` to
+    `low`/`info` cannot fix the regression by adding an ack — they must
+    raise the override severity. Manifests overriding to `medium`
+    without an ack pass once the ack is added.
+  - `cli/scan.py:_dynamic_check_defaults` is the new canonical
+    aggregator. It seeds every catalog check carrying
+    `dynamic_default=True` with its static default (step 1), overlays
+    manifest-effective values for action-surface policies (step 2), and
+    adds policy-pack rule IDs (step 3). The seed loop guarantees the
+    resolver's internal-consistency guard cannot false-positive on user
+    input that overrides a swing check without declaring the
+    corresponding manifest section.
+  - A contract test `test_dynamic_default_aggregator_completeness`
+    fails the moment someone adds a new `dynamic_default=True` catalog
+    entry without ensuring the aggregator covers it.
+  - Future checks emitting at manifest-declared severity must (A) set
+    `dynamic_default=True` in `CHECK_METADATA` and (B) add an aggregator
+    overlay branch in `cli/scan.py:_dynamic_check_defaults`. The
+    contract test enforces both.
+- **v0.18 / PR #1 plugin gate: `dynamic_default_not_supported`.**
+  - New plugin-validation status rejects plugins declaring
+    `AGENTS_SHIPGATE_METADATA.dynamic_default=True`. Plugins have no
+    path into the scan dispatcher's aggregator and so could never
+    receive the manifest-effective default needed for tier-crossing
+    comparison; emitting at that severity directly is the supported
+    path (with the floor contract still applying via
+    `CheckMetadata.floor_severity`).
+  - The gate runs **before** `_coerce_metadata()` so a plugin declaring
+    `dynamic_default=True` without `floor_severity` lands in
+    `dynamic_default_not_supported` rather than being mis-classified
+    as `bad_floor` by the new `CheckMetadata` model validator.
+
 - **v0.17 / M1 trust-hardening: severity-override floor + audit.**
   - `core.models.CheckMetadata` gains an optional `floor_severity` field
     (Severity | None). 16 release-critical built-in checks now declare a

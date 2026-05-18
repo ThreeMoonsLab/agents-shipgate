@@ -7,6 +7,7 @@
       "default_severity": "critical",
       "description": "Action approval policy was removed.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-approval-removed",
+      "dynamic_default": false,
       "evidence_fields": [
         "change"
       ],
@@ -24,6 +25,7 @@
       "default_severity": "high",
       "description": "Action declaration weakens an inherited approval or safeguard control.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-control-downgrade",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "path",
@@ -44,6 +46,7 @@
       "default_severity": "critical",
       "description": "New destructive action lacks approval or rollback controls.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-destructive-rollback-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "missing"
@@ -62,6 +65,7 @@
       "default_severity": "high",
       "description": "Action declaration weakens the inferred effect.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-downgrade-declared",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "inferred_effect",
@@ -81,6 +85,7 @@
       "default_severity": "critical",
       "description": "Action effect escalated compared with the base surface.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-effect-escalated",
+      "dynamic_default": false,
       "evidence_fields": [
         "change"
       ],
@@ -98,6 +103,7 @@
       "default_severity": "high",
       "description": "New external communication action lacks audit evidence.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-external-communication-audit-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "missing"
@@ -116,6 +122,7 @@
       "default_severity": "critical",
       "description": "New financial write action lacks required controls.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-financial-write-control-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "missing"
@@ -134,13 +141,14 @@
       "default_severity": "high",
       "description": "An action-surface policy requirement is not satisfied.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-policy-violation",
+      "dynamic_default": true,
       "evidence_fields": [
         "policy_id",
         "action_id",
         "missing"
       ],
       "fires_when": "A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-ACTION-POLICY-VIOLATION",
       "rationale": "Action Surface Diff policies are the reviewer-facing release boundary for external action capability.",
       "recommendation": "Satisfy the action-surface policy requirements or remove/narrow the action.",
@@ -153,6 +161,7 @@
       "default_severity": "high",
       "description": "Action safeguard was removed.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-safeguard-removed",
+      "dynamic_default": false,
       "evidence_fields": [
         "change"
       ],
@@ -170,6 +179,7 @@
       "default_severity": "high",
       "description": "A loaded tool lacks explicit action-surface metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-undeclared",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "tool_name"
@@ -188,6 +198,7 @@
       "default_severity": "critical",
       "description": "Action surface includes a wildcard or admin-like scope.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-wildcard-scope",
+      "dynamic_default": false,
       "evidence_fields": [
         "action_id",
         "scopes",
@@ -207,6 +218,7 @@
       "default_severity": "high",
       "description": "Google ADK toolset cannot be statically enumerated.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-dynamic-toolset-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "toolset",
         "explicit_inventory"
@@ -225,6 +237,7 @@
       "default_severity": "medium",
       "description": "Google ADK eval coverage is not declared.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-eval-coverage-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "agent_count",
         "eval_file_count"
@@ -243,6 +256,7 @@
       "default_severity": "medium",
       "description": "Google ADK function tool lacks static metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-function-tool-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "missing",
         "source_type"
@@ -261,6 +275,7 @@
       "default_severity": "high",
       "description": "High-risk Google ADK tools lack static guardrail evidence.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-guardrail-evidence-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tools"
       ],
@@ -278,6 +293,7 @@
       "default_severity": "high",
       "description": "Google ADK long-running tool lacks an operation contract.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-longrunning-contract-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "output_schema"
       ],
@@ -295,6 +311,7 @@
       "default_severity": "high",
       "description": "Google ADK McpToolset lacks a static tool filter.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-adk-mcp-toolset-unfiltered",
+      "dynamic_default": false,
       "evidence_fields": [
         "source_ref",
         "agent_name",
@@ -314,6 +331,7 @@
       "default_severity": "high",
       "description": "OpenAI API function schema is not strict enough for reliable tool calls.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-function-schema-strictness",
+      "dynamic_default": false,
       "evidence_fields": [
         "issues",
         "risk_tags"
@@ -332,6 +350,7 @@
       "default_severity": "medium",
       "description": "Deprecated compatibility alias for the v0.3 OpenAI API operational readiness bundle.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-operational-readiness",
+      "dynamic_default": false,
       "evidence_fields": [
         "legacy_check_id"
       ],
@@ -349,6 +368,7 @@
       "default_severity": "high",
       "description": "Prompt scope contradicts enabled OpenAI API tools.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch",
+      "dynamic_default": false,
       "evidence_fields": [
         "tools"
       ],
@@ -366,6 +386,7 @@
       "default_severity": "medium",
       "description": "OpenAI API high-risk flow lacks retry policy metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-retry-policy-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "high_risk_tools"
       ],
@@ -383,6 +404,7 @@
       "default_severity": "high",
       "description": "OpenAI API write tool may be retried without idempotency evidence.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-retry-without-idempotency",
+      "dynamic_default": false,
       "evidence_fields": [
         "retry_policy",
         "risk_tags"
@@ -401,6 +423,7 @@
       "default_severity": "medium",
       "description": "OpenAI API structured output schema is missing or under-specified.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-structured-output-readiness",
+      "dynamic_default": false,
       "evidence_fields": [
         "path",
         "issues",
@@ -420,6 +443,7 @@
       "default_severity": "medium",
       "description": "OpenAI API high-risk flow lacks test case metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-test-cases-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "high_risk_tools"
       ],
@@ -437,6 +461,7 @@
       "default_severity": "medium",
       "description": "OpenAI API high-risk flow lacks timeout metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-timeout-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "high_risk_tools"
       ],
@@ -454,6 +479,7 @@
       "default_severity": "medium",
       "description": "OpenAI API high-risk tool lacks success/failure output modeling.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-tool-output-schema-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_output_schemas"
       ],
@@ -471,6 +497,7 @@
       "default_severity": "medium",
       "description": "OpenAI API trace sample shows a policy-controlled tool without approval.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-trace-approval-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_name",
         "approved"
@@ -489,6 +516,7 @@
       "default_severity": "medium",
       "description": "OpenAI API trace sample shows a policy-controlled tool without confirmation.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-trace-confirmation-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_name",
         "confirmed"
@@ -507,6 +535,7 @@
       "default_severity": "high",
       "description": "Manifest declares broad permission scopes.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-manifest-broad-scope",
+      "dynamic_default": false,
       "evidence_fields": [
         "scopes"
       ],
@@ -524,6 +553,7 @@
       "default_severity": "high",
       "description": "Scope-requiring tool lacks declared auth scopes.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-missing-scope",
+      "dynamic_default": false,
       "evidence_fields": [
         "risk_tags"
       ],
@@ -541,6 +571,7 @@
       "default_severity": "high",
       "description": "Tool-required scopes are not covered by manifest permissions.scopes.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-scope-coverage-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_scopes",
         "manifest_scopes",
@@ -560,6 +591,7 @@
       "default_severity": "high",
       "description": "Tool declares broad auth scopes.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-tool-broad-scope",
+      "dynamic_default": false,
       "evidence_fields": [
         "scopes"
       ],
@@ -577,6 +609,7 @@
       "default_severity": "medium",
       "description": "Codex plugin app connector surface is not statically enumerable.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-app-surface-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "plugin",
         "app",
@@ -597,6 +630,7 @@
       "default_severity": "high",
       "description": "Codex plugin component path cannot be loaded.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-component-path-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "plugin",
         "component",
@@ -617,6 +651,7 @@
       "default_severity": "medium",
       "description": "Codex plugin marketplace entry lacks policy metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-marketplace-policy-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "marketplace",
         "plugin",
@@ -636,6 +671,7 @@
       "default_severity": "high",
       "description": "Codex plugin MCP server is declared but not statically enumerable.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-mcp-server-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "plugin",
         "server",
@@ -656,6 +692,7 @@
       "default_severity": "medium",
       "description": "Codex plugin package metadata is incomplete or ambiguous.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "plugin",
         "source_id",
@@ -676,6 +713,7 @@
       "default_severity": "medium",
       "description": "Codex plugin skill metadata is missing or duplicated.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-plugin-skill-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "plugin",
         "skill",
@@ -697,6 +735,7 @@
       "default_severity": "high",
       "description": "CrewAI tool surface cannot be statically enumerated.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-crewai-dynamic-tool-surface-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "surface",
         "explicit_inventory"
@@ -715,6 +754,7 @@
       "default_severity": "medium",
       "description": "CrewAI function tool lacks static metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-crewai-function-tool-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "missing",
         "source_type"
@@ -733,6 +773,7 @@
       "default_severity": "medium",
       "description": "Tool description contains instruction-override-like language.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-doc-injection-risk",
+      "dynamic_default": false,
       "evidence_fields": [
         "matched"
       ],
@@ -750,6 +791,7 @@
       "default_severity": "medium",
       "description": "Tool description is missing or too short.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-doc-missing-description",
+      "dynamic_default": false,
       "evidence_fields": [
         "description_length"
       ],
@@ -767,6 +809,7 @@
       "default_severity": "medium",
       "description": "Tool description contains a secret-like value.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-doc-secret-in-description",
+      "dynamic_default": false,
       "evidence_fields": [
         "matched"
       ],
@@ -784,6 +827,7 @@
       "default_severity": "high",
       "description": "Local HITL approval trace evidence is missing or incomplete for an approval-required tool.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-approval-trace-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_name",
         "required",
@@ -806,6 +850,7 @@
       "default_severity": "high",
       "description": "Local high-risk auto-approval exclusion evidence is missing or incomplete.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-high-risk-exclusion-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "required",
         "reason",
@@ -828,6 +873,7 @@
       "default_severity": "high",
       "description": "Local HITL promotion criteria evidence is missing or incomplete.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-hitl-promotion-criteria-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "target_review_posture",
         "reason",
@@ -850,6 +896,7 @@
       "default_severity": "high",
       "description": "Local HITL override reason evidence is missing or incomplete.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-evidence-override-reason-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "required",
         "reason",
@@ -871,6 +918,7 @@
       "default_severity": "high",
       "description": "Production target includes low-confidence tool extraction.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-low-confidence-production-surface",
+      "dynamic_default": false,
       "evidence_fields": [
         "tools"
       ],
@@ -888,6 +936,7 @@
       "default_severity": "high",
       "description": "Tool surface cannot be enumerated from declared inputs.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_sources"
       ],
@@ -905,6 +954,7 @@
       "default_severity": "medium",
       "description": "Tool surface exceeds the MVP review threshold.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-tool-surface-too-large",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool_count",
         "threshold"
@@ -923,6 +973,7 @@
       "default_severity": "high",
       "description": "Wildcard or all-tools exposure is declared.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-wildcard-tools",
+      "dynamic_default": false,
       "evidence_fields": [
         "source_id",
         "source_ref"
@@ -941,6 +992,7 @@
       "default_severity": "high",
       "description": "LangChain tool surface cannot be statically enumerated.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-langchain-dynamic-tool-surface-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "surface",
         "explicit_inventory"
@@ -959,6 +1011,7 @@
       "default_severity": "medium",
       "description": "LangChain function tool lacks static metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-langchain-function-tool-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "missing",
         "source_type"
@@ -977,6 +1030,7 @@
       "default_severity": "high",
       "description": "Production high-risk tool has no declared owner.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "environment",
         "risk_tags"
@@ -995,6 +1049,7 @@
       "default_severity": "medium",
       "description": "A policy references a missing tool.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-stale-policy",
+      "dynamic_default": false,
       "evidence_fields": [
         "policy",
         "tool"
@@ -1013,6 +1068,7 @@
       "default_severity": "medium",
       "description": "A risk override references a missing tool.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-stale-risk-override",
+      "dynamic_default": false,
       "evidence_fields": [
         "tool"
       ],
@@ -1030,6 +1086,7 @@
       "default_severity": "medium",
       "description": "A suppression references a missing check or tool.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-stale-suppression",
+      "dynamic_default": false,
       "evidence_fields": [
         "check_id",
         "tool",
@@ -1049,6 +1106,7 @@
       "default_severity": "medium",
       "description": "Manifest declares permission scopes unused by loaded tools.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-unused-scope",
+      "dynamic_default": false,
       "evidence_fields": [
         "scope",
         "tool_scopes"
@@ -1067,6 +1125,7 @@
       "default_severity": "medium",
       "description": "n8n AI-exposed tool lacks static metadata.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-ai-tool-metadata-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "missing",
         "source_type"
@@ -1085,6 +1144,7 @@
       "default_severity": "high",
       "description": "n8n credential stubs are not declared.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-credential-evidence-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "credential_ref_count",
         "credential_stub_file_count"
@@ -1103,6 +1163,7 @@
       "default_severity": "high",
       "description": "n8n tool surface cannot be statically enumerated.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-dynamic-tool-surface-not-enumerable",
+      "dynamic_default": false,
       "evidence_fields": [
         "surface",
         "explicit_inventory"
@@ -1121,6 +1182,7 @@
       "default_severity": "medium",
       "description": "n8n eval coverage is not declared.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-eval-coverage-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "workflow_count",
         "ai_agent_count",
@@ -1140,6 +1202,7 @@
       "default_severity": "high",
       "description": "n8n MCP Client Tool exposes an unfiltered toolset.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-mcp-client-toolset-unfiltered",
+      "dynamic_default": false,
       "evidence_fields": [
         "source_ref",
         "node_id",
@@ -1160,6 +1223,7 @@
       "default_severity": "high",
       "description": "n8n workflow JSON contains a secret-like value.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-n8n-secret-in-workflow-parameter",
+      "dynamic_default": false,
       "evidence_fields": [
         "source_ref",
         "parameter_pointer",
@@ -1179,6 +1243,7 @@
       "default_severity": "critical",
       "description": "High-risk tool lacks a declared approval policy.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-approval-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "risk_tags",
         "policy_match"
@@ -1197,6 +1262,7 @@
       "default_severity": "high",
       "description": "Destructive/external/customer-communication tool lacks a confirmation policy.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-policy-confirmation-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "risk_tags",
         "policy_match"
@@ -1215,6 +1281,7 @@
       "default_severity": "high",
       "description": "Action-like tool accepts broad free-form input.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text",
+      "dynamic_default": false,
       "evidence_fields": [
         "parameter",
         "type"
@@ -1233,6 +1300,7 @@
       "default_severity": "medium",
       "description": "Tool returns free-form string output.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-freeform-output",
+      "dynamic_default": false,
       "evidence_fields": [
         "output_schema"
       ],
@@ -1250,6 +1318,7 @@
       "default_severity": "high",
       "description": "Risky numeric parameter lacks a maximum bound.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-missing-bounds",
+      "dynamic_default": false,
       "evidence_fields": [
         "parameter",
         "type"
@@ -1268,6 +1337,7 @@
       "default_severity": "high",
       "description": "Tool appears to overlap with a manifest prohibited action.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
+      "dynamic_default": false,
       "evidence_fields": [
         "prohibited_action",
         "risk_tags"
@@ -1286,6 +1356,7 @@
       "default_severity": "high",
       "description": "Write-capable tool contradicts a read-only declared purpose.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-tool-outside-purpose",
+      "dynamic_default": false,
       "evidence_fields": [
         "declared_purpose",
         "risk_tags"
@@ -1304,6 +1375,7 @@
       "default_severity": "high",
       "description": "Risky write tool lacks idempotency evidence; critical when retry is known.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing",
+      "dynamic_default": false,
       "evidence_fields": [
         "risk_tags",
         "retry_policy_known"

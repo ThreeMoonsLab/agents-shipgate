@@ -26,6 +26,7 @@ from agents_shipgate.checks.plugin_validation import (
     BAD_FLOOR,
     BAD_METADATA,
     BAD_SIGNATURE,
+    DYNAMIC_DEFAULT_NOT_SUPPORTED,
     ID_COLLISION,
     LOAD_FAILED,
     VALID,
@@ -338,6 +339,211 @@ def test_gate_floor_higher_than_default_is_rejected(monkeypatch, tmp_path):
     )
     record = report.loaded_plugins[0]
     assert record["validation_status"] == BAD_FLOOR
+
+
+# --- Gate: dynamic_default_not_supported (v0.18 / PR #1) --------------------
+
+
+def test_plugin_with_dynamic_default_is_rejected(monkeypatch, tmp_path):
+    """A plugin declaring ``dynamic_default=True`` cannot wire into
+    ``cli/scan.py:_dynamic_check_defaults``, so it can never receive
+    the manifest-effective default needed for tier-crossing comparison.
+    The gate rejects with ``dynamic_default_not_supported``.
+    """
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-DYNAMIC",
+        "category": "custom",
+        "default_severity": "high",
+        "floor_severity": "medium",  # valid floor — but dynamic_default still rejected
+        "description": "Plugin trying to be dynamic.",
+        "dynamic_default": True,
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED
+    assert any(
+        "cli/scan.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
+
+
+def test_plugin_dynamic_default_without_floor_lands_in_dynamic_status(monkeypatch, tmp_path):
+    """Crucial placement test: a plugin declaring ``dynamic_default=True``
+    WITHOUT ``floor_severity`` must NOT land in ``bad_floor``. The
+    pre-Pydantic raw-metadata check runs BEFORE the
+    ``CheckMetadata`` model validator that would otherwise mis-classify
+    it. Status: ``dynamic_default_not_supported``.
+    """
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-DYNAMIC-NO-FLOOR",
+        "category": "custom",
+        "default_severity": "high",
+        "description": "Plugin with dynamic_default and no floor.",
+        "dynamic_default": True,
+        # NOTE: no floor_severity — would trigger CheckMetadata validator
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"expected dynamic_default_not_supported, got "
+        f"{record['validation_status']!r} — placement regression: the "
+        f"gate must run before _coerce_metadata."
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    ["true", "True", "TRUE", "yes", "on", 1],
+    ids=["str_true", "str_True", "str_TRUE", "str_yes", "str_on", "int_1"],
+)
+def test_plugin_dynamic_default_coerced_truthy_is_rejected(
+    monkeypatch, tmp_path, raw_value
+):
+    """v0.18 (PR #1) post-merge fix: the raw-metadata pre-check must
+    catch values Pydantic would coerce to ``True``, not just the
+    literal Python ``True``. Otherwise a plugin with
+    ``{"dynamic_default": "true", "floor_severity": "medium"}`` would
+    pass the raw gate (``"true" is True`` → False), then Pydantic
+    coerces it to ``True``, and the plugin lands as ``valid`` with
+    ``metadata.dynamic_default == True`` — reopening the silent
+    bypass this PR closes.
+
+    Parity invariant: anything Pydantic stores as ``dynamic_default=True``
+    on the constructed ``CheckMetadata`` MUST be rejected by the gate.
+    """
+
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-COERCED-TRUTHY",
+        "category": "custom",
+        "default_severity": "high",
+        "description": "Plugin with truthy non-True dynamic_default.",
+        "floor_severity": "medium",
+        "dynamic_default": raw_value,
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"Coerced-truthy raw value {raw_value!r} bypassed the gate; "
+        f"validation_status={record['validation_status']!r}. The raw "
+        "gate must match Pydantic's bool coercion."
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [False, "false", "False", "no", "off", 0, None],
+    ids=["bool_false", "str_false", "str_False", "str_no", "str_off", "int_0", "none"],
+)
+def test_plugin_dynamic_default_coerced_falsey_is_accepted(
+    monkeypatch, tmp_path, raw_value
+):
+    """Parity invariant, falsey direction: values Pydantic would store
+    as ``dynamic_default=False`` (or that omit the key entirely) must
+    NOT be flagged as dynamic_default_not_supported. Pydantic accepts
+    None as 'use default' for bool fields, so the gate must too.
+    """
+
+    def plugin(context):
+        return []
+
+    metadata = {
+        "id": "ACME-FALSEY-DEFAULT",
+        "category": "custom",
+        "default_severity": "medium",
+        "description": "Plugin with falsey dynamic_default.",
+    }
+    if raw_value is not None:
+        metadata["dynamic_default"] = raw_value
+    plugin.AGENTS_SHIPGATE_METADATA = metadata
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] != DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"Falsey raw value {raw_value!r} was wrongly flagged as "
+        f"dynamic_default_not_supported. The gate is over-aggressive."
+    )
+
+
+def test_plugin_with_dynamic_default_as_checkmetadata_instance_is_rejected(
+    monkeypatch, tmp_path
+):
+    """A plugin that sets ``AGENTS_SHIPGATE_METADATA`` to an
+    already-constructed ``CheckMetadata`` instance (rather than a dict)
+    must still be caught by the dynamic_default_not_supported gate.
+
+    Exercises the ``isinstance(value, CheckMetadata)`` branch of
+    ``_raw_metadata_declares_dynamic_default``. The metadata is built
+    with a valid ``floor_severity`` so the ``CheckMetadata`` model
+    validator does not reject it at construction time; the plugin
+    gate then catches the dynamic_default flag from the typed
+    instance.
+    """
+    from agents_shipgate.core.models import CheckMetadata
+
+    def plugin(context):
+        return []
+
+    # CheckMetadata instance — construction succeeds because floor is
+    # set; dynamic_default=True still triggers the plugin gate.
+    plugin.AGENTS_SHIPGATE_METADATA = CheckMetadata(
+        id="ACME-DYNAMIC-INSTANCE",
+        category="custom",
+        default_severity="high",
+        floor_severity="medium",
+        description="Plugin with CheckMetadata instance metadata.",
+        dynamic_default=True,
+    )
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"expected dynamic_default_not_supported for CheckMetadata "
+        f"instance form, got {record['validation_status']!r}"
+    )
+    assert any(
+        "cli/scan.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
 
 
 # --- Runtime validation -----------------------------------------------------

@@ -746,3 +746,302 @@ def test_check_metadata_accepts_no_floor() -> None:
         description="x",
     )
     assert meta.floor_severity is None
+
+
+# --- v0.18 (PR #1): dynamic_default contract --------------------------------
+
+
+def test_dynamic_default_requires_floor_validator() -> None:
+    """``CheckMetadata.dynamic_default=True`` without ``floor_severity``
+    must fail at construction time. A swing check without a floor has
+    no safety net against silent downgrade bypass.
+    """
+    with pytest.raises(ValueError, match=r"floor_severity"):
+        CheckMetadata(
+            id="SHIP-X-DYNAMIC",
+            category="x",
+            default_severity="high",
+            description="dynamic",
+            dynamic_default=True,
+            floor_severity=None,
+        )
+
+
+def test_dynamic_default_with_floor_is_accepted() -> None:
+    """The validator only fires when ``floor_severity`` is None."""
+    meta = CheckMetadata(
+        id="SHIP-X-DYNAMIC",
+        category="x",
+        default_severity="high",
+        description="dynamic",
+        dynamic_default=True,
+        floor_severity="medium",
+    )
+    assert meta.dynamic_default is True
+    assert meta.floor_severity == "medium"
+
+
+def _base_manifest_dict() -> dict:
+    return {
+        "version": "0.1",
+        "project": {"name": "p"},
+        "agent": {"name": "a", "declared_purpose": ["t"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "mcp", "type": "mcp", "path": "tools.json"}],
+    }
+
+
+# v0.18 (PR #1) — per-check overlay-verification registry. Each entry maps a
+# ``dynamic_default=True`` catalog check ID to:
+#   (manifest_overlay, expected_dynamic_severity)
+# where ``manifest_overlay`` is a partial-manifest dict that, when merged
+# into a minimal manifest, populates the section the aggregator MUST read
+# to produce a manifest-effective default *stronger* than the catalog
+# static. The expected severity must beat the catalog default for the
+# check so the overlay is observable in the aggregator output.
+#
+# When a new built-in dynamic-default check is added:
+#   1. CHECK_METADATA marks dynamic_default=True (forces floor_severity).
+#   2. cli/scan.py:_dynamic_check_defaults gets an overlay branch.
+#   3. _DYNAMIC_DEFAULT_OVERLAY_CASES gets an entry below.
+#
+# The completeness test below fails if (1) is done without (3), and the
+# per-case test fails if (2) is missing — together they pin the contract
+# the seed loop alone cannot enforce.
+_DYNAMIC_DEFAULT_OVERLAY_CASES: dict[str, tuple[dict, str]] = {
+    "SHIP-ACTION-POLICY-VIOLATION": (
+        {
+            "action_surface": {
+                "policies": [
+                    {
+                        "id": "p1",
+                        "severity": "critical",
+                        "match": {"effects": ["write"]},
+                        "require": {"approval.required": True},
+                    }
+                ]
+            }
+        },
+        "critical",
+    ),
+}
+
+
+def test_dynamic_default_overlay_registry_is_complete() -> None:
+    """v0.18 (PR #1) contract: every catalog check carrying
+    ``dynamic_default=True`` MUST have an entry in
+    ``_DYNAMIC_DEFAULT_OVERLAY_CASES`` above. The entry documents
+    which manifest section drives the dynamic default and pins the
+    overlay-verification test below.
+
+    A missing entry means a contributor added a new dynamic-default
+    check without thinking through the manifest path that
+    strengthens its default — exactly the wiring gap M1 closed for
+    SHIP-ACTION-POLICY-VIOLATION. Add an entry, then ensure the
+    aggregator overlay test passes.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    dynamic_check_ids = {
+        entry.id for entry in CHECK_METADATA if entry.dynamic_default
+    }
+    assert dynamic_check_ids, (
+        "expected at least one dynamic_default=True check in catalog "
+        "(SHIP-ACTION-POLICY-VIOLATION at minimum)"
+    )
+    missing = dynamic_check_ids - _DYNAMIC_DEFAULT_OVERLAY_CASES.keys()
+    assert not missing, (
+        f"dynamic_default=True check IDs without entries in "
+        f"_DYNAMIC_DEFAULT_OVERLAY_CASES: {sorted(missing)}. "
+        "Add an overlay case showing which manifest section drives the "
+        "dynamic default for each new check, then ensure "
+        "cli/scan.py:_dynamic_check_defaults has the matching overlay "
+        "branch (the per-case test will fail until it does)."
+    )
+
+
+@pytest.mark.parametrize(
+    "check_id",
+    sorted(_DYNAMIC_DEFAULT_OVERLAY_CASES),
+    ids=lambda cid: cid,
+)
+def test_dynamic_default_aggregator_overlay_fires(check_id: str) -> None:
+    """v0.18 (PR #1) contract: for each dynamic-default check, the
+    aggregator MUST overlay the manifest-effective default onto the
+    seeded catalog default. Verified by populating the relevant manifest
+    section with a known stronger severity and asserting the aggregator
+    returns that stronger value (not the catalog static).
+
+    This catches the regression class the seed loop alone cannot: a
+    new ``dynamic_default=True`` catalog entry without a corresponding
+    overlay branch in ``cli/scan.py:_dynamic_check_defaults`` would
+    return only the catalog static and the resolver would never see
+    the stronger manifest-effective default, silently widening the
+    tier-crossing bypass.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+    from agents_shipgate.cli.scan import _dynamic_check_defaults
+    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.inputs.policy_packs import LoadedPolicyPacks
+
+    overlay, expected_dynamic = _DYNAMIC_DEFAULT_OVERLAY_CASES[check_id]
+    manifest_dict = {**_base_manifest_dict(), **overlay}
+    manifest = AgentsShipgateManifest.model_validate(manifest_dict)
+    catalog = list(CHECK_METADATA)
+    catalog_default = next(e.default_severity for e in catalog if e.id == check_id)
+    assert catalog_default != expected_dynamic, (
+        f"test rigged wrong: expected_dynamic={expected_dynamic!r} matches "
+        f"the catalog static default for {check_id}; the overlay must be "
+        "STRONGER than the catalog so the test can observe it firing."
+    )
+
+    aggregated = _dynamic_check_defaults(
+        manifest,
+        LoadedPolicyPacks(loaded=[], rules=[], warnings=[]),
+        catalog=catalog,
+    )
+
+    assert aggregated.get(check_id) == expected_dynamic, (
+        f"For {check_id}, expected dynamic default {expected_dynamic!r} after "
+        f"populating the manifest section, but _dynamic_check_defaults "
+        f"returned {aggregated.get(check_id)!r}. The aggregator likely "
+        f"lacks an overlay branch — the seed loop alone returns the catalog "
+        f"static ({catalog_default!r}). Add a branch in "
+        f"cli/scan.py:_dynamic_check_defaults that reads the relevant "
+        f"manifest section for {check_id}."
+    )
+
+
+def test_action_policy_violation_has_floor_and_dynamic_default() -> None:
+    """Direct catalog assertion: pins the design choice so it cannot
+    be silently weakened in a future PR. SHIP-ACTION-POLICY-VIOLATION
+    is the canonical v0.17 dynamic-severity check; downgrading
+    ``floor_severity`` or unsetting ``dynamic_default`` here re-opens
+    the M1 bypass class.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    entry = next(
+        e for e in CHECK_METADATA if e.id == "SHIP-ACTION-POLICY-VIOLATION"
+    )
+    assert entry.dynamic_default is True
+    assert entry.floor_severity == "medium"
+
+
+def test_dynamic_default_missing_extra_raises_runtime_error() -> None:
+    """The resolver's internal-consistency guard fires when a catalog
+    check carrying ``dynamic_default=True`` does NOT appear in the
+    ``extra_known_check_defaults`` dict the resolver receives.
+
+    On the normal scan path this is unreachable (the aggregator seeds
+    every such check). The guard exists for the case where the
+    aggregator regresses — the test exercises it directly by
+    constructing a synthetic catalog with a dynamic-default check and
+    passing an empty ``extra_known_check_defaults``.
+    """
+    catalog = [
+        CheckMetadata(
+            id="SHIP-X-DYNAMIC",
+            category="x",
+            default_severity="high",
+            description="dynamic test",
+            dynamic_default=True,
+            floor_severity="medium",
+        )
+    ]
+    overrides = {
+        "SHIP-X-DYNAMIC": SeverityOverrideEntry(severity="high"),
+    }
+    with pytest.raises(RuntimeError, match=r"missing from extra_known_check_defaults"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=catalog,
+            extra_known_check_defaults={},
+        )
+
+
+def test_aggregator_handles_override_without_manifest_section() -> None:
+    """v0.18 (PR #1) regression for the P1 false-positive scenario.
+
+    A user manifest can override ``SHIP-ACTION-POLICY-VIOLATION``
+    (a ``dynamic_default=True`` catalog check) without declaring
+    ``action_surface.policies[]``. The resolver MUST NOT raise
+    ``RuntimeError`` in this case — that's the bug the seed step of
+    ``_dynamic_check_defaults`` exists to prevent. The override should
+    apply cleanly against the catalog static default, and the audit row
+    should report the catalog default (no dynamic strengthening).
+
+    Note: ``high → medium`` is tier-crossing (high → normal), so the
+    manifest declares an ``acknowledge_overrides`` entry. The point of
+    this test is that the v0.18 ``RuntimeError`` guard does NOT fire on
+    legitimate user input that lacks ``action_surface.policies[]`` — not
+    that all overrides apply without ack.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+    from agents_shipgate.cli.scan import _dynamic_check_defaults
+    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.inputs.policy_packs import LoadedPolicyPacks
+
+    # Manifest overrides SHIP-ACTION-POLICY-VIOLATION (default high) to
+    # medium with a tier-crossing acknowledgement. No
+    # action_surface.policies declared — this is the P1 scenario.
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "p"},
+            "agent": {"name": "a", "declared_purpose": ["t"]},
+            "environment": {"target": "local"},
+            "tool_sources": [
+                {"id": "mcp", "type": "mcp", "path": "tools.json"}
+            ],
+            "checks": {
+                "severity_overrides": {
+                    "SHIP-ACTION-POLICY-VIOLATION": {"severity": "medium"},
+                },
+                "acknowledge_overrides": [
+                    {
+                        "check_id": "SHIP-ACTION-POLICY-VIOLATION",
+                        "reason": "P1 regression fixture — verifies the seed loop",
+                    },
+                ],
+            },
+        }
+    )
+
+    catalog = list(CHECK_METADATA)
+    effective = _dynamic_check_defaults(
+        manifest,
+        LoadedPolicyPacks(loaded=[], rules=[], warnings=[]),
+        catalog=catalog,
+    )
+
+    # Seed step in _dynamic_check_defaults included the entry; no
+    # overlay because no policies declared. Effective default ==
+    # catalog static (no dynamic strengthening).
+    assert (
+        effective["SHIP-ACTION-POLICY-VIOLATION"] == "high"
+    ), "seed loop must place catalog default when no overlay applies"
+
+    # Resolver must NOT raise RuntimeError — this is the P1 regression:
+    # pre-fix, the guard fired here because the action-only overlay
+    # branch was the sole source of the entry, so the dict was sparse
+    # for any manifest that didn't declare action_surface.policies.
+    resolution = resolve_severity_overrides(
+        overrides=manifest.severity_override_entries(),
+        acknowledgements=manifest.acknowledge_overrides(),
+        catalog=catalog,
+        extra_known_check_defaults=effective,
+    )
+    audit_row = next(
+        row
+        for row in resolution.audit.severity_overrides_applied
+        if row.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+    )
+    # Catalog static default (not the manifest-declared dynamic value
+    # — no action_surface.policies present means no dynamic
+    # strengthening).
+    assert audit_row.default_severity == "high"
+    assert audit_row.applied_severity == "medium"
+    assert audit_row.direction == "downgrade"
+    assert audit_row.tier_crossed is True

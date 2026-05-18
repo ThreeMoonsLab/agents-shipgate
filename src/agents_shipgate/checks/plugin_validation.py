@@ -1,6 +1,6 @@
 """Plugin validation gates for the `agents_shipgate.checks` entry-point group.
 
-Five validation gates, each producing a single ``ValidationFailure`` row
+Six validation gates, each producing a single ``ValidationFailure`` row
 that lands in ``loaded_plugins[].validation_errors``:
 
 1. **load** — ``entry_point.load()`` raises (broken module import, syntax
@@ -11,10 +11,18 @@ that lands in ``loaded_plugins[].validation_errors``:
 3. **metadata** — ``AGENTS_SHIPGATE_METADATA`` is missing, malformed, or
    fails ``CheckMetadata.model_validate``. Both ``id`` and ``check_id``
    keys are accepted via the ``CheckMetadata`` alias.
-4. **id_collision** — the plugin's check ID shadows a built-in (or one of
+4. **dynamic_default_not_supported** — v0.18: the raw metadata dict
+   declares ``dynamic_default=True``. Plugins cannot wire into the
+   ``cli/scan.py:_dynamic_check_defaults`` aggregator, so a swing
+   check would never receive a manifest-effective default — silently
+   bypassable. This gate runs BEFORE ``_coerce_metadata`` so a plugin
+   declaring ``dynamic_default=True`` without ``floor_severity`` lands
+   here under a precise status instead of being mis-classified as
+   ``bad_floor`` by the ``CheckMetadata`` model validator.
+5. **id_collision** — the plugin's check ID shadows a built-in (or one of
    its legacy aliases), or is already registered by an earlier plugin
    in the same scan.
-5. **bad_floor** — already enforced inside ``CheckMetadata`` via a model
+6. **bad_floor** — already enforced inside ``CheckMetadata`` via a model
    validator. Surfaced explicitly here so the failure shows up under a
    stable label rather than as a generic metadata error.
 
@@ -43,7 +51,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
@@ -59,6 +67,12 @@ BAD_SIGNATURE = "bad_signature"
 BAD_METADATA = "bad_metadata"
 ID_COLLISION = "id_collision"
 BAD_FLOOR = "bad_floor"
+# v0.18 (PR #1): plugin declared dynamic_default=True. Plugins cannot
+# wire into cli/scan.py's _dynamic_check_defaults aggregator and so
+# can never receive the manifest-effective default needed for
+# tier-crossing comparison. See module docstring for placement
+# rationale (must run before _coerce_metadata).
+DYNAMIC_DEFAULT_NOT_SUPPORTED = "dynamic_default_not_supported"
 
 
 @dataclass
@@ -116,6 +130,24 @@ def validate_entry_point(
     metadata_value = getattr(loaded, "AGENTS_SHIPGATE_METADATA", None)
     if metadata_value is None:
         return _fail(info, BAD_METADATA, "AGENTS_SHIPGATE_METADATA is missing")
+
+    # Gate 4: dynamic_default_not_supported (v0.18 / PR #1).
+    # MUST run before _coerce_metadata() — a plugin declaring
+    # dynamic_default=True without floor_severity would otherwise hit
+    # the new CheckMetadata model validator and be mis-classified as
+    # bad_floor. The raw-metadata pre-check inspects either the dict
+    # or a pre-constructed CheckMetadata instance.
+    if _raw_metadata_declares_dynamic_default(metadata_value):
+        return _fail(
+            info,
+            DYNAMIC_DEFAULT_NOT_SUPPORTED,
+            "plugin metadata declared dynamic_default=True; plugins "
+            "cannot wire into cli/scan.py's _dynamic_check_defaults "
+            "aggregator. Emit findings at the desired severity "
+            "directly; the floor contract still applies via "
+            "CheckMetadata.floor_severity.",
+        )
+
     try:
         metadata = _coerce_metadata(metadata_value)
     except (ValidationError, TypeError, ValueError) as exc:
@@ -128,7 +160,7 @@ def validate_entry_point(
 
     info["check_id"] = metadata.id
 
-    # Gate 4: ID collision
+    # Gate 5: ID collision
     if metadata.id in builtin_ids:
         return _fail(
             info,
@@ -329,6 +361,56 @@ def _coerce_metadata(value: Any) -> CheckMetadata:
 
 def _is_floor_error(exc: BaseException) -> bool:
     return "floor_severity" in str(exc)
+
+
+_DYNAMIC_DEFAULT_BOOL = TypeAdapter(bool)
+
+
+def _raw_metadata_declares_dynamic_default(value: Any) -> bool:
+    """v0.18 (PR #1): inspect raw plugin metadata for the
+    ``dynamic_default`` flag BEFORE Pydantic validation runs.
+
+    Plugin metadata can arrive as either a dict (most plugins) or a
+    pre-constructed ``CheckMetadata`` instance (test fixtures, advanced
+    plugins). For dict form, read the field via Pydantic's own bool
+    coercion so any value that ``CheckMetadata`` would store as
+    ``dynamic_default=True`` (``True``, ``1``, ``"true"``, ``"yes"``,
+    ``"on"``) lands here under ``dynamic_default_not_supported``
+    instead of slipping past as ``valid`` after coercion. For instance
+    form, the field is already typed — read it via attribute. Returns
+    ``False`` on any other shape (the downstream ``_coerce_metadata``
+    will then surface a ``bad_metadata`` error for the shape itself)
+    and on values that Pydantic rejects outright (the downstream
+    validator will produce the appropriate error).
+
+    Placement of the gate that calls this helper matters: it MUST run
+    before ``_coerce_metadata``, because a plugin declaring
+    ``dynamic_default=True`` without ``floor_severity`` would otherwise
+    trigger the new ``CheckMetadata`` model validator and be
+    mis-classified as ``bad_floor``.
+
+    Parity invariant: this function returns ``True`` iff
+    ``CheckMetadata.model_validate(value).dynamic_default`` would be
+    ``True``. Mismatch would re-open the silent bypass — a regression
+    test pins it.
+    """
+    if isinstance(value, dict):
+        if "dynamic_default" not in value:
+            return False
+        try:
+            return _DYNAMIC_DEFAULT_BOOL.validate_python(
+                value["dynamic_default"]
+            )
+        except ValidationError:
+            # Value Pydantic refuses outright (e.g. an arbitrary
+            # object). Leave it for _coerce_metadata to surface as
+            # bad_metadata; we cannot have caused a silent bypass
+            # because Pydantic's CheckMetadata.model_validate will
+            # also reject it.
+            return False
+    if isinstance(value, CheckMetadata):
+        return value.dynamic_default
+    return False
 
 
 def _format_validation_error(exc: BaseException) -> str:

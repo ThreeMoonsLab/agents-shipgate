@@ -27,6 +27,7 @@ from agents_shipgate.core.models import (
     ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
+    CheckMetadata,
     CodexPluginArtifacts,
     CodexPluginSurface,
     CrewAiArtifacts,
@@ -43,7 +44,11 @@ from agents_shipgate.core.models import (
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
-from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.inputs.policy_packs import (
+    LoadedPolicyPacks,
+    load_policy_packs,
+    run_policy_pack_rules,
+)
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
     LoadedAdapterResult,
@@ -271,16 +276,19 @@ def run_scan(
     # For check IDs in both inputs (e.g. SHIP-ACTION-POLICY-VIOLATION
     # exists in the catalog), the resolver takes max(catalog default,
     # supplied default) — see ``severity_overrides.py`` doc.
-    effective_dynamic_defaults: dict[str, Severity] = {
-        resolved.rule.id: resolved.rule.severity for resolved in policy_packs.rules
-    }
-    action_policy_max = _strongest_action_policy_severity(manifest)
-    if action_policy_max is not None:
-        effective_dynamic_defaults["SHIP-ACTION-POLICY-VIOLATION"] = action_policy_max
+    #
+    # v0.18 (PR #1): the aggregation lives in ``_dynamic_check_defaults``
+    # which seeds every catalog check carrying ``dynamic_default=True``
+    # (the contract test pins this) and overlays manifest-effective
+    # values for the action_surface and policy-pack cases.
+    catalog = check_catalog(plugins_enabled=plugins_enabled)
+    effective_dynamic_defaults = _dynamic_check_defaults(
+        manifest, policy_packs, catalog=catalog
+    )
     override_resolution = resolve_severity_overrides(
         overrides=manifest.severity_override_entries(),
         acknowledgements=manifest.acknowledge_overrides(),
-        catalog=check_catalog(plugins_enabled=plugins_enabled),
+        catalog=catalog,
         extra_known_check_defaults=effective_dynamic_defaults,
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
@@ -976,6 +984,60 @@ def _strongest_action_policy_severity(
         (policy.severity for policy in policies),
         key=lambda severity: _SEVERITY_RANK_FOR_MAX[severity],
     )
+
+
+def _dynamic_check_defaults(
+    manifest: AgentsShipgateManifest,
+    policy_packs: LoadedPolicyPacks,
+    *,
+    catalog: list[CheckMetadata],
+) -> dict[str, Severity]:
+    """v0.18 (PR #1): one canonical place mapping every dynamic-severity
+    check ID to its manifest-effective default severity.
+
+    Always returns an entry for **every** catalog check with
+    ``dynamic_default=True``. Seeding rule:
+
+      1. Seed ``defaults[check.id] = check.default_severity`` for every
+         catalog entry where ``dynamic_default=True``. This guarantees
+         the resolver's internal-consistency guard
+         (``severity_overrides.py``) never false-positives on a manifest
+         that overrides a dynamic-default check without declaring the
+         corresponding manifest section (e.g., overrides
+         ``SHIP-ACTION-POLICY-VIOLATION`` but declares no
+         ``action_surface.policies``).
+      2. Overlay manifest-effective values where present. The resolver
+         uses ``max(catalog, dynamic)`` for tier-crossing, so seeding
+         with catalog default is safe — never weakens the comparison.
+      3. Add policy-pack rule IDs (outside-catalog) with their declared
+         severity.
+
+    Contract (see ``CheckMetadata.dynamic_default``): when you add a
+    new built-in check that emits at manifest-declared severity:
+      A. Set ``dynamic_default=True`` in ``CHECK_METADATA`` (forces
+         ``floor_severity`` via the model validator).
+      B. Add an OVERLAY branch below (step 2 pattern). The seed loop
+         (step 1) auto-includes the check ID; the overlay branch
+         supplies the manifest-effective default.
+
+    The contract test
+    ``test_dynamic_default_aggregator_completeness`` fails loudly if
+    (A) is done without (B) for a check whose manifest section is
+    non-empty.
+    """
+    defaults: dict[str, Severity] = {}
+    # Step 1 — seed all catalog dynamic-default checks with static default.
+    for entry in catalog:
+        if entry.dynamic_default:
+            defaults[entry.id] = entry.default_severity
+    # Step 2 — overlay manifest-effective values.
+    action_policy_max = _strongest_action_policy_severity(manifest)
+    if action_policy_max is not None:
+        defaults["SHIP-ACTION-POLICY-VIOLATION"] = action_policy_max
+    # Step 3 — outside-catalog: policy-pack rule IDs.
+    for resolved in policy_packs.rules:
+        defaults[resolved.rule.id] = resolved.rule.severity
+    return defaults
 
 
 def _check_metadata_lookup(
