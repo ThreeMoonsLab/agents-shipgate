@@ -1522,6 +1522,25 @@ class CheckMetadata(BaseModel):
     # checks declare a floor. Severity ranking (weakest → strongest):
     # ``info < low < medium < high < critical``.
     floor_severity: Severity | None = None
+    # v0.18 (PR #1): formalizes the M1 dynamic-severity contract.
+    # True iff this check's emitted finding severity depends on
+    # user-declared manifest values (e.g.,
+    # ``SHIP-ACTION-POLICY-VIOLATION`` emits at
+    # ``action_surface.policies[].severity``). The severity-override
+    # resolver MUST receive the manifest-effective default via
+    # ``extra_known_check_defaults``; otherwise tier-crossing comparison
+    # runs against the static catalog default and an aggressive override
+    # can silently bypass the gate.
+    #
+    # Built-in checks marking ``dynamic_default=True`` MUST also declare
+    # ``floor_severity`` (enforced by the model validator below) — a
+    # swing check without a floor has no safety net.
+    #
+    # Plugins cannot set ``dynamic_default=True``: they have no path to
+    # wire into ``cli/scan.py``'s aggregator. The plugin validation
+    # pipeline rejects such plugins with status
+    # ``dynamic_default_not_supported``.
+    dynamic_default: bool = False
 
     @model_validator(mode="after")
     def _check_floor_not_above_default(self) -> CheckMetadata:
@@ -1532,6 +1551,16 @@ class CheckMetadata(BaseModel):
             raise ValueError(
                 f"floor_severity={self.floor_severity!r} must not exceed "
                 f"default_severity={self.default_severity!r} for {self.id!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_dynamic_default_requires_floor(self) -> CheckMetadata:
+        if self.dynamic_default and self.floor_severity is None:
+            raise ValueError(
+                f"check {self.id!r} has dynamic_default=True but no "
+                f"floor_severity; a swing check requires a floor to "
+                f"prevent silent downgrade bypass."
             )
         return self
 

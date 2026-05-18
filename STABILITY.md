@@ -100,7 +100,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
-- `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`.
+- `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5; `dynamic_default_not_supported` added v0.18) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | dynamic_default_not_supported | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`. `dynamic_default_not_supported` (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True` — plugins have no path to wire into `cli/scan.py`'s aggregator, so a swing check would never receive a manifest-effective default and would be silently bypassable.
 - `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
 
 ### Severity-override floor
@@ -124,18 +124,41 @@ downgrades (e.g., medium → low) and any upgrade never require ack.
 Tiers (stable within `0.x`): `critical / high / medium-low`. Expired
 ack entries are a manifest config error.
 
-**Dynamic-severity check classes** (v0.17+). For check IDs whose
-emitted finding severity depends on user-declared manifest values —
-specifically `SHIP-ACTION-POLICY-VIOLATION` (emits at
-`action_surface.policies[].severity`) and policy-pack rule IDs (emit
-at the pack rule's `severity`) — the resolver uses the **strongest
-declared severity** across the manifest as the tier-crossing
-comparison base, not the static catalog default. This closes the
-bypass where a `severity: critical` action policy with override
-`high` could appear same-tier against the catalog's `high` default.
-The `policy_audit.severity_overrides_applied[].default_severity`
-row reports the effective (dynamic-aware) default so reviewers see
-the real before/after.
+**Dynamic-severity check classes** (v0.17+; formalized v0.18). Catalog
+checks whose emitted finding severity depends on user-declared
+manifest values declare `CheckMetadata.dynamic_default=True`. Today
+the only such built-in is `SHIP-ACTION-POLICY-VIOLATION` (emits at
+`action_surface.policies[].severity`). Policy-pack rule IDs flow
+through the same `extra_known_check_defaults` mechanism but live
+outside the catalog. The severity-override resolver uses
+`max(catalog default, manifest-effective default)` as the
+tier-crossing comparison base, so a `severity: critical` action
+policy with override `high` cannot appear same-tier against the
+catalog's `high` default. The
+`policy_audit.severity_overrides_applied[].default_severity` row
+reports the effective (dynamic-aware) default so reviewers see the
+real before/after.
+
+Two contract rules pin the design (v0.18):
+
+- Built-in checks marked `dynamic_default=True` MUST also declare
+  `floor_severity` — enforced by a `CheckMetadata` model validator.
+  A swing check without a floor has no safety net against silent
+  downgrade bypass.
+- Plugins cannot declare `dynamic_default=True` — the plugin
+  validation pipeline rejects them with status
+  `dynamic_default_not_supported`. Plugins have no path to wire into
+  `cli/scan.py`'s aggregator and so would never receive the
+  manifest-effective default needed for tier-crossing comparison.
+
+Adding a new built-in dynamic-severity check requires (1) setting
+`dynamic_default=True` in `CHECK_METADATA` (forces the floor), and
+(2) adding an aggregator overlay branch in
+`cli/scan.py:_dynamic_check_defaults`. The seed loop in step 1 of
+that aggregator auto-includes every `dynamic_default=True` catalog
+entry, so the resolver's internal-consistency guard cannot
+false-positive on user input that overrides a swing check without
+declaring the corresponding manifest section.
 
 ### Scenario Suggestion YAML
 

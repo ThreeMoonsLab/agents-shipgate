@@ -26,6 +26,7 @@ from agents_shipgate.checks.plugin_validation import (
     BAD_FLOOR,
     BAD_METADATA,
     BAD_SIGNATURE,
+    DYNAMIC_DEFAULT_NOT_SUPPORTED,
     ID_COLLISION,
     LOAD_FAILED,
     VALID,
@@ -338,6 +339,75 @@ def test_gate_floor_higher_than_default_is_rejected(monkeypatch, tmp_path):
     )
     record = report.loaded_plugins[0]
     assert record["validation_status"] == BAD_FLOOR
+
+
+# --- Gate: dynamic_default_not_supported (v0.18 / PR #1) --------------------
+
+
+def test_plugin_with_dynamic_default_is_rejected(monkeypatch, tmp_path):
+    """A plugin declaring ``dynamic_default=True`` cannot wire into
+    ``cli/scan.py:_dynamic_check_defaults``, so it can never receive
+    the manifest-effective default needed for tier-crossing comparison.
+    The gate rejects with ``dynamic_default_not_supported``.
+    """
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-DYNAMIC",
+        "category": "custom",
+        "default_severity": "high",
+        "floor_severity": "medium",  # valid floor — but dynamic_default still rejected
+        "description": "Plugin trying to be dynamic.",
+        "dynamic_default": True,
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED
+    assert any(
+        "cli/scan.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
+
+
+def test_plugin_dynamic_default_without_floor_lands_in_dynamic_status(monkeypatch, tmp_path):
+    """Crucial placement test: a plugin declaring ``dynamic_default=True``
+    WITHOUT ``floor_severity`` must NOT land in ``bad_floor``. The
+    pre-Pydantic raw-metadata check runs BEFORE the
+    ``CheckMetadata`` model validator that would otherwise mis-classify
+    it. Status: ``dynamic_default_not_supported``.
+    """
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-DYNAMIC-NO-FLOOR",
+        "category": "custom",
+        "default_severity": "high",
+        "description": "Plugin with dynamic_default and no floor.",
+        "dynamic_default": True,
+        # NOTE: no floor_severity — would trigger CheckMetadata validator
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"expected dynamic_default_not_supported, got "
+        f"{record['validation_status']!r} — placement regression: the "
+        f"gate must run before _coerce_metadata."
+    )
 
 
 # --- Runtime validation -----------------------------------------------------

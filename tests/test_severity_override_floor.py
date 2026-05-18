@@ -746,3 +746,140 @@ def test_check_metadata_accepts_no_floor() -> None:
         description="x",
     )
     assert meta.floor_severity is None
+
+
+# --- v0.18 (PR #1): dynamic_default contract --------------------------------
+
+
+def test_dynamic_default_requires_floor_validator() -> None:
+    """``CheckMetadata.dynamic_default=True`` without ``floor_severity``
+    must fail at construction time. A swing check without a floor has
+    no safety net against silent downgrade bypass.
+    """
+    with pytest.raises(ValueError, match=r"floor_severity"):
+        CheckMetadata(
+            id="SHIP-X-DYNAMIC",
+            category="x",
+            default_severity="high",
+            description="dynamic",
+            dynamic_default=True,
+            floor_severity=None,
+        )
+
+
+def test_dynamic_default_with_floor_is_accepted() -> None:
+    """The validator only fires when ``floor_severity`` is None."""
+    meta = CheckMetadata(
+        id="SHIP-X-DYNAMIC",
+        category="x",
+        default_severity="high",
+        description="dynamic",
+        dynamic_default=True,
+        floor_severity="medium",
+    )
+    assert meta.dynamic_default is True
+    assert meta.floor_severity == "medium"
+
+
+def test_dynamic_default_aggregator_completeness() -> None:
+    """v0.18 (PR #1) contract: every catalog check carrying
+    ``dynamic_default=True`` MUST appear in the result of
+    ``cli/scan.py:_dynamic_check_defaults``. This is the structural
+    safety net for the resolver's internal-consistency guard: the
+    aggregator seeds every dynamic-default catalog check with its
+    static default, so a manifest can override any dynamic-default
+    check without the resolver raising ``RuntimeError`` for a
+    legitimate user input.
+
+    Fails the moment someone adds ``dynamic_default=True`` to a
+    catalog entry without ensuring the aggregator covers it. The seed
+    loop in ``_dynamic_check_defaults`` is what guarantees coverage,
+    so any new dynamic-default check is automatically included once
+    its catalog entry validates.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+    from agents_shipgate.cli.scan import _dynamic_check_defaults
+    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.inputs.policy_packs import LoadedPolicyPacks
+
+    dynamic_check_ids = {
+        entry.id for entry in CHECK_METADATA if entry.dynamic_default
+    }
+    assert dynamic_check_ids, (
+        "expected at least one dynamic_default=True check in catalog "
+        "(SHIP-ACTION-POLICY-VIOLATION at minimum)"
+    )
+
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "p"},
+            "agent": {"name": "a", "declared_purpose": ["t"]},
+            "environment": {"target": "local"},
+            "tool_sources": [
+                {"id": "mcp", "type": "mcp", "path": "tools.json"}
+            ],
+        }
+    )
+    aggregated = _dynamic_check_defaults(
+        manifest,
+        LoadedPolicyPacks(loaded=[], rules=[], warnings=[]),
+        catalog=list(CHECK_METADATA),
+    )
+
+    missing = dynamic_check_ids - aggregated.keys()
+    assert not missing, (
+        f"dynamic_default check IDs missing from "
+        f"_dynamic_check_defaults seed: {sorted(missing)}. "
+        "Either the seed loop regressed or a new dynamic_default check "
+        "needs an aggregator overlay branch."
+    )
+
+
+def test_action_policy_violation_has_floor_and_dynamic_default() -> None:
+    """Direct catalog assertion: pins the design choice so it cannot
+    be silently weakened in a future PR. SHIP-ACTION-POLICY-VIOLATION
+    is the canonical v0.17 dynamic-severity check; downgrading
+    ``floor_severity`` or unsetting ``dynamic_default`` here re-opens
+    the M1 bypass class.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    entry = next(
+        e for e in CHECK_METADATA if e.id == "SHIP-ACTION-POLICY-VIOLATION"
+    )
+    assert entry.dynamic_default is True
+    assert entry.floor_severity == "medium"
+
+
+def test_dynamic_default_missing_extra_raises_runtime_error() -> None:
+    """The resolver's internal-consistency guard fires when a catalog
+    check carrying ``dynamic_default=True`` does NOT appear in the
+    ``extra_known_check_defaults`` dict the resolver receives.
+
+    On the normal scan path this is unreachable (the aggregator seeds
+    every such check). The guard exists for the case where the
+    aggregator regresses — the test exercises it directly by
+    constructing a synthetic catalog with a dynamic-default check and
+    passing an empty ``extra_known_check_defaults``.
+    """
+    catalog = [
+        CheckMetadata(
+            id="SHIP-X-DYNAMIC",
+            category="x",
+            default_severity="high",
+            description="dynamic test",
+            dynamic_default=True,
+            floor_severity="medium",
+        )
+    ]
+    overrides = {
+        "SHIP-X-DYNAMIC": SeverityOverrideEntry(severity="high"),
+    }
+    with pytest.raises(RuntimeError, match=r"missing from extra_known_check_defaults"):
+        resolve_severity_overrides(
+            overrides=overrides,
+            acknowledgements=[],
+            catalog=catalog,
+            extra_known_check_defaults={},
+        )
