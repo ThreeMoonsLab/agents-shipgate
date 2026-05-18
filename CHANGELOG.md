@@ -59,6 +59,46 @@
     `dynamic_default_not_supported` rather than being mis-classified
     as `bad_floor` by the new `CheckMetadata` model validator.
 
+- **v0.18 / PR #2 trust-hardening: static AST lint widened to entire scanner.**
+  Previously `tests/test_adapter_static_only.py` AST-scanned only
+  `src/agents_shipgate/inputs/`; the public claim in STABILITY.md and
+  README is broader ("the scanner does not execute or import user code").
+  The lint now structurally enforces the broader claim.
+  - Scope widened: scanner now walks every `.py` file under
+    `src/agents_shipgate/` via `rglob`. The legacy
+    `test_invariant_lint_covers_every_adapter_module` was paranoid for
+    the 18-file `inputs/` case and no longer scales to ~80 files — the
+    new contract test
+    `test_no_unallowlisted_forbidden_surface_in_scanner` is the
+    replacement, asserting a definitive PASS/FAIL signal over the whole
+    sweep.
+  - Four legitimate first-party meta-CLI surfaces are allowlisted via a
+    new `ALLOWED_EXCEPTIONS` tuple of `AllowedException` entries, each
+    with prose rationale:
+    - `cli/bootstrap.py` `subprocess.run(...)` — chains
+      `detect → init → scan → apply-patches` against Shipgate's own CLI.
+    - `cli/discovery/artifacts.py` `subprocess.run(["git", ...])` —
+      probes the user repo for file inventory.
+    - `triggers.py` `subprocess.run(["git", "diff", ...])` — trigger
+      evaluation reads diff content.
+    - `cli/self_check.py` `__import__(name)` — validates that supplied
+      modules are installed. Runs only under
+      `agents-shipgate self-check`.
+  - Two contract tests prevent allowlist rot:
+    `test_allowlist_entry_matches_real_surface` (every entry must
+    correspond to a real surface) and
+    `test_no_unallowlisted_forbidden_surface_in_scanner` (every forbidden
+    surface must be allowlisted or eliminated).
+  - `importlib.resources` added to `ALLOWED_FORBIDDEN_MODULE_IMPORTS`
+    for bundled-package files (e.g. `fixtures.py`, `triggers.py`).
+    `importlib.metadata` remains allowed for plugin/adapter discovery.
+  - `_scan_source` now returns structured `Violation` objects
+    (`line`, `surface`, `message`) instead of preformatted strings, so
+    callers can route by `surface` against `ALLOWED_EXCEPTIONS`.
+  - STABILITY.md "Trust-model invariants" widened to cite the entire
+    scanner package and adds a "Meta-CLI surfaces (allowlisted,
+    audited)" subsection documenting each of the four entries.
+
 - **v0.17 / M1 trust-hardening: severity-override floor + audit.**
   - `core.models.CheckMetadata` gains an optional `floor_severity` field
     (Severity | None). 16 release-critical built-in checks now declare a

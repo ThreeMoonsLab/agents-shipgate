@@ -249,7 +249,8 @@ The no-execute / no-import property is enforced by two complementary
 tests on every CI run, not by convention:
 
 - **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
-  AST scan of every source under `src/agents_shipgate/inputs/`. The scan
+  AST scan of every `.py` file under `src/agents_shipgate/` (v0.18+
+  widened scope from `src/agents_shipgate/inputs/` only). The scan
   rejects:
   - Bare-name calls to `exec` / `eval` / `__import__` / `compile`.
   - Attribute calls to `importlib.import_module`,
@@ -267,14 +268,37 @@ tests on every CI run, not by convention:
   - Wildcard `from os import *`.
 
   `importlib.metadata` is intentionally allowed: the plugin registry
-  under `checks/` (not `inputs/`) uses it for entry-point discovery,
-  and discovery happens against the *installed* environment, not user
-  workspace files. Aliased re-exports (`import os as oo`,
+  uses it for entry-point discovery, and discovery happens against the
+  *installed* environment, not user workspace files. `importlib.resources`
+  is allowed (v0.18+) for bundled-package files inside the
+  agents-shipgate wheel. Aliased re-exports (`import os as oo`,
   `from os import system as sh`, `import os; import pathlib as os`) are
   resolved through union-of-bindings alias maps so a later import
   cannot erase an earlier forbidden binding. The lint runs as a
   dedicated CI step labeled *Trust-model invariant lint* before the
   main test suite so a regression is visible at the top of CI logs.
+
+  **Meta-CLI surfaces (allowlisted, audited).** Four first-party
+  surfaces are allowed with prose rationale captured in
+  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
+  Each entry must correspond to a real surface (enforced by a
+  contract test) and must read no user code:
+
+  - **`cli/bootstrap.py`** — `subprocess.run([sys.executable, "-m", "agents_shipgate", …])`
+    chains `detect → init → scan → apply-patches`. Runs only
+    Shipgate's own CLI.
+  - **`cli/discovery/artifacts.py`** — `subprocess.run(["git", …])`
+    probes the user repo for file inventory. Reads git metadata only.
+  - **`triggers.py`** — `subprocess.run(["git", "diff", …])` for trigger
+    evaluation. Reads diff content only.
+  - **`cli/self_check.py`** — `__import__(name)` validates that a
+    supplied module is installed. Runs only under
+    `agents-shipgate self-check`, never during scan.
+
+  A contract test pins each allowlist entry to a real surface and
+  fails if the entry goes stale; a second contract test sweeps the
+  whole scanner package and fails on any forbidden surface that lacks
+  an allowlist entry.
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
   SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is

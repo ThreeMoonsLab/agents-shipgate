@@ -1,10 +1,18 @@
 """Trust-model structural invariant: scanner does not execute or import user code.
 
 This test enforces the core trust property of agents-shipgate at the source
-level: every adapter under ``src/agents_shipgate/inputs/`` must parse user
-files with ``ast.parse``, ``yaml.safe_load``, or ``json.loads`` only — never
-through ``exec`` / ``eval`` / ``__import__`` / ``compile`` builtins, and
-never via dynamic-import or process-execution surfaces.
+level: every Python file under ``src/agents_shipgate/`` (not just
+``inputs/``) must parse user files with ``ast.parse``, ``yaml.safe_load``,
+or ``json.loads`` only — never through ``exec`` / ``eval`` / ``__import__``
+/ ``compile`` builtins, and never via dynamic-import or process-execution
+surfaces.
+
+v0.18 (PR #2): the scope widened from adapter sources only to the whole
+scanner package. A small allowlist (``ALLOWED_EXCEPTIONS`` below) captures
+the four legitimate first-party meta-CLI surfaces with prose rationale —
+bootstrap subprocess chaining, git probing in artifacts/triggers, and
+self-check ``__import__`` validation. Two contract tests prevent
+allowlist rot.
 
 What the scanner catches:
 
@@ -20,9 +28,10 @@ What the scanner catches:
 - Module imports from a forbidden set (``runpy``, ``subprocess``,
   ``importlib``, ``importlib.util``, ``importlib.machinery``, ``builtins``)
   — including ``import X as Y``, ``import X.child``, and
-  ``from X.child import ...`` forms. ``importlib.metadata`` is the one
-  explicit exception because it reads installed-package metadata, not user
-  workspace code.
+  ``from X.child import ...`` forms. Two explicit exceptions:
+  ``importlib.metadata`` (reads installed-package metadata for plugin
+  discovery) and ``importlib.resources`` (reads bundled-package files
+  inside the agents-shipgate wheel) — neither reads user workspace code.
 - **Aliased re-exports.** A two-pass walk first builds alias maps from
   ``import`` and ``from-import`` statements, then resolves attribute chains
   and bare-name calls back to their canonical dotted path before checking
@@ -50,7 +59,8 @@ is the structural floor; code review is the dataflow ceiling.
 Tests live in two layers:
 
 1. **This file** (``test_adapter_static_only.py``) — AST scan of every
-   ``inputs/*.py`` source. Catches a regression *before* it ships and runs
+   ``src/agents_shipgate/**/*.py`` source (v0.18+; previously scoped to
+   ``inputs/*.py`` only). Catches a regression *before* it ships and runs
    in CI in well under a second.
 2. **``test_fixture_no_import.py``** — companion live-load tests that drive
    each adapter end-to-end against a fixture with a module-level
@@ -64,12 +74,112 @@ The two layers together back the public claim in
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INPUTS_DIR = REPO_ROOT / "src" / "agents_shipgate" / "inputs"
+SCANNER_DIR = REPO_ROOT / "src" / "agents_shipgate"
+
+
+@dataclass(frozen=True)
+class Violation:
+    """One forbidden-surface hit from ``_scan_source``.
+
+    ``surface`` is the canonical key used by ``ALLOWED_EXCEPTIONS`` and
+    contract tests. Shape:
+
+      ``"import:<module>"``      — ``import <module>`` / ``from <module> import …``
+      ``"attr_call:<dotted>"``   — call to ``<module>.<func>`` (canonical-resolved)
+      ``"name_call:<name>"``     — bare-name call to ``<name>`` (e.g., ``__import__``)
+    """
+
+    line: int
+    surface: str
+    message: str
+
+
+@dataclass(frozen=True)
+class AllowedException:
+    """v0.18 (PR #2): per-file allowed forbidden-surface entry, with prose rationale.
+
+    Each entry covers exactly one ``(relative_path, surface)`` pair.
+    ``relative_path`` is relative to ``SCANNER_DIR``. Adding an entry is a
+    public commitment; the rationale text lands in the audit trail.
+    """
+
+    relative_path: str
+    surface: str
+    rationale: str
+
+
+# Per-file allowlist of forbidden-surface uses. Each entry MUST correspond to
+# a surface that the scanner would actually flag in the named file — the
+# ``test_allowlist_entry_matches_real_surface`` contract test fails the moment
+# an entry goes stale. Each entry MUST also have a one-sentence prose
+# rationale captured in STABILITY.md § "Meta-CLI surfaces (allowlisted, audited)".
+ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
+    AllowedException(
+        relative_path="cli/bootstrap.py",
+        surface="import:subprocess",
+        rationale=(
+            "Meta-CLI: bootstrap shells to the installed agents-shipgate "
+            "binary to chain detect → init → scan → apply-patches. Reads "
+            "no user code; runs only Shipgate's own CLI."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/bootstrap.py",
+        surface="attr_call:subprocess.run",
+        rationale="See cli/bootstrap.py import:subprocess rationale.",
+    ),
+    AllowedException(
+        relative_path="cli/discovery/artifacts.py",
+        surface="import:subprocess",
+        rationale=(
+            "Probes the user repo via ``git ls-files`` for file inventory. "
+            "Reads git metadata, does not execute user code."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/discovery/artifacts.py",
+        surface="attr_call:subprocess.run",
+        rationale="See cli/discovery/artifacts.py import:subprocess rationale.",
+    ),
+    AllowedException(
+        relative_path="triggers.py",
+        surface="import:subprocess",
+        rationale=(
+            "Trigger evaluation runs ``git diff`` against the user repo to "
+            "determine whether to fire a scan. Reads diff content, does "
+            "not execute user code."
+        ),
+    ),
+    AllowedException(
+        relative_path="triggers.py",
+        surface="attr_call:subprocess.run",
+        rationale="See triggers.py import:subprocess rationale.",
+    ),
+    AllowedException(
+        relative_path="cli/self_check.py",
+        surface="name_call:__import__",
+        rationale=(
+            "Self-check validates the installed environment by attempting "
+            "an import of a name supplied via CLI flag. Runs only under "
+            "`agents-shipgate self-check`, never during scan; targets "
+            "installed packages, not user workspace."
+        ),
+    ),
+)
+
+
+def _violation_allowed(relative_path: str, surface: str) -> bool:
+    """v0.18 (PR #2): True iff a (file, surface) pair is allowlisted."""
+    return any(
+        exc.relative_path == relative_path and exc.surface == surface
+        for exc in ALLOWED_EXCEPTIONS
+    )
 
 # Bare-name forbidden builtins. Catches direct calls like ``exec("...")``.
 FORBIDDEN_NAME_CALLS: frozenset[str] = frozenset(
@@ -136,7 +246,15 @@ FORBIDDEN_MODULES: frozenset[str] = frozenset(
 # Exact module import exceptions that would otherwise be caught by a
 # forbidden parent module. Keep this small: each exception needs a trust-model
 # reason in STABILITY.md.
-ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset({"importlib.metadata"})
+#
+# ``importlib.metadata`` — plugin/adapter discovery via entry_points reads the
+#   installed Python environment, not user workspace code.
+# ``importlib.resources`` — bundled-package files (e.g. ``fixtures.py``,
+#   ``triggers.py``) read content packaged inside the agents-shipgate wheel,
+#   not user workspace code.
+ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
+    {"importlib.metadata", "importlib.resources"}
+)
 
 # Modules we allow at the import line (legitimate adapter use) but whose
 # specific attributes are still subject to the forbidden-chain checks.
@@ -206,8 +324,13 @@ def _resolve_attribute_chain_all(
     ]
 
 
-def _scan_source(source: str, path: Path) -> list[str]:
-    """Return a list of human-readable violation strings.
+def _scan_source(source: str, path: Path) -> list[Violation]:
+    """Return a list of structured ``Violation`` objects.
+
+    v0.18 (PR #2): returns structured violations instead of preformatted
+    strings so callers can route by ``surface`` (e.g., consult
+    ``ALLOWED_EXCEPTIONS``). Use ``_format_violation`` for the
+    human-readable form when rendering errors.
 
     Two passes:
 
@@ -227,9 +350,15 @@ def _scan_source(source: str, path: Path) -> list[str]:
     try:
         tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:  # pragma: no cover - adapter files compile in CI step
-        return [f"{path}:{exc.lineno}: failed to parse: {exc.msg}"]
+        return [
+            Violation(
+                line=exc.lineno or 0,
+                surface="parse_error",
+                message=f"{path}:{exc.lineno}: failed to parse: {exc.msg}",
+            )
+        ]
     rel = path.relative_to(REPO_ROOT)
-    violations: list[str] = []
+    violations: list[Violation] = []
 
     # --- Pass 1: imports ---------------------------------------------------
     # module_aliases: locally-bound name -> {every canonical module path it
@@ -251,8 +380,14 @@ def _scan_source(source: str, path: Path) -> list[str]:
             for alias in node.names:
                 if _is_forbidden_module_import(alias.name):
                     violations.append(
-                        f"{rel}:{node.lineno}: forbidden import "
-                        f"{alias.name!r} (dynamic Python loading surface)"
+                        Violation(
+                            line=node.lineno,
+                            surface=f"import:{alias.name}",
+                            message=(
+                                f"{rel}:{node.lineno}: forbidden import "
+                                f"{alias.name!r} (dynamic Python loading surface)"
+                            ),
+                        )
                     )
                 if alias.asname:
                     module_aliases.setdefault(alias.asname, set()).add(alias.name)
@@ -264,8 +399,14 @@ def _scan_source(source: str, path: Path) -> list[str]:
             mod = node.module or ""
             if _is_forbidden_module_import(mod):
                 violations.append(
-                    f"{rel}:{node.lineno}: forbidden from-import "
-                    f"{mod!r} (dynamic Python loading surface)"
+                    Violation(
+                        line=node.lineno,
+                        surface=f"import:{mod}",
+                        message=(
+                            f"{rel}:{node.lineno}: forbidden from-import "
+                            f"{mod!r} (dynamic Python loading surface)"
+                        ),
+                    )
                 )
                 # Skip the per-name pass below — the whole module is forbidden.
                 continue
@@ -273,9 +414,15 @@ def _scan_source(source: str, path: Path) -> list[str]:
                 if alias.name == "*":
                     if mod in TRACKED_NON_FORBIDDEN_MODULES:
                         violations.append(
-                            f"{rel}:{node.lineno}: forbidden wildcard "
-                            f"from-import from {mod!r} "
-                            f"(would alias forbidden names into local scope)"
+                            Violation(
+                                line=node.lineno,
+                                surface=f"import:{mod}.*",
+                                message=(
+                                    f"{rel}:{node.lineno}: forbidden wildcard "
+                                    f"from-import from {mod!r} "
+                                    f"(would alias forbidden names into local scope)"
+                                ),
+                            )
                         )
                     continue
                 # Flag the from-import line itself when the imported
@@ -285,8 +432,14 @@ def _scan_source(source: str, path: Path) -> list[str]:
                     canonical = f"{mod}.{alias.name}"
                     if _is_forbidden_chain(canonical):
                         violations.append(
-                            f"{rel}:{node.lineno}: forbidden from-import "
-                            f"of {canonical!r}"
+                            Violation(
+                                line=node.lineno,
+                                surface=f"attr_call:{canonical}",
+                                message=(
+                                    f"{rel}:{node.lineno}: forbidden from-import "
+                                    f"of {canonical!r}"
+                                ),
+                            )
                         )
                     local = alias.asname or alias.name
                     name_aliases.setdefault(local, set()).add((mod, alias.name))
@@ -300,7 +453,14 @@ def _scan_source(source: str, path: Path) -> list[str]:
             # Direct bare-name builtin: e.g. ``exec("...")``.
             if func.id in FORBIDDEN_NAME_CALLS:
                 violations.append(
-                    f"{rel}:{node.lineno}: forbidden builtin call {func.id!r}"
+                    Violation(
+                        line=node.lineno,
+                        surface=f"name_call:{func.id}",
+                        message=(
+                            f"{rel}:{node.lineno}: forbidden builtin call "
+                            f"{func.id!r}"
+                        ),
+                    )
                 )
                 continue
             # Aliased ``from X import Y[ as Z]; Z(...)``. Iterate every
@@ -316,8 +476,14 @@ def _scan_source(source: str, path: Path) -> list[str]:
                             else f" (via from-import of {attr!r})"
                         )
                         violations.append(
-                            f"{rel}:{node.lineno}: forbidden call "
-                            f"{canonical!r}{via}"
+                            Violation(
+                                line=node.lineno,
+                                surface=f"attr_call:{canonical}",
+                                message=(
+                                    f"{rel}:{node.lineno}: forbidden call "
+                                    f"{canonical!r}{via}"
+                                ),
+                            )
                         )
                         break
         elif isinstance(func, ast.Attribute):
@@ -327,44 +493,65 @@ def _scan_source(source: str, path: Path) -> list[str]:
             for chain in _resolve_attribute_chain_all(func, module_aliases):
                 if _is_forbidden_chain(chain):
                     violations.append(
-                        f"{rel}:{node.lineno}: forbidden call {chain!r}"
+                        Violation(
+                            line=node.lineno,
+                            surface=f"attr_call:{chain}",
+                            message=(
+                                f"{rel}:{node.lineno}: forbidden call {chain!r}"
+                            ),
+                        )
                     )
                     break
     return violations
 
 
-def _adapter_sources() -> list[Path]:
-    """Every .py file under inputs/ (including __init__.py and helpers)."""
-    return sorted(INPUTS_DIR.rglob("*.py"))
+def _scanner_sources() -> list[Path]:
+    """v0.18 (PR #2): every .py file under src/agents_shipgate/ (not just
+    ``inputs/``). Skips ``__pycache__`` debris.
+    """
+    return sorted(
+        p for p in SCANNER_DIR.rglob("*.py") if "__pycache__" not in p.parts
+    )
 
 
 @pytest.mark.parametrize(
-    "adapter_source",
-    _adapter_sources(),
-    ids=lambda p: str(p.relative_to(INPUTS_DIR)),
+    "scanner_source",
+    _scanner_sources(),
+    ids=lambda p: str(p.relative_to(SCANNER_DIR)),
 )
-def test_adapter_source_contains_no_forbidden_calls_or_imports(
-    adapter_source: Path,
+def test_scanner_source_contains_no_forbidden_calls_or_imports(
+    scanner_source: Path,
 ) -> None:
-    """Each adapter source under inputs/ is statically free of code-execution
-    surfaces.
+    """Each scanner source is statically free of code-execution surfaces,
+    EXCEPT for the four legitimate first-party meta-CLI surfaces captured
+    in ``ALLOWED_EXCEPTIONS`` (each with prose rationale).
 
     A regression here means a contributor added a way for the scanner to
     execute or import user code. That breaks the public trust claim in
     README and STABILITY.md and must be rejected. If a legitimate need
-    arises (it should not), update STABILITY.md first and consider whether
-    the addition belongs in ``inputs/`` at all.
+    arises (it should not), update STABILITY.md first and add an
+    ``ALLOWED_EXCEPTIONS`` entry with prose rationale.
+
+    v0.18 (PR #2) widens this from ``src/agents_shipgate/inputs/`` to the
+    entire scanner package.
     """
-    source = adapter_source.read_text(encoding="utf-8")
-    violations = _scan_source(source, adapter_source)
-    assert not violations, (
-        "Trust-model invariant violation under src/agents_shipgate/inputs/:\n  "
-        + "\n  ".join(violations)
+    rel = str(scanner_source.relative_to(SCANNER_DIR))
+    source = scanner_source.read_text(encoding="utf-8")
+    violations = _scan_source(source, scanner_source)
+    unallowed = [
+        v for v in violations if not _violation_allowed(rel, v.surface)
+    ]
+    assert not unallowed, (
+        "Trust-model invariant violation under src/agents_shipgate/:\n  "
+        + "\n  ".join(v.message for v in unallowed)
         + "\n\n"
-        + "Adapters MUST NOT execute or import user code. They parse user "
-        + "files with ast.parse / yaml.safe_load / json.loads ONLY. See "
+        + "The scanner MUST NOT execute or import user code. Parse with "
+        + "ast.parse / yaml.safe_load / json.loads ONLY. See "
         + "STABILITY.md § 'Trust-model invariants' and the companion "
-        + "tests/test_fixture_no_import.py live-load tests."
+        + "tests/test_fixture_no_import.py live-load tests. If the surface "
+        + "is a legitimate first-party meta-CLI operation, add an "
+        + "ALLOWED_EXCEPTIONS entry with prose rationale and document it "
+        + "in STABILITY.md § 'Meta-CLI surfaces (allowlisted, audited)'."
     )
 
 
@@ -533,15 +720,15 @@ def test_lint_scanner_catches_known_violation_shapes(
     families, module aliases, from-import aliases, wildcard imports, and
     the ``builtins`` surface).
     """
-    fake_path = INPUTS_DIR / "__synthetic__.py"
+    fake_path = SCANNER_DIR / "__synthetic__.py"
     violations = _scan_source(snippet, fake_path)
     assert violations, (
         f"Scanner failed to flag a forbidden shape:\n  snippet: {snippet!r}\n"
         f"  expected substring: {expected_substring!r}"
     )
-    assert any(expected_substring in v for v in violations), (
+    assert any(expected_substring in v.message for v in violations), (
         f"Scanner caught a violation but not the expected one:\n"
-        f"  snippet: {snippet!r}\n  violations: {violations!r}\n"
+        f"  snippet: {snippet!r}\n  violations: {[v.message for v in violations]!r}\n"
         f"  expected substring: {expected_substring!r}"
     )
 
@@ -571,43 +758,102 @@ def test_lint_scanner_does_not_false_positive_on_safe_shapes() -> None:
         "import importlib.metadata\n"
         "from importlib.metadata import version\npkg_version = version('agents-shipgate')\n"
     )
-    fake_path = INPUTS_DIR / "__synthetic_safe__.py"
+    fake_path = SCANNER_DIR / "__synthetic_safe__.py"
     violations = _scan_source(safe, fake_path)
     assert not violations, (
         "Safe parsing patterns must not be flagged. Unexpected violations:\n  "
-        + "\n  ".join(sorted(violations))
+        + "\n  ".join(sorted(v.message for v in violations))
     )
 
 
-def test_invariant_lint_covers_every_adapter_module() -> None:
-    """Sanity check: the parametrized scan reaches every known adapter file.
+# --- v0.18 (PR #2): allowlist contract tests --------------------------------
 
-    Catches the case where someone reorganizes inputs/ into a subpackage
-    and the rglob silently stops finding the new home.
+
+@pytest.mark.parametrize(
+    "exc",
+    ALLOWED_EXCEPTIONS,
+    ids=lambda e: f"{e.relative_path}:{e.surface}",
+)
+def test_allowlist_entry_matches_real_surface(exc: AllowedException) -> None:
+    """v0.18 (PR #2) stale-allowlist guard.
+
+    Every ``ALLOWED_EXCEPTIONS`` entry MUST correspond to a surface
+    that the scanner would actually flag in the named file. If the
+    file is later refactored to remove the legitimate meta-CLI surface
+    (e.g., self-check stops calling ``__import__``), this test fails
+    and forces the contributor to remove the now-unused allowlist
+    entry — preventing rot.
     """
-    scanned_names = {p.name for p in _adapter_sources()}
-    expected_adapter_files = {
-        "anthropic_api.py",
-        "codex_plugin.py",
-        "common.py",
-        "crewai.py",
-        "google_adk.py",
-        "langchain.py",
-        "mcp.py",
-        "n8n.py",
-        "openai_api.py",
-        "openai_sdk_static.py",
-        "openapi.py",
-        "policy_packs.py",
-        "protocol.py",
-        "python_static.py",
-        "traces.py",
-        "validation.py",
-        "_python_framework.py",
-        "__init__.py",
+    path = SCANNER_DIR / exc.relative_path
+    assert path.exists(), (
+        f"allowlisted file does not exist: {exc.relative_path}"
+    )
+    source = path.read_text(encoding="utf-8")
+    violations = _scan_source(source, path)
+    surfaces = {v.surface for v in violations}
+    assert exc.surface in surfaces, (
+        f"allowlisted surface {exc.surface!r} not present in "
+        f"{exc.relative_path!r}; entry is stale, remove or refactor. "
+        f"Observed surfaces in this file: {sorted(surfaces)!r}"
+    )
+
+
+def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
+    """v0.18 (PR #2): the whole-scanner sweep with allowlist applied
+    produces zero violations. This is the runtime gate PR #2 hardens.
+
+    The parametrized ``test_scanner_source_contains_no_forbidden_calls_or_imports``
+    above catches per-file regressions. This non-parametrized form gives
+    a single, definitive PASS/FAIL signal at the end of the test session.
+    A failure message lists every ``(relative_path, surface)`` pair the
+    contributor must address — either by refactoring the offending file
+    or by adding an ``ALLOWED_EXCEPTIONS`` entry with prose rationale.
+    """
+    unallowed: list[tuple[str, str]] = []
+    for path in _scanner_sources():
+        rel = str(path.relative_to(SCANNER_DIR))
+        for violation in _scan_source(path.read_text(encoding="utf-8"), path):
+            if not _violation_allowed(rel, violation.surface):
+                unallowed.append((rel, violation.surface))
+    assert unallowed == [], (
+        "Scanner has forbidden surfaces with no allowlist entry. "
+        "Add an ALLOWED_EXCEPTIONS entry with prose rationale, or "
+        "refactor the surface out. Unallowlisted: "
+        + ", ".join(f"{path}::{surface}" for path, surface in unallowed)
+    )
+
+
+def test_scanner_sources_covers_known_files() -> None:
+    """v0.18 (PR #2): non-vacuity guard.
+
+    The pre-v0.18 ``test_invariant_lint_covers_every_adapter_module``
+    pinned a hardcoded 18-file set; that approach didn't scale to the
+    widened whole-scanner scope (~80 files). This replacement asserts a
+    small set of always-present anchor files AND a minimum count,
+    catching both silent ``rglob`` breakage and accidental
+    scope-narrowing (e.g., a typo making ``SCANNER_DIR`` point at an
+    empty directory would make every other test in this file vacuously
+    pass).
+    """
+    sources = _scanner_sources()
+    relative_paths = {str(p.relative_to(SCANNER_DIR)) for p in sources}
+    required = {
+        "cli/scan.py",
+        "inputs/protocol.py",
+        "inputs/mcp.py",
+        "checks/registry.py",
+        "checks/plugin_validation.py",
+        "core/models.py",
+        "core/severity_overrides.py",
+        "core/findings.py",
     }
-    missing = expected_adapter_files - scanned_names
+    missing = required - relative_paths
     assert not missing, (
-        f"Expected adapter files not found under {INPUTS_DIR}: {sorted(missing)}. "
-        f"If inputs/ was reorganized, update the expected set above."
+        f"_scanner_sources() missing known files: {sorted(missing)}. "
+        f"Check SCANNER_DIR ({SCANNER_DIR}) and the rglob predicate."
+    )
+    assert len(sources) >= 50, (
+        f"_scanner_sources() returned only {len(sources)} files; "
+        f"expected >= 50 (whole-scanner coverage). Investigate whether "
+        f"SCANNER_DIR was scoped down."
     )
