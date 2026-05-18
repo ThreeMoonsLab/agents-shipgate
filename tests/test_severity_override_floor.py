@@ -883,3 +883,89 @@ def test_dynamic_default_missing_extra_raises_runtime_error() -> None:
             catalog=catalog,
             extra_known_check_defaults={},
         )
+
+
+def test_aggregator_handles_override_without_manifest_section() -> None:
+    """v0.18 (PR #1) regression for the P1 false-positive scenario.
+
+    A user manifest can override ``SHIP-ACTION-POLICY-VIOLATION``
+    (a ``dynamic_default=True`` catalog check) without declaring
+    ``action_surface.policies[]``. The resolver MUST NOT raise
+    ``RuntimeError`` in this case — that's the bug the seed step of
+    ``_dynamic_check_defaults`` exists to prevent. The override should
+    apply cleanly against the catalog static default, and the audit row
+    should report the catalog default (no dynamic strengthening).
+
+    Note: ``high → medium`` is tier-crossing (high → normal), so the
+    manifest declares an ``acknowledge_overrides`` entry. The point of
+    this test is that the v0.18 ``RuntimeError`` guard does NOT fire on
+    legitimate user input that lacks ``action_surface.policies[]`` — not
+    that all overrides apply without ack.
+    """
+    from agents_shipgate.checks.registry import CHECK_METADATA
+    from agents_shipgate.cli.scan import _dynamic_check_defaults
+    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.inputs.policy_packs import LoadedPolicyPacks
+
+    # Manifest overrides SHIP-ACTION-POLICY-VIOLATION (default high) to
+    # medium with a tier-crossing acknowledgement. No
+    # action_surface.policies declared — this is the P1 scenario.
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "p"},
+            "agent": {"name": "a", "declared_purpose": ["t"]},
+            "environment": {"target": "local"},
+            "tool_sources": [
+                {"id": "mcp", "type": "mcp", "path": "tools.json"}
+            ],
+            "checks": {
+                "severity_overrides": {
+                    "SHIP-ACTION-POLICY-VIOLATION": {"severity": "medium"},
+                },
+                "acknowledge_overrides": [
+                    {
+                        "check_id": "SHIP-ACTION-POLICY-VIOLATION",
+                        "reason": "P1 regression fixture — verifies the seed loop",
+                    },
+                ],
+            },
+        }
+    )
+
+    catalog = list(CHECK_METADATA)
+    effective = _dynamic_check_defaults(
+        manifest,
+        LoadedPolicyPacks(loaded=[], rules=[], warnings=[]),
+        catalog=catalog,
+    )
+
+    # Seed step in _dynamic_check_defaults included the entry; no
+    # overlay because no policies declared. Effective default ==
+    # catalog static (no dynamic strengthening).
+    assert (
+        effective["SHIP-ACTION-POLICY-VIOLATION"] == "high"
+    ), "seed loop must place catalog default when no overlay applies"
+
+    # Resolver must NOT raise RuntimeError — this is the P1 regression:
+    # pre-fix, the guard fired here because the action-only overlay
+    # branch was the sole source of the entry, so the dict was sparse
+    # for any manifest that didn't declare action_surface.policies.
+    resolution = resolve_severity_overrides(
+        overrides=manifest.severity_override_entries(),
+        acknowledgements=manifest.acknowledge_overrides(),
+        catalog=catalog,
+        extra_known_check_defaults=effective,
+    )
+    audit_row = next(
+        row
+        for row in resolution.audit.severity_overrides_applied
+        if row.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+    )
+    # Catalog static default (not the manifest-declared dynamic value
+    # — no action_surface.policies present means no dynamic
+    # strengthening).
+    assert audit_row.default_severity == "high"
+    assert audit_row.applied_severity == "medium"
+    assert audit_row.direction == "downgrade"
+    assert audit_row.tier_crossed is True

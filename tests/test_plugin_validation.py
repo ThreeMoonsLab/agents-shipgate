@@ -410,6 +410,53 @@ def test_plugin_dynamic_default_without_floor_lands_in_dynamic_status(monkeypatc
     )
 
 
+def test_plugin_with_dynamic_default_as_checkmetadata_instance_is_rejected(
+    monkeypatch, tmp_path
+):
+    """A plugin that sets ``AGENTS_SHIPGATE_METADATA`` to an
+    already-constructed ``CheckMetadata`` instance (rather than a dict)
+    must still be caught by the dynamic_default_not_supported gate.
+
+    Exercises the ``isinstance(value, CheckMetadata)`` branch of
+    ``_raw_metadata_declares_dynamic_default``. The metadata is built
+    with a valid ``floor_severity`` so the ``CheckMetadata`` model
+    validator does not reject it at construction time; the plugin
+    gate then catches the dynamic_default flag from the typed
+    instance.
+    """
+    from agents_shipgate.core.models import CheckMetadata
+
+    def plugin(context):
+        return []
+
+    # CheckMetadata instance — construction succeeds because floor is
+    # set; dynamic_default=True still triggers the plugin gate.
+    plugin.AGENTS_SHIPGATE_METADATA = CheckMetadata(
+        id="ACME-DYNAMIC-INSTANCE",
+        category="custom",
+        default_severity="high",
+        floor_severity="medium",
+        description="Plugin with CheckMetadata instance metadata.",
+        dynamic_default=True,
+    )
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"expected dynamic_default_not_supported for CheckMetadata "
+        f"instance form, got {record['validation_status']!r}"
+    )
+    assert any(
+        "cli/scan.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
+
+
 # --- Runtime validation -----------------------------------------------------
 
 
