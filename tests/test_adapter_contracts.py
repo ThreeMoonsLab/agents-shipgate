@@ -177,8 +177,8 @@ def test_tool_emitting_adapters_produce_normalized_tools_and_action_facts(
     ]
 
     assert selected_sources, "adapter contract case did not select any loaded source"
-    assert any(source.tools for source in selected_sources), (
-        "adapter contract case must exercise at least one emitted Tool"
+    assert all(source.tools for source in selected_sources), (
+        "every selected adapter source must exercise at least one emitted Tool"
     )
     for source in selected_sources:
         for tool in source.tools:
@@ -194,7 +194,7 @@ def test_tool_emitting_adapters_produce_normalized_tools_and_action_facts(
     second = build_action_surface_facts(manifest, agent_id=agent_id, tools=tools)
 
     assert first.model_dump(mode="json") == second.model_dump(mode="json")
-    _assert_action_facts(first, tools)
+    _assert_action_facts(first, tools, agent_id=agent_id)
 
 
 def test_validation_adapter_emits_no_tools_or_action_facts() -> None:
@@ -209,12 +209,15 @@ def test_validation_adapter_emits_no_tools_or_action_facts() -> None:
     assert validation_artifacts is not None
     assert [source for source in loaded_sources if source.source_type == "validation"] == []
 
+    real_tools, _dedupe_warnings = _flatten_and_deduplicate_tools(loaded_sources)
+    assert real_tools
     facts = build_action_surface_facts(
         manifest,
         agent_id=_agent_id(manifest),
-        tools=[],
+        tools=real_tools,
     )
-    assert facts.actions == []
+    assert facts.actions
+    assert all(action.source_type != "validation" for action in facts.actions)
 
 
 def _assert_normalized_tool(tool: Tool, source: LoadedToolSource) -> None:
@@ -246,7 +249,12 @@ def _assert_normalized_tool(tool: Tool, source: LoadedToolSource) -> None:
         assert hint["confidence"] in CONFIDENCE_VALUES
 
 
-def _assert_action_facts(facts: ActionSurfaceFacts, tools: list[Tool]) -> None:
+def _assert_action_facts(
+    facts: ActionSurfaceFacts,
+    tools: list[Tool],
+    *,
+    agent_id: str,
+) -> None:
     data = facts.model_dump(mode="json")
     _assert_json_serializable(data)
     assert ActionSurfaceFacts.model_validate(data).model_dump(mode="json") == data
@@ -260,6 +268,8 @@ def _assert_action_facts(facts: ActionSurfaceFacts, tools: list[Tool]) -> None:
 
     for action in facts.actions:
         tool = by_tool_id[action.tool_id]
+        assert action.action_id.startswith(f"{agent_id}:")
+        assert action.action_id.count(":") >= 3
         assert action.tool_name == tool.name
         assert action.source_type == tool.source_type
         assert action.source_id == tool.source_id
@@ -326,6 +336,8 @@ def _write_n8n_contract_manifest(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     manifest = project / "shipgate.yaml"
+    # Intentionally omits `action_surface:` to exercise the undeclared-tool
+    # action_id fallback path.
     manifest.write_text(
         textwrap.dedent(
             """
@@ -416,6 +428,8 @@ def _write_codex_plugin_contract_manifest(tmp_path: Path) -> Path:
     )
 
     manifest = project / "shipgate.yaml"
+    # Intentionally omits `action_surface:` to exercise the undeclared-tool
+    # action_id fallback path.
     manifest.write_text(
         textwrap.dedent(
             """
