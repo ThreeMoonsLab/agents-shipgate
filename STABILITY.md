@@ -249,7 +249,8 @@ The no-execute / no-import property is enforced by two complementary
 tests on every CI run, not by convention:
 
 - **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
-  AST scan of every source under `src/agents_shipgate/inputs/`. The scan
+  AST scan of every `.py` file under `src/agents_shipgate/` (v0.18+
+  widened scope from `src/agents_shipgate/inputs/` only). The scan
   rejects:
   - Bare-name calls to `exec` / `eval` / `__import__` / `compile`.
   - Attribute calls to `importlib.import_module`,
@@ -267,14 +268,63 @@ tests on every CI run, not by convention:
   - Wildcard `from os import *`.
 
   `importlib.metadata` is intentionally allowed: the plugin registry
-  under `checks/` (not `inputs/`) uses it for entry-point discovery,
-  and discovery happens against the *installed* environment, not user
-  workspace files. Aliased re-exports (`import os as oo`,
+  uses it for entry-point discovery, and discovery happens against the
+  *installed* environment, not user workspace files. `importlib.resources`
+  is allowed (v0.18+) at the import line **only** so name-aliases get
+  built; every `importlib.resources.<attr>(...)` call site is forbidden
+  via the `importlib.resources.` prefix in `FORBIDDEN_ATTR_CALL_PREFIXES`
+  and must carry a per-call-site `ALLOWED_EXCEPTIONS` entry with snippet
+  pinning. This covers `files`, `read_text`, `read_binary`, `path`,
+  `open_text`, `open_binary`, `is_resource`, `contents`, `as_file`, and
+  any future addition under the module — all of which take an
+  anchor-package argument and could bypass the dynamic-import lint if
+  left unrestricted. Aliased re-exports (`import os as oo`,
   `from os import system as sh`, `import os; import pathlib as os`) are
   resolved through union-of-bindings alias maps so a later import
   cannot erase an earlier forbidden binding. The lint runs as a
   dedicated CI step labeled *Trust-model invariant lint* before the
   main test suite so a regression is visible at the top of CI logs.
+
+  **Meta-CLI surfaces (allowlisted, audited).** First-party meta-CLI
+  surfaces are pinned **per call site** in
+  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)
+  by a four-tuple `(relative_path, surface, line, snippet)` where
+  `snippet` is the canonical `ast.unparse` of the offending AST node.
+  Each entry carries a prose rationale and pins a single call:
+
+  - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
+    installed agents-shipgate CLI to chain
+    `detect → init → scan → apply-patches`.
+  - **`cli/discovery/artifacts.py`** — two `subprocess.run` calls
+    invoke `git rev-parse` + `git ls-files` to enumerate user-repo
+    files. Reads git metadata only.
+  - **`triggers.py`** — three `subprocess.run` calls (`git diff
+    --name-only`, `git diff`, `git ls-files --others
+    --exclude-standard`) for trigger evaluation. Reads diff content
+    only. **Plus** one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled trigger catalog.
+  - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled fixture directory.
+  - **`cli/self_check.py`** — one `__import__(module_name)` call
+    validates that supplied modules import cleanly. Runs only under
+    `agents-shipgate self-check`, never during scan.
+
+  Per-call-site pinning means **adding a second occurrence of an
+  already-allowlisted surface in the same file STILL requires a new
+  entry**. Changing the call's argv shape (the `snippet` changes)
+  also fails the test, forcing a reviewer to confirm the change is
+  benign. The literal-anchor invariant for
+  `importlib.resources.files('agents_shipgate')` is enforced by
+  snippet pinning: a future `files(user_var)` call would not match.
+
+  Three contract tests pin the audit trail:
+  `test_allowlist_entry_matches_real_surface` (every entry matches a
+  real violation on all four fields),
+  `test_no_unallowlisted_forbidden_surface_in_scanner` (every
+  observed violation has a matching entry), and
+  `test_allowed_exceptions_pin_subprocess_run_per_call_site` (the
+  multi-call files have distinct entries per call site, regression-
+  testing the structural fix from the v0.18 PR #2 review).
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
   SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is

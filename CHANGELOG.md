@@ -58,6 +58,95 @@
     `dynamic_default=True` without `floor_severity` lands in
     `dynamic_default_not_supported` rather than being mis-classified
     as `bad_floor` by the new `CheckMetadata` model validator.
+- **v0.18 / PR #2 review follow-up: per-call-site allowlist pinning.**
+  PR #91 review caught two structural holes in the v0.18 trust lint
+  extension:
+  - **P1**: the allowlist matched on `(relative_path, surface)` only,
+    so one entry blanket-permitted every occurrence of a surface in
+    a file. A future unreviewed `subprocess.run(...)` added to an
+    already-allowlisted file would slip past silently.
+  - **P2**: `importlib.resources` was globally exempted, so
+    `files(name)` calls produced no violation. The current uses
+    pass a literal `'agents_shipgate'` anchor, but a future
+    user-controlled anchor would bypass the dynamic-import lint.
+
+  Both are closed by tightening the allowlist contract:
+  - `AllowedException` now carries `line: int` and `snippet: str`
+    (canonical `ast.unparse` of the offending node) in addition to
+    `relative_path` and `surface`. `_violation_allowed` matches on
+    all four fields. Adding a new `subprocess.run` call to an
+    already-allowlisted file now requires a new entry; changing an
+    existing call's argv shape changes the `snippet` and fails the
+    contract test.
+  - `importlib.resources.` joins `FORBIDDEN_ATTR_CALL_PREFIXES`, and
+    `importlib.resources` joins `TRACKED_NON_FORBIDDEN_MODULES`. The
+    earlier draft of this PR only forbade `importlib.resources.files`,
+    which left `read_text`, `read_binary`, `path`, `open_text`,
+    `open_binary`, `is_resource`, `contents`, `as_file`, and any
+    future addition under the module as a parallel bypass — each
+    takes the same anchor-package argument and would have been
+    silently allowed. The prefix entry catches the whole family.
+    `from importlib.resources import <attr>; <attr>(...)` and
+    `import importlib.resources as res; res.<attr>(...)` both
+    resolve to canonical `importlib.resources.<attr>` and trip the
+    prefix. Both first-party call sites in `triggers.py` and
+    `fixtures.py` (currently `files`-only) are individually pinned
+    with the literal `'agents_shipgate'` anchor in the snippet — a
+    future `files(some_user_anchor)` or `read_text(some_user_anchor,
+    ...)` call would change the snippet and fail the test.
+  - `Violation` gains `snippet: str` captured via `ast.unparse(node)`.
+  - New regression test
+    `test_allowed_exceptions_pin_subprocess_run_per_call_site`
+    asserts that multi-call files (triggers.py, artifacts.py) have
+    distinct entries per call site, so the P1 bypass cannot
+    reappear via consolidation.
+  - New regression test `test_allowed_exceptions_have_no_duplicates`
+    asserts no two entries cover the same call site.
+  - Negative-control: injecting a 4th `subprocess.run` into
+    `triggers.py` now fails the contract test with the precise
+    `(line, surface, snippet)` triple. Injecting
+    `files(user_var)` in place of `files('agents_shipgate')` fails
+    similarly.
+
+- **v0.18 / PR #2 trust-hardening: static AST lint widened to entire scanner.**
+  Previously `tests/test_adapter_static_only.py` AST-scanned only
+  `src/agents_shipgate/inputs/`; the public claim in STABILITY.md and
+  README is broader ("the scanner does not execute or import user code").
+  The lint now structurally enforces the broader claim.
+  - Scope widened: scanner now walks every `.py` file under
+    `src/agents_shipgate/` via `rglob`. The legacy
+    `test_invariant_lint_covers_every_adapter_module` was paranoid for
+    the 18-file `inputs/` case and no longer scales to ~80 files — the
+    new contract test
+    `test_no_unallowlisted_forbidden_surface_in_scanner` is the
+    replacement, asserting a definitive PASS/FAIL signal over the whole
+    sweep.
+  - Four legitimate first-party meta-CLI surfaces are allowlisted via a
+    new `ALLOWED_EXCEPTIONS` tuple of `AllowedException` entries, each
+    with prose rationale:
+    - `cli/bootstrap.py` `subprocess.run(...)` — chains
+      `detect → init → scan → apply-patches` against Shipgate's own CLI.
+    - `cli/discovery/artifacts.py` `subprocess.run(["git", ...])` —
+      probes the user repo for file inventory.
+    - `triggers.py` `subprocess.run(["git", "diff", ...])` — trigger
+      evaluation reads diff content.
+    - `cli/self_check.py` `__import__(name)` — validates that supplied
+      modules are installed. Runs only under
+      `agents-shipgate self-check`.
+  - Two contract tests prevent allowlist rot:
+    `test_allowlist_entry_matches_real_surface` (every entry must
+    correspond to a real surface) and
+    `test_no_unallowlisted_forbidden_surface_in_scanner` (every forbidden
+    surface must be allowlisted or eliminated).
+  - `importlib.resources` added to `ALLOWED_FORBIDDEN_MODULE_IMPORTS`
+    for bundled-package files (e.g. `fixtures.py`, `triggers.py`).
+    `importlib.metadata` remains allowed for plugin/adapter discovery.
+  - `_scan_source` now returns structured `Violation` objects
+    (`line`, `surface`, `message`) instead of preformatted strings, so
+    callers can route by `surface` against `ALLOWED_EXCEPTIONS`.
+  - STABILITY.md "Trust-model invariants" widened to cite the entire
+    scanner package and adds a "Meta-CLI surfaces (allowlisted,
+    audited)" subsection documenting each of the four entries.
 
 - **v0.17 / M1 trust-hardening: severity-override floor + audit.**
   - `core.models.CheckMetadata` gains an optional `floor_severity` field
