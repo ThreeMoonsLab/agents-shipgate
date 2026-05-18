@@ -278,27 +278,46 @@ tests on every CI run, not by convention:
   dedicated CI step labeled *Trust-model invariant lint* before the
   main test suite so a regression is visible at the top of CI logs.
 
-  **Meta-CLI surfaces (allowlisted, audited).** Four first-party
-  surfaces are allowed with prose rationale captured in
-  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
-  Each entry must correspond to a real surface (enforced by a
-  contract test) and must read no user code:
+  **Meta-CLI surfaces (allowlisted, audited).** First-party meta-CLI
+  surfaces are pinned **per call site** in
+  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)
+  by a four-tuple `(relative_path, surface, line, snippet)` where
+  `snippet` is the canonical `ast.unparse` of the offending AST node.
+  Each entry carries a prose rationale and pins a single call:
 
-  - **`cli/bootstrap.py`** — `subprocess.run([sys.executable, "-m", "agents_shipgate", …])`
-    chains `detect → init → scan → apply-patches`. Runs only
-    Shipgate's own CLI.
-  - **`cli/discovery/artifacts.py`** — `subprocess.run(["git", …])`
-    probes the user repo for file inventory. Reads git metadata only.
-  - **`triggers.py`** — `subprocess.run(["git", "diff", …])` for trigger
-    evaluation. Reads diff content only.
-  - **`cli/self_check.py`** — `__import__(name)` validates that a
-    supplied module is installed. Runs only under
+  - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
+    installed agents-shipgate CLI to chain
+    `detect → init → scan → apply-patches`.
+  - **`cli/discovery/artifacts.py`** — two `subprocess.run` calls
+    invoke `git rev-parse` + `git ls-files` to enumerate user-repo
+    files. Reads git metadata only.
+  - **`triggers.py`** — three `subprocess.run` calls (`git diff
+    --name-only`, `git diff`, `git ls-files --others
+    --exclude-standard`) for trigger evaluation. Reads diff content
+    only. **Plus** one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled trigger catalog.
+  - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled fixture directory.
+  - **`cli/self_check.py`** — one `__import__(module_name)` call
+    validates that supplied modules import cleanly. Runs only under
     `agents-shipgate self-check`, never during scan.
 
-  A contract test pins each allowlist entry to a real surface and
-  fails if the entry goes stale; a second contract test sweeps the
-  whole scanner package and fails on any forbidden surface that lacks
-  an allowlist entry.
+  Per-call-site pinning means **adding a second occurrence of an
+  already-allowlisted surface in the same file STILL requires a new
+  entry**. Changing the call's argv shape (the `snippet` changes)
+  also fails the test, forcing a reviewer to confirm the change is
+  benign. The literal-anchor invariant for
+  `importlib.resources.files('agents_shipgate')` is enforced by
+  snippet pinning: a future `files(user_var)` call would not match.
+
+  Three contract tests pin the audit trail:
+  `test_allowlist_entry_matches_real_surface` (every entry matches a
+  real violation on all four fields),
+  `test_no_unallowlisted_forbidden_surface_in_scanner` (every
+  observed violation has a matching entry), and
+  `test_allowed_exceptions_pin_subprocess_run_per_call_site` (the
+  multi-call files have distinct entries per call site, regression-
+  testing the structural fix from the v0.18 PR #2 review).
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
   SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is

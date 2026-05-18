@@ -58,6 +58,47 @@
     `dynamic_default=True` without `floor_severity` lands in
     `dynamic_default_not_supported` rather than being mis-classified
     as `bad_floor` by the new `CheckMetadata` model validator.
+- **v0.18 / PR #2 review follow-up: per-call-site allowlist pinning.**
+  PR #91 review caught two structural holes in the v0.18 trust lint
+  extension:
+  - **P1**: the allowlist matched on `(relative_path, surface)` only,
+    so one entry blanket-permitted every occurrence of a surface in
+    a file. A future unreviewed `subprocess.run(...)` added to an
+    already-allowlisted file would slip past silently.
+  - **P2**: `importlib.resources` was globally exempted, so
+    `files(name)` calls produced no violation. The current uses
+    pass a literal `'agents_shipgate'` anchor, but a future
+    user-controlled anchor would bypass the dynamic-import lint.
+
+  Both are closed by tightening the allowlist contract:
+  - `AllowedException` now carries `line: int` and `snippet: str`
+    (canonical `ast.unparse` of the offending node) in addition to
+    `relative_path` and `surface`. `_violation_allowed` matches on
+    all four fields. Adding a new `subprocess.run` call to an
+    already-allowlisted file now requires a new entry; changing an
+    existing call's argv shape changes the `snippet` and fails the
+    contract test.
+  - `importlib.resources.files` joins `FORBIDDEN_ATTR_CALLS_EXACT`,
+    and `importlib.resources` joins `TRACKED_NON_FORBIDDEN_MODULES`
+    so `from importlib.resources import files; files(...)` is
+    resolved through name-aliases. Both call sites in `triggers.py`
+    and `fixtures.py` are individually pinned with the literal
+    `'agents_shipgate'` anchor in the snippet — a future
+    `files(some_user_anchor)` call would change the snippet and
+    fail the test.
+  - `Violation` gains `snippet: str` captured via `ast.unparse(node)`.
+  - New regression test
+    `test_allowed_exceptions_pin_subprocess_run_per_call_site`
+    asserts that multi-call files (triggers.py, artifacts.py) have
+    distinct entries per call site, so the P1 bypass cannot
+    reappear via consolidation.
+  - New regression test `test_allowed_exceptions_have_no_duplicates`
+    asserts no two entries cover the same call site.
+  - Negative-control: injecting a 4th `subprocess.run` into
+    `triggers.py` now fails the contract test with the precise
+    `(line, surface, snippet)` triple. Injecting
+    `files(user_var)` in place of `files('agents_shipgate')` fails
+    similarly.
 
 - **v0.18 / PR #2 trust-hardening: static AST lint widened to entire scanner.**
   Previously `tests/test_adapter_static_only.py` AST-scanned only

@@ -93,93 +93,288 @@ class Violation:
       ``"import:<module>"``      — ``import <module>`` / ``from <module> import …``
       ``"attr_call:<dotted>"``   — call to ``<module>.<func>`` (canonical-resolved)
       ``"name_call:<name>"``     — bare-name call to ``<name>`` (e.g., ``__import__``)
+
+    ``snippet`` is the canonical ``ast.unparse`` of the offending AST node
+    (Import/ImportFrom/Call). Combined with ``line`` it lets the allowlist
+    pin individual call sites rather than blanket-permitting every
+    occurrence in a file.
     """
 
     line: int
     surface: str
     message: str
+    snippet: str
 
 
 @dataclass(frozen=True)
 class AllowedException:
-    """v0.18 (PR #2): per-file allowed forbidden-surface entry, with prose rationale.
+    """v0.18 (PR #2): per-call-site allowed forbidden-surface entry,
+    with prose rationale.
 
-    Each entry covers exactly one ``(relative_path, surface)`` pair.
-    ``relative_path`` is relative to ``SCANNER_DIR``. Adding an entry is a
-    public commitment; the rationale text lands in the audit trail.
+    PR #2 review follow-up: the entry now pins ``line`` and ``snippet``
+    in addition to ``(relative_path, surface)``. The original
+    ``(relative_path, surface)``-only design blanket-permitted every
+    occurrence of a surface in a file, so a future unreviewed
+    ``subprocess.run(...)`` added to ``triggers.py`` would pass silently.
+    Pinning call-site granularity forces every new occurrence to be
+    individually allowlisted with rationale.
+
+    ``line`` is the 1-indexed line number of the offending AST node.
+    ``snippet`` is the canonical ``ast.unparse`` of the node. The two
+    contract tests assert that every entry matches a real violation
+    with the same ``(line, snippet)`` AND that every observed violation
+    has a matching entry.
+
+    Line drift (inserting a comment that pushes a call down) WILL fail
+    the test — that is the intended failure mode, forcing a reviewer to
+    confirm the change is benign and bump the entry.
     """
 
     relative_path: str
     surface: str
+    line: int
+    snippet: str
     rationale: str
 
 
-# Per-file allowlist of forbidden-surface uses. Each entry MUST correspond to
-# a surface that the scanner would actually flag in the named file — the
-# ``test_allowlist_entry_matches_real_surface`` contract test fails the moment
-# an entry goes stale. Each entry MUST also have a one-sentence prose
-# rationale captured in STABILITY.md § "Meta-CLI surfaces (allowlisted, audited)".
+# Per-call-site allowlist of forbidden-surface uses. Each entry MUST
+# correspond to a real call site (verified by
+# ``test_allowlist_entry_matches_real_surface``). Every observed forbidden
+# surface in the scanner MUST have a matching entry (verified by
+# ``test_no_unallowlisted_forbidden_surface_in_scanner``). Rationale text
+# is mirrored in STABILITY.md § "Meta-CLI surfaces (allowlisted, audited)".
+#
+# Adding a new call site requires adding an entry here AND updating the
+# rationale; the entries are intentionally verbose so review-by-grep
+# captures the full audit trail.
 ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
+    # cli/bootstrap.py — chains detect/init/scan/apply-patches against
+    # Shipgate's own CLI. The argv is sys.executable + ``-m agents_shipgate``,
+    # never user input.
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="import:subprocess",
+        line=31,
+        snippet="import subprocess",
         rationale=(
-            "Meta-CLI: bootstrap shells to the installed agents-shipgate "
-            "binary to chain detect → init → scan → apply-patches. Reads "
-            "no user code; runs only Shipgate's own CLI."
+            "Bootstrap chains detect → init → scan → apply-patches against "
+            "the installed agents-shipgate CLI via subprocess. Reads no "
+            "user code; argv is always sys.executable + Shipgate's own "
+            "module/flags."
         ),
     ),
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="attr_call:subprocess.run",
-        rationale="See cli/bootstrap.py import:subprocess rationale.",
+        line=72,
+        snippet=(
+            "subprocess.run(argv, cwd=str(cwd), env=env, "
+            "capture_output=True, text=True, check=False)"
+        ),
+        rationale=(
+            "_run_step: invokes the installed agents-shipgate CLI as a "
+            "subprocess with argv constructed inside Shipgate (no user "
+            "input executed as a command)."
+        ),
     ),
+    # cli/discovery/artifacts.py — probes the user repo via git ls-files
+    # for file inventory. Reads git metadata; no shell, no user-code exec.
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="import:subprocess",
+        line=6,
+        snippet="import subprocess",
         rationale=(
-            "Probes the user repo via ``git ls-files`` for file inventory. "
-            "Reads git metadata, does not execute user code."
+            "Discovery uses ``git ls-files`` to enumerate user-repo files "
+            "without walking ignored paths. argv is a fixed git invocation; "
+            "no shell, no user-code exec."
         ),
     ),
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        rationale="See cli/discovery/artifacts.py import:subprocess rationale.",
+        line=361,
+        snippet=(
+            "subprocess.run(['git', '-C', str(workspace), 'rev-parse', "
+            "'--show-toplevel'], check=False, capture_output=True, "
+            "text=True, timeout=2)"
+        ),
+        rationale=(
+            "_git_candidate_files step 1: ``git -C <workspace> "
+            "rev-parse --show-toplevel`` to locate the repo root. "
+            "Fixed argv, capture-only, no shell, hard timeout."
+        ),
     ),
+    AllowedException(
+        relative_path="cli/discovery/artifacts.py",
+        surface="attr_call:subprocess.run",
+        line=377,
+        snippet=(
+            "subprocess.run(['git', '-C', str(workspace), 'ls-files', "
+            "'-co', '--exclude-standard', '--full-name', '-z', '--', "
+            "'.'], check=False, capture_output=True, timeout=5)"
+        ),
+        rationale=(
+            "_git_candidate_files step 2: ``git -C <workspace> "
+            "ls-files -co --exclude-standard --full-name -z -- .`` to "
+            "enumerate tracked + untracked-not-ignored files in NUL-"
+            "delimited form. Fixed argv, capture-only, no shell."
+        ),
+    ),
+    # triggers.py — trigger evaluation reads ``git diff`` output. Same
+    # trust profile as discovery/artifacts.py.
     AllowedException(
         relative_path="triggers.py",
         surface="import:subprocess",
+        line=25,
+        snippet="import subprocess",
         rationale=(
-            "Trigger evaluation runs ``git diff`` against the user repo to "
-            "determine whether to fire a scan. Reads diff content, does "
-            "not execute user code."
+            "Trigger evaluation runs ``git diff`` to determine whether a "
+            "PR's changes match Shipgate's triggers.json rules. Fixed git "
+            "argv, capture-only, no shell."
         ),
     ),
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        rationale="See triggers.py import:subprocess rationale.",
+        line=347,
+        snippet=(
+            "subprocess.run(names_cmd, capture_output=True, text=True, "
+            "check=True)"
+        ),
+        rationale=(
+            "git-diff change-name pass: ``git diff --name-only "
+            "base...HEAD``. argv constructed inside Shipgate from "
+            "validated base ref (names_cmd built at call site)."
+        ),
     ),
+    AllowedException(
+        relative_path="triggers.py",
+        surface="attr_call:subprocess.run",
+        line=348,
+        snippet=(
+            "subprocess.run(body_cmd, capture_output=True, text=True, "
+            "check=True)"
+        ),
+        rationale=(
+            "git-diff body pass: ``git diff base...HEAD`` for full "
+            "diff body inspection. argv constructed inside Shipgate "
+            "(body_cmd built at call site)."
+        ),
+    ),
+    AllowedException(
+        relative_path="triggers.py",
+        surface="attr_call:subprocess.run",
+        line=353,
+        snippet=(
+            "subprocess.run(['git', 'ls-files', '--others', "
+            "'--exclude-standard'], capture_output=True, text=True, "
+            "check=True)"
+        ),
+        rationale=(
+            "git-untracked enumeration: ``git ls-files --others "
+            "--exclude-standard``. Fixed argv, capture-only, no shell."
+        ),
+    ),
+    # cli/self_check.py — validates the installed environment via __import__
+    # with the module name supplied as a CLI flag. Targets installed
+    # packages, never user workspace.
     AllowedException(
         relative_path="cli/self_check.py",
         surface="name_call:__import__",
+        line=141,
+        snippet="__import__(module_name)",
         rationale=(
-            "Self-check validates the installed environment by attempting "
-            "an import of a name supplied via CLI flag. Runs only under "
-            "`agents-shipgate self-check`, never during scan; targets "
-            "installed packages, not user workspace."
+            "self-check probes whether named modules import cleanly in the "
+            "installed environment. Runs only under ``agents-shipgate "
+            "self-check``, never during scan; module_name is a curated "
+            "list of Shipgate's own modules."
+        ),
+    ),
+    # importlib.resources.files — bundled-package access. Anchor is the
+    # literal 'agents_shipgate' string at both call sites (verified by
+    # snippet pinning); any future call with a non-literal anchor would
+    # change the snippet and fail the test, forcing re-review.
+    AllowedException(
+        relative_path="triggers.py",
+        surface="import:importlib.resources.files",
+        line=27,
+        snippet="from importlib.resources import files",
+        rationale=(
+            "triggers.py reads the bundled docs/triggers.json catalog from "
+            "the installed wheel via importlib.resources.files. The from-"
+            "import line is pinned alongside the call site to catch a "
+            "future refactor that imports files() for a different anchor."
+        ),
+    ),
+    AllowedException(
+        relative_path="triggers.py",
+        surface="attr_call:importlib.resources.files",
+        line=61,
+        snippet="files('agents_shipgate')",
+        rationale=(
+            "Resolves the bundled trigger catalog (docs/triggers.json) "
+            "inside the agents-shipgate wheel. Anchor is the literal "
+            "'agents_shipgate' string (snippet pinning enforces this; a "
+            "future non-literal anchor would change the snippet and fail "
+            "the contract test)."
+        ),
+    ),
+    AllowedException(
+        relative_path="fixtures.py",
+        surface="import:importlib.resources.files",
+        line=11,
+        snippet="from importlib.resources import files",
+        rationale=(
+            "fixtures.py reads the bundled samples/ directory from the "
+            "installed wheel. From-import line pinned alongside the call "
+            "site for the same reason as triggers.py."
+        ),
+    ),
+    AllowedException(
+        relative_path="fixtures.py",
+        surface="attr_call:importlib.resources.files",
+        line=40,
+        snippet="files('agents_shipgate')",
+        rationale=(
+            "Resolves the bundled fixture directory (samples/*) inside the "
+            "agents-shipgate wheel. Anchor is the literal "
+            "'agents_shipgate' string (snippet pinning enforces this)."
         ),
     ),
 )
 
 
-def _violation_allowed(relative_path: str, surface: str) -> bool:
-    """v0.18 (PR #2): True iff a (file, surface) pair is allowlisted."""
-    return any(
-        exc.relative_path == relative_path and exc.surface == surface
-        for exc in ALLOWED_EXCEPTIONS
-    )
+def _lookup_allowed(
+    relative_path: str,
+    surface: str,
+    line: int,
+    snippet: str,
+) -> AllowedException | None:
+    """v0.18 (PR #2): match a violation to an ``AllowedException`` on all
+    four fields. Returns the matching entry, or ``None`` if the violation
+    is not allowlisted.
+
+    Per-call-site pinning closes the P1 review hole: a future unreviewed
+    ``subprocess.run(...)`` added to an already-allowlisted file no
+    longer slips past, because its ``line`` and ``snippet`` will not
+    match any existing entry.
+    """
+    for exc in ALLOWED_EXCEPTIONS:
+        if (
+            exc.relative_path == relative_path
+            and exc.surface == surface
+            and exc.line == line
+            and exc.snippet == snippet
+        ):
+            return exc
+    return None
+
+
+def _violation_allowed(
+    relative_path: str, surface: str, line: int, snippet: str
+) -> bool:
+    return _lookup_allowed(relative_path, surface, line, snippet) is not None
 
 # Bare-name forbidden builtins. Catches direct calls like ``exec("...")``.
 FORBIDDEN_NAME_CALLS: frozenset[str] = frozenset(
@@ -210,6 +405,12 @@ FORBIDDEN_ATTR_CALLS_EXACT: frozenset[str] = frozenset(
         "subprocess.check_output",
         "os.system",
         "os.popen",
+        # v0.18 (PR #2 review follow-up): importlib.resources.files()
+        # resolves an anchor package by name. The first-party call sites
+        # use a literal 'agents_shipgate' anchor; flagging the call
+        # forces every site to be allowlisted with snippet pinning, so a
+        # future non-literal anchor would fail the contract test.
+        "importlib.resources.files",
     }
 )
 
@@ -251,7 +452,12 @@ FORBIDDEN_MODULES: frozenset[str] = frozenset(
 #   installed Python environment, not user workspace code.
 # ``importlib.resources`` — bundled-package files (e.g. ``fixtures.py``,
 #   ``triggers.py``) read content packaged inside the agents-shipgate wheel,
-#   not user workspace code.
+#   not user workspace code. v0.18 (PR #2 review follow-up): the import line
+#   is allowed here so name_aliases get built, but the ``files`` attribute
+#   call is added to ``FORBIDDEN_ATTR_CALLS_EXACT`` above so every call site
+#   needs an ALLOWED_EXCEPTIONS entry with snippet pinning. Combined effect:
+#   the from-import line AND the call line are individually pinned per call
+#   site (catches a future non-literal anchor or unreviewed second use).
 ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
     {"importlib.metadata", "importlib.resources"}
 )
@@ -263,7 +469,14 @@ ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
 # / ``os.popen`` are out of bounds. We track aliases on these modules so
 # ``import os as oo; oo.system(...)`` and
 # ``from os import system as sh; sh(...)`` are resolved before checking.
-TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset({"os"})
+#
+# v0.18 (PR #2 review follow-up): ``importlib.resources`` joins this set so
+# ``from importlib.resources import files`` builds a name_alias and the
+# subsequent ``files(...)`` call site can be checked against
+# ``FORBIDDEN_ATTR_CALLS_EXACT``.
+TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset(
+    {"os", "importlib.resources"}
+)
 
 
 def _is_forbidden_chain(chain: str) -> bool:
@@ -355,6 +568,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                 line=exc.lineno or 0,
                 surface="parse_error",
                 message=f"{path}:{exc.lineno}: failed to parse: {exc.msg}",
+                snippet="",
             )
         ]
     rel = path.relative_to(REPO_ROOT)
@@ -387,6 +601,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                                 f"{rel}:{node.lineno}: forbidden import "
                                 f"{alias.name!r} (dynamic Python loading surface)"
                             ),
+                            snippet=ast.unparse(node),
                         )
                     )
                 if alias.asname:
@@ -406,6 +621,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                             f"{rel}:{node.lineno}: forbidden from-import "
                             f"{mod!r} (dynamic Python loading surface)"
                         ),
+                        snippet=ast.unparse(node),
                     )
                 )
                 # Skip the per-name pass below — the whole module is forbidden.
@@ -422,23 +638,29 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                                     f"from-import from {mod!r} "
                                     f"(would alias forbidden names into local scope)"
                                 ),
+                                snippet=ast.unparse(node),
                             )
                         )
                     continue
                 # Flag the from-import line itself when the imported
                 # attribute resolves to a forbidden surface — gives a
-                # clearer error than waiting for the call site.
+                # clearer error than waiting for the call site. v0.18
+                # PR #2 follow-up: emit surface=``import:<canonical>`` so
+                # the from-import line is distinguishable from the call
+                # site (which emits ``attr_call:<canonical>``) when both
+                # exist in the same file.
                 if mod in TRACKED_NON_FORBIDDEN_MODULES:
                     canonical = f"{mod}.{alias.name}"
                     if _is_forbidden_chain(canonical):
                         violations.append(
                             Violation(
                                 line=node.lineno,
-                                surface=f"attr_call:{canonical}",
+                                surface=f"import:{canonical}",
                                 message=(
                                     f"{rel}:{node.lineno}: forbidden from-import "
                                     f"of {canonical!r}"
                                 ),
+                                snippet=ast.unparse(node),
                             )
                         )
                     local = alias.asname or alias.name
@@ -460,6 +682,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                             f"{rel}:{node.lineno}: forbidden builtin call "
                             f"{func.id!r}"
                         ),
+                        snippet=ast.unparse(node),
                     )
                 )
                 continue
@@ -483,6 +706,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                                     f"{rel}:{node.lineno}: forbidden call "
                                     f"{canonical!r}{via}"
                                 ),
+                                snippet=ast.unparse(node),
                             )
                         )
                         break
@@ -499,6 +723,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                             message=(
                                 f"{rel}:{node.lineno}: forbidden call {chain!r}"
                             ),
+                            snippet=ast.unparse(node),
                         )
                     )
                     break
@@ -539,19 +764,29 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
     source = scanner_source.read_text(encoding="utf-8")
     violations = _scan_source(source, scanner_source)
     unallowed = [
-        v for v in violations if not _violation_allowed(rel, v.surface)
+        v
+        for v in violations
+        if not _violation_allowed(rel, v.surface, v.line, v.snippet)
     ]
     assert not unallowed, (
         "Trust-model invariant violation under src/agents_shipgate/:\n  "
-        + "\n  ".join(v.message for v in unallowed)
+        + "\n  ".join(
+            f"{v.message}  (surface={v.surface!r}, "
+            f"snippet={v.snippet!r})"
+            for v in unallowed
+        )
         + "\n\n"
         + "The scanner MUST NOT execute or import user code. Parse with "
         + "ast.parse / yaml.safe_load / json.loads ONLY. See "
         + "STABILITY.md § 'Trust-model invariants' and the companion "
         + "tests/test_fixture_no_import.py live-load tests. If the surface "
         + "is a legitimate first-party meta-CLI operation, add an "
-        + "ALLOWED_EXCEPTIONS entry with prose rationale and document it "
-        + "in STABILITY.md § 'Meta-CLI surfaces (allowlisted, audited)'."
+        + "ALLOWED_EXCEPTIONS entry with the exact line, snippet, and "
+        + "prose rationale, and document it in STABILITY.md § 'Meta-CLI "
+        + "surfaces (allowlisted, audited)'. Existing entries cover "
+        + "specific call sites only — adding a new occurrence of an "
+        + "already-allowlisted surface in the same file STILL requires a "
+        + "new entry."
     )
 
 
@@ -772,17 +1007,29 @@ def test_lint_scanner_does_not_false_positive_on_safe_shapes() -> None:
 @pytest.mark.parametrize(
     "exc",
     ALLOWED_EXCEPTIONS,
-    ids=lambda e: f"{e.relative_path}:{e.surface}",
+    ids=lambda e: f"{e.relative_path}:{e.line}:{e.surface}",
 )
 def test_allowlist_entry_matches_real_surface(exc: AllowedException) -> None:
     """v0.18 (PR #2) stale-allowlist guard.
 
-    Every ``ALLOWED_EXCEPTIONS`` entry MUST correspond to a surface
-    that the scanner would actually flag in the named file. If the
-    file is later refactored to remove the legitimate meta-CLI surface
-    (e.g., self-check stops calling ``__import__``), this test fails
-    and forces the contributor to remove the now-unused allowlist
-    entry — preventing rot.
+    Every ``ALLOWED_EXCEPTIONS`` entry MUST correspond to a real
+    violation in the named file with the SAME ``(surface, line,
+    snippet)`` quadruple. Three failure modes are detected:
+
+    - **Removed surface:** file refactored to remove the call site;
+      entry has no matching violation → fail (entry is stale).
+    - **Line drift:** call site moved to a different line (e.g.,
+      a comment was added above); entry's ``line`` no longer
+      matches → fail (forces re-review of the move).
+    - **Snippet drift:** call site's argv or shape changed (e.g.,
+      ``subprocess.run(['git', 'log'])`` was edited to
+      ``subprocess.run(user_input)``); entry's ``snippet`` no
+      longer matches → fail (forces re-review of the semantic
+      change).
+
+    PR #2 review follow-up: the original ``(file, surface)``-only
+    match blanket-permitted every occurrence in a file. The
+    quadruple match restricts each entry to a single call site.
     """
     path = SCANNER_DIR / exc.relative_path
     assert path.exists(), (
@@ -790,36 +1037,126 @@ def test_allowlist_entry_matches_real_surface(exc: AllowedException) -> None:
     )
     source = path.read_text(encoding="utf-8")
     violations = _scan_source(source, path)
-    surfaces = {v.surface for v in violations}
-    assert exc.surface in surfaces, (
+    same_surface = [v for v in violations if v.surface == exc.surface]
+    assert same_surface, (
         f"allowlisted surface {exc.surface!r} not present in "
-        f"{exc.relative_path!r}; entry is stale, remove or refactor. "
-        f"Observed surfaces in this file: {sorted(surfaces)!r}"
+        f"{exc.relative_path!r} at all; entry is stale, remove or "
+        f"refactor. Observed surfaces in this file: "
+        f"{sorted({v.surface for v in violations})!r}"
+    )
+    same_line = [v for v in same_surface if v.line == exc.line]
+    assert same_line, (
+        f"allowlisted entry for {exc.relative_path}:{exc.surface} pins "
+        f"line {exc.line}, but no violation of that surface was found "
+        f"at that line. Lines actually flagged: "
+        f"{sorted({v.line for v in same_surface})!r}. Either the call "
+        f"moved (update the entry) or the entry is stale."
+    )
+    matching = [v for v in same_line if v.snippet == exc.snippet]
+    assert matching, (
+        f"allowlisted entry for {exc.relative_path}:{exc.line}:"
+        f"{exc.surface} has snippet {exc.snippet!r}, but the actual "
+        f"violation at that line has snippet "
+        f"{same_line[0].snippet!r}. The call's argv or shape changed "
+        f"— re-review the rationale and update the snippet."
+    )
+
+
+def test_allowed_exceptions_have_no_duplicates() -> None:
+    """v0.18 (PR #2 review follow-up): every ``ALLOWED_EXCEPTIONS``
+    entry must be a distinct ``(relative_path, surface, line)`` triple.
+    Two entries pointing at the same call site would both match the
+    same violation, hiding a real audit-trail bug.
+    """
+    keys = [(e.relative_path, e.surface, e.line) for e in ALLOWED_EXCEPTIONS]
+    duplicates = sorted({k for k in keys if keys.count(k) > 1})
+    assert not duplicates, (
+        f"ALLOWED_EXCEPTIONS contains duplicate (relative_path, "
+        f"surface, line) entries: {duplicates}. Each call site must "
+        f"have exactly one entry."
     )
 
 
 def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
     """v0.18 (PR #2): the whole-scanner sweep with allowlist applied
-    produces zero violations. This is the runtime gate PR #2 hardens.
+    produces zero unallowlisted violations. This is the runtime gate
+    PR #2 hardens.
 
-    The parametrized ``test_scanner_source_contains_no_forbidden_calls_or_imports``
-    above catches per-file regressions. This non-parametrized form gives
-    a single, definitive PASS/FAIL signal at the end of the test session.
-    A failure message lists every ``(relative_path, surface)`` pair the
-    contributor must address — either by refactoring the offending file
-    or by adding an ``ALLOWED_EXCEPTIONS`` entry with prose rationale.
+    The parametrized
+    ``test_scanner_source_contains_no_forbidden_calls_or_imports``
+    above catches per-file regressions. This non-parametrized form
+    gives a single, definitive PASS/FAIL signal at the end of the
+    test session. A failure message lists every unallowlisted
+    ``(relative_path, line, surface, snippet)`` quadruple the
+    contributor must address — either by refactoring the offending
+    file or by adding an ``ALLOWED_EXCEPTIONS`` entry with prose
+    rationale.
+
+    PR #2 review follow-up: the previous version matched on
+    ``(file, surface)`` only, so a future second occurrence of an
+    already-allowlisted surface in the same file would silently pass.
+    The quadruple match closes that hole.
     """
-    unallowed: list[tuple[str, str]] = []
+    unallowed: list[tuple[str, int, str, str]] = []
     for path in _scanner_sources():
         rel = str(path.relative_to(SCANNER_DIR))
         for violation in _scan_source(path.read_text(encoding="utf-8"), path):
-            if not _violation_allowed(rel, violation.surface):
-                unallowed.append((rel, violation.surface))
+            if not _violation_allowed(
+                rel, violation.surface, violation.line, violation.snippet
+            ):
+                unallowed.append(
+                    (rel, violation.line, violation.surface, violation.snippet)
+                )
     assert unallowed == [], (
         "Scanner has forbidden surfaces with no allowlist entry. "
         "Add an ALLOWED_EXCEPTIONS entry with prose rationale, or "
-        "refactor the surface out. Unallowlisted: "
-        + ", ".join(f"{path}::{surface}" for path, surface in unallowed)
+        "refactor the surface out. Unallowlisted:\n  "
+        + "\n  ".join(
+            f"{rel}:{line} {surface}  snippet={snippet!r}"
+            for rel, line, surface, snippet in unallowed
+        )
+    )
+
+
+def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
+    """v0.18 (PR #2 review follow-up): regression test for the P1
+    bypass the reviewer caught.
+
+    Confirms that ``triggers.py`` has THREE distinct
+    ``subprocess.run`` AllowedException entries (one per call site at
+    lines 347, 348, 353), not one blanket entry that permits all
+    occurrences. Same for ``cli/discovery/artifacts.py`` (two call
+    sites at 361 and 377). Adding a fourth ``subprocess.run`` to
+    ``triggers.py`` must require adding a new ALLOWED_EXCEPTIONS entry.
+
+    If the test fails because lines drifted, that is the intended
+    failure mode — the contributor must re-review the move and bump
+    the entries. If it fails because the count dropped, an existing
+    entry has gone stale (the call was removed but the entry remains).
+    """
+    by_file_surface: dict[tuple[str, str], list[AllowedException]] = {}
+    for exc in ALLOWED_EXCEPTIONS:
+        by_file_surface.setdefault((exc.relative_path, exc.surface), []).append(exc)
+
+    triggers_subprocess_run = by_file_surface.get(
+        ("triggers.py", "attr_call:subprocess.run"), []
+    )
+    assert len(triggers_subprocess_run) == 3, (
+        f"Expected 3 distinct AllowedException entries for "
+        f"triggers.py subprocess.run calls (one per call site at "
+        f"lines 347, 348, 353), got {len(triggers_subprocess_run)}. "
+        f"Per-call-site pinning is the structural fix for the "
+        f"P1 review finding — each subprocess.run call must have "
+        f"its own entry with line + snippet pinning."
+    )
+    artifacts_subprocess_run = by_file_surface.get(
+        ("cli/discovery/artifacts.py", "attr_call:subprocess.run"), []
+    )
+    assert len(artifacts_subprocess_run) == 2, (
+        f"Expected 2 distinct AllowedException entries for "
+        f"cli/discovery/artifacts.py subprocess.run calls (one per "
+        f"call site at lines 361 and 377), got "
+        f"{len(artifacts_subprocess_run)}."
     )
 
 
