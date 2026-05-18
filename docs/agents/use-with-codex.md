@@ -4,7 +4,7 @@ OpenAI Codex supports both `AGENTS.md` (read natively at the repo root) and Code
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
-| `AGENTS.md` snippet | Tells Codex when and how to run Shipgate. Copy the `## Agent Release Readiness` block into your repo's `AGENTS.md`. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
+| `AGENTS.md` snippet | Tells Codex when and how to run Shipgate. Copy the `## Tool-Use Readiness Release Gate` block into your repo's `AGENTS.md`. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
 | Reusable prompts | Codex reads pasted Markdown directly. Copy the body of any [`prompts/*.md`](../../prompts/) recipe into the chat. | [`prompts/README.md`](../../prompts/README.md) |
 | Codex skill | Not shipped here yet. Would live at `.agents/skills/agents-shipgate/SKILL.md` (repo-scoped) or `$HOME/.agents/skills/agents-shipgate/SKILL.md` (user-scoped) and mirror the Claude Code skill structure. | — |
 
@@ -25,7 +25,7 @@ See [`AGENTS.md`](../../AGENTS.md) §Install for fallbacks (`pip`, `uv`, `python
 
 ## Drop in the Codex on-ramp
 
-Open [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) and copy the `## Agent Release Readiness` block (the first fenced block under §`AGENTS.md`) into your repo's `AGENTS.md`. The snippet:
+Open [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) and copy the `## Tool-Use Readiness Release Gate` block (the first fenced block under §`AGENTS.md`) into your repo's `AGENTS.md`. The snippet:
 
 - Lists the trigger conditions (when to run Shipgate on a PR).
 - Names the four-call canonical flow (`detect`, `init`, `scan`, `apply-patches`).
@@ -41,7 +41,7 @@ The snippet is the minimal on-ramp that works today and does not require authori
 
 Open Codex in the project. Two checks:
 
-1. In a fresh chat, ask "add release-readiness checks for this agent" without saying the word "shipgate." Codex should read `AGENTS.md`, find the §Agent Release Readiness block, and run `agents-shipgate detect --workspace . --json`.
+1. In a fresh chat, ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate." Codex should read `AGENTS.md`, find the §Tool-Use Readiness Release Gate block, and run `agents-shipgate detect --workspace . --json`.
 2. Confirm Codex reads `agents-shipgate-reports/report.json` rather than scraping the markdown summary, and that it leads with `release_decision.decision` when reporting back.
 
 If both happen, you are done. The first run installs `agents-shipgate` (if not already), generates `shipgate.yaml`, and produces `agents-shipgate-reports/report.json`.

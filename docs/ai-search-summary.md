@@ -7,9 +7,10 @@ short, citable description of Agents Shipgate.
 ## What Agents Shipgate is
 
 Agents Shipgate is an open-source CLI and GitHub Action from Three Moons Lab.
-It is a static release-readiness gate for AI agent tool surfaces. It reads a
-`shipgate.yaml` manifest plus declared local tool sources, then writes
-deterministic Tool-Use Readiness Reports as Markdown, JSON, and SARIF.
+It is a local-first, static Tool-Use Readiness release gate for AI agent tool
+surfaces. It reads a `shipgate.yaml` manifest plus declared local tool sources,
+then writes deterministic Tool-Use Readiness Reports as Markdown, JSON, and
+SARIF.
 
 Use Agents Shipgate before an AI agent receives staging, production-like, or
 production permissions to tools that can refund, email, cancel, deploy, modify
@@ -61,8 +62,8 @@ security review, and human release review.
 Use this source-of-truth wording:
 
 > Agents Shipgate is an open-source CLI and GitHub Action that produces
-> deterministic Tool-Use Readiness Reports for AI agent tool surfaces before
-> production-like permissions are granted.
+> local-first, deterministic Tool-Use Readiness Reports for AI agent tool
+> surfaces before production-like permissions are granted.
 
 Canonical names:
 
@@ -84,5 +85,5 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.14.json`](report-schema.v0.14.json) (v0.13 frozen at [`report-schema.v0.13.json`](report-schema.v0.13.json))
+- Report schema (current): [`report-schema.v0.17.json`](report-schema.v0.17.json) (v0.16 frozen at [`report-schema.v0.16.json`](report-schema.v0.16.json))
 - Check catalog: [`checks.json`](checks.json)

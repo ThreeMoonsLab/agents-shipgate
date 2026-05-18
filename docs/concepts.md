@@ -1,8 +1,9 @@
 # Concepts
 
-The mental model behind agents-shipgate, in one page.
+The mental model behind Agents Shipgate, a local-first, static Tool-Use
+Readiness release gate for AI agent tool surfaces.
 
-For the product-level definition of an "agent release gate," see
+For the product-level definition of a Tool-Use Readiness release gate, see
 [`category.md`](category.md). For the agent-facing
 walkthrough, see [`AGENTS.md`](../AGENTS.md).
 
@@ -63,7 +64,7 @@ agents-shipgate is **static**. It does not run the agent, invoke the
 model, call MCP servers, or make any network calls by default. Every
 finding is derived from the artifact diff alone.
 
-Static analysis covers the release-readiness slice. Dynamic concerns —
+Static analysis covers the Tool-Use Readiness release slice. Dynamic concerns —
 behavior under unusual inputs, runtime tool routing, latency,
 hallucination — belong in evals, observability, and runtime guardrails.
 agents-shipgate is additive to those, not a replacement.

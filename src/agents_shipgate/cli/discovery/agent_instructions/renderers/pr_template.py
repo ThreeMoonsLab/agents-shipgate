@@ -10,7 +10,10 @@ from __future__ import annotations
 
 def render_block() -> str:
     """Return the inner content (between markers) for the PR template."""
-    return """## Agent Tool-Surface Release Readiness
+    return """## Tool-Use Readiness Release Gate
+
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
 
 - [ ] If this PR changes agent tools, MCP/OpenAPI specs, prompts, permissions,
       approval policy, confirmation policy, CI release gates, or

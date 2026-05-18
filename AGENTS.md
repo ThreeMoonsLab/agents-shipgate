@@ -8,7 +8,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
+Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
@@ -31,7 +31,7 @@ Do **not** use any of: `Agent Shipgate` (singular), `Agent Shipcheck`, `agents s
 
 The canonical tagline is:
 
-> Static release-readiness gate for AI agent tool surfaces.
+> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 
 This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync.
 

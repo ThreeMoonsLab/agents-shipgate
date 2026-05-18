@@ -1,8 +1,13 @@
-# Agent Release Gate
+# Tool-Use Readiness Release Gate
 
-An **Agent Release Gate** is a static, manifest-based pre-flight check that runs before an agent is promoted to staging, production-like, or production environments.
+A **Tool-Use Readiness release gate** is a local-first, static pre-flight
+check that runs before an agent is promoted to staging, production-like, or
+production environments.
 
-Agents Shipgate focuses on the tool surface: what tools are attached, what schemas they expose, what scopes they require, what policies the manifest declares, and which release risks need human review.
+Agents Shipgate is a local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces. It focuses on what tools are attached, what schemas
+they expose, what scopes they require, what policies the manifest declares,
+and which release risks need human review.
 
 ## What It Is
 

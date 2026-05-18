@@ -404,7 +404,7 @@
     "additional_residuals": [
       "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available."
     ],
-    "headline": "Agents Shipgate is a static release-readiness scanner. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
+    "headline": "Agents Shipgate is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
     "low_confidence_tools": [],
     "source_warnings": [
       "MCP source declares wildcard tool exposure"

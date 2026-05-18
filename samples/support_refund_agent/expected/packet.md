@@ -203,7 +203,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ## §10 What this packet did NOT prove
 
-Agents Shipgate is a static release-readiness scanner. The packet below is derived from a scan; it does not, by itself, prove the following properties:
+Agents Shipgate is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. The packet below is derived from a scan; it does not, by itself, prove the following properties:
 
 - **Prompt robustness.** Whether the agent's prompt holds up under jailbreaks, persona drift, indirect prompt injection, or adversarial inputs.
 - **Runtime behavior.** Whether the agent actually invokes only the declared tools, respects approval gates at runtime, or follows policy under load. Static config is not runtime evidence.

@@ -1,8 +1,11 @@
 ---
-description: Bootstrap agents-shipgate (install, init, scan, report top findings)
+description: Bootstrap agents-shipgate as a Tool-Use Readiness static release gate
 ---
 
-Run the agents-shipgate bootstrap flow on the current repo: install the CLI, generate `shipgate.yaml`, fill in placeholders, run a scan, and surface the top findings from the JSON report.
+Run the agents-shipgate bootstrap flow on the current repo: install the CLI,
+add a local-first, static Tool-Use Readiness release gate for AI agent tool
+surfaces, generate `shipgate.yaml`, fill in placeholders, run a scan, and
+surface the top findings from the JSON report.
 
 The canonical, self-contained instructions live in `prompts/add-shipgate-to-repo.md`. Read that file first and follow it verbatim. Try these paths in order; use the first that exists:
 

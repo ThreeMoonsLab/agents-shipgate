@@ -15,7 +15,7 @@ from __future__ import annotations
 def render_file() -> str:
     """Return the full file body for ``.cursor/rules/agents-shipgate.mdc``."""
     return """---
-description: Run Agents Shipgate for AI agent tool-surface release readiness.
+description: Run Agents Shipgate as the Tool-Use Readiness static release gate.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"
@@ -43,6 +43,9 @@ globs:
   - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
+
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
