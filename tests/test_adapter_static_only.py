@@ -405,27 +405,38 @@ FORBIDDEN_ATTR_CALLS_EXACT: frozenset[str] = frozenset(
         "subprocess.check_output",
         "os.system",
         "os.popen",
-        # v0.18 (PR #2 review follow-up): importlib.resources.files()
-        # resolves an anchor package by name. The first-party call sites
-        # use a literal 'agents_shipgate' anchor; flagging the call
-        # forces every site to be allowlisted with snippet pinning, so a
-        # future non-literal anchor would fail the contract test.
-        "importlib.resources.files",
+        # NOTE: ``importlib.resources.*`` is intentionally NOT enumerated
+        # here — it is caught by the ``importlib.resources.`` entry in
+        # ``FORBIDDEN_ATTR_CALL_PREFIXES`` below. The prefix catches
+        # ``files``, ``read_text``, ``read_binary``, ``path``,
+        # ``open_text``, ``open_binary``, ``is_resource``, ``contents``,
+        # ``as_file``, and any future addition under the module — all of
+        # which take an anchor package argument and could bypass the
+        # dynamic-import lint if left unrestricted.
     }
 )
 
-# Prefix-matched forbidden families. Covers every ``os.exec*`` /
-# ``os.spawn*`` / ``os.posix_spawn*`` variant the os module
-# documents — including current names (``execv``, ``execve``,
-# ``execvp``, ``execvpe``, ``execl``, ``execle``, ``execlp``,
-# ``execlpe``, ``spawnv``, ``spawnve``, ``spawnvp``, ``spawnvpe``,
-# ``spawnl``, ``spawnle``, ``spawnlp``, ``spawnlpe``,
-# ``posix_spawn``, ``posix_spawnp``) and any future addition under
-# these prefixes.
+# Prefix-matched forbidden families. Each prefix captures a family of
+# attribute calls where enumerating every member is fragile (Python adds
+# new variants over time) or where the security boundary is
+# module-wide rather than per-function. The ``importlib.resources.``
+# entry was added in v0.18 PR #2 review follow-up: previously only
+# ``importlib.resources.files`` was forbidden, but ``read_text``,
+# ``read_binary``, etc. take the same anchor argument and produced no
+# violation. Adding the prefix forces every ``importlib.resources.*``
+# call to be allowlisted with snippet pinning, so a non-literal anchor
+# (``read_text(user_var, "x")``) would fail the contract test the same
+# way ``files(user_var)`` does.
 FORBIDDEN_ATTR_CALL_PREFIXES: tuple[str, ...] = (
     "os.exec",
     "os.spawn",
     "os.posix_spawn",
+    # v0.18 (PR #2 review follow-up): catches files, read_text,
+    # read_binary, path, open_text, open_binary, is_resource, contents,
+    # as_file, and any future addition. Trailing dot ensures the prefix
+    # only matches sub-attributes (``importlib.resources.X``), not the
+    # module itself.
+    "importlib.resources.",
 )
 
 # Module imports we forbid outright. ``import X`` / ``import X as Y`` and
@@ -452,12 +463,13 @@ FORBIDDEN_MODULES: frozenset[str] = frozenset(
 #   installed Python environment, not user workspace code.
 # ``importlib.resources`` — bundled-package files (e.g. ``fixtures.py``,
 #   ``triggers.py``) read content packaged inside the agents-shipgate wheel,
-#   not user workspace code. v0.18 (PR #2 review follow-up): the import line
-#   is allowed here so name_aliases get built, but the ``files`` attribute
-#   call is added to ``FORBIDDEN_ATTR_CALLS_EXACT`` above so every call site
-#   needs an ALLOWED_EXCEPTIONS entry with snippet pinning. Combined effect:
-#   the from-import line AND the call line are individually pinned per call
-#   site (catches a future non-literal anchor or unreviewed second use).
+#   not user workspace code. The import line is allowed here so name_aliases
+#   get built, but every ``importlib.resources.<attr>(...)`` call is caught
+#   by the ``importlib.resources.`` prefix in ``FORBIDDEN_ATTR_CALL_PREFIXES``
+#   above (v0.18 PR #2 review follow-up — initially only ``files`` was
+#   forbidden, leaving ``read_text``/``read_binary``/``path``/etc. as a
+#   parallel hole). Each call site needs an ALLOWED_EXCEPTIONS entry with
+#   snippet pinning so a non-literal anchor would fail the contract test.
 ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
     {"importlib.metadata", "importlib.resources"}
 )
@@ -471,9 +483,11 @@ ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
 # ``from os import system as sh; sh(...)`` are resolved before checking.
 #
 # v0.18 (PR #2 review follow-up): ``importlib.resources`` joins this set so
-# ``from importlib.resources import files`` builds a name_alias and the
-# subsequent ``files(...)`` call site can be checked against
-# ``FORBIDDEN_ATTR_CALLS_EXACT``.
+# ``from importlib.resources import files`` (and ``read_text``,
+# ``read_binary``, etc.) builds a name_alias and the subsequent call site
+# can be resolved to a canonical ``importlib.resources.<attr>`` chain that
+# the ``importlib.resources.`` prefix in ``FORBIDDEN_ATTR_CALL_PREFIXES``
+# catches.
 TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset(
     {"os", "importlib.resources"}
 )
@@ -939,6 +953,59 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
         (
             "from importlib.util.extra import loader",
             "forbidden from-import 'importlib.util.extra'",
+        ),
+        # --- importlib.resources.* prefix family (v0.18 PR #2 review
+        # follow-up: not just files() — every anchor-taking callable
+        # under importlib.resources is forbidden via the
+        # ``importlib.resources.`` prefix entry in
+        # FORBIDDEN_ATTR_CALL_PREFIXES). The reviewer reproduced
+        # ``read_text`` and ``files`` as the canonical bypass shapes;
+        # this parametrize block locks both, plus a few siblings, so a
+        # regression that narrows the prefix back to ``files`` only
+        # fails immediately.
+        (
+            "from importlib.resources import files\nfiles('agents_shipgate')\n",
+            "forbidden call 'importlib.resources.files'",
+        ),
+        (
+            "from importlib.resources import read_text\nread_text(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.read_text'",
+        ),
+        (
+            "from importlib.resources import read_binary\nread_binary(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.read_binary'",
+        ),
+        (
+            "from importlib.resources import open_text\nopen_text(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.open_text'",
+        ),
+        (
+            "from importlib.resources import path\npath(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.path'",
+        ),
+        (
+            "from importlib.resources import is_resource\nis_resource(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.is_resource'",
+        ),
+        (
+            "from importlib.resources import as_file\nas_file(some_traversable)\n",
+            "forbidden call 'importlib.resources.as_file'",
+        ),
+        # Attribute-chain form: ``import importlib.resources;
+        # importlib.resources.read_text(pkg, "x")``.
+        (
+            "import importlib.resources\nimportlib.resources.read_text(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.read_text'",
+        ),
+        # Aliased attribute-chain form.
+        (
+            "import importlib.resources as res\nres.read_text(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.read_text'",
+        ),
+        # From-import alias for the broader surface.
+        (
+            "from importlib.resources import read_text as rt\nrt(pkg, 'x')\n",
+            "forbidden call 'importlib.resources.read_text'",
         ),
     ],
     ids=lambda x: x if isinstance(x, str) and len(x) < 40 else "case",

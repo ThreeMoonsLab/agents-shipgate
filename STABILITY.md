@@ -270,8 +270,15 @@ tests on every CI run, not by convention:
   `importlib.metadata` is intentionally allowed: the plugin registry
   uses it for entry-point discovery, and discovery happens against the
   *installed* environment, not user workspace files. `importlib.resources`
-  is allowed (v0.18+) for bundled-package files inside the
-  agents-shipgate wheel. Aliased re-exports (`import os as oo`,
+  is allowed (v0.18+) at the import line **only** so name-aliases get
+  built; every `importlib.resources.<attr>(...)` call site is forbidden
+  via the `importlib.resources.` prefix in `FORBIDDEN_ATTR_CALL_PREFIXES`
+  and must carry a per-call-site `ALLOWED_EXCEPTIONS` entry with snippet
+  pinning. This covers `files`, `read_text`, `read_binary`, `path`,
+  `open_text`, `open_binary`, `is_resource`, `contents`, `as_file`, and
+  any future addition under the module — all of which take an
+  anchor-package argument and could bypass the dynamic-import lint if
+  left unrestricted. Aliased re-exports (`import os as oo`,
   `from os import system as sh`, `import os; import pathlib as os`) are
   resolved through union-of-bindings alias maps so a later import
   cannot erase an earlier forbidden binding. The lint runs as a

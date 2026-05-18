@@ -78,14 +78,22 @@
     already-allowlisted file now requires a new entry; changing an
     existing call's argv shape changes the `snippet` and fails the
     contract test.
-  - `importlib.resources.files` joins `FORBIDDEN_ATTR_CALLS_EXACT`,
-    and `importlib.resources` joins `TRACKED_NON_FORBIDDEN_MODULES`
-    so `from importlib.resources import files; files(...)` is
-    resolved through name-aliases. Both call sites in `triggers.py`
-    and `fixtures.py` are individually pinned with the literal
-    `'agents_shipgate'` anchor in the snippet — a future
-    `files(some_user_anchor)` call would change the snippet and
-    fail the test.
+  - `importlib.resources.` joins `FORBIDDEN_ATTR_CALL_PREFIXES`, and
+    `importlib.resources` joins `TRACKED_NON_FORBIDDEN_MODULES`. The
+    earlier draft of this PR only forbade `importlib.resources.files`,
+    which left `read_text`, `read_binary`, `path`, `open_text`,
+    `open_binary`, `is_resource`, `contents`, `as_file`, and any
+    future addition under the module as a parallel bypass — each
+    takes the same anchor-package argument and would have been
+    silently allowed. The prefix entry catches the whole family.
+    `from importlib.resources import <attr>; <attr>(...)` and
+    `import importlib.resources as res; res.<attr>(...)` both
+    resolve to canonical `importlib.resources.<attr>` and trip the
+    prefix. Both first-party call sites in `triggers.py` and
+    `fixtures.py` (currently `files`-only) are individually pinned
+    with the literal `'agents_shipgate'` anchor in the snippet — a
+    future `files(some_user_anchor)` or `read_text(some_user_anchor,
+    ...)` call would change the snippet and fail the test.
   - `Violation` gains `snippet: str` captured via `ast.unparse(node)`.
   - New regression test
     `test_allowed_exceptions_pin_subprocess_run_per_call_site`
