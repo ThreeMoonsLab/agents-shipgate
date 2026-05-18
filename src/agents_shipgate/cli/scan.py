@@ -6,12 +6,21 @@ import logging
 import os
 from pathlib import Path
 
+from agents_shipgate.checks.baseline_integrity import (
+    build_findings as build_integrity_findings,
+)
 from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
 from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.baseline import apply_baseline, load_baseline
+from agents_shipgate.core.baseline import (
+    apply_baseline,
+    baseline_resolved_fingerprints,
+    load_baseline,
+    verify_baseline,
+)
+from agents_shipgate.core.baseline_audit import DEFAULT_AUDIT_LOG_PATH
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.findings import (
@@ -316,6 +325,55 @@ def run_scan(
             baseline_file,
             display_path=baseline_display_path,
         )
+        # v0.5 baseline-integrity (M2). Runs only when a baseline is in
+        # use and `baseline.integrity_mode` is `warn` or `strict`. In
+        # `off` mode (escape hatch for repos that have not migrated yet)
+        # the check is skipped entirely. Integrity findings flow through
+        # the standard report pipeline but bypass suppression / severity
+        # overrides — silencing tamper detection would defeat the trust
+        # property the audit log defends.
+        integrity_mode = manifest.baseline.integrity_mode
+        if integrity_mode != "off" and baseline_path is not None:
+            audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
+            try:
+                static_issues = verify_baseline(
+                    baseline_path, audit_log_path
+                )
+            except InputParseError as exc:
+                # Audit log corruption is itself an integrity signal —
+                # surface it as a finding rather than failing the scan.
+                logger.warning(
+                    "baseline integrity verification failed",
+                    extra={
+                        "agents_shipgate_baseline_path": str(baseline_path),
+                        "agents_shipgate_error": str(exc),
+                    },
+                )
+                static_issues = []
+                warnings.append(
+                    f"Baseline integrity check skipped: {exc}"
+                )
+            stale_issues = baseline_resolved_fingerprints(
+                findings, baseline_file
+            )
+            integrity_findings = build_integrity_findings(
+                static_issues + stale_issues,
+                context=context,
+                integrity_mode=integrity_mode,
+            )
+            if integrity_findings:
+                # Assign IDs to the new findings. assign_finding_ids is
+                # idempotent — already-IDed findings get re-computed
+                # against the same evidence, producing identical
+                # fingerprints. annotate_remediation re-runs cleanly
+                # because its inputs are per-finding state, not
+                # cross-finding aggregates.
+                findings.extend(integrity_findings)
+                assign_finding_ids(findings)
+                annotate_remediation(
+                    findings,
+                    _check_metadata_lookup(plugins_enabled=plugins_enabled),
+                )
     attach_action_surface_finding_summary(action_surface_diff, findings)
     logger.debug(
         "checks completed",
@@ -950,6 +1008,29 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
     if rel == ".." or rel.startswith(f"..{os.sep}"):
         return str(resolved)
     return rel
+
+
+def _resolve_audit_log_path(
+    manifest: AgentsShipgateManifest,
+    baseline_path: Path,
+) -> Path:
+    """Resolve the baseline audit log path.
+
+    Resolution order:
+    1. ``manifest.baseline.audit_log`` if set (relative paths resolved
+       against the baseline file's directory).
+    2. Otherwise ``<baseline_path.parent>/baseline-audit.log`` —
+       co-located with the baseline JSON. This matches the default that
+       ``write_baseline`` uses, so save/verify see the same file
+       without configuration.
+    """
+    override = manifest.baseline.audit_log
+    if override:
+        candidate = Path(override)
+        if not candidate.is_absolute():
+            candidate = baseline_path.parent / candidate
+        return candidate
+    return baseline_path.parent / DEFAULT_AUDIT_LOG_PATH.name
 
 
 _SEVERITY_RANK_FOR_MAX = {

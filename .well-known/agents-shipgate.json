@@ -46,6 +46,7 @@
     "2": "config_error",
     "3": "input_parse_error",
     "4": "other_error",
+    "6": "baseline_integrity_failure",
     "20": "strict_gate_failure"
   },
   "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",

@@ -25,6 +25,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
+| `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |
 | `agents-shipgate fixture list` | `--json` |
 | `agents-shipgate fixture run` | `<name>`, `--ci-mode`, `--out` |
 | `agents-shipgate fixture copy` | `<name>`, `--to` |
@@ -39,6 +40,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `2` | Manifest config error (missing/typo/invalid) |
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
+| `6` | Baseline integrity failure (v0.11+) — `agents-shipgate baseline verify --strict` detected `SHIP-BASELINE-INTEGRITY-MISMATCH`. Only the standalone `baseline verify` command emits this code; `scan` continues to use `20` for gate failure regardless of integrity-mode. |
 | `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`) |
 
 ### Runtime contract JSON
@@ -358,6 +360,85 @@ deprecation cycle, and the manifest loader is intentionally strict: older CLIs
 reject unknown top-level fields instead of silently ignoring release policy.
 Manifests that use `action_surface:` require a CLI whose
 `agents-shipgate contract --json` reports `report_schema_version >= 0.16`.
+
+### Baseline Integrity (v0.5)
+
+Baseline schema bumps to `0.5`. The wire shape adds an optional
+`findings[].provenance` block per entry recording when and by which scanner
+the entry was added:
+
+```json
+{
+  "fingerprint": "fp_…",
+  "check_id": "SHIP-…",
+  "tool_name": "…",
+  "severity": "high",
+  "title": "…",
+  "provenance": {
+    "scanner_version": "0.11.0",
+    "run_id": "agents_shipgate_…",
+    "recorded_at": "2026-05-15T14:23:00Z",
+    "reason": null,
+    "expires": null
+  }
+}
+```
+
+`provenance` is optional on the wire so older v0.2/v0.3/v0.4 baselines still
+load. The integrity check flags legacy-no-provenance entries as
+`SHIP-BASELINE-INTEGRITY-MISMATCH` until they are re-stamped by re-running
+`agents-shipgate baseline save`. `provenance.reason` and `provenance.expires`
+are reviewer-set and free-form / ISO-8601 date respectively.
+
+Each `agents-shipgate baseline save` appends one JSON line to
+`<baseline-dir>/baseline-audit.log`. The log row is **stable**:
+
+- `audit_schema_version: "0.1"`
+- `timestamp` — ISO-8601 UTC
+- `run_id` — scan's run_id (matches `BaselineProvenance.run_id` for any
+  fingerprints added in this save)
+- `scanner_version` — Agents Shipgate version that wrote the row
+- `baseline_path` — string path saved at the time of the row
+- `hash_before` — `"sha256:…"` of the prior baseline file content, or `null`
+  when this was the first save
+- `hash_after` — `"sha256:…"` of the new baseline file content
+- `added_fingerprints[]`, `removed_fingerprints[]` — sorted deltas
+
+The audit log is append-only and intentionally co-located with the baseline so
+a single `.agents-shipgate/` directory carries both. Commit both files
+together; reviewers can `git log .agents-shipgate/baseline-audit.log` to see
+when fingerprints joined the baseline.
+
+`manifest.baseline.integrity_mode` controls behavior when `scan --baseline X`
+detects an integrity issue. Stable values:
+
+- `off` — no integrity checks. Back-compat escape hatch for repos that have
+  not migrated to v0.5 baselines yet.
+- `warn` (default in v0.11) — integrity findings emitted but
+  `blocks_release: false`; release decision is unaffected.
+- `strict` — `SHIP-BASELINE-INTEGRITY-MISMATCH` carries
+  `blocks_release: true` and `agents-shipgate baseline verify` exits `6` on
+  the same condition.
+
+New stable check IDs (v0.11+):
+
+- `SHIP-BASELINE-INTEGRITY-MISMATCH` (critical) — file hash mismatch, missing
+  audit log, audit log empty or malformed, entry references unknown `run_id`,
+  or entry loaded from a legacy schema without provenance.
+- `SHIP-BASELINE-ENTRY-EXPIRED` (high) — `provenance.expires` < today.
+- `SHIP-BASELINE-ENTRY-STALE` (low) — deprecated check ID in the entry, or
+  the entry matched no active finding (scan-aware; resolved-not-pruned).
+
+Integrity findings bypass `checks.ignore` (suppression) and
+`checks.severity_overrides`. Silencing tamper detection would defeat the
+trust property the audit log defends. They flow through the regular report
+pipeline otherwise (fingerprinting, baseline-status assignment, remediation
+annotation).
+
+The audit log is **tamper-evident, not tamper-proof**: a well-resourced
+adversary who atomically rewrites both the baseline JSON and the audit log
+defeats `verify`. The goal is to make casual or accidental edits observably
+wrong in code review.
 
 ### Tool-Surface Diff
 
