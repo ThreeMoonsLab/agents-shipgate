@@ -4,12 +4,12 @@ import pytest
 
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import (
+from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
+from agents_shipgate.schemas.manifest import (
     AnthropicConfig,
     ArtifactPathConfig,
 )
-from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
 
 SAMPLE = Path("samples/simple_anthropic_agent/shipgate.yaml")
 

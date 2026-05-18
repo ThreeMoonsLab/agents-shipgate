@@ -11,8 +11,8 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
 
+from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import ToolParameter
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 MAX_INPUT_FILE_BYTES = 10 * 1024 * 1024

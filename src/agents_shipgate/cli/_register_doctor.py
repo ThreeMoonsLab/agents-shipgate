@@ -8,7 +8,6 @@ import typer
 from agents_shipgate.cli._helpers import _diagnose_config_error, _resolve_config_paths
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import (
-    NextAction,
     diagnose_doctor,
     diagnose_invalid_manifest,
     top_next_actions,
@@ -17,6 +16,7 @@ from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan import inspect_sources
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.schemas.diagnostics import NextAction
 
 
 def register(app: typer.Typer) -> None:

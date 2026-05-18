@@ -3,7 +3,10 @@ from pathlib import Path
 from agents_shipgate.checks.documentation import run
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Agent, Tool
+from agents_shipgate.core.domain import (
+    Agent,
+    Tool,
+)
 
 
 def _context_for_tool(tool: Tool) -> ScanContext:

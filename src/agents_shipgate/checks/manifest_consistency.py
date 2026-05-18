@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
-from agents_shipgate.config.schema import PolicyToolEntry
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.schemas.manifest import PolicyToolEntry
 
 
 def run(context: ScanContext, *, known_check_ids: set[str]) -> list:

@@ -4,14 +4,14 @@ from pathlib import Path
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import (
+from agents_shipgate.report.sarif import render_sarif_report
+from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
     ReportSummary,
-    SourceReference,
     ToolSurfaceSummary,
 )
-from agents_shipgate.report.sarif import render_sarif_report
 
 MINIMAL_SARIF_SCHEMA = {
     "type": "object",

@@ -1,6 +1,6 @@
 
-from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 
 def test_openapi_loader_handles_small_generated_specs(tmp_path):

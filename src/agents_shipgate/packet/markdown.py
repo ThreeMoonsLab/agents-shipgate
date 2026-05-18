@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agents_shipgate.packet.models import (
+from agents_shipgate.report.markdown import _safe_markdown_text
+from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
     CapabilityIntentDiff,
@@ -32,7 +33,6 @@ from agents_shipgate.packet.models import (
     SectionStatus,
     ToolSurfaceDiffSection,
 )
-from agents_shipgate.report.markdown import _safe_markdown_text
 
 
 def _escape(value: object) -> str:

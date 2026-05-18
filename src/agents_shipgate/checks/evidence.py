@@ -3,18 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
-from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import (
+from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
-    Finding,
+    OpenAIApiArtifacts,
+    ValidationArtifacts,
+)
+from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.schemas.common import (
     HitlProvenanceType,
     HitlSourceProvenance,
-    OpenAIApiArtifacts,
-    Tool,
-    ValidationArtifacts,
     sorted_hitl_source_provenance,
 )
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.schemas.report import Finding
 
 CANONICAL_LIMITED_AUTO_APPROVAL_FLAGS = (
     "approval_trace_required",

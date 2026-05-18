@@ -28,12 +28,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Literal, Protocol, runtime_checkable
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
-
 # Re-export for backward compatibility; protocol.py was ArtifactBag's
 # original home in v0.11 R1.
 from agents_shipgate.core.artifacts import ArtifactBag as ArtifactBag
-from agents_shipgate.core.models import LoadedToolSource
+from agents_shipgate.core.domain import LoadedToolSource
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
+)
 
 
 @dataclass(frozen=True)

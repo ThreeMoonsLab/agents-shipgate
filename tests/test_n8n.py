@@ -8,10 +8,14 @@ from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.core.artifact_models import N8nArtifacts
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.domain import (
+    Agent,
+    Tool,
+)
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.models import Agent, N8nArtifacts, Tool
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints, risk_tags
 from agents_shipgate.inputs.n8n import load_n8n_artifacts
 

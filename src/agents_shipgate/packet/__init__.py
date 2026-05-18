@@ -28,8 +28,8 @@ from agents_shipgate.packet.json_packet import (
     serialize_packet_json,
 )
 from agents_shipgate.packet.markdown import render_packet_markdown
-from agents_shipgate.packet.models import EvidencePacket
 from agents_shipgate.packet.pdf import PdfRendererUnavailable, render_packet_pdf
+from agents_shipgate.schemas.packet import EvidencePacket
 
 __all__ = [
     "EvidencePacket",

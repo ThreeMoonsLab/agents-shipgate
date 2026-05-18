@@ -7,7 +7,6 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import NextAction
 from agents_shipgate.cli.discovery import (
     detect_workspace,
     render_auto_manifest,
@@ -21,13 +20,14 @@ from agents_shipgate.cli.discovery.agent_instructions import (
 )
 from agents_shipgate.cli.discovery.agent_instructions.targets import SPECS as _AI_SPECS
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.schemas.diagnostics import NextAction
 
 
 def _validate_manifest_text(text: str) -> None:
     """Run the generated manifest through the schema before write."""
     import yaml
 
-    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
     data = yaml.safe_load(text)
     AgentsShipgateManifest.model_validate(data)

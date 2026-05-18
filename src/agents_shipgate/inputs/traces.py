@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.config.schema import ArtifactPathConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import load_structured_file, load_text_file, resolve_input_path
+from agents_shipgate.schemas.manifest import ArtifactPathConfig
 
 
 def load_trace_artifacts(

@@ -10,15 +10,14 @@ import pytest
 
 from agents_shipgate.cli.scan import _flatten_and_deduplicate_tools, _load_sources
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.models import (
-    ActionFact,
-    ActionSurfaceFacts,
+from agents_shipgate.core.artifact_models import ValidationArtifacts
+from agents_shipgate.core.domain import (
     LoadedToolSource,
     Tool,
-    ValidationArtifacts,
 )
 from agents_shipgate.report.action_surface_diff import build_action_surface_facts
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUPPORT_SAMPLE = REPO_ROOT / "samples" / "support_refund_agent" / "shipgate.yaml"

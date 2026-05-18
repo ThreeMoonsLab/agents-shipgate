@@ -3,9 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
     manifest_relative_path,
@@ -15,6 +18,10 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
+)
 
 
 def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:

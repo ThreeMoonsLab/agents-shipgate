@@ -6,7 +6,9 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
-from agents_shipgate.core.models import (
+from agents_shipgate.core.domain import Tool
+from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.report import (
     BaselineDelta,
     ContributionRule,
     ContributionRuleName,
@@ -17,8 +19,6 @@ from agents_shipgate.core.models import (
     ReleaseDecision,
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
-    Severity,
-    Tool,
 )
 
 # Thresholds for the `insufficient_evidence` decision state. Private

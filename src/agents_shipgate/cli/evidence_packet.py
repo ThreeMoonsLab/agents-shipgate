@@ -30,7 +30,6 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
-from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
@@ -43,6 +42,7 @@ from agents_shipgate.packet import (
 from agents_shipgate.packet.html import write_packet_html
 from agents_shipgate.packet.json_packet import write_packet_json
 from agents_shipgate.packet.markdown import write_packet_markdown
+from agents_shipgate.schemas.report import ReadinessReport
 
 _DEFAULT_FORMATS = "md,json,html"
 _VALID_FORMATS = {"md", "json", "html", "pdf"}

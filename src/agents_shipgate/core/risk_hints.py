@@ -3,8 +3,15 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.models import Tool, ToolRiskHint, confidence_rank, parse_confidence
+from agents_shipgate.core.domain import (
+    Tool,
+    ToolRiskHint,
+)
+from agents_shipgate.schemas.common import (
+    confidence_rank,
+    parse_confidence,
+)
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 HIGH_RISK_TAGS = {
     "destructive",

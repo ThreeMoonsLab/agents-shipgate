@@ -4,9 +4,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import (
     HTTP_METHODS,
     PositionIndex,
@@ -19,6 +22,10 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
+)
 
 MAX_SCHEMA_RESOLVE_DEPTH = 32
 MAX_SCHEMA_RESOLVE_NODES = 5000

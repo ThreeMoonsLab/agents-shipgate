@@ -21,12 +21,9 @@ from pathlib import Path
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.cli.scan import _run_id
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import (
+from agents_shipgate.core.domain import (
     Agent,
-    Finding,
-    SourceReference,
     Tool,
 )
 from agents_shipgate.inputs.common import (
@@ -38,6 +35,9 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.sarif import _location
+from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.manifest import ToolSourceConfig
+from agents_shipgate.schemas.report import Finding
 
 # --- json_pointer_escape / unescape ----------------------------------------
 
@@ -322,7 +322,11 @@ def _minimal_report():
     """Build a minimal ReadinessReport-ish payload by dumping a Finding
     with no provenance and asserting the wire shape — we don't need a
     full ReadinessReport for the strip behavior."""
-    from agents_shipgate.core.models import ReadinessReport, ReportSummary, ToolSurfaceSummary
+    from agents_shipgate.schemas.report import (
+        ReadinessReport,
+        ReportSummary,
+        ToolSurfaceSummary,
+    )
 
     finding = _finding(
         SourceReference(type="manifest", ref="shipgate.yaml")
@@ -483,11 +487,11 @@ def test_mcp_loader_pointer_for_array_root(tmp_path):
 def test_openai_tools_loader_preserves_original_index_after_filter(tmp_path):
     """A non-dict entry must NOT shift the pointer of surviving items.
     v0.10 ``_tool_items``+``enumerate`` produced drift here."""
-    from agents_shipgate.config.schema import (
+    from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
+    from agents_shipgate.schemas.manifest import (
         ArtifactPathConfig,
         OpenAIApiConfig,
     )
-    from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 
     tools_yaml = tmp_path / "tools.yaml"
     tools_yaml.write_text(
@@ -517,11 +521,11 @@ def test_openai_tools_loader_preserves_original_index_after_filter(tmp_path):
 
 
 def test_anthropic_tools_loader_populates_pointer_and_line(tmp_path):
-    from agents_shipgate.config.schema import (
+    from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
+    from agents_shipgate.schemas.manifest import (
         AnthropicConfig,
         ArtifactPathConfig,
     )
-    from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
 
     tools_yaml = tmp_path / "tools.yaml"
     tools_yaml.write_text(
@@ -659,11 +663,11 @@ def test_singleton_yaml_tool_keeps_line_provenance(tmp_path):
     """Anthropic / OpenAI singleton-tool YAML files (one object at the
     document root) must still emit ``source_start_line`` even though the
     natural pointer for the singleton is the empty (root) string."""
-    from agents_shipgate.config.schema import (
+    from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
+    from agents_shipgate.schemas.manifest import (
         AnthropicConfig,
         ArtifactPathConfig,
     )
-    from agents_shipgate.inputs.anthropic_api import load_anthropic_artifacts
 
     tools_yaml = tmp_path / "tool.yaml"
     tools_yaml.write_text(
@@ -782,11 +786,11 @@ def test_openai_function_schemas_carries_root_pointer_and_line(tmp_path):
     """``openai_api.function_schemas`` files are a single function
     definition; the loader must emit ``source_path``, the root pointer,
     and a YAML line just like ``openai_api.tools``."""
-    from agents_shipgate.config.schema import (
+    from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
+    from agents_shipgate.schemas.manifest import (
         NamedArtifactPathConfig,
         OpenAIApiConfig,
     )
-    from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
 
     schema_yaml = tmp_path / "fn.yaml"
     schema_yaml.write_text(

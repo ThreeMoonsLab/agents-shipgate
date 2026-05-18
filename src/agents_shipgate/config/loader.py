@@ -7,8 +7,8 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 
 def load_yaml_file(path: Path) -> dict[str, Any]:

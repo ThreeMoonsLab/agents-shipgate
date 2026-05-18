@@ -4,11 +4,22 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.baseline import write_baseline
+from agents_shipgate.core.domain import (
+    Tool,
+    ToolRiskHint,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings import assign_finding_ids
-from agents_shipgate.core.models import (
+from agents_shipgate.report.action_surface_diff import (
+    _dedupe_findings,
+    build_action_surface_facts,
+    compute_action_surface_diff,
+    evaluate_action_surface_policies,
+)
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.surfaces import (
     ActionApprovalFact,
     ActionEvidenceFact,
     ActionFact,
@@ -16,15 +27,6 @@ from agents_shipgate.core.models import (
     ActionSurfaceDiff,
     ActionSurfaceFacts,
     ActionSurfaceHashes,
-    Finding,
-    Tool,
-    ToolRiskHint,
-)
-from agents_shipgate.report.action_surface_diff import (
-    _dedupe_findings,
-    build_action_surface_facts,
-    compute_action_surface_diff,
-    evaluate_action_surface_policies,
 )
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")

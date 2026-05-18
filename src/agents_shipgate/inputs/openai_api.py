@@ -4,20 +4,15 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    ArtifactPathConfig,
-    NamedArtifactPathConfig,
-    OpenAIApiConfig,
-    ToolSourceConfig,
-)
-from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
+from agents_shipgate.core.artifact_models import (
     ApiResponseFormat,
-    LoadedToolSource,
     OpenAIApiArtifacts,
+)
+from agents_shipgate.core.domain import (
+    LoadedToolSource,
     Tool,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     iter_tool_items,
     load_structured_file,
@@ -30,6 +25,13 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ArtifactPathConfig,
+    NamedArtifactPathConfig,
+    OpenAIApiConfig,
+    ToolSourceConfig,
+)
 
 PROMPT_SUFFIXES = {".md", ".markdown", ".txt"}
 

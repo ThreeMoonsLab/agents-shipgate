@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.packet.html import render_packet_html
-from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.schemas.packet import EvidencePacket
 
 
 class PdfRendererUnavailable(RuntimeError):

@@ -1,12 +1,12 @@
 from pathlib import Path
 
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import load_structured_file
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 BASE = Path("samples/support_refund_agent")
 

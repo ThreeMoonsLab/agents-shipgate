@@ -3,25 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    CodexPluginMcpInventoryConfig,
-    ToolSourceConfig,
-)
-from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
-    CodexPluginAppSummary,
-    CodexPluginArtifacts,
-    CodexPluginComponentPathIssue,
-    CodexPluginHookStub,
-    CodexPluginMarketplaceSummary,
-    CodexPluginMcpServerStub,
-    CodexPluginSkillSummary,
-    CodexPluginSourceLocation,
-    CodexPluginSummary,
+from agents_shipgate.core.artifact_models import CodexPluginArtifacts
+from agents_shipgate.core.domain import (
     LoadedToolSource,
     Tool,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     PositionIndex,
     json_pointer_escape,
@@ -32,6 +19,21 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.codex_plugin import (
+    CodexPluginAppSummary,
+    CodexPluginComponentPathIssue,
+    CodexPluginHookStub,
+    CodexPluginMarketplaceSummary,
+    CodexPluginMcpServerStub,
+    CodexPluginSkillSummary,
+    CodexPluginSourceLocation,
+    CodexPluginSummary,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    CodexPluginMcpInventoryConfig,
+    ToolSourceConfig,
+)
 
 COMMAND_KEYS = {"command", "cmd", "run", "shell", "script"}
 PLUGIN_MANIFEST = ".codex-plugin/plugin.json"

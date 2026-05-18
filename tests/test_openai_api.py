@@ -4,9 +4,12 @@ import pytest
 
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import ArtifactPathConfig, OpenAIApiConfig
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.inputs.openai_api import load_openai_api_artifacts
+from agents_shipgate.schemas.manifest import (
+    ArtifactPathConfig,
+    OpenAIApiConfig,
+)
 
 SAMPLE = Path("samples/simple_openai_api_agent/shipgate.yaml")
 

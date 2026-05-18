@@ -18,7 +18,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from agents_shipgate.packet.models import (
+from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
     CapabilityIntentDiff,

@@ -5,8 +5,8 @@ import pytest
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.report.markdown import _safe_markdown_text, render_markdown_report
+from agents_shipgate.schemas.report import ReadinessReport
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_MARKDOWN = Path("samples/support_refund_agent/expected/report.md")
@@ -337,13 +337,13 @@ def test_capability_diff_intent_tags_are_alias_based_and_negation_aware():
 
 
 def test_capability_diff_includes_framework_release_blocker_categories():
-    from agents_shipgate.core.models import (
+    from agents_shipgate.report.capability_diff import apply_capability_diff
+    from agents_shipgate.schemas.report import (
         Finding,
         ReadinessReport,
         ReportSummary,
         ToolSurfaceSummary,
     )
-    from agents_shipgate.report.capability_diff import apply_capability_diff
 
     report = ReadinessReport(
         run_id="test",

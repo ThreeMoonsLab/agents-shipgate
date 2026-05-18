@@ -29,10 +29,7 @@ from agents_shipgate.checks.baseline_integrity import (
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import (
-    BaselineFile,
-    BaselineFinding,
     BaselineIntegrityIssue,
-    BaselineProvenance,
     baseline_from_report,
     baseline_resolved_fingerprints,
     verify_baseline,
@@ -48,8 +45,13 @@ from agents_shipgate.core.baseline_audit import (
     utc_now_isoformat,
 )
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import (
-    Agent,
+from agents_shipgate.core.domain import Agent
+from agents_shipgate.schemas.baseline import (
+    BaselineFile,
+    BaselineFinding,
+    BaselineProvenance,
+)
+from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
     ReportSummary,

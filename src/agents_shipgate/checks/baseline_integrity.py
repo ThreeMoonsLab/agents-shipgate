@@ -37,7 +37,8 @@ from typing import Literal
 
 from agents_shipgate.core.baseline import BaselineIntegrityIssue
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Finding, SourceReference, parse_severity
+from agents_shipgate.schemas.common import SourceReference, parse_severity
+from agents_shipgate.schemas.report import Finding
 
 IntegrityMode = Literal["off", "warn", "strict"]
 

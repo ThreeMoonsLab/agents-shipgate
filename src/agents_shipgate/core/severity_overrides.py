@@ -38,15 +38,15 @@ from typing import TYPE_CHECKING
 
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.models import (
-    CheckMetadata,
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.report import (
     PolicyAudit,
-    Severity,
     SeverityOverrideAuditEntry,
 )
 
 if TYPE_CHECKING:
-    from agents_shipgate.config.schema import (
+    from agents_shipgate.schemas.manifest import (
         OverrideAcknowledgement,
         SeverityOverrideEntry,
     )

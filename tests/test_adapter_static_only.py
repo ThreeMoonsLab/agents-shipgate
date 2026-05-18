@@ -1247,9 +1247,10 @@ def test_scanner_sources_covers_known_files() -> None:
         "inputs/mcp.py",
         "checks/registry.py",
         "checks/plugin_validation.py",
-        "core/models.py",
+        "core/domain.py",
         "core/severity_overrides.py",
         "core/findings.py",
+        "schemas/report.py",
     }
     missing = required - relative_paths
     assert not missing, (

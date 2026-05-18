@@ -4,8 +4,11 @@ import ast
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
-from agents_shipgate.core.models import LangChainArtifacts, LoadedToolSource, Tool
+from agents_shipgate.core.artifact_models import LangChainArtifacts
+from agents_shipgate.core.domain import (
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.inputs._python_framework import (
     assignment_call,
     assignment_target,
@@ -28,6 +31,10 @@ from agents_shipgate.inputs.python_static import (
     keyword_string,
     last_name,
     pydantic_model_schemas,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
 )
 
 TOOL_DECORATOR_MODULES = {"langchain.tools", "langchain_core.tools"}

@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.core.finding_refs import finding_tool_names
-from agents_shipgate.core.models import (
+from agents_shipgate.schemas.report import (
     Finding,
     Misalignment,
     ReadinessReport,

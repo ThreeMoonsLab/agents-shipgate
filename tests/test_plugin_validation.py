@@ -32,7 +32,8 @@ from agents_shipgate.checks.plugin_validation import (
     VALID,
 )
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import CheckMetadata, Finding
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.report import Finding
 
 CLEAN_FIXTURE = Path("samples/clean_read_only_agent/shipgate.yaml")
 
@@ -513,7 +514,7 @@ def test_plugin_with_dynamic_default_as_checkmetadata_instance_is_rejected(
     gate then catches the dynamic_default flag from the typed
     instance.
     """
-    from agents_shipgate.core.models import CheckMetadata
+    from agents_shipgate.schemas.checks import CheckMetadata
 
     def plugin(context):
         return []

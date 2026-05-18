@@ -14,7 +14,26 @@ findings are excluded from §1–§9 (only §10 surfaces them).
 
 from __future__ import annotations
 
-from agents_shipgate.config.schema import (
+from agents_shipgate.core.artifact_models import (
+    AnthropicArtifacts,
+    OpenAIApiArtifacts,
+    ValidationArtifacts,
+)
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    Tool,
+    ToolRiskHint,
+)
+from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.packet.disclaimer import (
+    PACKET_NON_PROOF,
+    PACKET_NON_PROOF_HEADLINE,
+)
+from agents_shipgate.schemas.common import (
+    HitlSourceProvenance,
+    sorted_hitl_source_provenance,
+)
+from agents_shipgate.schemas.manifest import (
     AgentConfig,
     AgentsShipgateManifest,
     ChecksConfig,
@@ -26,28 +45,7 @@ from agents_shipgate.config.schema import (
     ProjectConfig,
     RiskOverridesConfig,
 )
-from agents_shipgate.core.models import (
-    ActionSurfaceDiff,
-    AnthropicArtifacts,
-    AuthInfo,
-    Finding,
-    HitlSourceProvenance,
-    OpenAIApiArtifacts,
-    ReadinessReport,
-    ReleaseDecision,
-    ReleaseDecisionItem,
-    Tool,
-    ToolRiskHint,
-    ToolSurfaceDiff,
-    ValidationArtifacts,
-    sorted_hitl_source_provenance,
-)
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
-from agents_shipgate.packet.disclaimer import (
-    PACKET_NON_PROOF,
-    PACKET_NON_PROOF_HEADLINE,
-)
-from agents_shipgate.packet.models import (
+from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageRow,
     ApprovalCoverageSection,
@@ -70,6 +68,16 @@ from agents_shipgate.packet.models import (
     SectionStatus,
     ToolSurfaceDiffSection,
     VerdictLabel,
+)
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
+    ReleaseDecision,
+    ReleaseDecisionItem,
+)
+from agents_shipgate.schemas.surfaces import (
+    ActionSurfaceDiff,
+    ToolSurfaceDiff,
 )
 
 _VERDICT_BY_DECISION: dict[str, VerdictLabel] = {

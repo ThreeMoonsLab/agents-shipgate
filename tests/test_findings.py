@@ -1,12 +1,10 @@
 import json
 
-from agents_shipgate.config.schema import SuppressionConfig
 from agents_shipgate.core.baseline import (
-    BaselineFile,
-    BaselineFinding,
     apply_baseline,
     load_baseline,
 )
+from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.findings import (
     apply_severity_overrides,
     apply_suppressions,
@@ -15,7 +13,12 @@ from agents_shipgate.core.findings import (
     finding_fingerprint,
     summarize_findings,
 )
-from agents_shipgate.core.models import Finding, Tool
+from agents_shipgate.schemas.baseline import (
+    BaselineFile,
+    BaselineFinding,
+)
+from agents_shipgate.schemas.manifest import SuppressionConfig
+from agents_shipgate.schemas.report import Finding
 
 
 def test_apply_suppressions_matches_tool_name_and_preserves_reason():

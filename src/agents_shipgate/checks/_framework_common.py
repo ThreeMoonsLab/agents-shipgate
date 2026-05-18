@@ -5,13 +5,13 @@ from dataclasses import dataclass
 
 from agents_shipgate.checks.base import agent_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import (
-    Finding,
+from agents_shipgate.schemas.common import (
     ProvenanceKind,
     SourceReference,
     parse_confidence,
     parse_severity,
 )
+from agents_shipgate.schemas.report import Finding
 
 
 def _identity_surface(surface: object) -> object:

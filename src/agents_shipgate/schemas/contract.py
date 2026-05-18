@@ -7,8 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
-from agents_shipgate.core.models import ReadinessReport
-from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.report import ReadinessReport
 
 CONTRACT_VERSION: Literal["1"] = "1"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"

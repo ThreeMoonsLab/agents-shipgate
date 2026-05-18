@@ -13,13 +13,14 @@ from agents_shipgate import __version__
 from agents_shipgate.checks import registry
 from agents_shipgate.cli._helpers import _safe_output_name
 from agents_shipgate.cli.main import app
-from agents_shipgate.contract import (
+from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
     MANUAL_REVIEW_SIGNALS,
 )
-from agents_shipgate.core.models import ReadinessReport, ToolSurfaceDiffSummary
-from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
 
 runner = CliRunner()
 
