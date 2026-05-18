@@ -14,9 +14,9 @@ from agents_shipgate.core.disclaimers import (
 HITL_RUNTIME_CONTROL_DISCLAIMER = _HITL_RUNTIME_CONTROL_DISCLAIMER
 
 PACKET_NON_PROOF_HEADLINE = (
-    "Agents Shipgate is a local-first, static Tool-Use Readiness release gate "
-    "for AI agent tool surfaces. The packet below is derived from a scan; it "
-    "does not, by itself, prove the following properties:"
+    "Agents Shipgate is an advisory, local-first, static Tool-Use Readiness "
+    "release gate for AI agent tool surfaces. The packet below is derived from "
+    "a scan; it does not, by itself, prove the following properties:"
 )
 
 PACKET_NON_PROOF: tuple[tuple[str, str], ...] = (

@@ -136,6 +136,7 @@ POSITIONING_SURFACES = (
     "docs/glossary.md",
     "docs/ai-search-summary.md",
     "docs/target-repo-agent-snippets.md",
+    "benchmark/setup-variants/10-agents-md/AGENTS.md.template",
     "skills/agents-shipgate/SKILL.md",
     ".claude/commands/shipgate.md",
     ".cursor/rules/agents-shipgate.mdc",
@@ -1226,6 +1227,8 @@ def test_structured_metadata_fields_use_mvp_wedge_positioning():
 
 
 def test_report_and_packet_disclaimers_use_mvp_wedge_positioning():
+    assert "advisory" in DISCLAIMER.lower()
+    assert "advisory" in PACKET_NON_PROOF_HEADLINE.lower()
     assert POSITIONING_PHRASE.lower() in DISCLAIMER.lower()
     assert POSITIONING_PHRASE.lower() in PACKET_NON_PROOF_HEADLINE.lower()
 
