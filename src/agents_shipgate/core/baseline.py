@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -244,6 +245,7 @@ def apply_baseline(
     baseline: BaselineFile,
     *,
     display_path: str,
+    legacy_fingerprints: Sequence[str | None] | None = None,
 ) -> BaselineSummary:
     baseline_fingerprints = {
         finding.fingerprint for finding in baseline.findings if finding.fingerprint
@@ -252,16 +254,25 @@ def apply_baseline(
     matched_legacy_fingerprints: set[str] = set()
     matched = 0
     new = 0
-    for finding in findings:
+    for index, finding in enumerate(findings):
         if finding.suppressed:
             continue
         fingerprint = finding.fingerprint or finding.id
+        legacy_fingerprint = (
+            legacy_fingerprints[index]
+            if legacy_fingerprints is not None and index < len(legacy_fingerprints)
+            else None
+        )
         if not fingerprint:
             continue
         current_active_fingerprints.add(fingerprint)
         if fingerprint in baseline_fingerprints:
             finding.baseline_status = "matched"
             matched += 1
+        elif legacy_fingerprint and legacy_fingerprint in baseline_fingerprints:
+            finding.baseline_status = "matched"
+            matched += 1
+            matched_legacy_fingerprints.add(legacy_fingerprint)
         elif legacy_match := _legacy_baseline_match(finding, baseline.findings):
             finding.baseline_status = "matched"
             matched += 1
@@ -417,6 +428,8 @@ def verify_baseline(
 def baseline_resolved_fingerprints(
     findings: list[Finding],
     baseline: BaselineFile,
+    *,
+    legacy_fingerprints: Sequence[str | None] | None = None,
 ) -> list[BaselineIntegrityIssue]:
     """Scan-aware companion to ``verify_baseline``.
 
@@ -435,14 +448,22 @@ def baseline_resolved_fingerprints(
     }
     active: set[str] = set()
     legacy_matched: set[str] = set()
-    for finding in findings:
+    for index, finding in enumerate(findings):
         if finding.suppressed:
             continue
         fingerprint = finding.fingerprint or finding.id
+        legacy_fingerprint = (
+            legacy_fingerprints[index]
+            if legacy_fingerprints is not None and index < len(legacy_fingerprints)
+            else None
+        )
         if not fingerprint:
             continue
         active.add(fingerprint)
         if fingerprint in baseline_fingerprints:
+            continue
+        if legacy_fingerprint and legacy_fingerprint in baseline_fingerprints:
+            legacy_matched.add(legacy_fingerprint)
             continue
         match = _legacy_baseline_match(finding, baseline.findings)
         if match is not None:

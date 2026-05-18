@@ -83,7 +83,7 @@ def _secret_like_matches(description: str) -> list[str]:
     match = LABELED_SECRET_PATTERN.search(description)
     if not match:
         return matches
-    value = match.group(3)
+    value = match.group(5)
     if looks_like_secret_value(value):
         matches.append("labeled_secret_value")
     return matches

@@ -47,12 +47,19 @@ def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
     for finding in findings:
         finding.fingerprint = finding_fingerprint(finding)
         by_fingerprint[finding.fingerprint].append(finding)
+    used_ids: dict[str, int] = defaultdict(int)
     for finding in findings:
         assert finding.fingerprint is not None
         if len(by_fingerprint[finding.fingerprint]) == 1:
-            finding.id = finding.fingerprint
-            continue
-        finding.id = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
+            candidate = finding.fingerprint
+        else:
+            candidate = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
+        used_ids[candidate] += 1
+        finding.id = (
+            candidate
+            if used_ids[candidate] == 1
+            else f"{candidate}_{used_ids[candidate]}"
+        )
     return findings
 
 

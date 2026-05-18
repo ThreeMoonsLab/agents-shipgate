@@ -2,7 +2,7 @@
   "schema_version": "0.1",
   "report_schema_version": "0.18",
   "run_id": "agents_shipgate_427f402f2536c974",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/d25c/shipgate/samples/simple_langchain_agent",
+  "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
   },

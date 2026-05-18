@@ -2,7 +2,7 @@
   "schema_version": "0.1",
   "report_schema_version": "0.18",
   "run_id": "agents_shipgate_6150f69e2312264e",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/d25c/shipgate/samples/support_refund_agent",
+  "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",

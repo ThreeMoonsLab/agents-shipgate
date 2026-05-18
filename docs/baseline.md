@@ -61,6 +61,14 @@ rendered as `fp_<digest>`. It intentionally excludes severity overrides, report
 paths, warnings, timestamps, `default_severity` audit evidence, and baseline
 status.
 
+Report schema v0.18 computes public fingerprints after the default privacy
+redaction pass. Findings whose evidence contains a recognized secret-like value
+therefore get a new public fingerprint. To avoid surprise CI failures during
+upgrade, `scan --baseline` also compares the pre-v0.18 raw fingerprint in memory
+without writing it to public artifacts. After reviewing the v0.18 report, run
+`agents-shipgate baseline save` again to rewrite the baseline with redacted
+public fingerprints.
+
 ## Baseline Schema Versions
 
 `agents-shipgate baseline save` now writes baseline schema `0.4`. It preserves

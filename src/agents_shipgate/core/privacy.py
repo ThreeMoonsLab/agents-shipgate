@@ -16,13 +16,20 @@ REDACTION_MARKER_RE = re.compile(r"\[REDACTED:[a-z0-9_:-]+\]")
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("openai_api_key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}")),
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("github_token", re.compile(r"\bgh[opusr]_[A-Za-z0-9_]{20,}\b")),
+    (
+        "aws_access_key",
+        re.compile(r"\b(?:AKIA|ASIA|AROA|AGPA|ANPA|AIDA|AIPA)[0-9A-Z]{16}\b"),
+    ),
+    (
+        "github_token",
+        re.compile(r"\b(?:gh[opusr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
+    ),
     (
         "stripe_key",
         re.compile(r"\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b"),
     ),
-    ("slack_token", re.compile(r"\bxox[boprs]-[A-Za-z0-9-]{10,}\b")),
+    ("stripe_webhook_secret", re.compile(r"\bwhsec_[A-Za-z0-9]{16,}\b")),
+    ("slack_token", re.compile(r"\bxox[aboprs]-[A-Za-z0-9-]{10,}\b")),
     (
         "jwt",
         re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
@@ -30,7 +37,8 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "database_url",
         re.compile(
-            r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?)://"
+            r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|"
+            r"mssql|sqlserver|clickhouse)://"
             r"[^:\s/@]+:[^@\s]+@[^ \t\r\n'\"]+"
         ),
     ),
@@ -41,7 +49,8 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 LABELED_SECRET_PATTERN = re.compile(
-    r"(?i)\b(password|secret|token|api[_-]?key)\s*([:=])\s*([A-Za-z0-9_./+=-]{20,})"
+    r"(?i)(['\"]?)(password|secret|token|api[_-]?key)\1"
+    r"(\s*[:=]\s*)(['\"]?)([A-Za-z0-9_./+=-]{20,})\4"
 )
 
 SENSITIVE_VALUE_KEYS = {
@@ -61,6 +70,7 @@ SENSITIVE_VALUE_KEYS = {
     "secret",
     "token",
 }
+
 
 @dataclass
 class RedactionStats:
@@ -234,12 +244,16 @@ def _redact_labeled_secret(
     path: str,
 ) -> str:
     def replace(match: re.Match[str]) -> str:
-        secret_value = match.group(3)
+        secret_value = match.group(5)
         if not looks_like_secret_value(secret_value):
             return match.group(0)
         if stats is not None:
             stats.record(path, "labeled_secret_value")
-        return f"{match.group(1)}{match.group(2)} {_marker('labeled_secret_value')}"
+        return (
+            f"{match.group(1)}{match.group(2)}{match.group(1)}"
+            f"{match.group(3)}{match.group(4)}"
+            f"{_marker('labeled_secret_value')}{match.group(4)}"
+        )
 
     return LABELED_SECRET_PATTERN.sub(replace, value)
 

@@ -2,7 +2,7 @@
   "schema_version": "0.1",
   "report_schema_version": "0.18",
   "run_id": "agents_shipgate_479ce82e931c425e",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/d25c/shipgate/samples/simple_crewai_agent",
+  "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
   },

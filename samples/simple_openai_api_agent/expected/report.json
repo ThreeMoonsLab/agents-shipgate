@@ -2,7 +2,7 @@
   "schema_version": "0.1",
   "report_schema_version": "0.18",
   "run_id": "agents_shipgate_eb6372d0cd28573e",
-  "manifest_dir": "/Users/pengfeihu/.codex/worktrees/d25c/shipgate/samples/simple_openai_api_agent",
+  "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"

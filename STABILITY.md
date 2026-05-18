@@ -117,6 +117,14 @@ False positives are allowed in favor of privacy; local routing metadata such as
 source paths, JSON pointers, and scopes remains structurally present with only
 secret-like substrings replaced.
 
+v0.18 changes public fingerprints for findings whose identity evidence contains
+a recognized secret pattern because the public `findings[].fingerprint` is now
+computed from redacted evidence. During `--baseline` scans, Shipgate also checks
+the pre-v0.18 raw fingerprint in memory so existing baselines continue matching
+without emitting raw hashes. After reviewing the v0.18 report, re-run
+`agents-shipgate baseline save` to migrate the baseline to redacted public
+fingerprints and remove the compatibility dependency.
+
 ### Severity-override floor
 
 `checks.severity_overrides` continues to accept the legacy scalar form

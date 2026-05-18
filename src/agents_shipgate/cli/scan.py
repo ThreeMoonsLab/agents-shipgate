@@ -30,6 +30,7 @@ from agents_shipgate.core.findings import (
     assign_finding_ids,
     build_report,
     dedupe_findings,
+    finding_fingerprint,
     tool_inventory,
 )
 from agents_shipgate.core.models import (
@@ -43,6 +44,7 @@ from agents_shipgate.core.models import (
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
+    LoadedPolicyPack,
     LoadedToolSource,
     N8nArtifacts,
     OpenAIApiArtifacts,
@@ -329,6 +331,7 @@ def run_scan(
         findings,
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
+    legacy_fingerprints = [finding_fingerprint(finding) for finding in findings]
     logger.debug(
         "checks completed",
         extra={
@@ -417,7 +420,7 @@ def run_scan(
         else None
     )
     public_tools = sanitize_tools(tools, stats=privacy_stats)
-    public_findings = dedupe_findings(sanitize_findings(findings, stats=privacy_stats))
+    public_findings = sanitize_findings(findings, stats=privacy_stats)
     assign_finding_ids(public_findings)
 
     public_project = redact_data(
@@ -468,6 +471,20 @@ def run_scan(
         stats=privacy_stats,
         path="policy_audit",
     )
+    public_loaded_policy_packs = [
+        sanitize_model(
+            pack,
+            LoadedPolicyPack,
+            stats=privacy_stats,
+            path="loaded_policy_packs[]",
+        )
+        for pack in policy_packs.loaded
+    ]
+    public_loaded_plugins = redact_data(
+        loaded_plugins,
+        stats=privacy_stats,
+        path="loaded_plugins[]",
+    )
 
     public_diff_reference = _sanitize_diff_reference(
         diff_reference,
@@ -503,6 +520,7 @@ def run_scan(
             public_findings,
             baseline_file,
             display_path=baseline_display_path,
+            legacy_fingerprints=legacy_fingerprints,
         )
         baseline_summary = sanitize_model(
             baseline_summary,
@@ -528,7 +546,6 @@ def run_scan(
                 )
                 static_issues = []
                 warning = f"Baseline integrity check skipped: {exc}"
-                warnings.append(warning)
                 public_source_warnings.append(
                     redact_data(
                         warning,
@@ -537,13 +554,33 @@ def run_scan(
                     )
                 )
             stale_issues = baseline_resolved_fingerprints(
-                public_findings, baseline_file
+                public_findings,
+                baseline_file,
+                legacy_fingerprints=legacy_fingerprints,
             )
+            baseline_privacy_hint = None
+            if stale_issues and privacy_stats.occurrence_count:
+                baseline_privacy_hint = (
+                    "If these stale baseline entries appeared immediately after "
+                    "upgrading to report schema v0.18, review and regenerate the "
+                    "baseline. Secret-bearing public fingerprints are now computed "
+                    "from redacted evidence."
+                )
+                for issue in stale_issues:
+                    issue.evidence["v0_18_privacy_migration_hint"] = (
+                        baseline_privacy_hint
+                    )
             integrity_findings = build_integrity_findings(
                 static_issues + stale_issues,
                 context=context,
                 integrity_mode=integrity_mode,
             )
+            if baseline_privacy_hint:
+                for finding in integrity_findings:
+                    if finding.check_id == "SHIP-BASELINE-ENTRY-STALE":
+                        finding.recommendation = (
+                            f"{finding.recommendation} {baseline_privacy_hint}"
+                        )
             if integrity_findings:
                 public_findings.extend(
                     sanitize_findings(integrity_findings, stats=privacy_stats)
@@ -584,6 +621,13 @@ def run_scan(
         notes=[
             "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
             "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted.",
+            *(
+                [
+                    "Baseline matching accepts legacy pre-v0.18 raw secret fingerprints for compatibility; re-save reviewed baselines to migrate to redacted public fingerprints."
+                ]
+                if baseline_file and privacy_stats.occurrence_count
+                else []
+            ),
         ],
     )
     report = build_report(
@@ -611,16 +655,8 @@ def run_scan(
         ci_mode=public_manifest.ci.mode,
         fail_on=public_manifest.ci.fail_on,
         new_findings_only=baseline_summary is not None,
-        loaded_policy_packs=redact_data(
-            policy_packs.loaded,
-            stats=privacy_stats,
-            path="loaded_policy_packs[]",
-        ),
-        loaded_plugins=redact_data(
-            loaded_plugins,
-            stats=privacy_stats,
-            path="loaded_plugins[]",
-        ),
+        loaded_policy_packs=public_loaded_policy_packs,
+        loaded_plugins=public_loaded_plugins,
         source_warnings=public_source_warnings,
         api_surface=public_api_surface,
         anthropic_surface=public_anthropic_surface,

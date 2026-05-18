@@ -4,8 +4,20 @@ from pathlib import Path
 
 from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import ReadinessReport
-from agents_shipgate.core.privacy import RedactionStats, redact_data
+from agents_shipgate.core.baseline import (
+    BaselineFile,
+    BaselineFinding,
+    apply_baseline,
+    baseline_resolved_fingerprints,
+)
+from agents_shipgate.core.findings import (
+    assign_finding_ids,
+    dedupe_findings,
+    finding_fingerprint,
+)
+from agents_shipgate.core.logging import _might_contain_sensitive_payload
+from agents_shipgate.core.models import Finding, ReadinessReport, SourceReference
+from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_findings
 
 
 def test_redact_data_redacts_nested_patterns_and_sensitive_keys():
@@ -33,6 +45,131 @@ def test_redact_data_redacts_nested_patterns_and_sensitive_keys():
     assert redacted["tokenUrl"] == "https://auth.example.test/token"
     assert stats.occurrence_count == 3
     assert all(openai_key not in path for path in stats.path_kinds)
+
+
+def test_redact_text_covers_quoted_labeled_and_common_secret_patterns():
+    secrets = [
+        '"api_key":"abcdefghijklmnop1234567890"',
+        "password=abcdefghijklmnop1234567890",
+        "ASIAABCDEFGHIJKLMNOP",
+        "github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "xoxa-2-aaaaaaaaaaaaaaaa",
+        "whsec_aaaaaaaaaaaaaaaaaaaaaaaa",
+        "redis://user:password@example.test:6379/0",
+        "clickhouse://user:password@example.test/db",
+    ]
+    stats = RedactionStats()
+
+    redacted = redact_data({"text": " ".join(secrets)}, stats=stats, path="$")
+    redacted_text = redacted["text"]
+    rendered = json.dumps(redacted, sort_keys=True)
+
+    for secret in secrets:
+        assert secret not in rendered
+    assert '"api_key":"[REDACTED:labeled_secret_value]"' in redacted_text
+    assert "password=[REDACTED:labeled_secret_value]" in redacted_text
+    assert "[REDACTED:aws_access_key]" in rendered
+    assert "[REDACTED:github_token]" in rendered
+    assert "[REDACTED:slack_token]" in rendered
+    assert "[REDACTED:stripe_webhook_secret]" in rendered
+    assert rendered.count("[REDACTED:database_url]") == 2
+
+
+def test_sanitized_findings_preserve_distinct_raw_secret_evidence():
+    raw_one = "sk-firstaaaaaaaaaaaaaaaa"
+    raw_two = "sk-secondaaaaaaaaaaaaaaa"
+    source = SourceReference(type="openapi", path="openapi.yaml", start_line=7)
+    findings = [
+        Finding(
+            check_id="SHIP-DOC-SECRET-IN-DESCRIPTION",
+            title="tool description appears to contain a secret",
+            severity="high",
+            category="control_missing",
+            tool_name="tool",
+            evidence={"description": f"token {raw_one}"},
+            confidence="high",
+            provenance_kind="static_declaration",
+            source=source,
+            recommendation="Rotate the exposed credential.",
+        ),
+        Finding(
+            check_id="SHIP-DOC-SECRET-IN-DESCRIPTION",
+            title="tool description appears to contain a secret",
+            severity="high",
+            category="control_missing",
+            tool_name="tool",
+            evidence={"description": f"token {raw_two}"},
+            confidence="high",
+            provenance_kind="static_declaration",
+            source=source,
+            recommendation="Rotate the exposed credential.",
+        ),
+    ]
+
+    raw_deduped = dedupe_findings(findings)
+    public_findings = sanitize_findings(raw_deduped, stats=RedactionStats())
+    assign_finding_ids(public_findings)
+
+    assert len(raw_deduped) == 2
+    assert len(public_findings) == 2
+    assert public_findings[0].fingerprint == public_findings[1].fingerprint
+    assert public_findings[0].id != public_findings[1].id
+
+
+def test_baseline_matches_legacy_raw_secret_fingerprint_after_redaction():
+    raw_secret = "sk-baselineaaaaaaaaaaaaaa"
+    raw_finding = Finding(
+        check_id="SHIP-DOC-SECRET-IN-DESCRIPTION",
+        title="tool description appears to contain a secret",
+        severity="high",
+        category="control_missing",
+        tool_name="tool",
+        evidence={"description": f"token {raw_secret}"},
+        confidence="high",
+        provenance_kind="static_declaration",
+        recommendation="Rotate the exposed credential.",
+    )
+    raw_fingerprint = finding_fingerprint(raw_finding)
+    public_finding = sanitize_findings([raw_finding], stats=RedactionStats())[0]
+    assign_finding_ids([public_finding])
+    baseline = BaselineFile(
+        created_at="2026-01-01T00:00:00Z",
+        source_report_run_id="legacy_v017",
+        findings=[
+            BaselineFinding(
+                fingerprint=raw_fingerprint,
+                check_id=raw_finding.check_id,
+                tool_name=raw_finding.tool_name,
+                severity=raw_finding.severity,
+                title=raw_finding.title,
+            )
+        ],
+    )
+
+    summary = apply_baseline(
+        [public_finding],
+        baseline,
+        display_path=".agents-shipgate/baseline.json",
+        legacy_fingerprints=[raw_fingerprint],
+    )
+    stale_issues = baseline_resolved_fingerprints(
+        [public_finding],
+        baseline,
+        legacy_fingerprints=[raw_fingerprint],
+    )
+
+    assert public_finding.fingerprint != raw_fingerprint
+    assert public_finding.baseline_status == "matched"
+    assert summary.matched_count == 1
+    assert summary.new_count == 0
+    assert summary.resolved_count == 0
+    assert stale_issues == []
+
+
+def test_json_logging_redaction_uses_fast_precheck():
+    assert not _might_contain_sensitive_payload({"message": "plain progress"})
+    assert _might_contain_sensitive_payload({"message": "Bearer abcdefghijklmnop"})
+    assert _might_contain_sensitive_payload({"payload": {"api_key": "value"}})
 
 
 def test_scan_redacts_public_outputs_and_reports_privacy_audit(tmp_path, monkeypatch):

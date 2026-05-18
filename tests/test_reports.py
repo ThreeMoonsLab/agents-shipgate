@@ -133,6 +133,15 @@ def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
     )
 
 
+def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
+    """Sample goldens should not expose or churn on contributor home paths."""
+    for path in sorted(Path("samples").glob("*/expected/report.json")):
+        text = path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+        assert str(Path.cwd()) not in text
+        assert payload["manifest_dir"].startswith("<REPO>/samples/")
+
+
 def test_json_report_contains_integration_contract_keys(tmp_path):
     report, _ = run_scan(
         config_path=SAMPLE,
