@@ -15,10 +15,22 @@
   - A new model validator rejects `dynamic_default=True` without
     `floor_severity` — a swing check without a floor has no safety net.
   - `SHIP-ACTION-POLICY-VIOLATION` now declares `dynamic_default=True`
-    and `floor_severity="medium"`. **Breaking** for manifests currently
-    downgrading `SHIP-ACTION-POLICY-VIOLATION` below `medium` without a
-    tier-crossing acknowledgement — failure mode is loud (exit 2) per
-    the M1 contract.
+    and `floor_severity="medium"`. Two distinct contracts apply to
+    existing manifests; both produce loud `ConfigError` (exit 2):
+    - **Hard floor (no bypass).** Manifests resolving the check below
+      `medium` — i.e., to `low` or `info` — are rejected by the
+      `floor_severity` validator. `acknowledge_overrides` does NOT
+      bypass the floor; the only remedies are to raise the override to
+      `medium` or above, or remove the override entirely.
+    - **Tier-crossing requires ack.** Downgrading from the catalog
+      default `high` to the floor `medium` crosses the high → normal
+      tier boundary. This case is allowed only with an
+      `acknowledge_overrides` entry that supplies a reason; without one
+      it is rejected with a tier-boundary error (not a floor error).
+    Manifests currently overriding `SHIP-ACTION-POLICY-VIOLATION` to
+    `low`/`info` cannot fix the regression by adding an ack — they must
+    raise the override severity. Manifests overriding to `medium`
+    without an ack pass once the ack is added.
   - `cli/scan.py:_dynamic_check_defaults` is the new canonical
     aggregator. It seeds every catalog check carrying
     `dynamic_default=True` with its static default (step 1), overlays
