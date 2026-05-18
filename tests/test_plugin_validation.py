@@ -410,6 +410,95 @@ def test_plugin_dynamic_default_without_floor_lands_in_dynamic_status(monkeypatc
     )
 
 
+@pytest.mark.parametrize(
+    "raw_value",
+    ["true", "True", "TRUE", "yes", "on", 1],
+    ids=["str_true", "str_True", "str_TRUE", "str_yes", "str_on", "int_1"],
+)
+def test_plugin_dynamic_default_coerced_truthy_is_rejected(
+    monkeypatch, tmp_path, raw_value
+):
+    """v0.18 (PR #1) post-merge fix: the raw-metadata pre-check must
+    catch values Pydantic would coerce to ``True``, not just the
+    literal Python ``True``. Otherwise a plugin with
+    ``{"dynamic_default": "true", "floor_severity": "medium"}`` would
+    pass the raw gate (``"true" is True`` → False), then Pydantic
+    coerces it to ``True``, and the plugin lands as ``valid`` with
+    ``metadata.dynamic_default == True`` — reopening the silent
+    bypass this PR closes.
+
+    Parity invariant: anything Pydantic stores as ``dynamic_default=True``
+    on the constructed ``CheckMetadata`` MUST be rejected by the gate.
+    """
+
+    def plugin(context):
+        return []
+
+    plugin.AGENTS_SHIPGATE_METADATA = {
+        "id": "ACME-COERCED-TRUTHY",
+        "category": "custom",
+        "default_severity": "high",
+        "description": "Plugin with truthy non-True dynamic_default.",
+        "floor_severity": "medium",
+        "dynamic_default": raw_value,
+    }
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"Coerced-truthy raw value {raw_value!r} bypassed the gate; "
+        f"validation_status={record['validation_status']!r}. The raw "
+        "gate must match Pydantic's bool coercion."
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [False, "false", "False", "no", "off", 0, None],
+    ids=["bool_false", "str_false", "str_False", "str_no", "str_off", "int_0", "none"],
+)
+def test_plugin_dynamic_default_coerced_falsey_is_accepted(
+    monkeypatch, tmp_path, raw_value
+):
+    """Parity invariant, falsey direction: values Pydantic would store
+    as ``dynamic_default=False`` (or that omit the key entirely) must
+    NOT be flagged as dynamic_default_not_supported. Pydantic accepts
+    None as 'use default' for bool fields, so the gate must too.
+    """
+
+    def plugin(context):
+        return []
+
+    metadata = {
+        "id": "ACME-FALSEY-DEFAULT",
+        "category": "custom",
+        "default_severity": "medium",
+        "description": "Plugin with falsey dynamic_default.",
+    }
+    if raw_value is not None:
+        metadata["dynamic_default"] = raw_value
+    plugin.AGENTS_SHIPGATE_METADATA = metadata
+    _patch_entries(monkeypatch, [_entry_point(lambda: plugin)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_plugins[0]
+    assert record["validation_status"] != DYNAMIC_DEFAULT_NOT_SUPPORTED, (
+        f"Falsey raw value {raw_value!r} was wrongly flagged as "
+        f"dynamic_default_not_supported. The gate is over-aggressive."
+    )
+
+
 def test_plugin_with_dynamic_default_as_checkmetadata_instance_is_rejected(
     monkeypatch, tmp_path
 ):

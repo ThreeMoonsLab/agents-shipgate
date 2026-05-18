@@ -51,7 +51,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
@@ -363,25 +363,51 @@ def _is_floor_error(exc: BaseException) -> bool:
     return "floor_severity" in str(exc)
 
 
+_DYNAMIC_DEFAULT_BOOL = TypeAdapter(bool)
+
+
 def _raw_metadata_declares_dynamic_default(value: Any) -> bool:
     """v0.18 (PR #1): inspect raw plugin metadata for the
     ``dynamic_default`` flag BEFORE Pydantic validation runs.
 
     Plugin metadata can arrive as either a dict (most plugins) or a
     pre-constructed ``CheckMetadata`` instance (test fixtures, advanced
-    plugins). For dict form, read the field directly. For instance
+    plugins). For dict form, read the field via Pydantic's own bool
+    coercion so any value that ``CheckMetadata`` would store as
+    ``dynamic_default=True`` (``True``, ``1``, ``"true"``, ``"yes"``,
+    ``"on"``) lands here under ``dynamic_default_not_supported``
+    instead of slipping past as ``valid`` after coercion. For instance
     form, the field is already typed — read it via attribute. Returns
     ``False`` on any other shape (the downstream ``_coerce_metadata``
-    will then surface a ``bad_metadata`` error for the shape itself).
+    will then surface a ``bad_metadata`` error for the shape itself)
+    and on values that Pydantic rejects outright (the downstream
+    validator will produce the appropriate error).
 
     Placement of the gate that calls this helper matters: it MUST run
     before ``_coerce_metadata``, because a plugin declaring
     ``dynamic_default=True`` without ``floor_severity`` would otherwise
     trigger the new ``CheckMetadata`` model validator and be
     mis-classified as ``bad_floor``.
+
+    Parity invariant: this function returns ``True`` iff
+    ``CheckMetadata.model_validate(value).dynamic_default`` would be
+    ``True``. Mismatch would re-open the silent bypass — a regression
+    test pins it.
     """
     if isinstance(value, dict):
-        return value.get("dynamic_default") is True
+        if "dynamic_default" not in value:
+            return False
+        try:
+            return _DYNAMIC_DEFAULT_BOOL.validate_python(
+                value["dynamic_default"]
+            )
+        except ValidationError:
+            # Value Pydantic refuses outright (e.g. an arbitrary
+            # object). Leave it for _coerce_metadata to surface as
+            # bad_metadata; we cannot have caused a silent bypass
+            # because Pydantic's CheckMetadata.model_validate will
+            # also reject it.
+            return False
     if isinstance(value, CheckMetadata):
         return value.dynamic_default
     return False
