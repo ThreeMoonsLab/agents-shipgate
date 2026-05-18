@@ -6,7 +6,8 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.checks.baseline_integrity import has_hash_mismatch
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan import _resolve_audit_log_path, run_scan
+from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.baseline import verify_baseline, write_baseline
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
@@ -43,7 +44,9 @@ def register(app: typer.Typer) -> None:
                 ci_mode="advisory",
                 verbose=verbose,
             )
-            baseline = write_baseline(report, out)
+            manifest = load_manifest(config)
+            audit_log = _resolve_audit_log_path(manifest, out)
+            baseline = write_baseline(report, out, audit_log_path=audit_log)
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)
             raise typer.Exit(2) from exc
@@ -55,7 +58,6 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(4) from exc
         typer.echo(f"Wrote {out}")
         typer.echo(f"Findings saved: {len(baseline.findings)}")
-        audit_log = out.parent / "baseline-audit.log"
         typer.echo(f"Audit log: {audit_log}")
 
     @baseline_app.command("verify")

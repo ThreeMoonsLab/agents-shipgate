@@ -48,6 +48,7 @@ IntegrityMode = Literal["off", "warn", "strict"]
 _KIND_TO_CHECK_ID: dict[str, str] = {
     "hash_mismatch": "SHIP-BASELINE-INTEGRITY-MISMATCH",
     "missing_audit_log": "SHIP-BASELINE-INTEGRITY-MISMATCH",
+    "invalid_audit_log": "SHIP-BASELINE-INTEGRITY-MISMATCH",
     "entry_no_audit": "SHIP-BASELINE-INTEGRITY-MISMATCH",
     "legacy_no_provenance": "SHIP-BASELINE-INTEGRITY-MISMATCH",
     "entry_expired": "SHIP-BASELINE-ENTRY-EXPIRED",
@@ -68,6 +69,11 @@ _KIND_TO_RECOMMENDATION: dict[str, str] = {
     "missing_audit_log": (
         "Re-run `agents-shipgate baseline save` to regenerate the "
         "audit log alongside the baseline file."
+    ),
+    "invalid_audit_log": (
+        "Inspect the malformed audit log, then re-run "
+        "`agents-shipgate baseline save` once the baseline state is "
+        "reviewed."
     ),
     "entry_no_audit": (
         "Run `agents-shipgate baseline save` to record a new audit "

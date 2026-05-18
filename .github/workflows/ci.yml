@@ -36,6 +36,14 @@ jobs:
       - name: Verify generated schemas are up to date
         run: python scripts/generate_schemas.py --check
 
+      - name: Trust-model invariant lint (static, no user code execution)
+        run: python -m pytest tests/test_adapter_static_only.py -q
+        # Fails fast and visibly before the full suite when an adapter
+        # under src/agents_shipgate/inputs/ introduces exec/eval/__import__/
+        # compile or a dynamic-import surface (importlib/runpy/subprocess).
+        # The companion live-load tests in tests/test_fixture_no_import.py
+        # run as part of the main Test step below.
+
       - name: Test
         run: python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=75
 

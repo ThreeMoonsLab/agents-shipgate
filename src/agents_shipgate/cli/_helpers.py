@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.checks.plugin_validation import strict_failure_messages
 from agents_shipgate.cli.diagnostics import (
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
@@ -18,6 +19,43 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputP
 from agents_shipgate.core.findings import SEVERITY_ORDER
 
 logger = logging.getLogger(__name__)
+
+
+# Exit code for ``--strict-plugins`` failures. Reuses the documented
+# ``other_error`` slot (per ``.well-known/agents-shipgate.json``) so the
+# stable exit-code surface stays narrow — strict-plugins is plugin
+# infrastructure failure, not gate failure.
+_STRICT_PLUGINS_EXIT_CODE = 4
+
+
+def _apply_strict_plugins(
+    report,
+    exit_code: int,
+    *,
+    strict_plugins: bool,
+    label: str | None = None,
+) -> int:
+    """Apply ``--strict-plugins`` policy after a single scan completes.
+
+    Returns the (possibly elevated) exit code. Emits one human-readable
+    line per failure to stderr. ``label`` prefixes each line in
+    multi-config scans so the operator can tell which manifest tripped.
+    """
+
+    if not strict_plugins:
+        return exit_code
+    messages = strict_failure_messages(report.loaded_plugins)
+    if not messages:
+        return exit_code
+    prefix = f"{label}: " if label else ""
+    typer.echo(
+        f"{prefix}--strict-plugins: {len(messages)} plugin issue(s) detected; "
+        "scan failed under strict-plugins policy.",
+        err=True,
+    )
+    for message in messages:
+        typer.echo(f"{prefix}--strict-plugins: {message}", err=True)
+    return max(exit_code, _STRICT_PLUGINS_EXIT_CODE)
 
 
 def _parse_formats(value: str) -> list[str]:
@@ -179,6 +217,7 @@ def _run_multi_scan(
     suggest_patches: bool = False,
     packet_enabled: bool | None = None,
     packet_formats: list[str] | None = None,
+    strict_plugins: bool = False,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo(f"Scanning {len(config_paths)} manifests")
@@ -221,6 +260,15 @@ def _run_multi_scan(
                 logger.exception("unhandled exception while scanning %s", config_path)
             typer.echo(f"{config_path}: internal_error - {exc}", err=True)
         else:
+            # Apply --strict-plugins after the scan but before printing
+            # the per-config summary so the operator sees the elevated
+            # exit code reflected in the multi-scan tally.
+            scan_exit_code = _apply_strict_plugins(
+                report,
+                scan_exit_code,
+                strict_plugins=strict_plugins,
+                label=str(config_path),
+            )
             # v0.8: lead with release_decision.decision (baseline-aware,
             # the recommended release-gate signal). Fall back to the
             # legacy summary.status only if the report somehow lacks

@@ -23,7 +23,15 @@ from agents_shipgate.checks import (
     schema,
     side_effects,
 )
-from agents_shipgate.core.check_ids import known_check_ids_with_legacy
+from agents_shipgate.checks.plugin_validation import (
+    ValidatedPlugin,
+    run_validated_plugin,
+    validate_entry_point,
+)
+from agents_shipgate.core.check_ids import (
+    LEGACY_CHECK_ID_ALIASES,
+    known_check_ids_with_legacy,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.models import CheckMetadata, Finding
 
@@ -125,39 +133,39 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
 
 CHECK_METADATA: list[CheckMetadata] = [
     _meta(id="SHIP-INVENTORY-NOT-ENUMERABLE", category="inventory", default_severity="high", description="Tool surface cannot be enumerated from declared inputs.", rationale="A release gate must fail closed when it cannot see the agent's tools.", fires_when="No tools are loaded from required manifest sources.", evidence_fields=["tool_sources"], recommendation="Declare at least one local MCP JSON or OpenAPI tool source."),
-    _meta(id="SHIP-INVENTORY-WILDCARD-TOOLS", category="inventory", default_severity="high", description="Wildcard or all-tools exposure is declared.", rationale="Wildcard tools make review and least-privilege reasoning impossible.", fires_when="A source declares all tools or wildcard exposure.", evidence_fields=["source_id", "source_ref"], recommendation="Replace wildcard exposure with an explicit allowlist."),
+    _meta(id="SHIP-INVENTORY-WILDCARD-TOOLS", category="inventory", default_severity="high", floor_severity="medium", description="Wildcard or all-tools exposure is declared.", rationale="Wildcard tools make review and least-privilege reasoning impossible.", fires_when="A source declares all tools or wildcard exposure.", evidence_fields=["source_id", "source_ref"], recommendation="Replace wildcard exposure with an explicit allowlist."),
     _meta(id="SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE", category="inventory", default_severity="medium", description="Tool surface exceeds the MVP review threshold.", rationale="Large tool surfaces are harder to reason about during promotion.", fires_when="The normalized tool count exceeds the built-in threshold.", evidence_fields=["tool_count", "threshold"], recommendation="Split or reduce the tool surface before release."),
-    _meta(id="SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE", category="inventory", default_severity="high", description="Production target includes low-confidence tool extraction.", rationale="Production promotion should not depend primarily on best-effort SDK inference.", fires_when="environment.target is production and tools include lower-confidence extraction.", evidence_fields=["tools"], recommendation="Declare those tools through manifest, MCP, or OpenAPI inputs."),
+    _meta(id="SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE", category="inventory", default_severity="high", floor_severity="medium", description="Production target includes low-confidence tool extraction.", rationale="Production promotion should not depend primarily on best-effort SDK inference.", fires_when="environment.target is production and tools include lower-confidence extraction.", evidence_fields=["tools"], recommendation="Declare those tools through manifest, MCP, or OpenAPI inputs."),
     _meta(id="SHIP-DOC-MISSING-DESCRIPTION", category="documentation", default_severity="medium", description="Tool description is missing or too short.", rationale="Poor tool descriptions increase wrong-tool and reviewer misunderstanding risk.", fires_when="A tool description is missing or shorter than the minimum.", evidence_fields=["description_length"], recommendation="Add a clear capability description."),
     _meta(id="SHIP-DOC-INJECTION-RISK", category="security", default_severity="medium", description="Tool description contains instruction-override-like language.", rationale="Tool metadata can be placed into model context and should not contain prompt-like directives.", fires_when="Description text matches instruction override patterns. Severity is high only when multiple patterns match on a write/high-risk tool.", evidence_fields=["matched"], recommendation="Rewrite the description as neutral metadata."),
     _meta(id="SHIP-DOC-SECRET-IN-DESCRIPTION", category="security", default_severity="medium", description="Tool description contains a secret-like value.", rationale="Credentials in tool metadata can leak into reports, prompts, or logs.", fires_when="Description contains known key formats or labeled secret-like values. Severity is high only when multiple patterns match on a write/high-risk tool.", evidence_fields=["matched"], recommendation="Remove and rotate the exposed secret."),
     _meta(id="SHIP-SCHEMA-BROAD-FREE-TEXT", category="schema", default_severity="high", description="Action-like tool accepts broad free-form input.", rationale="Broad action/body/update fields increase blast radius for write tools.", fires_when="A write/action-like tool has free-form command/action/update-style parameters.", evidence_fields=["parameter", "type"], recommendation="Constrain the field with structured schema or enums."),
     _meta(id="SHIP-SCHEMA-MISSING-BOUNDS", category="schema", default_severity="high", description="Risky numeric parameter lacks a maximum bound.", rationale="Unbounded counts or financial amounts weaken blast-radius control.", fires_when="A risky numeric parameter lacks a maximum.", evidence_fields=["parameter", "type"], recommendation="Add a maximum or equivalent policy limit."),
     _meta(id="SHIP-SCHEMA-FREEFORM-OUTPUT", category="schema", default_severity="medium", description="Tool returns free-form string output.", rationale="Free-form tool output may carry prompt injection into later model context.", fires_when="A tool output schema is string or an SDK function returns str.", evidence_fields=["output_schema"], recommendation="Prefer structured output for model-consumed tool results."),
-    _meta(id="SHIP-AUTH-MISSING-SCOPE", category="auth", default_severity="high", description="Scope-requiring tool lacks declared auth scopes.", rationale="Reviewers cannot assess least privilege without scope metadata.", fires_when="A write or sensitive-data tool has no auth scopes.", evidence_fields=["risk_tags"], recommendation="Declare scopes in OpenAPI, MCP, or manifest metadata."),
-    _meta(id="SHIP-AUTH-MANIFEST-BROAD-SCOPE", category="auth", default_severity="high", description="Manifest declares broad permission scopes.", rationale="Broad manifest scopes weaken least-privilege review.", fires_when="permissions.scopes contains wildcard/admin-like scopes.", evidence_fields=["scopes"], recommendation="Replace with operation-specific scopes."),
-    _meta(id="SHIP-AUTH-TOOL-BROAD-SCOPE", category="auth", default_severity="high", description="Tool declares broad auth scopes.", rationale="Tool-level broad scopes may grant more power than the operation needs.", fires_when="A tool auth scope is wildcard/admin-like.", evidence_fields=["scopes"], recommendation="Use narrower tool scopes."),
-    _meta(id="SHIP-AUTH-SCOPE-COVERAGE-MISSING", category="auth", default_severity="high", description="Tool-required scopes are not covered by manifest permissions.scopes.", rationale="The manifest should describe the actual permissions needed by the release.", fires_when="A tool scope is absent from permissions.scopes and not covered by a wildcard.", evidence_fields=["tool_scopes", "manifest_scopes", "missing_scopes"], recommendation="Add or reconcile required scopes."),
-    _meta(id="SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE", category="scope", default_severity="high", description="Write-capable tool contradicts a read-only declared purpose.", rationale="Declared purpose should constrain the attached tool surface.", fires_when="Purpose text is read-only but attached tools are write-capable.", evidence_fields=["declared_purpose", "risk_tags"], recommendation="Remove the tool or update release scope."),
-    _meta(id="SHIP-SCOPE-PROHIBITED-TOOL-PRESENT", category="scope", default_severity="high", description="Tool appears to overlap with a manifest prohibited action.", rationale="Prohibited actions should not be contradicted by attached tool capabilities.", fires_when="Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.", evidence_fields=["prohibited_action", "risk_tags"], recommendation="Remove or narrow the tool, or revise policy/scope text."),
-    _meta(id="SHIP-POLICY-APPROVAL-MISSING", category="policy", default_severity="critical", description="High-risk tool lacks a declared approval policy.", rationale="High-risk actions need explicit approval before promotion.", fires_when="Financial/destructive/infrastructure/code-exec risk exists without approval policy.", evidence_fields=["risk_tags", "policy_match"], recommendation="Declare an approval policy or remove the tool."),
-    _meta(id="SHIP-POLICY-CONFIRMATION-MISSING", category="policy", default_severity="high", description="Destructive/external/customer-communication tool lacks a confirmation policy.", rationale="Destructive and external actions should require explicit confirmation.", fires_when="Risk tags require confirmation but no confirmation policy matches.", evidence_fields=["risk_tags", "policy_match"], recommendation="Declare confirmation policy or remove the tool."),
+    _meta(id="SHIP-AUTH-MISSING-SCOPE", category="auth", default_severity="high", floor_severity="medium", description="Scope-requiring tool lacks declared auth scopes.", rationale="Reviewers cannot assess least privilege without scope metadata.", fires_when="A write or sensitive-data tool has no auth scopes.", evidence_fields=["risk_tags"], recommendation="Declare scopes in OpenAPI, MCP, or manifest metadata."),
+    _meta(id="SHIP-AUTH-MANIFEST-BROAD-SCOPE", category="auth", default_severity="high", floor_severity="medium", description="Manifest declares broad permission scopes.", rationale="Broad manifest scopes weaken least-privilege review.", fires_when="permissions.scopes contains wildcard/admin-like scopes.", evidence_fields=["scopes"], recommendation="Replace with operation-specific scopes."),
+    _meta(id="SHIP-AUTH-TOOL-BROAD-SCOPE", category="auth", default_severity="high", floor_severity="medium", description="Tool declares broad auth scopes.", rationale="Tool-level broad scopes may grant more power than the operation needs.", fires_when="A tool auth scope is wildcard/admin-like.", evidence_fields=["scopes"], recommendation="Use narrower tool scopes."),
+    _meta(id="SHIP-AUTH-SCOPE-COVERAGE-MISSING", category="auth", default_severity="high", floor_severity="medium", description="Tool-required scopes are not covered by manifest permissions.scopes.", rationale="The manifest should describe the actual permissions needed by the release.", fires_when="A tool scope is absent from permissions.scopes and not covered by a wildcard.", evidence_fields=["tool_scopes", "manifest_scopes", "missing_scopes"], recommendation="Add or reconcile required scopes."),
+    _meta(id="SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE", category="scope", default_severity="high", floor_severity="medium", description="Write-capable tool contradicts a read-only declared purpose.", rationale="Declared purpose should constrain the attached tool surface.", fires_when="Purpose text is read-only but attached tools are write-capable.", evidence_fields=["declared_purpose", "risk_tags"], recommendation="Remove the tool or update release scope."),
+    _meta(id="SHIP-SCOPE-PROHIBITED-TOOL-PRESENT", category="scope", default_severity="high", floor_severity="medium", description="Tool appears to overlap with a manifest prohibited action.", rationale="Prohibited actions should not be contradicted by attached tool capabilities.", fires_when="Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.", evidence_fields=["prohibited_action", "risk_tags"], recommendation="Remove or narrow the tool, or revise policy/scope text."),
+    _meta(id="SHIP-POLICY-APPROVAL-MISSING", category="policy", default_severity="critical", floor_severity="high", description="High-risk tool lacks a declared approval policy.", rationale="High-risk actions need explicit approval before promotion.", fires_when="Financial/destructive/infrastructure/code-exec risk exists without approval policy.", evidence_fields=["risk_tags", "policy_match"], recommendation="Declare an approval policy or remove the tool."),
+    _meta(id="SHIP-POLICY-CONFIRMATION-MISSING", category="policy", default_severity="high", floor_severity="medium", description="Destructive/external/customer-communication tool lacks a confirmation policy.", rationale="Destructive and external actions should require explicit confirmation.", fires_when="Risk tags require confirmation but no confirmation policy matches.", evidence_fields=["risk_tags", "policy_match"], recommendation="Declare confirmation policy or remove the tool."),
     _meta(id="SHIP-ACTION-UNDECLARED", category="action_surface", default_severity="high", description="A loaded tool lacks explicit action-surface metadata.", rationale="Action Surface Diff depends on reviewer-visible action metadata for release decisions.", fires_when="action_surface.require_explicit_actions is true and a loaded tool has no matching action_surface.actions entry.", evidence_fields=["action_id", "tool_name"], recommendation="Add action_surface.actions metadata for the tool or disable require_explicit_actions."),
-    _meta(id="SHIP-ACTION-POLICY-VIOLATION", category="action_surface", default_severity="high", description="An action-surface policy requirement is not satisfied.", rationale="Action Surface Diff policies are the reviewer-facing release boundary for external action capability.", fires_when="A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.", evidence_fields=["policy_id", "action_id", "missing"], recommendation="Satisfy the action-surface policy requirements or remove/narrow the action."),
-    _meta(id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING", category="action_surface", default_severity="critical", description="New financial write action lacks required controls.", rationale="Financial write actions need approval, audit, and idempotency evidence before release.", fires_when="An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.", evidence_fields=["action_id", "missing"], recommendation="Declare approval.required, safeguards.audit_log, and safeguards.idempotency."),
-    _meta(id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING", category="action_surface", default_severity="critical", description="New destructive action lacks approval or rollback controls.", rationale="Destructive actions need explicit approval and rollback evidence before release.", fires_when="An added destructive action lacks approval.required or safeguards.rollback.", evidence_fields=["action_id", "missing"], recommendation="Declare approval.required and safeguards.rollback or remove the destructive action."),
+    _meta(id="SHIP-ACTION-POLICY-VIOLATION", category="action_surface", default_severity="high", floor_severity="medium", dynamic_default=True, description="An action-surface policy requirement is not satisfied.", rationale="Action Surface Diff policies are the reviewer-facing release boundary for external action capability.", fires_when="A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.", evidence_fields=["policy_id", "action_id", "missing"], recommendation="Satisfy the action-surface policy requirements or remove/narrow the action."),
+    _meta(id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING", category="action_surface", default_severity="critical", floor_severity="high", description="New financial write action lacks required controls.", rationale="Financial write actions need approval, audit, and idempotency evidence before release.", fires_when="An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.", evidence_fields=["action_id", "missing"], recommendation="Declare approval.required, safeguards.audit_log, and safeguards.idempotency."),
+    _meta(id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING", category="action_surface", default_severity="critical", floor_severity="high", description="New destructive action lacks approval or rollback controls.", rationale="Destructive actions need explicit approval and rollback evidence before release.", fires_when="An added destructive action lacks approval.required or safeguards.rollback.", evidence_fields=["action_id", "missing"], recommendation="Declare approval.required and safeguards.rollback or remove the destructive action."),
     _meta(id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING", category="action_surface", default_severity="high", description="New external communication action lacks audit evidence.", rationale="External communication changes agent blast radius and should be auditable.", fires_when="An added external_communication action lacks safeguards.audit_log.", evidence_fields=["action_id", "missing"], recommendation="Declare safeguards.audit_log for the external communication action."),
-    _meta(id="SHIP-ACTION-WILDCARD-SCOPE", category="action_surface", default_severity="critical", description="Action surface includes a wildcard or admin-like scope.", rationale="Wildcard scopes make action blast radius too broad for deterministic release review.", fires_when="An added action declares a broad scope, or a modified action expands into a broad scope.", evidence_fields=["action_id", "scopes", "change"], recommendation="Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes."),
-    _meta(id="SHIP-ACTION-EFFECT-ESCALATED", category="action_surface", default_severity="critical", description="Action effect escalated compared with the base surface.", rationale="Effect escalation changes what the agent can do in the real world and needs explicit review.", fires_when="An action changes to a higher-risk effect such as read to write or write to destructive.", evidence_fields=["change"], recommendation="Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation."),
+    _meta(id="SHIP-ACTION-WILDCARD-SCOPE", category="action_surface", default_severity="critical", floor_severity="high", description="Action surface includes a wildcard or admin-like scope.", rationale="Wildcard scopes make action blast radius too broad for deterministic release review.", fires_when="An added action declares a broad scope, or a modified action expands into a broad scope.", evidence_fields=["action_id", "scopes", "change"], recommendation="Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes."),
+    _meta(id="SHIP-ACTION-EFFECT-ESCALATED", category="action_surface", default_severity="critical", floor_severity="high", description="Action effect escalated compared with the base surface.", rationale="Effect escalation changes what the agent can do in the real world and needs explicit review.", fires_when="An action changes to a higher-risk effect such as read to write or write to destructive.", evidence_fields=["change"], recommendation="Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation."),
     _meta(id="SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED", category="action_surface", default_severity="high", description="Action declaration weakens the inferred effect.", rationale="Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.", fires_when="action_surface.actions.effect is lower risk than the effect inferred from the loaded tool metadata.", evidence_fields=["action_id", "inferred_effect", "declared_effect"], recommendation="Set action_surface.actions[].effect to the inferred operation effect or remove the weaker declaration."),
     _meta(id="SHIP-ACTION-CONTROL-DOWNGRADE", category="action_surface", default_severity="high", description="Action declaration weakens an inherited approval or safeguard control.", rationale="Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.", fires_when="action_surface.actions.approval or safeguards sets an inherited true control to false.", evidence_fields=["action_id", "path", "inherited", "declared"], recommendation="Keep the inherited action_surface.actions[] approval/safeguard control enabled or remove the weakening declaration."),
-    _meta(id="SHIP-ACTION-APPROVAL-REMOVED", category="action_surface", default_severity="critical", description="Action approval policy was removed.", rationale="Removing approval weakens the release boundary for an existing action.", fires_when="Base action approval.required was true and head no longer requires approval.", evidence_fields=["change"], recommendation="Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket."),
+    _meta(id="SHIP-ACTION-APPROVAL-REMOVED", category="action_surface", default_severity="critical", floor_severity="high", description="Action approval policy was removed.", rationale="Removing approval weakens the release boundary for an existing action.", fires_when="Base action approval.required was true and head no longer requires approval.", evidence_fields=["change"], recommendation="Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket."),
     _meta(id="SHIP-ACTION-SAFEGUARD-REMOVED", category="action_surface", default_severity="high", description="Action safeguard was removed.", rationale="Removing audit, idempotency, rollback, or dry-run safeguards expands blast radius.", fires_when="A previously true action safeguard is false or absent in the head surface.", evidence_fields=["change"], recommendation="Restore the removed action_surface.actions[].safeguards field or document the reviewed exception under action_surface.actions[].evidence."),
     _meta(id="SHIP-EVIDENCE-APPROVAL-TRACE-MISSING", category="evidence", default_severity="high", description="Local HITL approval trace evidence is missing or incomplete for an approval-required tool.", rationale="Limited automation review depends on reviewer-visible local evidence that approval-controlled actions were approved before the tool call; absence of local evidence does not prove the runtime control is absent.", fires_when="validation.required_evidence.approval_trace_required is true and no loaded local approval trace shows approved=true for an approval-required tool.", evidence_fields=["tool_name", "required", "reason", "trace_files", "approved_tools", "source_provenance"], recommendation="Add or fix local approval trace evidence, or change the validation review posture."),
     _meta(id="SHIP-EVIDENCE-OVERRIDE-REASON-MISSING", category="evidence", default_severity="high", description="Local HITL override reason evidence is missing or incomplete.", rationale="Override, bypass, and auto-approval events need reviewer-visible local reasons for governance review; absence of local evidence does not prove the runtime control is absent.", fires_when="validation.required_evidence.override_reason_required is true and override logs are absent, empty, unloadable, or contain events without non-empty reasons.", evidence_fields=["required", "reason", "override_log_files", "events_missing_reason", "source_provenance"], recommendation="Record non-empty reasons in local override, bypass, and auto-approval evidence."),
     _meta(id="SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING", category="evidence", default_severity="high", description="Local high-risk auto-approval exclusion evidence is missing or incomplete.", rationale="High-risk tools that already declare approval policy need separate local evidence that they are excluded from auto-approval review posture; absence of local evidence does not prove the runtime control is absent.", fires_when="validation.required_evidence.high_risk_auto_approval_exclusion_required is true and a high-risk tool with declared approval policy is not listed in loaded high_risk_auto_approval_exclusions.", evidence_fields=["required", "reason", "risk_tags", "exclusion_files", "excluded_tools", "source_provenance"], recommendation="Document high-risk approval-controlled tools in local high_risk_auto_approval_exclusions with reasons."),
     _meta(id="SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING", category="evidence", default_severity="high", description="Local HITL promotion criteria evidence is missing or incomplete.", rationale="A limited auto-approval review posture needs local criteria evidence; Shipgate structures the missing evidence for reviewers but does not certify runtime enforcement.", fires_when="validation.target_review_posture is limited_auto_approval and promotion criteria are absent, unloadable, or the canonical required-evidence flags are not true in the manifest and criteria file.", evidence_fields=["target_review_posture", "reason", "criteria_files", "manifest_flags_missing", "criteria_flags_missing", "source_provenance"], recommendation="Add or fix local promotion criteria evidence documenting the review posture and required evidence flags."),
-    _meta(id="SHIP-SIDEFX-IDEMPOTENCY-MISSING", category="side_effects", default_severity="high", description="Risky write tool lacks idempotency evidence; critical when retry is known.", rationale="Retries against non-idempotent writes can duplicate financial or external side effects.", fires_when="Risky write tool lacks idempotency annotation, key, or policy.", evidence_fields=["risk_tags", "retry_policy_known"], recommendation="Add idempotency evidence or policy."),
+    _meta(id="SHIP-SIDEFX-IDEMPOTENCY-MISSING", category="side_effects", default_severity="high", floor_severity="medium", description="Risky write tool lacks idempotency evidence; critical when retry is known.", rationale="Retries against non-idempotent writes can duplicate financial or external side effects.", fires_when="Risky write tool lacks idempotency annotation, key, or policy.", evidence_fields=["risk_tags", "retry_policy_known"], recommendation="Add idempotency evidence or policy."),
     _meta(id="SHIP-API-FUNCTION-SCHEMA-STRICTNESS", category="api", default_severity="high", description="OpenAI API function schema is not strict enough for reliable tool calls.", rationale="Strict schemas reduce ambiguous tool arguments and downstream side-effect risk.", fires_when="An OpenAI API function lacks strict=true, object parameters, additionalProperties=false, complete required fields, or bounded risky fields.", evidence_fields=["issues", "risk_tags"], recommendation="Use strict function schemas with explicit required fields and constrained risky parameters."),
     _meta(id="SHIP-API-STRUCTURED-OUTPUT-READINESS", category="api", default_severity="medium", description="OpenAI API structured output schema is missing or under-specified.", rationale="Downstream release decisions need explicit, structured success/refusal/review modeling.", fires_when="No response format exists, a response schema is too broad, decision/status fields lack enums, or refusal/needs_review/error modeling is absent.", evidence_fields=["path", "issues", "high_risk_tools"], recommendation="Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields."),
     _meta(id="SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH", category="api", default_severity="high", description="Prompt scope contradicts enabled OpenAI API tools.", rationale="Prompt instructions should match the actual write/high-risk tool surface.", fires_when="Prompt text says read-only/advice-only while write tools are enabled, or high-risk tools lack approval/confirmation instructions.", evidence_fields=["tools"], recommendation="Align prompt scope with enabled tools and add approval/confirmation instructions."),
@@ -201,37 +209,54 @@ CHECK_METADATA: list[CheckMetadata] = [
     # strict mode, SHIP-BASELINE-INTEGRITY-MISMATCH carries
     # `blocks_release=true` and `agents-shipgate baseline verify` exits
     # with code 6. See docs/baseline-integrity.md.
-    _meta(id="SHIP-BASELINE-INTEGRITY-MISMATCH", category="baseline", default_severity="critical", description="Baseline file integrity check failed.", rationale="The baseline JSON has been edited outside `agents-shipgate baseline save`, lacks an audit log row, or references a run_id not present in the audit log. A release gate that accepts silent baseline edits cannot claim to govern technical debt.", fires_when="The baseline file's SHA-256 differs from the latest audit log entry's hash_after, the audit log is missing or empty, an entry's provenance.run_id is not in the audit log, or an entry pre-dates v0.5 and lacks provenance entirely.", evidence_fields=["fingerprint", "check_id", "tool_name", "kind", "expected_hash", "computed_hash", "audit_log_path", "latest_audit_run_id"], recommendation="Re-run `agents-shipgate baseline save` to refresh the baseline and audit log, or `agents-shipgate baseline verify` for the full report. Investigate the diff before accepting."),
+    _meta(id="SHIP-BASELINE-INTEGRITY-MISMATCH", category="baseline", default_severity="critical", description="Baseline file integrity check failed.", rationale="The baseline JSON has been edited outside `agents-shipgate baseline save`, lacks an audit log row, has a malformed audit log row, or references a run_id not present in the audit log. A release gate that accepts silent baseline edits cannot claim to govern technical debt.", fires_when="The baseline file's SHA-256 differs from the latest audit log entry's hash_after, the audit log is missing, empty, or malformed, an entry's provenance.run_id is not in the audit log, or an entry pre-dates v0.5 and lacks provenance entirely.", evidence_fields=["fingerprint", "check_id", "tool_name", "kind", "expected_hash", "computed_hash", "audit_log_path", "latest_audit_run_id", "error"], recommendation="Re-run `agents-shipgate baseline save` to refresh the baseline and audit log, or `agents-shipgate baseline verify` for the full report. Investigate the diff before accepting."),
     _meta(id="SHIP-BASELINE-ENTRY-EXPIRED", category="baseline", default_severity="high", description="Baseline entry's review window has expired.", rationale="Reviewer-set `provenance.expires` is the renewable consent for accepting technical debt. Past that date the entry needs a fresh review, not a silent extension.", fires_when="A baseline entry's `provenance.expires` is before today's UTC date.", evidence_fields=["fingerprint", "check_id", "tool_name", "expires", "days_overdue", "reason"], recommendation="Re-review the accepted debt and either remove the entry, fix the underlying finding, or extend `provenance.expires` with a new reason."),
     _meta(id="SHIP-BASELINE-ENTRY-STALE", category="baseline", default_severity="low", description="Baseline entry no longer corresponds to an active finding or check ID.", rationale="Stale baseline entries hide intent — reviewers cannot tell whether the accepted debt was resolved or whether the check was renamed. Pruning keeps the baseline aligned with reality.", fires_when="A baseline entry references a deprecated check ID (an alias in LEGACY_CHECK_ID_ALIASES) or did not match any active scan finding (resolved_count contribution).", evidence_fields=["fingerprint", "check_id", "tool_name", "kind", "replacement_check_ids"], recommendation="Remove resolved entries via `agents-shipgate baseline save`, or update deprecated check IDs to their canonical replacements."),
 ]
 
 
+# Back-compat alias. v0.x callers (third-party tooling that imported
+# ``LoadedPluginCheck`` for typing) get the same shape — a frozen pair
+# of ``check`` callable and ``info`` dict. ``ValidatedPlugin`` is the
+# richer record used internally by the registry post-M5.
 @dataclass(frozen=True)
 class LoadedPluginCheck:
     check: Callable[[ScanContext], list[Finding]]
-    info: dict[str, str | None]
+    info: dict[str, Any]
 
 
 def run_checks(
     context: ScanContext,
     *,
     plugins_enabled: bool | None = None,
-    loaded_plugins: list[dict[str, str | None]] | None = None,
+    loaded_plugins: list[dict[str, Any]] | None = None,
     extra_known_check_ids: set[str] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    plugin_checks = _plugin_check_records(plugins_enabled=plugins_enabled)
+    plugin_records = _plugin_check_records(plugins_enabled=plugins_enabled)
+    # Order: surface plugin provenance into ``loaded_plugins`` first so
+    # invalid plugins still appear in the report even when they don't
+    # run. ``run_validated_plugin`` will mutate ``record.info`` in place
+    # to append ``runtime_errors`` after the check fires.
     if loaded_plugins is not None:
-        loaded_plugins.extend(record.info for record in plugin_checks)
-    for check in [*BUILTIN_CHECKS, *(record.check for record in plugin_checks)]:
+        loaded_plugins.extend(record.info for record in plugin_records)
+    for check in BUILTIN_CHECKS:
         findings.extend(check(context))
+    for record in plugin_records:
+        if not record.valid:
+            continue
+        findings.extend(run_validated_plugin(record, context))
     findings.extend(
         manifest_consistency.run(
             context,
             known_check_ids=known_check_ids_with_legacy(
                 {
                     *(metadata.id for metadata in CHECK_METADATA),
+                    *(
+                        record.metadata.id
+                        for record in plugin_records
+                        if record.metadata is not None
+                    ),
                     *(extra_known_check_ids or set()),
                 }
             ),
@@ -242,11 +267,13 @@ def run_checks(
 
 def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]:
     metadata = [*CHECK_METADATA]
-    for check in _plugin_checks(plugins_enabled=plugins_enabled):
-        plugin_metadata = getattr(check, "AGENTS_SHIPGATE_METADATA", None)
-        if plugin_metadata is None:
+    for record in _plugin_check_records(plugins_enabled=plugins_enabled):
+        if record.metadata is None:
+            # Invalid plugins (failed load/signature/metadata gates) do
+            # not appear in the catalog. Their provenance still shows up
+            # in ``report.loaded_plugins`` when a scan runs.
             continue
-        metadata.append(_metadata_from_plugin(plugin_metadata))
+        metadata.append(record.metadata)
     for check in metadata:
         if check.docs_url is None:
             check.docs_url = f"docs/checks.md#{check.id.lower()}"
@@ -256,37 +283,67 @@ def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]
 def check_functions(
     *, plugins_enabled: bool | None = None
 ) -> list[Callable[[ScanContext], list[Finding]]]:
-    return [*BUILTIN_CHECKS, *_plugin_checks(plugins_enabled=plugins_enabled)]
+    return [
+        *BUILTIN_CHECKS,
+        *(
+            record.check
+            for record in _plugin_check_records(plugins_enabled=plugins_enabled)
+            if record.valid and record.check is not None
+        ),
+    ]
 
 
 def _plugin_checks(
     *, plugins_enabled: bool | None = None
 ) -> list[Callable[[ScanContext], list[Finding]]]:
+    """Back-compat accessor for the bare list of valid plugin callables.
+
+    Kept stable for ``tests/test_plugins.py`` and any external code that
+    imported the helper. Invalid plugins are filtered out — matching the
+    v0.x behavior of "callable plugins only".
+    """
+
     return [
         record.check
         for record in _plugin_check_records(plugins_enabled=plugins_enabled)
+        if record.valid and record.check is not None
     ]
 
 
 def _plugin_check_records(
     *,
     plugins_enabled: bool | None = None,
-) -> list[LoadedPluginCheck]:
+) -> list[ValidatedPlugin]:
+    """Discover and validate every third-party plugin entry point.
+
+    Returns one ``ValidatedPlugin`` per non-builtin entry point — including
+    those that failed validation. Invalid records carry ``check=None`` and
+    appear in ``report.loaded_plugins`` so the operator can see what was
+    skipped and why without reading scanner logs.
+    """
+
     if not _plugins_enabled(plugins_enabled):
         return []
-    checks: list[LoadedPluginCheck] = []
+
+    builtin_ids: set[str] = {metadata.id for metadata in CHECK_METADATA}
+    builtin_ids.update(LEGACY_CHECK_ID_ALIASES.keys())
+
+    records: list[ValidatedPlugin] = []
+    already_registered: set[str] = set()
+
     for entry_point in entry_points(group="agents_shipgate.checks"):
         if _is_builtin_entry_point(entry_point):
             continue
-        loaded = entry_point.load()
-        if callable(loaded):
-            checks.append(
-                LoadedPluginCheck(
-                    check=loaded,
-                    info=_plugin_info(entry_point, loaded),
-                )
-            )
-    return checks
+        record = validate_entry_point(
+            entry_point,
+            builtin_ids=builtin_ids,
+            already_registered_plugin_ids=already_registered,
+        )
+        records.append(record)
+        if record.metadata is not None:
+            already_registered.add(record.metadata.id)
+
+    return records
 
 
 def _plugins_enabled(override: bool | None = None) -> bool:
@@ -308,52 +365,28 @@ def _is_builtin_entry_point(entry_point: Any) -> bool:
     return False
 
 
-def _plugin_info(
-    entry_point: Any,
-    loaded: Callable[[ScanContext], list[Finding]],
-) -> dict[str, str | None]:
-    metadata = getattr(loaded, "AGENTS_SHIPGATE_METADATA", None)
-    check_id: str | None = None
-    if isinstance(metadata, CheckMetadata):
-        check_id = metadata.id
-    elif isinstance(metadata, dict) and isinstance(metadata.get("id"), str):
-        check_id = metadata["id"]
-    dist = getattr(entry_point, "dist", None)
-    return {
-        "name": str(getattr(entry_point, "name", "")) or None,
-        "value": str(getattr(entry_point, "value", "")) or None,
-        "distribution": _distribution_name(dist),
-        "version": _distribution_version(dist),
-        "check_id": check_id,
-    }
-
-
-def _distribution_name(dist: Any) -> str | None:
-    if dist is None:
-        return None
-    metadata = getattr(dist, "metadata", None)
-    if metadata is not None:
-        name = metadata.get("Name")
-        if isinstance(name, str):
-            return name
-    name = getattr(dist, "name", None)
-    return str(name) if name else None
-
-
-def _distribution_version(dist: Any) -> str | None:
-    if dist is None:
-        return None
-    version = getattr(dist, "version", None)
-    return str(version) if version else None
-
-
 def _normalize_distribution_name(value: str | None) -> str:
     return (value or "").replace("_", "-").lower()
 
 
-def _metadata_from_plugin(value: Any) -> CheckMetadata:
-    if isinstance(value, CheckMetadata):
-        return value
-    if isinstance(value, dict):
-        return CheckMetadata.model_validate(value)
-    raise TypeError("AGENTS_SHIPGATE_METADATA must be CheckMetadata or dict")
+def _distribution_name(dist: Any) -> str | None:
+    """Internal helper retained for ``_is_builtin_entry_point``.
+
+    The richer entry-point introspection moved to
+    ``plugin_validation._distribution_name``; this thin wrapper exists
+    so builtin detection logic doesn't need to import private symbols
+    from the validation module.
+    """
+
+    if dist is None:
+        return None
+    metadata = getattr(dist, "metadata", None)
+    if metadata is not None:
+        try:
+            name = metadata.get("Name")
+        except AttributeError:
+            name = None
+        if isinstance(name, str):
+            return name
+    name = getattr(dist, "name", None)
+    return str(name) if name else None

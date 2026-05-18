@@ -14,6 +14,7 @@ Layered:
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -293,6 +294,15 @@ def test_verify_baseline_missing_audit_log_with_entries(tmp_path):
     issues = verify_baseline(baseline_path, audit_path)
     kinds = [issue.kind for issue in issues]
     assert "missing_audit_log" in kinds
+
+
+def test_verify_baseline_malformed_audit_log_is_integrity_issue(tmp_path):
+    baseline_path, audit_path = _bootstrap_baseline(tmp_path)
+    audit_path.write_text("not-json\n", encoding="utf-8")
+    issues = verify_baseline(baseline_path, audit_path)
+    kinds = [issue.kind for issue in issues]
+    assert "invalid_audit_log" in kinds
+    assert has_hash_mismatch(issues)
 
 
 def test_verify_baseline_missing_audit_log_empty_baseline_ok(tmp_path):
@@ -670,6 +680,41 @@ def test_scan_strict_integrity_sets_blocks_release(tmp_path, monkeypatch):
     assert all(f.blocks_release for f in mismatches)
 
 
+def test_scan_strict_integrity_malformed_audit_log_blocks_release(
+    tmp_path, monkeypatch
+):
+    baseline_path, audit_path = _save_baseline_via_scan(tmp_path)
+    audit_path.write_text("not-json\n", encoding="utf-8")
+    from agents_shipgate.config import loader as loader_mod
+
+    original_load = loader_mod.load_manifest
+
+    def patched(path):
+        manifest = original_load(path)
+        manifest.baseline.integrity_mode = "strict"
+        return manifest
+
+    monkeypatch.setattr(loader_mod, "load_manifest", patched)
+    import agents_shipgate.cli.scan as scan_mod
+
+    monkeypatch.setattr(scan_mod, "load_manifest", patched)
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "out2",
+        formats=["json"],
+        ci_mode="advisory",
+        baseline_path=baseline_path,
+    )
+    mismatches = [
+        f
+        for f in report.findings
+        if f.check_id == "SHIP-BASELINE-INTEGRITY-MISMATCH"
+    ]
+    assert [(f.evidence.get("kind"), f.blocks_release) for f in mismatches] == [
+        ("invalid_audit_log", True)
+    ]
+
+
 # --- CLI: baseline verify -------------------------------------------------
 
 
@@ -712,6 +757,26 @@ def test_cli_baseline_verify_strict_exits_6_on_mismatch(tmp_path):
     assert result.exit_code == 6
 
 
+def test_cli_baseline_verify_strict_exits_6_on_malformed_audit_log(tmp_path):
+    baseline_path, audit_path = _bootstrap_baseline(tmp_path)
+    audit_path.write_text("not-json\n", encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "baseline",
+            "verify",
+            "--baseline",
+            str(baseline_path),
+            "--audit-log",
+            str(audit_path),
+            "--strict",
+        ],
+    )
+    assert result.exit_code == 6
+    assert "invalid_audit_log" in result.stdout
+
+
 def test_cli_baseline_verify_json(tmp_path):
     baseline_path, audit_path = _bootstrap_baseline(tmp_path)
     data = baseline_path.read_text(encoding="utf-8")
@@ -749,3 +814,41 @@ def test_cli_baseline_verify_missing_baseline_exits_3(tmp_path):
         ],
     )
     assert result.exit_code == 3
+
+
+def test_cli_baseline_save_honors_manifest_audit_log_override(tmp_path):
+    sample_dir = tmp_path / "sample"
+    shutil.copytree(SAMPLE.parent, sample_dir)
+    config = sample_dir / "shipgate.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + "\nbaseline:\n  integrity_mode: strict\n  audit_log: custom/audit.log\n",
+        encoding="utf-8",
+    )
+    baseline_path = sample_dir / ".agents-shipgate" / "baseline.json"
+    custom_audit = sample_dir / ".agents-shipgate" / "custom" / "audit.log"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "baseline",
+            "save",
+            "--config",
+            str(config),
+            "--out",
+            str(baseline_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert custom_audit.exists()
+    assert not (sample_dir / ".agents-shipgate" / "baseline-audit.log").exists()
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        baseline_path=baseline_path,
+    )
+    assert [
+        f for f in report.findings if f.check_id.startswith("SHIP-BASELINE-")
+    ] == []

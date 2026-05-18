@@ -6,8 +6,10 @@ import logging
 import os
 from pathlib import Path
 
-from agents_shipgate.checks.baseline_integrity import build_findings as build_integrity_findings
-from agents_shipgate.checks.registry import run_checks
+from agents_shipgate.checks.baseline_integrity import (
+    build_findings as build_integrity_findings,
+)
+from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
@@ -34,6 +36,7 @@ from agents_shipgate.core.models import (
     ActionSurfaceFacts,
     Agent,
     AnthropicArtifacts,
+    CheckMetadata,
     CodexPluginArtifacts,
     CodexPluginSurface,
     CrewAiArtifacts,
@@ -43,12 +46,18 @@ from agents_shipgate.core.models import (
     N8nArtifacts,
     OpenAIApiArtifacts,
     ReadinessReport,
+    Severity,
     Tool,
     ValidationArtifacts,
     parse_severity,
 )
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
-from agents_shipgate.inputs.policy_packs import load_policy_packs, run_policy_pack_rules
+from agents_shipgate.core.severity_overrides import resolve_severity_overrides
+from agents_shipgate.inputs.policy_packs import (
+    LoadedPolicyPacks,
+    load_policy_packs,
+    run_policy_pack_rules,
+)
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
     LoadedAdapterResult,
@@ -252,7 +261,46 @@ def run_scan(
     )
     findings = dedupe_findings(findings)
     assign_finding_ids(findings)
-    apply_severity_overrides(findings, manifest.severity_overrides())
+    # v0.17 (M1): resolve overrides up front. The resolver enforces
+    # ``floor_severity``, validates tier-crossing acknowledgements, and
+    # rejects expired acks/overrides — all raise ConfigError (exit 2) so
+    # the mutation pass below operates only on a manifest that has
+    # passed policy validation. The audit envelope is carried through to
+    # ``build_report`` so reviewers see overrides at the top of the
+    # report instead of buried in per-finding evidence.
+    #
+    # ``extra_known_check_defaults`` is the resolver's escape hatch for
+    # check IDs whose effective emitted severity is NOT the static
+    # catalog default. Two contributors today:
+    #
+    # 1. Policy-pack rule IDs — outside the catalog entirely.
+    # 2. Action-surface policies (``manifest.action_surface.policies[]``)
+    #    emit ``SHIP-ACTION-POLICY-VIOLATION`` findings at the
+    #    user-declared ``policy.severity``. Without this signal the
+    #    resolver would compare a manifest-declared `critical` policy
+    #    against the catalog's static `high` and silently bypass the
+    #    critical → high tier-crossing gate. We aggregate the
+    #    *strongest* declared severity across all matching policies.
+    #
+    # For check IDs in both inputs (e.g. SHIP-ACTION-POLICY-VIOLATION
+    # exists in the catalog), the resolver takes max(catalog default,
+    # supplied default) — see ``severity_overrides.py`` doc.
+    #
+    # v0.18 (PR #1): the aggregation lives in ``_dynamic_check_defaults``
+    # which seeds every catalog check carrying ``dynamic_default=True``
+    # (the contract test pins this) and overlays manifest-effective
+    # values for the action_surface and policy-pack cases.
+    catalog = check_catalog(plugins_enabled=plugins_enabled)
+    effective_dynamic_defaults = _dynamic_check_defaults(
+        manifest, policy_packs, catalog=catalog
+    )
+    override_resolution = resolve_severity_overrides(
+        overrides=manifest.severity_override_entries(),
+        acknowledgements=manifest.acknowledge_overrides(),
+        catalog=catalog,
+        extra_known_check_defaults=effective_dynamic_defaults,
+    )
+    apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
     if suggest_patches:
         _attach_patches(
@@ -286,9 +334,7 @@ def run_scan(
         # property the audit log defends.
         integrity_mode = manifest.baseline.integrity_mode
         if integrity_mode != "off" and baseline_path is not None:
-            audit_log_path = _resolve_audit_log_path(
-                manifest, baseline_path, base_dir
-            )
+            audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
             try:
                 static_issues = verify_baseline(
                     baseline_path, audit_log_path
@@ -428,6 +474,10 @@ def run_scan(
         tool_surface_diff=tool_surface_diff,
         action_surface_facts=action_surface_facts,
         action_surface_diff=action_surface_diff,
+        # v0.17 (M1): top-of-report policy audit. Always emitted (may
+        # be an empty envelope) so consumers can rely on the field
+        # existing in v0.17 reports.
+        policy_audit=override_resolution.audit,
     )
     apply_capability_diff(report, tools)
     _write_reports(report, generated_paths, manifest.output.formats)
@@ -963,13 +1013,12 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
 def _resolve_audit_log_path(
     manifest: AgentsShipgateManifest,
     baseline_path: Path,
-    base_dir: Path,
 ) -> Path:
     """Resolve the baseline audit log path.
 
     Resolution order:
     1. ``manifest.baseline.audit_log`` if set (relative paths resolved
-       against ``base_dir``, the manifest's directory).
+       against the baseline file's directory).
     2. Otherwise ``<baseline_path.parent>/baseline-audit.log`` —
        co-located with the baseline JSON. This matches the default that
        ``write_baseline`` uses, so save/verify see the same file
@@ -979,9 +1028,97 @@ def _resolve_audit_log_path(
     if override:
         candidate = Path(override)
         if not candidate.is_absolute():
-            candidate = base_dir / candidate
+            candidate = baseline_path.parent / candidate
         return candidate
     return baseline_path.parent / DEFAULT_AUDIT_LOG_PATH.name
+
+
+_SEVERITY_RANK_FOR_MAX = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+
+
+def _strongest_action_policy_severity(
+    manifest: AgentsShipgateManifest,
+) -> Severity | None:
+    """v0.17 (M1): for ``SHIP-ACTION-POLICY-VIOLATION`` tier-crossing
+    semantics, the effective default severity is the strongest
+    severity declared across ``manifest.action_surface.policies[]``.
+
+    Returns ``None`` when the manifest has no action policies — the
+    caller leaves ``extra_known_check_defaults[SHIP-ACTION-POLICY-VIOLATION]``
+    unset so the resolver falls back to the catalog static default.
+
+    See ``severity_overrides.py::resolve_severity_overrides`` for how
+    this is used: when the supplied value is stronger than the catalog
+    default, it becomes the comparison base for tier-crossing and the
+    audit row's ``default_severity``.
+    """
+    policies = manifest.action_surface.policies
+    if not policies:
+        return None
+    return min(
+        (policy.severity for policy in policies),
+        key=lambda severity: _SEVERITY_RANK_FOR_MAX[severity],
+    )
+
+
+def _dynamic_check_defaults(
+    manifest: AgentsShipgateManifest,
+    policy_packs: LoadedPolicyPacks,
+    *,
+    catalog: list[CheckMetadata],
+) -> dict[str, Severity]:
+    """v0.18 (PR #1): one canonical place mapping every dynamic-severity
+    check ID to its manifest-effective default severity.
+
+    Always returns an entry for **every** catalog check with
+    ``dynamic_default=True``. Seeding rule:
+
+      1. Seed ``defaults[check.id] = check.default_severity`` for every
+         catalog entry where ``dynamic_default=True``. This guarantees
+         the resolver's internal-consistency guard
+         (``severity_overrides.py``) never false-positives on a manifest
+         that overrides a dynamic-default check without declaring the
+         corresponding manifest section (e.g., overrides
+         ``SHIP-ACTION-POLICY-VIOLATION`` but declares no
+         ``action_surface.policies``).
+      2. Overlay manifest-effective values where present. The resolver
+         uses ``max(catalog, dynamic)`` for tier-crossing, so seeding
+         with catalog default is safe — never weakens the comparison.
+      3. Add policy-pack rule IDs (outside-catalog) with their declared
+         severity.
+
+    Contract (see ``CheckMetadata.dynamic_default``): when you add a
+    new built-in check that emits at manifest-declared severity:
+      A. Set ``dynamic_default=True`` in ``CHECK_METADATA`` (forces
+         ``floor_severity`` via the model validator).
+      B. Add an OVERLAY branch below (step 2 pattern). The seed loop
+         (step 1) auto-includes the check ID; the overlay branch
+         supplies the manifest-effective default.
+
+    The contract test
+    ``test_dynamic_default_aggregator_completeness`` fails loudly if
+    (A) is done without (B) for a check whose manifest section is
+    non-empty.
+    """
+    defaults: dict[str, Severity] = {}
+    # Step 1 — seed all catalog dynamic-default checks with static default.
+    for entry in catalog:
+        if entry.dynamic_default:
+            defaults[entry.id] = entry.default_severity
+    # Step 2 — overlay manifest-effective values.
+    action_policy_max = _strongest_action_policy_severity(manifest)
+    if action_policy_max is not None:
+        defaults["SHIP-ACTION-POLICY-VIOLATION"] = action_policy_max
+    # Step 3 — outside-catalog: policy-pack rule IDs.
+    for resolved in policy_packs.rules:
+        defaults[resolved.rule.id] = resolved.rule.severity
+    return defaults
 
 
 def _check_metadata_lookup(

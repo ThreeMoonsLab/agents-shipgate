@@ -345,6 +345,7 @@ def _baseline_content_identity(baseline: BaselineFile) -> dict[str, object]:
 BaselineIntegrityIssueKind = Literal[
     "hash_mismatch",
     "missing_audit_log",
+    "invalid_audit_log",
     "entry_no_audit",
     "legacy_no_provenance",
     "entry_expired",
@@ -359,8 +360,9 @@ class BaselineIntegrityIssue:
 
     The integrity check maps each kind to one of the three new check IDs:
 
-    - ``hash_mismatch`` / ``missing_audit_log`` / ``entry_no_audit`` /
-      ``legacy_no_provenance`` → ``SHIP-BASELINE-INTEGRITY-MISMATCH``
+    - ``hash_mismatch`` / ``missing_audit_log`` / ``invalid_audit_log`` /
+      ``entry_no_audit`` / ``legacy_no_provenance`` →
+      ``SHIP-BASELINE-INTEGRITY-MISMATCH``
     - ``entry_expired`` → ``SHIP-BASELINE-ENTRY-EXPIRED``
     - ``deprecated_check_id`` / ``resolved_not_pruned`` →
       ``SHIP-BASELINE-ENTRY-STALE``
@@ -403,8 +405,10 @@ def verify_baseline(
     baseline = load_baseline(baseline_path)
     log_path = audit_log_path or baseline_path.parent / DEFAULT_AUDIT_LOG_PATH.name
     issues: list[BaselineIntegrityIssue] = []
-    issues.extend(_verify_audit_log_alignment(baseline_path, log_path, baseline))
-    issues.extend(_verify_entry_provenance(baseline, log_path))
+    audit_issues = _verify_audit_log_alignment(baseline_path, log_path, baseline)
+    issues.extend(audit_issues)
+    if not any(issue.kind == "invalid_audit_log" for issue in audit_issues):
+        issues.extend(_verify_entry_provenance(baseline, log_path))
     issues.extend(_verify_entry_expiry(baseline, today or date.today()))
     issues.extend(_verify_deprecated_check_ids(baseline))
     return issues
@@ -504,7 +508,23 @@ def _verify_audit_log_alignment(
                 },
             )
         ]
-    latest = latest_audit_entry(log_path)
+    try:
+        latest = latest_audit_entry(log_path)
+    except InputParseError as exc:
+        return [
+            BaselineIntegrityIssue(
+                kind="invalid_audit_log",
+                default_severity="critical",
+                title="Baseline audit log is malformed",
+                evidence={
+                    "baseline_path": str(baseline_path),
+                    "audit_log_path": str(log_path),
+                    "entry_count": len(baseline.findings),
+                    "error": str(exc),
+                    "kind": "invalid_audit_log",
+                },
+            )
+        ]
     if latest is None:
         if not baseline.findings:
             return []

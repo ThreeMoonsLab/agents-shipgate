@@ -190,7 +190,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.16](docs/report-schema.v0.16.json); gating signal is `release_decision.decision`; v0.16 adds first-class Action Surface Diff fields on top of v0.15's per-finding `provenance_kind`), SARIF for GitHub code-scanning workflows.
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.17](docs/report-schema.v0.17.json); gating signal is `release_decision.decision`; v0.17 adds the top-level `policy_audit` block surfacing every applied severity override plus the per-finding `release_decision.contribution_rules[]` decision audit on top of v0.16's first-class Action Surface Diff fields and v0.15's per-finding `provenance_kind`), SARIF for GitHub code-scanning workflows.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including tool-surface and action-surface diffs when available. Governed by [packet schema v0.5](docs/packet-schema.v0.5.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v05).
 
 ## Exit codes
@@ -226,7 +226,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.16"`). v0.16 adds `action_surface_facts` and `action_surface_diff`; v0.15 added the per-finding `provenance_kind` enum. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next step.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.17.json`](docs/report-schema.v0.17.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.17"`). v0.17 adds the top-level `policy_audit` block surfacing applied severity overrides and the per-finding `release_decision.contribution_rules[]` decision audit; v0.16 added `action_surface_facts` and `action_surface_diff`; v0.15 added the per-finding `provenance_kind` enum. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next step.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -414,7 +414,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.16"` (additive over v0.15's provenance enum, adding `action_surface_facts` and `action_surface_diff`) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.17"` (additive over v0.16's action-surface diff, adding the top-level `policy_audit` block surfacing applied severity overrides and the per-finding `release_decision.contribution_rules[]` decision audit) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -491,7 +491,7 @@ readers and AI search ingest.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.16](docs/report-schema.v0.16.json)
+- [JSON report schema v0.17](docs/report-schema.v0.17.json)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)

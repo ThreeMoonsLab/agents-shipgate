@@ -14,7 +14,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--strict-plugins`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
@@ -98,9 +98,69 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Built-in and user-defined Action Surface Diff policies, plus declarative policy-pack rules with `block: true`, set it for findings that must block release when active and unbaselined; ordinary severity-based gating still works for existing checks.
 - `action_surface_facts.actions[]` (v0.16+) — deterministic current action snapshot: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, input fields, and stable hashes.
 - `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` (v0.16+) — reviewer-facing delta for what the agent can do vs. a prior report or v0.4 baseline. Policy findings derived from this diff can set `findings[].blocks_release=true` and affect `release_decision.decision` and strict-mode exit behavior.
+- `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present (defaults to `[]` for legacy reports loaded via `explain-finding`). Exactly one row per `report.findings` entry, including suppressed findings, so the audit set is exhaustive over the full findings list. `category` enum: `blocker | review_item | excluded`. `rule` enum: `policy_block_new | severity_block_new | policy_baseline_accepted | severity_baseline_accepted | review_required | sub_threshold | suppressed`. The (rule, category) pairs the gate can produce are exhaustively documented in [Release decision truth table](#release-decision-truth-table) below — reading the contribution rule is sufficient to predict the outcome for that finding without re-deriving the decision logic. The audit cannot disagree with `release_decision.{blockers,review_items}[]`: the same classification powers both. Adding `contribution_rules` does not change any existing behavior — `decision`, `blockers[]`, `review_items[]`, `fail_policy.exit_code`, and strict-mode exit codes are byte-identical to v0.16.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
+- `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5; `dynamic_default_not_supported` added v0.18) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | dynamic_default_not_supported | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`. `dynamic_default_not_supported` (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True` — plugins have no path to wire into `cli/scan.py`'s aggregator, so a swing check would never receive a manifest-effective default and would be silently bypassable.
+- `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
+
+### Severity-override floor
+
+`checks.severity_overrides` continues to accept the legacy scalar form
+(`SHIP-XYZ: medium`) and additionally accepts a rich form
+(`SHIP-XYZ: { severity, reason, expires }`). Reviewers should prefer the
+rich form for any tier-crossing or release-critical override.
+
+Some built-in checks declare a per-check **hard floor**
+(`CheckMetadata.floor_severity`). When set, a manifest override that
+resolves to a weaker severity than the floor is rejected as a config
+error (exit 2). The floor is hard — `acknowledge_overrides` does NOT
+bypass it. Use `agents-shipgate list-checks --json` to inspect each
+check's floor.
+
+`checks.acknowledge_overrides[]` (v0.17+) — required for severity
+overrides whose application crosses a severity tier boundary as a
+downgrade. Stable shape: `{check_id, reason, expires?}`. Within-tier
+downgrades (e.g., medium → low) and any upgrade never require ack.
+Tiers (stable within `0.x`): `critical / high / medium-low`. Expired
+ack entries are a manifest config error.
+
+**Dynamic-severity check classes** (v0.17+; formalized v0.18). Catalog
+checks whose emitted finding severity depends on user-declared
+manifest values declare `CheckMetadata.dynamic_default=True`. Today
+the only such built-in is `SHIP-ACTION-POLICY-VIOLATION` (emits at
+`action_surface.policies[].severity`). Policy-pack rule IDs flow
+through the same `extra_known_check_defaults` mechanism but live
+outside the catalog. The severity-override resolver uses
+`max(catalog default, manifest-effective default)` as the
+tier-crossing comparison base, so a `severity: critical` action
+policy with override `high` cannot appear same-tier against the
+catalog's `high` default. The
+`policy_audit.severity_overrides_applied[].default_severity` row
+reports the effective (dynamic-aware) default so reviewers see the
+real before/after.
+
+Two contract rules pin the design (v0.18):
+
+- Built-in checks marked `dynamic_default=True` MUST also declare
+  `floor_severity` — enforced by a `CheckMetadata` model validator.
+  A swing check without a floor has no safety net against silent
+  downgrade bypass.
+- Plugins cannot declare `dynamic_default=True` — the plugin
+  validation pipeline rejects them with status
+  `dynamic_default_not_supported`. Plugins have no path to wire into
+  `cli/scan.py`'s aggregator and so would never receive the
+  manifest-effective default needed for tier-crossing comparison.
+
+Adding a new built-in dynamic-severity check requires (1) setting
+`dynamic_default=True` in `CHECK_METADATA` (forces the floor), and
+(2) adding an aggregator overlay branch in
+`cli/scan.py:_dynamic_check_defaults`. The seed loop in step 1 of
+that aggregator auto-includes every `dynamic_default=True` catalog
+entry, so the resolver's internal-consistency guard cannot
+false-positive on user input that overrides a swing check without
+declaring the corresponding manifest section.
 
 ### Scenario Suggestion YAML
 
@@ -127,6 +187,31 @@ These are **intentionally different signals**, kept apart for backwards compatib
 |---|---|---|
 | `release_decision.decision` | yes — baseline-matched criticals appear in `review_items`, not `blockers` | **yes (v0.8+)** |
 | `summary.status` | no — any unsuppressed critical flips status to `release_blockers_detected` | preserved for v0.7 callers |
+
+#### Release decision truth table
+
+The classification below is the contract for how every active finding lands in `release_decision.{blockers, review_items}[]` and which `contribution_rules[].rule` (v0.17+) fires for it. Same shape as the v0.8 implementation: this section documents existing behavior, it does not change it. Suppressed findings (`finding.suppressed=true`) are excluded entirely from the active set and audited as `category="excluded", rule="suppressed"`.
+
+Notation: `fail_on` is `release_decision.fail_policy.fail_on` after `ci_mode` resolution (advisory → empty, strict → `["critical"]`, plus any explicit `--fail-on` override). `blocker_severities` = `{critical} ∪ fail_on`. `review_tier` = `{critical, high, medium}` (or any severity when `requires_human_review=true`).
+
+| `blocks_release` | severity | baseline_status | severity in `blocker_severities`? | severity in `review_tier`? | category | `rule` | strict-mode exit |
+|---|---|---|---|---|---|---|---|
+| true | any | new / null | n/a | n/a | **blocker** | `policy_block_new` | 20 |
+| true | any | matched | n/a | yes | review_item | `policy_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| true | any | matched | n/a | no | excluded | `policy_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| true | any | resolved | n/a | n/a | excluded | (not produced; resolved findings are absent from the active set) | 0 |
+| false | any | new / null | yes | n/a | **blocker** | `severity_block_new` | 20 |
+| false | any | matched | yes | yes | review_item | `severity_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| false | any | matched | yes | no | excluded | `severity_baseline_accepted` | 0 (with `--baseline-mode new-findings`) |
+| false | any | new / null | no | yes | review_item | `review_required` | 0 |
+| false | any | matched | no | yes | review_item | `review_required` | 0 |
+| false | any | new / null / matched | no | no | excluded | `sub_threshold` | 0 |
+
+**Why baseline-matched policy findings drop to `review_items`, not `blockers`.** `blocks_release=true` represents an explicit *policy* decision (Action Surface Diff rule, `action_surface:` manifest entry, or policy-pack rule with `block: true`) that the finding must block release **on first appearance**. A baseline accepts technical debt that already passed prior review — the project agreed to ship with that finding present. Treating baselined policy debt as a hard blocker would defeat the purpose of `baseline save`. The baseline-aware drop is symmetric for severity-driven blockers and policy blockers: both land in `review_items` once accepted into the baseline, both become hard blockers if newly introduced.
+
+**Why `severity ∈ blocker_severities + matched + below review_tier` lands in `excluded`, not `review_items`.** A finding whose severity isn't in `{critical, high, medium}` (and which doesn't carry `requires_human_review=true`) has nothing for a human reviewer to act on per the v0.8 contract — it's been baselined and isn't severe enough to warrant attention. v0.17 records this in the audit so the (rare) edge case isn't silently invisible, but the `blockers[]`/`review_items[]` lists themselves are unchanged.
+
+**Why exit code 20 depends on `--baseline-mode`.** `release_decision.{blockers, review_items}[]` always include the full set computed against `report.findings` (with suppressed excluded). The strict-mode exit code, however, is computed from `baseline_filtered_active(report, new_findings_only=...)` — when `--baseline-mode new-findings` is set (the default for the GitHub Action when `baseline:` is provided), baseline-matched policy and severity blockers are filtered out before the exit check, so exit is `0`. With `new_findings_only=False`, a matched policy blocker still triggers exit 20. The `release_decision` block remains baseline-aware in all cases; only the exit-code path changes mode.
 
 Concretely: a scan with one baseline-matched critical and zero new findings produces `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"`. Both are correct under their respective contracts. New consumers should read `release_decision.decision`.
 
@@ -162,7 +247,110 @@ The scanner does not, under any circumstances:
 - Invoke LLMs
 - Send telemetry
 
+The no-execute / no-import property is enforced by two complementary
+tests on every CI run, not by convention:
+
+- **[`tests/test_adapter_static_only.py`](tests/test_adapter_static_only.py)** —
+  AST scan of every `.py` file under `src/agents_shipgate/` (v0.18+
+  widened scope from `src/agents_shipgate/inputs/` only). The scan
+  rejects:
+  - Bare-name calls to `exec` / `eval` / `__import__` / `compile`.
+  - Attribute calls to `importlib.import_module`,
+    `importlib.util.spec_from_file_location`,
+    `importlib.util.module_from_spec`,
+    `importlib.machinery.SourceFileLoader`,
+    `runpy.run_path`, `runpy.run_module`,
+    `subprocess.{run, call, Popen, check_call, check_output}`,
+    `os.system`, `os.popen`, and every variant under the
+    `os.exec*` / `os.spawn*` / `os.posix_spawn*` prefixes.
+  - Module imports of `runpy`, `subprocess`, `importlib`,
+    `importlib.util`, `importlib.machinery`, and `builtins` — in any
+    `import X`, `import X as Y`, `import X.child`, or
+    `from X.child import …` form.
+  - Wildcard `from os import *`.
+
+  `importlib.metadata` is intentionally allowed: the plugin registry
+  uses it for entry-point discovery, and discovery happens against the
+  *installed* environment, not user workspace files. `importlib.resources`
+  is allowed (v0.18+) at the import line **only** so name-aliases get
+  built; every `importlib.resources.<attr>(...)` call site is forbidden
+  via the `importlib.resources.` prefix in `FORBIDDEN_ATTR_CALL_PREFIXES`
+  and must carry a per-call-site `ALLOWED_EXCEPTIONS` entry with snippet
+  pinning. This covers `files`, `read_text`, `read_binary`, `path`,
+  `open_text`, `open_binary`, `is_resource`, `contents`, `as_file`, and
+  any future addition under the module — all of which take an
+  anchor-package argument and could bypass the dynamic-import lint if
+  left unrestricted. Aliased re-exports (`import os as oo`,
+  `from os import system as sh`, `import os; import pathlib as os`) are
+  resolved through union-of-bindings alias maps so a later import
+  cannot erase an earlier forbidden binding. The lint runs as a
+  dedicated CI step labeled *Trust-model invariant lint* before the
+  main test suite so a regression is visible at the top of CI logs.
+
+  **Meta-CLI surfaces (allowlisted, audited).** First-party meta-CLI
+  surfaces are pinned **per call site** in
+  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)
+  by a four-tuple `(relative_path, surface, line, snippet)` where
+  `snippet` is the canonical `ast.unparse` of the offending AST node.
+  Each entry carries a prose rationale and pins a single call:
+
+  - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
+    installed agents-shipgate CLI to chain
+    `detect → init → scan → apply-patches`.
+  - **`cli/discovery/artifacts.py`** — two `subprocess.run` calls
+    invoke `git rev-parse` + `git ls-files` to enumerate user-repo
+    files. Reads git metadata only.
+  - **`triggers.py`** — three `subprocess.run` calls (`git diff
+    --name-only`, `git diff`, `git ls-files --others
+    --exclude-standard`) for trigger evaluation. Reads diff content
+    only. **Plus** one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled trigger catalog.
+  - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
+    call to resolve the bundled fixture directory.
+  - **`cli/self_check.py`** — one `__import__(module_name)` call
+    validates that supplied modules import cleanly. Runs only under
+    `agents-shipgate self-check`, never during scan.
+
+  Per-call-site pinning means **adding a second occurrence of an
+  already-allowlisted surface in the same file STILL requires a new
+  entry**. Changing the call's argv shape (the `snippet` changes)
+  also fails the test, forcing a reviewer to confirm the change is
+  benign. The literal-anchor invariant for
+  `importlib.resources.files('agents_shipgate')` is enforced by
+  snippet pinning: a future `files(user_var)` call would not match.
+
+  Three contract tests pin the audit trail:
+  `test_allowlist_entry_matches_real_surface` (every entry matches a
+  real violation on all four fields),
+  `test_no_unallowlisted_forbidden_surface_in_scanner` (every
+  observed violation has a matching entry), and
+  `test_allowed_exceptions_pin_subprocess_run_per_call_site` (the
+  multi-call files have distinct entries per call site, regression-
+  testing the structural fix from the v0.18 PR #2 review).
+- **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
+  per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
+  SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is
+  driven against a fixture whose Python content (or a sibling `trap.py`, for
+  declarative adapters) raises `RuntimeError` at module load. Each test
+  additionally snapshots `sys.modules` and asserts no module whose `__file__`
+  resolves under the fixture root ends up cached after the scan — a stronger
+  property than relying on the runtime raise alone.
+
+If a contributor introduces a real need for one of the forbidden surfaces,
+update this section in the same PR. The intent is not "we tried to forbid X"
+— it is that X is *structurally absent* from the scanner's parsing path.
+
 Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`.
+
+Plugin validation (v0.17+ / M5). Every entry point is checked against five load-time gates before it can run:
+
+1. **load** — `entry_point.load()` must not raise.
+2. **signature** — the loaded object must be callable and accept exactly one required positional parameter (`ScanContext`); extra defaulted positional / keyword-only parameters are allowed.
+3. **metadata** — `AGENTS_SHIPGATE_METADATA` must be present and parseable as `CheckMetadata`. Both `id` and `check_id` are accepted as the identifier key (v0.17 alias); newer plugins should prefer `check_id` for symmetry with `Finding.check_id`.
+4. **id_collision** — the plugin's check ID must not shadow a built-in (including legacy aliases) or a previously-registered plugin.
+5. **bad_floor** — `floor_severity` must not exceed `default_severity` on the same metadata block.
+
+Plugins that pass every gate run with the same trust as built-ins. Runtime validation additionally drops findings whose `Finding.check_id` does not match the plugin's declared `id`/`check_id`, drops non-`Finding` items, and captures any exception raised during the plugin call into `loaded_plugins[].runtime_errors`. The scan continues regardless; `--strict-plugins` elevates any non-`valid` plugin or non-empty `runtime_errors` to exit code 4.
 
 ### Manifest Schema
 
@@ -235,8 +423,8 @@ detects an integrity issue. Stable values:
 New stable check IDs (v0.11+):
 
 - `SHIP-BASELINE-INTEGRITY-MISMATCH` (critical) — file hash mismatch, missing
-  audit log, audit log empty, entry references unknown `run_id`, or entry
-  loaded from a legacy schema without provenance.
+  audit log, audit log empty or malformed, entry references unknown `run_id`,
+  or entry loaded from a legacy schema without provenance.
 - `SHIP-BASELINE-ENTRY-EXPIRED` (high) — `provenance.expires` < today.
 - `SHIP-BASELINE-ENTRY-STALE` (low) — deprecated check ID in the entry, or
   the entry matched no active finding (scan-aware; resolved-not-pruned).

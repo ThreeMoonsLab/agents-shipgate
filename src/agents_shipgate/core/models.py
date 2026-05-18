@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.core.patches import Patch
 
@@ -720,6 +720,56 @@ class FailPolicy(BaseModel):
     exit_code: int
 
 
+# v0.17: explicit, deterministic per-finding audit of *why* each finding
+# landed in `blockers[]`, `review_items[]`, or was excluded. The set of
+# rule names below is the entire grammar of decisions the gate can make;
+# the truth table in STABILITY.md "Release decision truth table" is the
+# external contract for what each name means and when it fires.
+ContributionRuleName = Literal[
+    # Active blockers (drive `decision="blocked"` and, in strict mode,
+    # exit code 20 when the underlying finding is not baseline-matched
+    # via `--baseline-mode new-findings`).
+    "policy_block_new",
+    "severity_block_new",
+    # Accepted as baseline debt; visible in `review_items[]` instead of
+    # `blockers[]`. Never escalates the decision past `review_required`.
+    "policy_baseline_accepted",
+    "severity_baseline_accepted",
+    # Routed to `review_items[]` for human attention but does not block
+    # by itself.
+    "review_required",
+    # Below the active gate threshold AND below review tier; recorded
+    # for completeness so the audit table is exhaustive over
+    # report.findings.
+    "sub_threshold",
+    # Suppressed via `checks.ignore[]` in the manifest; excluded from
+    # the active set entirely.
+    "suppressed",
+]
+
+
+class ContributionRule(BaseModel):
+    """Per-finding audit row explaining how a finding contributed to the
+    release decision.
+
+    Additive in v0.17. Every finding in `report.findings` produces
+    exactly one ContributionRule. Reading the contribution rule is
+    sufficient to predict the gate outcome for that finding without
+    re-deriving the decision logic; the set of valid `(rule, category)`
+    pairs is the contract documented in STABILITY.md "Release decision
+    truth table".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    fingerprint: str | None = None
+    check_id: str
+    category: Literal["blocker", "review_item", "excluded"]
+    rule: ContributionRuleName
+    rationale: str
+
+
 class ReleaseDecision(BaseModel):
     decision: ReleaseDecisionStatus
     reason: str
@@ -728,6 +778,12 @@ class ReleaseDecision(BaseModel):
     evidence_coverage: EvidenceCoverageDecision
     baseline_delta: BaselineDelta
     fail_policy: FailPolicy
+    # v0.17: deterministic per-finding audit of how each finding
+    # contributed to the decision. Always present (defaults to []) so
+    # consumers that read `release_decision.contribution_rules` never
+    # need an existence check; older reports loaded via
+    # `explain-finding` or test helpers naturally get an empty list.
+    contribution_rules: list[ContributionRule] = Field(default_factory=list)
 
 
 DeclaredIntentionKind = Literal[
@@ -1302,11 +1358,62 @@ class AgentSummary(BaseModel):
     first_recommended_action: AgentSummaryAction | None = None
 
 
+class SeverityOverrideAuditEntry(BaseModel):
+    """One row in ``ReadinessReport.policy_audit.severity_overrides_applied``.
+
+    v0.17 (M1). Surfaces every manifest-driven severity override so a
+    reviewer can see what was downgraded (or upgraded) without diving
+    into per-finding evidence. Emitted regardless of whether the override
+    matched any active finding — entries for checks that did not fire
+    still document reviewer intent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: str
+    default_severity: Severity
+    applied_severity: Severity
+    # The resolved manifest source (e.g.,
+    # ``shipgate.yaml#/checks/severity_overrides/SHIP-...``).
+    manifest_path: str
+    reason: str | None = None
+    # ``True`` when the override crosses a tier boundary
+    # (critical / high / medium-low). Tier-crossing downgrades require a
+    # matching ``acknowledge_overrides`` entry; tier-crossing upgrades
+    # never require ack (strictly more conservative).
+    tier_crossed: bool = False
+    # ``"downgrade"`` (weaker than default), ``"upgrade"`` (stronger), or
+    # ``"same"`` (no-op override — kept in audit for completeness).
+    direction: Literal["downgrade", "upgrade", "same"] = "same"
+    # ISO date copied verbatim from the matching acknowledgement when
+    # present. ``None`` for non-acknowledged overrides.
+    expires: str | None = None
+
+
+class PolicyAudit(BaseModel):
+    """v0.17 (M1) top-of-report audit envelope for policy decisions
+    applied during scan.
+
+    Carries severity-override audit today; M2 (baseline integrity) and
+    M5 (plugin validation) will land sibling fields here so the audit
+    envelope stays stable across the trust-hardening releases.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    severity_overrides_applied: list[SeverityOverrideAuditEntry] = Field(
+        default_factory=list
+    )
+
+
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: str = "0.1"
-    report_schema_version: str = "0.16"
+    # v0.17 trust-hardening: M8 adds ``release_decision.contribution_rules[]``
+    # and M1 adds the top-level ``policy_audit`` block. Both are
+    # additive — older consumers ignore the new fields.
+    report_schema_version: str = "0.17"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -1355,6 +1462,12 @@ class ReadinessReport(BaseModel):
     # level so older test helpers can construct minimal reports;
     # build_report() always populates it for emitted scans.
     agent_summary: AgentSummary | None = None
+    # v0.17 (M1): top-of-report audit of manifest-driven policy decisions
+    # applied during scan (severity overrides today; baseline integrity
+    # and plugin validation in upcoming trust-hardening releases). Always
+    # present on emitted scans; Python-Optional so older test helpers can
+    # construct minimal reports.
+    policy_audit: PolicyAudit | None = None
 
 
 class LoadedToolSource(BaseModel):
@@ -1374,7 +1487,14 @@ SuggestedPatchKind = Literal[
 
 
 class CheckMetadata(BaseModel):
-    id: str
+    # Plugins may supply ``AGENTS_SHIPGATE_METADATA`` with either ``id`` or
+    # ``check_id`` as the identifier key. Built-ins continue to use ``id``;
+    # ``check_id`` is accepted for symmetry with the field name used in
+    # ``Finding.check_id`` so newer plugins can use a single spelling
+    # across metadata + emitted findings.
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(validation_alias=AliasChoices("id", "check_id"))
     category: str
     default_severity: Severity
     description: str
@@ -1390,6 +1510,59 @@ class CheckMetadata(BaseModel):
     autofix_safe: bool = False
     requires_human_review: bool = True
     suggested_patch_kind: SuggestedPatchKind = "manual"
+    # v0.17 (M1 + M5): hard severity floor used by two callers.
+    # M1 (manifest-side): ``checks.severity_overrides`` cannot resolve
+    # to a weaker severity than ``floor_severity``; the resolver raises
+    # ConfigError (exit 2) and no acknowledgement bypasses it.
+    # M5 (plugin-side): plugin self-consistency check rejects plugins
+    # whose declared ``floor_severity`` exceeds their own
+    # ``default_severity``.
+    # ``None`` (default) means no floor — preserves v0.x behavior for
+    # every check that doesn't opt in. Only release-critical trust-spine
+    # checks declare a floor. Severity ranking (weakest → strongest):
+    # ``info < low < medium < high < critical``.
+    floor_severity: Severity | None = None
+    # v0.18 (PR #1): formalizes the M1 dynamic-severity contract.
+    # True iff this check's emitted finding severity depends on
+    # user-declared manifest values (e.g.,
+    # ``SHIP-ACTION-POLICY-VIOLATION`` emits at
+    # ``action_surface.policies[].severity``). The severity-override
+    # resolver MUST receive the manifest-effective default via
+    # ``extra_known_check_defaults``; otherwise tier-crossing comparison
+    # runs against the static catalog default and an aggressive override
+    # can silently bypass the gate.
+    #
+    # Built-in checks marking ``dynamic_default=True`` MUST also declare
+    # ``floor_severity`` (enforced by the model validator below) — a
+    # swing check without a floor has no safety net.
+    #
+    # Plugins cannot set ``dynamic_default=True``: they have no path to
+    # wire into ``cli/scan.py``'s aggregator. The plugin validation
+    # pipeline rejects such plugins with status
+    # ``dynamic_default_not_supported``.
+    dynamic_default: bool = False
+
+    @model_validator(mode="after")
+    def _check_floor_not_above_default(self) -> CheckMetadata:
+        if self.floor_severity is None:
+            return self
+        order = list(get_args(Severity))
+        if order.index(self.floor_severity) > order.index(self.default_severity):
+            raise ValueError(
+                f"floor_severity={self.floor_severity!r} must not exceed "
+                f"default_severity={self.default_severity!r} for {self.id!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_dynamic_default_requires_floor(self) -> CheckMetadata:
+        if self.dynamic_default and self.floor_severity is None:
+            raise ValueError(
+                f"check {self.id!r} has dynamic_default=True but no "
+                f"floor_severity; a swing check requires a floor to "
+                f"prevent silent downgrade bypass."
+            )
+        return self
 
 
 def _string_list(value: Any) -> list[str]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli._helpers import (
+    _apply_strict_plugins,
     _diagnose_config_error,
     _parse_fail_on,
     _parse_formats,
@@ -87,6 +88,15 @@ def register(app: typer.Typer) -> None:
             False,
             "--no-plugins",
             help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
+        ),
+        strict_plugins: bool = typer.Option(
+            False,
+            "--strict-plugins",
+            help=(
+                "Exit non-zero (code 4) if any loaded plugin failed validation or "
+                "produced runtime errors. Default lenient mode records the failure "
+                "in report.loaded_plugins but proceeds with the scan."
+            ),
         ),
         suggest_patches: bool = typer.Option(
             False,
@@ -171,6 +181,9 @@ def register(app: typer.Typer) -> None:
                     packet_enabled=packet,
                     packet_formats=parsed_packet_formats,
                 )
+                exit_code = _apply_strict_plugins(
+                    report, exit_code, strict_plugins=strict_plugins
+                )
                 _print_cli_summary(report, ci_mode or "advisory", exit_code, verbose=verbose)
                 raise typer.Exit(exit_code)
             exit_code = _run_multi_scan(
@@ -189,6 +202,7 @@ def register(app: typer.Typer) -> None:
                 suggest_patches=suggest_patches,
                 packet_enabled=packet,
                 packet_formats=parsed_packet_formats,
+                strict_plugins=strict_plugins,
             )
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)

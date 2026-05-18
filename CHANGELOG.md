@@ -2,6 +2,226 @@
 
 ## Unreleased
 
+- **v0.18 / PR #1 trust-hardening: `dynamic_default` contract in
+  `CheckMetadata`.** Formalizes the M1 dynamic-severity contract closed
+  in v0.17.
+  - `CheckMetadata.dynamic_default: bool = False` opts a check into the
+    swing-severity category — its emitted finding severity depends on
+    user-declared manifest values rather than the static catalog
+    default. The severity-override resolver must receive the
+    manifest-effective default via `extra_known_check_defaults`;
+    otherwise tier-crossing comparison runs against the static catalog
+    default and an aggressive override can silently bypass the gate.
+  - A new model validator rejects `dynamic_default=True` without
+    `floor_severity` — a swing check without a floor has no safety net.
+  - `SHIP-ACTION-POLICY-VIOLATION` now declares `dynamic_default=True`
+    and `floor_severity="medium"`. Two distinct contracts apply to
+    existing manifests; both produce loud `ConfigError` (exit 2):
+    - **Hard floor (no bypass).** Manifests resolving the check below
+      `medium` — i.e., to `low` or `info` — are rejected by the
+      `floor_severity` validator. `acknowledge_overrides` does NOT
+      bypass the floor; the only remedies are to raise the override to
+      `medium` or above, or remove the override entirely.
+    - **Tier-crossing requires ack.** Downgrading from the catalog
+      default `high` to the floor `medium` crosses the high → normal
+      tier boundary. This case is allowed only with an
+      `acknowledge_overrides` entry that supplies a reason; without one
+      it is rejected with a tier-boundary error (not a floor error).
+    Manifests currently overriding `SHIP-ACTION-POLICY-VIOLATION` to
+    `low`/`info` cannot fix the regression by adding an ack — they must
+    raise the override severity. Manifests overriding to `medium`
+    without an ack pass once the ack is added.
+  - `cli/scan.py:_dynamic_check_defaults` is the new canonical
+    aggregator. It seeds every catalog check carrying
+    `dynamic_default=True` with its static default (step 1), overlays
+    manifest-effective values for action-surface policies (step 2), and
+    adds policy-pack rule IDs (step 3). The seed loop guarantees the
+    resolver's internal-consistency guard cannot false-positive on user
+    input that overrides a swing check without declaring the
+    corresponding manifest section.
+  - A contract test `test_dynamic_default_aggregator_completeness`
+    fails the moment someone adds a new `dynamic_default=True` catalog
+    entry without ensuring the aggregator covers it.
+  - Future checks emitting at manifest-declared severity must (A) set
+    `dynamic_default=True` in `CHECK_METADATA` and (B) add an aggregator
+    overlay branch in `cli/scan.py:_dynamic_check_defaults`. The
+    contract test enforces both.
+- **v0.18 / PR #1 plugin gate: `dynamic_default_not_supported`.**
+  - New plugin-validation status rejects plugins declaring
+    `AGENTS_SHIPGATE_METADATA.dynamic_default=True`. Plugins have no
+    path into the scan dispatcher's aggregator and so could never
+    receive the manifest-effective default needed for tier-crossing
+    comparison; emitting at that severity directly is the supported
+    path (with the floor contract still applying via
+    `CheckMetadata.floor_severity`).
+  - The gate runs **before** `_coerce_metadata()` so a plugin declaring
+    `dynamic_default=True` without `floor_severity` lands in
+    `dynamic_default_not_supported` rather than being mis-classified
+    as `bad_floor` by the new `CheckMetadata` model validator.
+- **v0.18 / PR #2 review follow-up: per-call-site allowlist pinning.**
+  PR #91 review caught two structural holes in the v0.18 trust lint
+  extension:
+  - **P1**: the allowlist matched on `(relative_path, surface)` only,
+    so one entry blanket-permitted every occurrence of a surface in
+    a file. A future unreviewed `subprocess.run(...)` added to an
+    already-allowlisted file would slip past silently.
+  - **P2**: `importlib.resources` was globally exempted, so
+    `files(name)` calls produced no violation. The current uses
+    pass a literal `'agents_shipgate'` anchor, but a future
+    user-controlled anchor would bypass the dynamic-import lint.
+
+  Both are closed by tightening the allowlist contract:
+  - `AllowedException` now carries `line: int` and `snippet: str`
+    (canonical `ast.unparse` of the offending node) in addition to
+    `relative_path` and `surface`. `_violation_allowed` matches on
+    all four fields. Adding a new `subprocess.run` call to an
+    already-allowlisted file now requires a new entry; changing an
+    existing call's argv shape changes the `snippet` and fails the
+    contract test.
+  - `importlib.resources.` joins `FORBIDDEN_ATTR_CALL_PREFIXES`, and
+    `importlib.resources` joins `TRACKED_NON_FORBIDDEN_MODULES`. The
+    earlier draft of this PR only forbade `importlib.resources.files`,
+    which left `read_text`, `read_binary`, `path`, `open_text`,
+    `open_binary`, `is_resource`, `contents`, `as_file`, and any
+    future addition under the module as a parallel bypass — each
+    takes the same anchor-package argument and would have been
+    silently allowed. The prefix entry catches the whole family.
+    `from importlib.resources import <attr>; <attr>(...)` and
+    `import importlib.resources as res; res.<attr>(...)` both
+    resolve to canonical `importlib.resources.<attr>` and trip the
+    prefix. Both first-party call sites in `triggers.py` and
+    `fixtures.py` (currently `files`-only) are individually pinned
+    with the literal `'agents_shipgate'` anchor in the snippet — a
+    future `files(some_user_anchor)` or `read_text(some_user_anchor,
+    ...)` call would change the snippet and fail the test.
+  - `Violation` gains `snippet: str` captured via `ast.unparse(node)`.
+  - New regression test
+    `test_allowed_exceptions_pin_subprocess_run_per_call_site`
+    asserts that multi-call files (triggers.py, artifacts.py) have
+    distinct entries per call site, so the P1 bypass cannot
+    reappear via consolidation.
+  - New regression test `test_allowed_exceptions_have_no_duplicates`
+    asserts no two entries cover the same call site.
+  - Negative-control: injecting a 4th `subprocess.run` into
+    `triggers.py` now fails the contract test with the precise
+    `(line, surface, snippet)` triple. Injecting
+    `files(user_var)` in place of `files('agents_shipgate')` fails
+    similarly.
+
+- **v0.18 / PR #2 trust-hardening: static AST lint widened to entire scanner.**
+  Previously `tests/test_adapter_static_only.py` AST-scanned only
+  `src/agents_shipgate/inputs/`; the public claim in STABILITY.md and
+  README is broader ("the scanner does not execute or import user code").
+  The lint now structurally enforces the broader claim.
+  - Scope widened: scanner now walks every `.py` file under
+    `src/agents_shipgate/` via `rglob`. The legacy
+    `test_invariant_lint_covers_every_adapter_module` was paranoid for
+    the 18-file `inputs/` case and no longer scales to ~80 files — the
+    new contract test
+    `test_no_unallowlisted_forbidden_surface_in_scanner` is the
+    replacement, asserting a definitive PASS/FAIL signal over the whole
+    sweep.
+  - Four legitimate first-party meta-CLI surfaces are allowlisted via a
+    new `ALLOWED_EXCEPTIONS` tuple of `AllowedException` entries, each
+    with prose rationale:
+    - `cli/bootstrap.py` `subprocess.run(...)` — chains
+      `detect → init → scan → apply-patches` against Shipgate's own CLI.
+    - `cli/discovery/artifacts.py` `subprocess.run(["git", ...])` —
+      probes the user repo for file inventory.
+    - `triggers.py` `subprocess.run(["git", "diff", ...])` — trigger
+      evaluation reads diff content.
+    - `cli/self_check.py` `__import__(name)` — validates that supplied
+      modules are installed. Runs only under
+      `agents-shipgate self-check`.
+  - Two contract tests prevent allowlist rot:
+    `test_allowlist_entry_matches_real_surface` (every entry must
+    correspond to a real surface) and
+    `test_no_unallowlisted_forbidden_surface_in_scanner` (every forbidden
+    surface must be allowlisted or eliminated).
+  - `importlib.resources` added to `ALLOWED_FORBIDDEN_MODULE_IMPORTS`
+    for bundled-package files (e.g. `fixtures.py`, `triggers.py`).
+    `importlib.metadata` remains allowed for plugin/adapter discovery.
+  - `_scan_source` now returns structured `Violation` objects
+    (`line`, `surface`, `message`) instead of preformatted strings, so
+    callers can route by `surface` against `ALLOWED_EXCEPTIONS`.
+  - STABILITY.md "Trust-model invariants" widened to cite the entire
+    scanner package and adds a "Meta-CLI surfaces (allowlisted,
+    audited)" subsection documenting each of the four entries.
+
+- **v0.17 / M1 trust-hardening: severity-override floor + audit.**
+  - `core.models.CheckMetadata` gains an optional `floor_severity` field
+    (Severity | None). 16 release-critical built-in checks now declare a
+    hard floor:
+    - `SHIP-POLICY-APPROVAL-MISSING` (critical → floor "high")
+    - `SHIP-ACTION-{FINANCIAL-WRITE-CONTROL-MISSING, DESTRUCTIVE-ROLLBACK-MISSING,
+      WILDCARD-SCOPE, EFFECT-ESCALATED, APPROVAL-REMOVED}` (critical → floor "high")
+    - `SHIP-AUTH-{MISSING-SCOPE, MANIFEST-BROAD-SCOPE, TOOL-BROAD-SCOPE,
+      SCOPE-COVERAGE-MISSING}` (high → floor "medium")
+    - `SHIP-SCOPE-{TOOL-OUTSIDE-PURPOSE, PROHIBITED-TOOL-PRESENT}` (high → floor "medium")
+    - `SHIP-INVENTORY-{WILDCARD-TOOLS, LOW-CONFIDENCE-PRODUCTION-SURFACE}` (high → floor "medium")
+    - `SHIP-POLICY-CONFIRMATION-MISSING` (high → floor "medium")
+    - `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (high → floor "medium")
+  - Any `checks.severity_overrides` entry that resolves below the floor
+    is rejected as a manifest config error (exit 2). The floor is hard;
+    no acknowledgement bypasses it. **Breaking** for manifests that
+    previously downgraded these checks below their new floor — fix by
+    raising the override to floor-or-above, or removing the override.
+  - `checks.severity_overrides` accepts both the legacy scalar form
+    (`SHIP-XYZ: medium`) and a new rich form
+    (`SHIP-XYZ: { severity, reason, expires }`). Reason flows into the
+    new audit row; expires gives reviewers a time-bounded override.
+  - New `checks.acknowledge_overrides[]` block. Required for any
+    severity override whose application crosses a severity tier
+    boundary (critical ↔ high, high ↔ medium/low/info) as a downgrade.
+    Tier-crossing **upgrades** never require ack (strictly more
+    conservative). Same-tier downgrades (medium → low) don't require ack.
+    For checks emitted with manifest-declared severity (action-surface
+    policies via `SHIP-ACTION-POLICY-VIOLATION`, policy-pack rules)
+    the resolver compares against the strongest declared severity
+    across the manifest, not the static catalog default — so a
+    `severity: critical` action policy with override `high` is
+    correctly tier-crossing and requires ack.
+  - Expired `acknowledge_overrides` entry raises a manifest config error
+    (exit 2) — no advisory-mode bypass. Same hard contract applies to
+    `expires` on rich-form `severity_overrides` entries.
+  - New top-level `report.policy_audit` block surfacing every applied
+    override:
+    `policy_audit.severity_overrides_applied[].{check_id,
+    default_severity, applied_severity, manifest_path, reason,
+    tier_crossed, direction, expires}`. Always emitted on scans (empty
+    envelope when no overrides applied); required + non-nullable on
+    the wire (mirrors the v0.12 `agent_summary` pattern). Lands at
+    `report_schema_version: "0.17"` alongside M8's
+    `release_decision.contribution_rules[]` — both audits are additive
+    and share the same schema bump.
+  - Markdown report renders a new "Policy Audit" section between
+    Release Decision and Summary when overrides exist. GitHub step
+    summary adds a one-liner counting overrides + tier-crossed +
+    upgrades/downgrades.
+  - New module `core/severity_overrides.py` owns floor/tier/ack/expiry
+    resolution as a pure function; `core/findings.py::apply_severity_overrides`
+    still consumes a flat `dict[str, Severity]` so existing direct
+    callers and tests stay byte-compatible.
+  - `AgentsShipgateManifest.severity_overrides()` still returns the
+    flat scalar projection for back-compat; new
+    `severity_override_entries()` returns the rich shape and
+    `acknowledge_overrides()` returns the ack list.
+- Added `release_decision.contribution_rules[]` — a deterministic
+  per-finding audit of how each finding contributed to the release
+  decision (M8 of the Trust Hardening Pass). Bumps
+  `report_schema_version` to `0.17` (shared with M1's `policy_audit`).
+  Exactly one row per `report.findings` entry (including suppressed)
+  with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈
+  `{policy_block_new, severity_block_new, policy_baseline_accepted,
+  severity_baseline_accepted, review_required, sub_threshold,
+  suppressed}`. The new `STABILITY.md` "Release decision truth table"
+  documents which `(rule, category)` pair fires for every
+  `(blocks_release, severity, baseline_status, fail_on)` combination.
+  Additive only: no semantic change to `decision`, `blockers[]`,
+  `review_items[]`, `fail_policy.exit_code`, or strict-mode exit codes —
+  the audit reflects existing behavior, it does not modify it. The
+  field defaults to `[]` for legacy reports loaded via
+  `explain-finding` so consumers never need an existence check.
 - Replaced the hardcoded `if/elif` source-dispatch in `cli/scan.py` with a
   real `ToolSourceAdapter` Protocol and `AdapterRegistry`. Every loader
   (MCP, OpenAPI, OpenAI Agents SDK, Google ADK, LangChain, CrewAI, n8n,
