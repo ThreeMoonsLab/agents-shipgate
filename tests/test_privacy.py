@@ -68,6 +68,7 @@ def test_redact_text_covers_quoted_labeled_and_common_secret_patterns():
         assert secret not in rendered
     assert '"api_key":"[REDACTED:labeled_secret_value]"' in redacted_text
     assert "password=[REDACTED:labeled_secret_value]" in redacted_text
+    assert "password= [REDACTED:labeled_secret_value]" not in redacted_text
     assert "correcthorsebatterystaple" not in rendered
     assert "12345678901234567890" not in rendered
     assert "longlonglonglonglongvalue" not in rendered
@@ -189,6 +190,7 @@ def test_baseline_matches_legacy_raw_secret_fingerprint_after_redaction():
 
 def test_json_logging_redaction_uses_fast_precheck():
     assert not _might_contain_sensitive_payload({"message": "plain progress"})
+    assert not _might_contain_sensitive_payload({"message": "Bearer Stearns is a company"})
     assert _might_contain_sensitive_payload({"message": "Bearer abcdefghijklmnop"})
     assert _might_contain_sensitive_payload({"payload": {"api_key": "value"}})
 

@@ -13,6 +13,7 @@ RULES_VERSION = "0.1"
 SENSITIVE_FIELD_INVENTORY_VERSION = "0.1"
 
 REDACTION_MARKER_RE = re.compile(r"\[REDACTED:[a-z0-9_:-]+\]")
+BEARER_TOKEN_RE = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE)
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("openai_api_key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}")),
@@ -42,10 +43,44 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"[^:\s/@]+:[^@\s]+@[^ \t\r\n'\"]+"
         ),
     ),
-    (
-        "bearer_token",
-        re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE),
-    ),
+    ("bearer_token", BEARER_TOKEN_RE),
+)
+
+# Fast, cheap substring markers for JSON logging's defensive precheck.
+# Keep this next to SECRET_PATTERNS so adding a new prefix-detectable
+# secret pattern also updates the logging precheck surface.
+SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
+    "akia",
+    "agpa",
+    "aida",
+    "aipa",
+    "anpa",
+    "aroa",
+    "asia",
+    "clickhouse://",
+    "eyj",
+    "ghp_",
+    "gho_",
+    "ghr_",
+    "ghs_",
+    "ghu_",
+    "github_pat_",
+    "mssql://",
+    "mysql://",
+    "postgres://",
+    "postgresql://",
+    "redis://",
+    "rediss://",
+    "rk_live_",
+    "rk_test_",
+    "sk-",
+    "sk_live_",
+    "sk_test_",
+    "sqlserver://",
+    "pk_live_",
+    "pk_test_",
+    "whsec_",
+    "xox",
 )
 
 LABELED_SECRET_PATTERN = re.compile(

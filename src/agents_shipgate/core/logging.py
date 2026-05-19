@@ -7,7 +7,15 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from agents_shipgate.core.privacy import RedactionStats, redact_data
+from agents_shipgate.core.privacy import (
+    BEARER_TOKEN_RE,
+    SECRET_PRECHECK_MARKERS,
+    RedactionStats,
+    redact_data,
+)
+
+_LOGGING_PRECHECK_MAX_DEPTH = 2
+# Bound JSON-log precheck traversal; emitted Shipgate log payloads are shallow.
 
 _SENSITIVE_KEY_PARTS = (
     "api_key",
@@ -19,39 +27,7 @@ _SENSITIVE_KEY_PARTS = (
     "secret",
     "token",
 )
-_SENSITIVE_VALUE_MARKERS = (
-    "akia",
-    "agpa",
-    "aida",
-    "aipa",
-    "anpa",
-    "aroa",
-    "asia",
-    "bearer ",
-    "clickhouse://",
-    "ghp_",
-    "gho_",
-    "ghr_",
-    "ghs_",
-    "ghu_",
-    "github_pat_",
-    "mssql://",
-    "mysql://",
-    "postgres://",
-    "postgresql://",
-    "redis://",
-    "rediss://",
-    "rk_live_",
-    "rk_test_",
-    "sk-",
-    "sk_live_",
-    "sk_test_",
-    "sqlserver://",
-    "pk_live_",
-    "pk_test_",
-    "whsec_",
-    "xox",
-)
+_SENSITIVE_VALUE_MARKERS = SECRET_PRECHECK_MARKERS
 
 
 class JsonFormatter(logging.Formatter):
@@ -93,17 +69,21 @@ def configure_logging(*, verbose: bool = False, force: bool = True) -> None:
 def _might_contain_sensitive_payload(value: Any, *, depth: int = 0) -> bool:
     if isinstance(value, str):
         lowered = value.lower()
-        return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS)
+        return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS) or bool(
+            BEARER_TOKEN_RE.search(value)
+        )
     if isinstance(value, dict):
         for key, item in value.items():
             lowered_key = str(key).lower()
             if any(part in lowered_key for part in _SENSITIVE_KEY_PARTS):
                 return True
-            if depth < 2 and _might_contain_sensitive_payload(item, depth=depth + 1):
+            if depth < _LOGGING_PRECHECK_MAX_DEPTH and _might_contain_sensitive_payload(
+                item, depth=depth + 1
+            ):
                 return True
         return False
     if isinstance(value, list | tuple):
-        return depth < 2 and any(
+        return depth < _LOGGING_PRECHECK_MAX_DEPTH and any(
             _might_contain_sensitive_payload(item, depth=depth + 1)
             for item in value
         )
