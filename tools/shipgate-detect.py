@@ -71,11 +71,12 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "google_adk": ("google-adk", "google_adk", "google-genai"),
     "anthropic": ("anthropic",),
     "openai_agents_sdk": ("openai-agents", "openai_agents", "agents"),
+    "n8n": ("n8n", "@n8n/n8n-nodes-langchain"),
     "openai_api": (),
 }
 FRAMEWORKS = (
     "langchain", "crewai", "google_adk", "anthropic",
-    "openai_agents_sdk", "openai_api",
+    "openai_agents_sdk", "n8n", "openai_api",
 )
 OPENAPI_PATTERNS = (
     "*openapi*.yaml", "*openapi*.yml", "*openapi*.json",
@@ -84,6 +85,11 @@ OPENAPI_PATTERNS = (
 MCP_PATTERNS = ("*mcp*.json", ".agents-shipgate/*.json")
 ANTHROPIC_TOOL_PATTERNS = ("tools/*anthropic*tools*.json", "tools/anthropic-tools.json")
 ANTHROPIC_POLICY_PATTERNS = ("policies/*anthropic*.yaml", "policies/anthropic-policy.yaml")
+N8N_WORKFLOW_PATTERNS = (
+    "workflows/*.json", "workflows/**/*.json",
+    "n8n/*.json", "n8n/**/*.json",
+    "*workflow*.json",
+)
 OPENAI_API_PATTERNS = (
     ("openai-config.json", "openai-config marker"),
     ("tools/*openai*tools*.json", "openai tool file"),
@@ -144,6 +150,37 @@ def _glob(workspace: Path, files: list[Path], patterns: tuple[str, ...]) -> list
             seen.add(rel)
             found.append(rel)
     return sorted(found)
+
+
+def _looks_like_n8n_workflow(path: Path) -> bool:
+    """Match the CLI heuristic in cli/discovery/artifacts.py: a JSON file
+    is an n8n workflow when it (or any element in a list) is a dict with
+    a ``nodes`` list and ``connections`` dict, and at least one node has
+    a ``type`` starting with ``n8n-nodes-`` or ``@n8n/n8n-nodes-``."""
+    if path.suffix.lower() != ".json":
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    candidates = data if isinstance(data, list) else [data]
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        nodes = item.get("nodes")
+        connections = item.get("connections")
+        if not isinstance(nodes, list) or not isinstance(connections, dict):
+            continue
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_type = node.get("type")
+            if isinstance(node_type, str) and (
+                node_type.startswith("n8n-nodes-")
+                or node_type.startswith("@n8n/n8n-nodes-")
+            ):
+                return True
+    return False
 
 
 def _name(node: ast.AST) -> str | None:
@@ -278,6 +315,9 @@ def detect(workspace: Path) -> dict[str, Any]:
     for pattern, label in OPENAI_API_PATTERNS:
         for p in _glob(workspace, files, (pattern,)):
             _add(scores, "openai_api", 2.0, "strong", f"{label}: {p}")
+    for p in _glob(workspace, files, N8N_WORKFLOW_PATTERNS):
+        if _looks_like_n8n_workflow(workspace / p):
+            _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}")
 
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     for fw in FRAMEWORKS:
