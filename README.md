@@ -19,9 +19,9 @@
 
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
-Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, n8n, and
-OpenAI API artifacts, then writes a deterministic **Tool-Use Readiness
-Report** before your agent gets production-like permissions.
+Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
+Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
+Readiness Report** before your agent gets production-like permissions.
 
 **Website:** [threemoonslab.com](https://threemoonslab.com/) —
 [quickstart](https://threemoonslab.com/quickstart/),

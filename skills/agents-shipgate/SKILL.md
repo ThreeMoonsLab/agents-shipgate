@@ -5,9 +5,9 @@ description: Use when the user wants to add a local-first, static Tool-Use Readi
 
 # agents-shipgate skill
 
-`agents-shipgate` is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, Codex plugin package metadata) and emits deterministic findings as Markdown, JSON, and SARIF.
+`agents-shipgate` is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic findings as Markdown, JSON, and SARIF.
 
-It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry. Static analysis only.
+It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry by default. Static analysis only; audited exceptions are pinned in `tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`.
 
 > The skill name is intentionally `agents-shipgate` (not `shipgate`) so it does not collide with the `/shipgate` slash command shipped at `.claude/commands/shipgate.md` — Claude Code lets a skill with the same name preempt a command, which would bypass the bootstrap flow the slash command is meant to deliver.
 

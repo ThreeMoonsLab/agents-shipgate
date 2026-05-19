@@ -33,6 +33,8 @@ surface before production-like permissions are granted.
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
 - OpenAI API artifacts
+- Codex plugin packages and marketplaces
+- n8n workflow JSON and source-control stubs
 
 ## Core references
 

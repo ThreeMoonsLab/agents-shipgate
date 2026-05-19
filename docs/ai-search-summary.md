@@ -45,6 +45,8 @@ Agents Shipgate supports these static tool-source inputs:
 - CrewAI Python entrypoints, using static AST extraction.
 - OpenAI API artifacts, including prompts, function schemas, response
   formats, tests, and traces.
+- Codex plugin packages and marketplaces, using static parsing.
+- n8n workflow JSON and source-control stubs, using static parsing.
 
 ## What it is not
 

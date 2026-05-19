@@ -1547,14 +1547,75 @@ def _faq_inputs_block(text: str) -> tuple[set[str], list[str]]:
     return _resolve_tokens(tokens)
 
 
+def _markdown_supported_inputs_section(text: str) -> tuple[set[str], list[str]]:
+    """`## Supported inputs` markdown section → `- bullet` tokens.
+    Used by docs/overview.md and docs/ai-search-summary.md."""
+    block = _slice_section(text, "## Supported inputs", "\n## ")
+    tokens = re.findall(r"^- (.+?)\.?\s*$", block, flags=re.M)
+    return _resolve_tokens(tokens)
+
+
+def _readme_intro_inputs(text: str) -> tuple[set[str], list[str]]:
+    """README intro paragraph (the `It scans …` sentence under the
+    one-line positioning header). Prose, so only the missing direction
+    is enforced — `extra` tokens are the bidirectional adapter test's
+    job."""
+    m = re.search(
+        r"It scans\s+(.+?\.)",
+        text,
+        flags=re.DOTALL,
+    )
+    if not m:
+        return set(), ["<no `It scans` intro sentence found>"]
+    return _resolve_freeform(m.group(1))
+
+
+def _faq_tool_surface_paragraph(text: str) -> tuple[set[str], list[str]]:
+    """`## What is an AI agent tool surface?` answer in docs/faq.md
+    enumerates the same input set in prose. Pin it so it can't drift
+    away from the canonical `## What inputs does it support?` bullet
+    list lower down the same page."""
+    block = _slice_section(
+        text, "## What is an AI agent tool surface?", "\n## "
+    )
+    return _resolve_freeform(block)
+
+
+def _skill_md_intro(text: str) -> tuple[set[str], list[str]]:
+    """The first paragraph of skills/agents-shipgate/SKILL.md
+    enumerates the tool-source list inside parentheses. Prose scan."""
+    m = re.search(r"tool sources \(([^)]+)\)", text)
+    if not m:
+        return set(), ["<no `tool sources (…)` parenthetical found>"]
+    return _resolve_freeform(m.group(1))
+
+
+def _design_partners_good_fit_bullet(text: str) -> tuple[set[str], list[str]]:
+    """`## Good Fit` first bullet enumerates the input set. Prose."""
+    m = re.search(
+        r"- Ships agents that call tools through\s+(.+?\.)",
+        text,
+        flags=re.DOTALL,
+    )
+    if not m:
+        return set(), ["<no `Ships agents that call tools through …` bullet found>"]
+    return _resolve_freeform(m.group(1))
+
+
 INPUT_SURFACES: tuple[tuple[str, object], ...] = (
     (".well-known/agents-shipgate.json", _well_known_input_ids),
     ("llms.txt", _llms_txt_inputs),
     ("AGENTS.md", _agents_md_inputs_bullet),
     ("README.md", _readme_inputs_table),
+    ("README.md", _readme_intro_inputs),
     ("pyproject.toml", _pyproject_description),
     ("action.yml", _action_yml_description),
     ("docs/faq.md", _faq_inputs_block),
+    ("docs/faq.md", _faq_tool_surface_paragraph),
+    ("docs/overview.md", _markdown_supported_inputs_section),
+    ("docs/ai-search-summary.md", _markdown_supported_inputs_section),
+    ("skills/agents-shipgate/SKILL.md", _skill_md_intro),
+    ("docs/design-partners.md", _design_partners_good_fit_bullet),
 )
 
 
