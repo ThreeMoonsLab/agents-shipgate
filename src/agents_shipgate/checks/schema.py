@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.domain import (
+    Tool,
+    ToolParameter,
+)
 from agents_shipgate.core.heuristics import (
     BROAD_FREE_TEXT_PARAMETER_NAMES,
     RISKY_NUMERIC_PARAMETER_NAMES,
 )
-from agents_shipgate.core.models import Tool, ToolParameter
 from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, is_write_tool
 
 

@@ -1,7 +1,7 @@
 """``shipgate detect`` — classify a workspace as an agent project.
 
 Read-only. Walks the workspace, scores per-framework signals, and emits a
-:class:`agents_shipgate.cli.discovery.signals.DetectResult` payload. Useful
+:class:`agents_shipgate.schemas.detect.DetectResult` payload. Useful
 for AI coding agents deciding whether to run ``init`` next; also exposed as
 a library function so ``init`` Pass B can reuse the detection results.
 
@@ -17,11 +17,11 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.diagnostics import (
-    Diagnostic,
     diagnose_detect,
     top_next_actions,
 )
 from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.schemas.diagnostics import Diagnostic
 
 
 def detect(

@@ -26,14 +26,14 @@ import hashlib
 from collections.abc import Callable
 from pathlib import Path
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.models import Finding
-from agents_shipgate.core.patches import (
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.patches import (
     AppendPointerPatch,
     ManualPatch,
     Patch,
     RemovePointerPatch,
 )
+from agents_shipgate.schemas.report import Finding
 
 GeneratorFn = Callable[
     ["PatchContext", Finding],

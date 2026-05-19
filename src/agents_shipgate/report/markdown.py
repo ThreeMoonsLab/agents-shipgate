@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.findings import SEVERITY_ORDER
-from agents_shipgate.core.models import (
+from agents_shipgate.schemas.report import (
     DeclaredIntention,
     Finding,
     Misalignment,

@@ -2,13 +2,15 @@ from pathlib import Path
 
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import (
+from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReportSummary,
+    ToolSurfaceSummary,
+)
+from agents_shipgate.schemas.surfaces import (
     ToolSurfaceDiff,
     ToolSurfaceDiffSummary,
     ToolSurfaceHighRiskEffectChange,
-    ToolSurfaceSummary,
 )
 
 

@@ -32,12 +32,16 @@ from agents_shipgate.core.findings import (
     _REMEDIATION_FALLBACK,
     annotate_remediation,
 )
-from agents_shipgate.core.models import CheckMetadata, Finding, ReadinessReport
-from agents_shipgate.core.patches import (
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.patches import (
     AppendPointerPatch,
     ManualPatch,
     RemovePointerPatch,
     SetPointerPatch,
+)
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
 )
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"

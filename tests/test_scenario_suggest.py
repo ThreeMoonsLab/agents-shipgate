@@ -7,7 +7,8 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.cli.scenario import scenario_yaml_payload
-from agents_shipgate.core.models import (
+from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.report import (
     Finding,
     Misalignment,
     ReadinessReport,
@@ -15,7 +16,6 @@ from agents_shipgate.core.models import (
     SuggestedScenario,
     ToolSurfaceSummary,
 )
-from agents_shipgate.report.json_report import report_json_payload
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 ACTIVE_SCENARIO_SEVERITIES = {"critical", "high", "medium"}

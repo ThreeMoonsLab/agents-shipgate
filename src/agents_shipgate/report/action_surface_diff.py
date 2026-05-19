@@ -6,14 +6,22 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from agents_shipgate.config.schema import (
+from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
+from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _stable_hash
+from agents_shipgate.schemas.common import (
+    Severity,
+    SourceReference,
+)
+from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionPolicyConfig,
     AgentsShipgateManifest,
 )
-from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.core.models import (
+from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.surfaces import (
     ActionApprovalFact,
     ActionEvidenceFact,
     ActionFact,
@@ -23,14 +31,8 @@ from agents_shipgate.core.models import (
     ActionSurfaceDiffSummary,
     ActionSurfaceFacts,
     ActionSurfaceHashes,
-    Finding,
-    Severity,
-    SourceReference,
-    Tool,
     ToolSurfaceDiffBase,
 )
-from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
-from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _stable_hash
 
 _RISK_TAG_MAP = {
     "read_only": "read_only",

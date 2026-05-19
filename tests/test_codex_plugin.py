@@ -6,15 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.diagnostics import (
-    DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,
-    diagnose_detect,
-)
+from agents_shipgate.cli.diagnostics import diagnose_detect
 from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.schemas.diagnostics import DIAG_CODEX_PLUGIN_PACKAGE_DETECTED
 
 
 def test_codex_plugin_package_scan_keeps_non_tools_out_of_inventory(

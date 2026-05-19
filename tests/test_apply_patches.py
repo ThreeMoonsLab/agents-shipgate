@@ -357,7 +357,7 @@ def test_multi_remove_against_same_list_does_not_corrupt(tmp_path: Path) -> None
     Fix: removes are now sorted so higher list indexes fire first.
     """
     from agents_shipgate.cli.apply_patches import _apply_yaml
-    from agents_shipgate.core.patches import RemovePointerPatch
+    from agents_shipgate.schemas.patches import RemovePointerPatch
 
     text = (
         "policies:\n"
@@ -442,7 +442,7 @@ def test_multi_remove_index_overflow_does_not_crash(tmp_path: Path) -> None:
     crash with IndexError after fix=False. Sorted highest-first, both
     succeed and the list is empty."""
     from agents_shipgate.cli.apply_patches import _apply_yaml
-    from agents_shipgate.core.patches import RemovePointerPatch
+    from agents_shipgate.schemas.patches import RemovePointerPatch
 
     text = (
         "policies:\n"

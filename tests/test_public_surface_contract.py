@@ -27,16 +27,16 @@ from typing import get_args
 import pytest
 
 from agents_shipgate import __version__
-from agents_shipgate.cli.diagnostics import NextActionKind
-from agents_shipgate.contract import (
+from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
+from agents_shipgate.report.markdown import DISCLAIMER
+from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
     build_contract_payload,
 )
-from agents_shipgate.core.models import ReadinessReport
-from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
-from agents_shipgate.packet.models import EvidencePacket
-from agents_shipgate.report.markdown import DISCLAIMER
+from agents_shipgate.schemas.diagnostics import NextActionKind
+from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

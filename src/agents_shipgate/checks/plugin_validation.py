@@ -54,7 +54,8 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import CheckMetadata, Finding
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.report import Finding
 
 PluginCheck = Callable[[ScanContext], list[Finding]]
 

@@ -6,32 +6,39 @@ import shlex
 from collections import Counter, defaultdict
 
 from agents_shipgate.ci.release_decision import build_release_decision
-from agents_shipgate.config.schema import AgentsShipgateManifest, SuppressionConfig
 from agents_shipgate.core.check_ids import expands_to_check_id
-from agents_shipgate.core.models import (
-    ActionSurfaceDiff,
-    ActionSurfaceFacts,
+from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
+from agents_shipgate.schemas.common import (
     AgentAction,
+    Severity,
+    confidence_rank,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    SuppressionConfig,
+)
+from agents_shipgate.schemas.patches import ManualPatch
+from agents_shipgate.schemas.report import (
     AgentSummary,
     AgentSummaryAction,
     BaselineSummary,
-    CheckMetadata,
-    CodexPluginSurface,
     Finding,
     LoadedPolicyPack,
     PolicyAudit,
     ReadinessReport,
     ReleaseDecision,
     ReportSummary,
-    Severity,
-    Tool,
+    ToolSurfaceSummary,
+)
+from agents_shipgate.schemas.surfaces import (
+    ActionSurfaceDiff,
+    ActionSurfaceFacts,
     ToolSurfaceDiff,
     ToolSurfaceFacts,
-    ToolSurfaceSummary,
-    confidence_rank,
 )
-from agents_shipgate.core.patches import ManualPatch
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 FINGERPRINT_EXCLUDED_EVIDENCE_KEYS = {

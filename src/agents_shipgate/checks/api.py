@@ -3,12 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.core.artifact_models import (
+    AnthropicArtifacts,
+    OpenAIApiArtifacts,
+)
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.domain import (
+    Tool,
+    ToolParameter,
+)
 from agents_shipgate.core.heuristics import (
     BROAD_FREE_TEXT_PARAMETER_NAMES,
     RISKY_NUMERIC_PARAMETER_NAMES,
 )
-from agents_shipgate.core.models import AnthropicArtifacts, OpenAIApiArtifacts, Tool, ToolParameter
 from agents_shipgate.core.risk_hints import (
     has_risk_tag,
     is_high_risk_tool,

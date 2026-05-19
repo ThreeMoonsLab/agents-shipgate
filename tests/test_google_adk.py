@@ -2,9 +2,9 @@ import json
 
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
-from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
+from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 
 def test_google_adk_python_static_extraction_without_importing_user_code(tmp_path):

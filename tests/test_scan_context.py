@@ -3,11 +3,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import (
-    ActionSurfaceFacts,
-    Agent,
+from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
@@ -17,6 +13,10 @@ from agents_shipgate.core.models import (
     OpenAIApiArtifacts,
     ValidationArtifacts,
 )
+from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.domain import Agent
+from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
 LEGACY_ARTIFACT_PROPERTIES = (
     ("api_artifacts", "openai_api", OpenAIApiArtifacts),

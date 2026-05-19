@@ -4,8 +4,12 @@ import ast
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
-from agents_shipgate.core.models import AuthInfo, CrewAiArtifacts, LoadedToolSource, Tool
+from agents_shipgate.core.artifact_models import CrewAiArtifacts
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.inputs._python_framework import (
     assignment_call,
     assignment_target,
@@ -33,6 +37,10 @@ from agents_shipgate.inputs.python_static import (
     last_name,
     literal_string,
     pydantic_model_schemas,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
 )
 
 TOOL_DECORATOR_MODULES = {"crewai.tools"}

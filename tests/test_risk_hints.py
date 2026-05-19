@@ -1,17 +1,20 @@
-from agents_shipgate.config.schema import (
-    AgentConfig,
-    AgentsShipgateManifest,
-    EnvironmentConfig,
-    ProjectConfig,
-    ToolSourceConfig,
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    Tool,
 )
-from agents_shipgate.core.models import AuthInfo, Tool
 from agents_shipgate.core.risk_hints import (
     enrich_tools_with_risk_hints,
     has_risk_tag,
     is_effectively_read_only,
     is_high_risk_tool,
     is_write_tool,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentConfig,
+    AgentsShipgateManifest,
+    EnvironmentConfig,
+    ProjectConfig,
+    ToolSourceConfig,
 )
 
 

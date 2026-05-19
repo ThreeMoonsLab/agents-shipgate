@@ -4,8 +4,8 @@ import ast
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import ToolParameter
 from agents_shipgate.inputs.common import load_text_file, schema_to_parameters
 
 SKIPPED_TOOL_PARAMETERS = {

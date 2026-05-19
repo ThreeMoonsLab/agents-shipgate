@@ -213,12 +213,7 @@ def test_html_escapes_user_controlled_strings():
     in the rendered HTML; we never round-trip through a markdown
     renderer that allows raw HTML, so this is a structural guarantee."""
 
-    from agents_shipgate.core.models import (
-        BaselineDelta,
-        EvidenceCoverageDecision,
-        FailPolicy,
-    )
-    from agents_shipgate.packet.models import (
+    from agents_shipgate.schemas.packet import (
         ApprovalCoverageSection,
         CapabilityIntentDiff,
         DynamicScenariosSection,
@@ -231,6 +226,11 @@ def test_html_escapes_user_controlled_strings():
         NotProvenSection,
         ReleaseDecisionSection,
         ScopeCoverageSection,
+    )
+    from agents_shipgate.schemas.report import (
+        BaselineDelta,
+        EvidenceCoverageDecision,
+        FailPolicy,
     )
 
     decision = ReleaseDecisionSection(
@@ -310,14 +310,9 @@ def test_insufficient_evidence_verdict_renders_in_packet():
     `verdict-insufficient` CSS class, and surface a labelled section
     heading in markdown."""
 
-    from agents_shipgate.core.models import (
-        BaselineDelta,
-        EvidenceCoverageDecision,
-        FailPolicy,
-    )
     from agents_shipgate.packet.builder import _VERDICT_BY_DECISION
     from agents_shipgate.packet.html import _VERDICT_CLASS
-    from agents_shipgate.packet.models import (
+    from agents_shipgate.schemas.packet import (
         ApprovalCoverageSection,
         CapabilityIntentDiff,
         DynamicScenariosSection,
@@ -329,6 +324,11 @@ def test_insufficient_evidence_verdict_renders_in_packet():
         NotProvenSection,
         ReleaseDecisionSection,
         ScopeCoverageSection,
+    )
+    from agents_shipgate.schemas.report import (
+        BaselineDelta,
+        EvidenceCoverageDecision,
+        FailPolicy,
     )
 
     assert _VERDICT_BY_DECISION["insufficient_evidence"] == "INSUFFICIENT EVIDENCE"

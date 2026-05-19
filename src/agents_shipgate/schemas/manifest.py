@@ -5,7 +5,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agents_shipgate.core.models import Severity
+from agents_shipgate.schemas.common import Severity
 
 STRICT_MODEL_CONFIG = ConfigDict(extra="forbid")
 

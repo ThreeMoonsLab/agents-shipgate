@@ -44,19 +44,13 @@ import re
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    AnthropicConfig,
-    ArtifactPathConfig,
-    ToolSourceConfig,
-)
-from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
-    AnthropicArtifacts,
+from agents_shipgate.core.artifact_models import AnthropicArtifacts
+from agents_shipgate.core.domain import (
     LoadedToolSource,
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     iter_tool_items,
     load_structured_file,
@@ -68,6 +62,12 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    AnthropicConfig,
+    ArtifactPathConfig,
+    ToolSourceConfig,
+)
 
 PROMPT_SUFFIXES = {".md", ".markdown", ".txt"}
 

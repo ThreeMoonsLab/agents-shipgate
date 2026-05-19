@@ -33,7 +33,8 @@ from agents_shipgate.core.check_ids import (
     known_check_ids_with_legacy,
 )
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import CheckMetadata, Finding
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.report import Finding
 
 # Base for `docs_url` values surfaced through `list-checks --json` and
 # (in PR 3) per-finding `docs_url`. Stable per-check anchors are H3

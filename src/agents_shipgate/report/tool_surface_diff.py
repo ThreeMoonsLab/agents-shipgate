@@ -8,18 +8,26 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, PolicyToolEntry
-from agents_shipgate.core.baseline import BaselineFile
+from agents_shipgate.core.artifact_models import (
+    AnthropicArtifacts,
+    OpenAIApiArtifacts,
+)
+from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.core.models import (
-    ActionSurfaceFacts,
-    AnthropicArtifacts,
+from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
+from agents_shipgate.schemas.baseline import BaselineFile
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    PolicyToolEntry,
+)
+from agents_shipgate.schemas.report import (
     Finding,
-    OpenAIApiArtifacts,
     ReadinessReport,
-    Tool,
+)
+from agents_shipgate.schemas.surfaces import (
+    ActionSurfaceFacts,
     ToolSurfaceControlChange,
     ToolSurfaceControlFact,
     ToolSurfaceDiff,
@@ -41,7 +49,6 @@ from agents_shipgate.core.models import (
     ToolSurfaceToolChange,
     ToolSurfaceToolFact,
 )
-from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 
 _METADATA_FIELDS = {"owner", "description", "auth_scopes", "extraction_confidence"}
 

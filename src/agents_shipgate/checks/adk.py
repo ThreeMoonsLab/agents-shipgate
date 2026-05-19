@@ -9,8 +9,11 @@ from agents_shipgate.checks.base import (
     framework_tool_provenance,
     tool_finding,
 )
+from agents_shipgate.core.artifact_models import (
+    GoogleAdkArtifacts,
+    GoogleAdkToolset,
+)
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import GoogleAdkArtifacts, GoogleAdkToolset
 from agents_shipgate.core.risk_hints import is_high_risk_tool
 
 

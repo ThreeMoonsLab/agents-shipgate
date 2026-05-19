@@ -5,9 +5,9 @@ import json
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from agents_shipgate.config.schema import ToolSourceConfig
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 TOOL_NAMES = st.from_regex(r"[A-Za-z][A-Za-z0-9._-]{0,24}", fullmatch=True)
 

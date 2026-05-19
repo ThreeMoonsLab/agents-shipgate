@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agents_shipgate.core.models import Finding
+from agents_shipgate.schemas.report import Finding
 
 
 def finding_tool_names(

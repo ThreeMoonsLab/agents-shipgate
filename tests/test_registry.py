@@ -1,5 +1,5 @@
 from agents_shipgate.checks import registry
-from agents_shipgate.core.models import CheckMetadata
+from agents_shipgate.schemas.checks import CheckMetadata
 
 
 class FakeEntryPoint:

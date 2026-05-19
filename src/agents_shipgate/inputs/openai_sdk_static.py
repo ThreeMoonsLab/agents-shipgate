@@ -4,11 +4,19 @@ import ast
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+    ToolParameter,
+)
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool, ToolParameter
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
+)
 
 DEFAULT_FUNCTION_TOOL_DECORATORS = frozenset(
     {"function_tool", "agents.function_tool", "openai_agents.function_tool"}

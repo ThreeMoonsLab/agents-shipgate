@@ -6,19 +6,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 from agents_shipgate.cli.discovery.artifacts import SKIP_DIR_PREFIXES, SKIP_DIRS
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    ArtifactPathConfig,
-    ToolSourceConfig,
-)
-from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
+from agents_shipgate.core.artifact_models import N8nArtifacts
+from agents_shipgate.core.domain import (
     AuthInfo,
     LoadedToolSource,
-    N8nArtifacts,
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     json_pointer_escape,
     load_structured_file,
@@ -30,6 +25,11 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ArtifactPathConfig,
+    ToolSourceConfig,
+)
 
 N8N_NODE_TYPE_RE = re.compile(r"^(@n8n/)?n8n-nodes-")
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (

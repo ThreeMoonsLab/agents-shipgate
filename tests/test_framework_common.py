@@ -4,9 +4,10 @@ from agents_shipgate.checks._framework_common import (
     DynamicSurfaceConfig,
     collect_dynamic_surface_findings,
 )
-from agents_shipgate.config.schema import AgentsShipgateManifest
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Agent, SourceReference
+from agents_shipgate.core.domain import Agent
+from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 
 def test_collect_dynamic_surface_findings_applies_per_surface_config():

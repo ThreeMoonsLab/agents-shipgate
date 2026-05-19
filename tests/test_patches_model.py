@@ -14,12 +14,12 @@ import pytest
 from pydantic import ValidationError
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import Finding
-from agents_shipgate.core.patches import (
+from agents_shipgate.schemas.patches import (
     ManualPatch,
     RemovePointerPatch,
     SetPointerPatch,
 )
+from agents_shipgate.schemas.report import Finding
 
 SAMPLE = Path(__file__).resolve().parent.parent / "samples" / "support_refund_agent" / "shipgate.yaml"
 

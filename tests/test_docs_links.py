@@ -26,7 +26,7 @@ LINK_RE = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
 # previous hardcoded literal ("v0.11") let the docs go stale relative
 # to the runtime — see PR #57 review P2.
 def _current_report_schema_version() -> str:
-    from agents_shipgate.core.models import ReadinessReport
+    from agents_shipgate.schemas.report import ReadinessReport
 
     return str(ReadinessReport.model_fields["report_schema_version"].default)
 

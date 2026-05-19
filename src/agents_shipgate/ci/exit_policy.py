@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from agents_shipgate.core.models import Finding, ReadinessReport, Severity
+from agents_shipgate.schemas.common import Severity
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
+)
 
 GATE_FAILURE_EXIT_CODE = 20
 

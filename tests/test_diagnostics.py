@@ -9,6 +9,18 @@ import pytest
 
 from agents_shipgate.cli import diagnostics as diag_mod
 from agents_shipgate.cli.diagnostics import (
+    diagnose_detect,
+    diagnose_doctor,
+    diagnose_invalid_manifest,
+    diagnose_missing_manifest,
+    top_next_actions,
+)
+from agents_shipgate.cli.main import app as typer_app
+from agents_shipgate.schemas.detect import (
+    DetectResult,
+    WorkspaceSignals,
+)
+from agents_shipgate.schemas.diagnostics import (
     ALL_DIAGNOSTIC_IDS,
     DIAG_CHANGE_ME_PLACEHOLDERS,
     DIAG_DYNAMIC_TOOLSETS_ONLY,
@@ -23,17 +35,7 @@ from agents_shipgate.cli.diagnostics import (
     DIAG_ZERO_TOOLS,
     Diagnostic,
     NextAction,
-    diagnose_detect,
-    diagnose_doctor,
-    diagnose_invalid_manifest,
-    diagnose_missing_manifest,
-    top_next_actions,
 )
-from agents_shipgate.cli.discovery.signals import (
-    DetectResult,
-    WorkspaceSignals,
-)
-from agents_shipgate.cli.main import app as typer_app
 
 # --- NextAction model invariants -------------------------------------------
 

@@ -9,10 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.discovery.signals import (
-    DetectResult,
-    detect_workspace,
-)
+from agents_shipgate.cli.discovery.signals import detect_workspace
+from agents_shipgate.schemas.detect import DetectResult
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
