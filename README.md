@@ -19,9 +19,9 @@
 
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
-Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, n8n, and
-OpenAI API artifacts, then writes a deterministic **Tool-Use Readiness
-Report** before your agent gets production-like permissions.
+Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
+Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
+Readiness Report** before your agent gets production-like permissions.
 
 **Website:** [threemoonslab.com](https://threemoonslab.com/) —
 [quickstart](https://threemoonslab.com/quickstart/),
@@ -29,8 +29,10 @@ Report** before your agent gets production-like permissions.
 [check catalog](https://threemoonslab.com/checks/), and
 [design partners](https://threemoonslab.com/design-partners/).
 
-No agent execution. No LLM calls. No MCP server connections. No scanner network
-calls. No scanner telemetry. Apache-2.0.
+Static-by-default — no agent execution, no LLM calls, no MCP server connections,
+no scanner network calls, no scanner telemetry. Audited exceptions are pinned
+in [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
+Apache-2.0.
 
 ## One-command quickstart
 
@@ -410,7 +412,7 @@ agents-shipgate scan --config shipgate.yaml --policy-pack policies/org-release.y
 
 Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 
-- It does not run agents, call tools, invoke LLMs, or verify model availability.
+- It does not run agents, call tools, invoke LLMs, or verify model availability by default (static-by-default; see [Trust Model](#trust-model) and [`ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)).
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.

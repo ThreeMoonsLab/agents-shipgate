@@ -9,8 +9,8 @@ production-like permissions are granted.
 You are likely a good fit if your team:
 
 - Ships agents that call tools through MCP, OpenAPI, OpenAI Agents SDK,
-  Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, or OpenAI
-  Agents API artifacts.
+  Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API
+  artifacts, Codex plugin packages and marketplaces, or n8n workflows.
 - Has tools that refund, email, cancel, deploy, modify records, read sensitive
   data, or change infrastructure.
 - Wants advisory PR evidence before moving to stricter CI behavior.

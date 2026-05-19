@@ -2,8 +2,9 @@
 
 Copy-pasteable workflows for AI coding agents (Claude Code, Codex, Cursor,
 Aider) that need to drive `agents-shipgate` end-to-end without prompting
-the user. Every command is read-only or schema-validated; no agent
-execution, no LLM calls, no network access.
+the user. Every command is read-only or schema-validated;
+static-by-default, with audited exceptions pinned in
+[`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](../tests/test_adapter_static_only.py).
 
 > If you are a human, [`quickstart.md`](quickstart.md) is the friendlier
 > entry point. This page is structured for agents that consume `--json`.
