@@ -1,6 +1,6 @@
 # agents-shipgate
 
-> Static release-readiness gate for AI agent tool surfaces. CLI and GitHub Action. Apache-2.0.
+> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. CLI and GitHub Action. Apache-2.0.
 
 ## Identity
 
@@ -18,7 +18,7 @@
 
 ## What it is
 
-- Agents Shipgate is a static, manifest-first scanner.
+- Agents Shipgate is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 - Agents Shipgate reads `shipgate.yaml` plus declared local tool sources.
 - Agents Shipgate writes deterministic findings as Markdown, JSON, and SARIF.
 - Agents Shipgate fits the release-gate slot for tool-using AI agents.
@@ -100,8 +100,8 @@
 
 ## Category vocabulary
 
-- Agent release readiness: static, manifest-based pre-flight checks on AI agent tool surfaces before promotion.
-- Agent release gate: the CI mechanism that runs tool-use readiness checks on every PR.
+- Agent release readiness: the broader static pre-flight review space for AI agent release artifacts.
+- Tool-Use Readiness release gate: the CI mechanism that runs tool-use readiness checks on every PR.
 - Tool-use readiness: the seven-dimensional release check on an agent's tool surface.
 - Tool surface: the set of named, schemaed actions an agent can invoke.
 - Tool surface drift: divergence between the tools reviewed at release time and the tools exposed at runtime.
@@ -111,8 +111,8 @@
 
 ## Trajectory
 
-- Today: static release-readiness checks for declared AI agent tool surfaces.
-- Next: baselines, suppressions, runtime evidence, and release-review evidence across the agent lifecycle.
+- Today: local-first, static Tool-Use Readiness checks for declared AI agent tool surfaces.
+- Next: baselines, suppressions, runtime evidence attachment, and reviewer evidence for Tool-Use Readiness.
 
 ## Maintainer
 

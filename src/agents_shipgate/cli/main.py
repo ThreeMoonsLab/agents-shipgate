@@ -25,7 +25,7 @@ from agents_shipgate.cli.self_check import self_check
 
 app = typer.Typer(
     name="agents-shipgate",
-    help="Manifest-first release readiness scanner for agent tool surfaces.",
+    help="Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.",
     no_args_is_help=True,
     invoke_without_command=True,
 )

@@ -5,9 +5,9 @@ and AI search engines (ChatGPT, Claude, Perplexity, Google AI Overviews).
 
 ## What is agents-shipgate?
 
-agents-shipgate is a static, manifest-first scanner that catches risky
-agent tool configurations at PR time. It is a CLI and GitHub Action.
-Open source, Apache-2.0.
+agents-shipgate is a local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces. It is a CLI and GitHub Action. Open source,
+Apache-2.0.
 
 ## What is agent release readiness?
 
@@ -34,7 +34,7 @@ artifacts.
 ## How does agents-shipgate work?
 
 agents-shipgate reads `shipgate.yaml` plus declared local tool sources,
-normalizes them into a static inventory, runs deterministic release-readiness
+normalizes them into a static inventory, runs deterministic Tool-Use Readiness
 checks, and writes Markdown, JSON, and optional SARIF reports. It does not run
 the agent, call tools, invoke LLMs, connect to MCP servers, or collect scanner
 telemetry by default.
@@ -92,7 +92,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.10, current). Always parse this for programmatic use.
+  (schema v0.17, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
@@ -158,9 +158,9 @@ surfaced in the PR comment but doesn't fail the build.
 
 ## Does it certify my agent as safe?
 
-No. agents-shipgate is an advisory release-readiness scanner, not a
-safety or compliance certification. It produces evidence for human
-review; it does not replace human review. See
+No. agents-shipgate is an advisory Tool-Use Readiness release gate, not a
+safety or compliance certification. It produces evidence for human review; it
+does not replace human review. See
 [`docs/trust-model.md`](trust-model.md).
 
 ## Why "agents-shipgate" and not "agent-shipgate" or "agent shipcheck"?

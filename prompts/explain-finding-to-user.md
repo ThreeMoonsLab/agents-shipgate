@@ -64,7 +64,7 @@ Input (from `explain-finding fp_f092940f62fbb012 --from ... --json`):
 
 Good prose for a PR comment:
 
-> The release-readiness scan flagged a critical issue: `stripe.create_refund` doesn't declare an approval policy in `shipgate.yaml`. High-risk actions like refunds need an explicit human approval gate before they can ship — without one, an agent could trigger a refund on its own without review. There's no automatic fix here. The right remediation is to either add `policies.require_approval_for_tools: [stripe.create_refund]` (with a reviewer-visible approval trace) or remove the tool from this release surface. Want me to draft the manifest change for you?
+> The Tool-Use Readiness scan flagged a critical issue: `stripe.create_refund` doesn't declare an approval policy in `shipgate.yaml`. High-risk actions like refunds need an explicit human approval gate before they can ship — without one, an agent could trigger a refund on its own without review. There's no automatic fix here. The right remediation is to either add `policies.require_approval_for_tools: [stripe.create_refund]` (with a reviewer-visible approval trace) or remove the tool from this release surface. Want me to draft the manifest change for you?
 
 Bad prose for the same input:
 

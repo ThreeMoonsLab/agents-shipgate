@@ -33,7 +33,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Static release-readiness gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
+Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, n8n workflow JSON/stubs) and produces deterministic findings.
 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · n8n
 - **Outputs:** Markdown · JSON · SARIF
@@ -56,9 +56,13 @@ Do **not** use any of: `Agent Shipgate` (singular), `Agent Shipcheck`, `agents s
 
 The canonical tagline is:
 
-> Static release-readiness gate for AI agent tool surfaces.
+> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 
 This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync.
+
+Use **Tool-Use Readiness** in Title Case when naming the product/category or
+the **Tool-Use Readiness Report** artifact. Use **tool-use readiness** in
+sentence case when describing the general concept.
 
 ---
 
@@ -1629,9 +1633,10 @@ credential IDs may be preserved as local release evidence.
 
 # Concepts
 
-The mental model behind agents-shipgate, in one page.
+The mental model behind Agents Shipgate, a local-first, static Tool-Use
+Readiness release gate for AI agent tool surfaces.
 
-For the product-level definition of an "agent release gate," see
+For the product-level definition of a Tool-Use Readiness release gate, see
 [`category.md`](category.md). For the agent-facing
 walkthrough, see [`AGENTS.md`](../AGENTS.md).
 
@@ -1692,7 +1697,7 @@ agents-shipgate is **static**. It does not run the agent, invoke the
 model, call MCP servers, or make any network calls by default. Every
 finding is derived from the artifact diff alone.
 
-Static analysis covers the release-readiness slice. Dynamic concerns —
+Static analysis covers the Tool-Use Readiness release slice. Dynamic concerns —
 behavior under unusual inputs, runtime tool routing, latency,
 hallucination — belong in evals, observability, and runtime guardrails.
 agents-shipgate is additive to those, not a replacement.

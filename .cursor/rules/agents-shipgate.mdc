@@ -1,5 +1,5 @@
 ---
-description: Run Agents Shipgate for AI agent tool-surface release readiness.
+description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"
@@ -27,6 +27,9 @@ globs:
   - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
+
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.

@@ -49,7 +49,7 @@ cp -r /path/to/agents-shipgate/skills/agents-shipgate .claude/skills/agents-ship
 Open Claude Code in the project. Two checks:
 
 1. Type `/shipgate` and confirm the command shows up. It should run the bootstrap flow (slash command, NOT the skill).
-2. In a fresh chat, ask "add release-readiness checks for this agent" without saying the word "shipgate" — the `agents-shipgate` skill should auto-trigger.
+2. In a fresh chat, ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate" — the `agents-shipgate` skill should auto-trigger.
 
 If `/shipgate` runs the bootstrap end-to-end, you are done. The first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and produces `agents-shipgate-reports/report.json`.
 

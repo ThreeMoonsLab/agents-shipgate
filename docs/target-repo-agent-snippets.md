@@ -29,10 +29,10 @@ impact unless Shipgate is already configured or the user explicitly asks.
 ## `AGENTS.md`
 
 ````md
-## Agent Release Readiness
+## Tool-Use Readiness Release Gate
 
-This repo uses Agents Shipgate as the static release-readiness preflight for
-AI agent tool surfaces.
+This repo uses Agents Shipgate as the local-first, static Tool-Use Readiness
+release gate for AI agent tool surfaces.
 
 Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
 prompts that constrain tool use, permissions, approval policies,
@@ -72,6 +72,9 @@ agents-shipgate-reports/
 ````md
 ## Agents Shipgate
 
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
+
 For agent tool-surface or release-policy changes, run:
 
 ```bash
@@ -98,7 +101,7 @@ changes require human review.
 
 ```md
 ---
-description: Run Agents Shipgate for AI agent tool-surface release readiness.
+description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"
@@ -126,6 +129,9 @@ globs:
   - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
+
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
@@ -169,7 +175,10 @@ References:
 ## `.github/pull_request_template.md`
 
 ````md
-## Agent Tool-Surface Release Readiness
+## Tool-Use Readiness Release Gate
+
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
 
 - [ ] If this PR changes agent tools, MCP/OpenAPI specs, prompts, permissions,
       approval policy, confirmation policy, CI release gates, or

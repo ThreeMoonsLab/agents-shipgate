@@ -34,7 +34,9 @@ from agents_shipgate.contract import (
     build_contract_payload,
 )
 from agents_shipgate.core.models import ReadinessReport
+from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.report.markdown import DISCLAIMER
 from agents_shipgate.triggers import evaluate, load_triggers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -112,6 +114,52 @@ DO_NOT_USE_CONTEXT_PATTERN = re.compile(
     r"do\s*\*{0,2}\s*not\s*\*{0,2}\s*use|avoid these names|forbidden",
     re.IGNORECASE,
 )
+POSITIONING_PHRASE = (
+    "Local-first, static Tool-Use Readiness release gate for "
+    "AI agent tool surfaces"
+)
+POSITIONING_SCAN_DOCSTRING = (
+    "local-first, static Tool-Use Readiness release gate for "
+    "AI agent tool surfaces"
+)
+POSITIONING_SURFACES = (
+    "README.md",
+    "AGENTS.md",
+    "pyproject.toml",
+    "action.yml",
+    ".well-known/agents-shipgate.json",
+    "llms.txt",
+    "docs/overview.md",
+    "docs/category.md",
+    "docs/faq.md",
+    "docs/concepts.md",
+    "docs/glossary.md",
+    "docs/ai-search-summary.md",
+    "docs/target-repo-agent-snippets.md",
+    "benchmark/setup-variants/10-agents-md/AGENTS.md.template",
+    "skills/agents-shipgate/SKILL.md",
+    ".claude/commands/shipgate.md",
+    ".cursor/rules/agents-shipgate.mdc",
+    "src/agents_shipgate/cli/main.py",
+    "src/agents_shipgate/cli/discovery/agent_instructions/renderers/agents_md.py",
+    "src/agents_shipgate/cli/discovery/agent_instructions/renderers/claude_md.py",
+    "src/agents_shipgate/cli/discovery/agent_instructions/renderers/cursor.py",
+    "src/agents_shipgate/cli/discovery/agent_instructions/renderers/pr_template.py",
+)
+PRIMARY_POSITIONING_SURFACES = (
+    *POSITIONING_SURFACES,
+    "src/agents_shipgate/cli/_register_scan.py",
+    "src/agents_shipgate/report/markdown.py",
+    "src/agents_shipgate/packet/disclaimer.py",
+)
+BROAD_POSITIONING_PATTERN = re.compile(
+    r"healthcare[\s\-]+for[\s\-]+agents|"
+    r"agent[\s\-]+lifecycle[\s\-]+readiness|"
+    r"governance[\s\-]+platform|"
+    r"enterprise[\s\-]+governance|"
+    r"across[\s\-]+the[\s\-]+agent[\s\-]+lifecycle",
+    re.IGNORECASE,
+)
 
 # The public agent surface. A coding agent reading any of these decides
 # how to integrate; drift here directly causes adoption regressions.
@@ -180,6 +228,10 @@ def _has_legacy_context(text: str, start: int, end: int) -> bool:
 def _has_current_context(text: str, start: int, end: int) -> bool:
     snippet = text[max(0, start - CONTEXT_WINDOW): end + CONTEXT_WINDOW]
     return bool(CURRENT_CONTEXT_WORDS.search(snippet))
+
+
+def _normalize_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
 
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
@@ -1144,6 +1196,76 @@ def test_forbidden_display_names_only_in_do_not_use_lists(relpath):
             "`Agents Shipgate` instead.\n  line: "
             f"{line.strip()!r}"
         )
+
+
+@pytest.mark.parametrize("relpath", POSITIONING_SURFACES)
+def test_primary_surfaces_use_mvp_wedge_positioning(relpath):
+    """Primary adoption and metadata surfaces must describe the current
+    MVP wedge, not the broader agent-lifecycle roadmap."""
+    text = _normalize_ws(_read(relpath)).lower()
+    assert POSITIONING_PHRASE.lower() in text, (
+        f"{relpath} must use the current MVP positioning phrase "
+        f"{POSITIONING_PHRASE!r}."
+    )
+
+
+def test_scan_help_uses_tool_use_readiness_positioning():
+    text = _normalize_ws(_read("src/agents_shipgate/cli/_register_scan.py"))
+    assert POSITIONING_SCAN_DOCSTRING.lower() in text.lower(), (
+        "scan command docstring must use the local-first, static Tool-Use "
+        "Readiness release gate positioning."
+    )
+
+
+def test_structured_metadata_fields_use_mvp_wedge_positioning():
+    well_known = json.loads(_read(".well-known/agents-shipgate.json"))
+    assert well_known["tagline"] == POSITIONING_PHRASE
+
+    pyproject = tomllib.loads(_read("pyproject.toml"))
+    description = pyproject["project"]["description"]
+    assert description.startswith(f"{POSITIONING_PHRASE}.")
+
+
+def test_report_and_packet_disclaimers_use_mvp_wedge_positioning():
+    assert "advisory" in DISCLAIMER.lower()
+    assert "advisory" in PACKET_NON_PROOF_HEADLINE.lower()
+    assert POSITIONING_PHRASE.lower() in DISCLAIMER.lower()
+    assert POSITIONING_PHRASE.lower() in PACKET_NON_PROOF_HEADLINE.lower()
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "healthcare for agents",
+        "healthcare-for-agents",
+        "agent lifecycle readiness",
+        "agent-lifecycle readiness",
+        "agent-lifecycle-readiness",
+        "governance platform",
+        "governance-platform",
+        "enterprise governance",
+        "enterprise-governance",
+        "across the agent lifecycle",
+        "across-the-agent-lifecycle",
+    ],
+)
+def test_broad_positioning_pattern_catches_space_and_hyphen_variants(phrase):
+    assert BROAD_POSITIONING_PATTERN.search(phrase)
+
+
+@pytest.mark.parametrize("relpath", PRIMARY_POSITIONING_SURFACES)
+def test_primary_surfaces_do_not_claim_broad_agent_healthcare(relpath):
+    """The MVP public surface is Tool-Use Readiness. Broader healthcare,
+    lifecycle, and enterprise-governance language belongs in explicitly
+    roadmap/thesis material, not adoption paths."""
+    text = _read(relpath)
+    match = BROAD_POSITIONING_PATTERN.search(text)
+    assert match is None, (
+        f"{relpath} uses broad positioning phrase {match.group(0)!r}. "
+        "Keep primary surfaces focused on the Tool-Use Readiness static "
+        "release gate; put lifecycle/healthcare/governance-platform "
+        "language only in roadmap or thesis material."
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
-## Agent Release Readiness
+## Tool-Use Readiness Release Gate
 
-This repo uses Agents Shipgate as the static release-readiness preflight for
-AI agent tool surfaces.
+This repo uses Agents Shipgate as the local-first, static Tool-Use Readiness
+release gate for AI agent tool surfaces.
 
 Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
 prompts that constrain tool use, permissions, approval policies,

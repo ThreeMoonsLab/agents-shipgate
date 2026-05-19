@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme-header-dark.png">
-    <img src="assets/readme-header.png" alt="Agents Shipgate · static release-readiness gate for AI agent tool surfaces" width="100%">
+    <img src="assets/readme-header.png" alt="Agents Shipgate · local-first, static Tool-Use Readiness release gate for AI agent tool surfaces" width="100%">
   </picture>
 </p>
 
@@ -13,15 +13,15 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**Static release checks for tool-using AI agents.**
+**Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.**
 
-<!-- Canonical tagline: Static release-readiness gate for AI agent tool surfaces. -->
+<!-- Canonical tagline: Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. -->
 
-Agents Shipgate is an open-source CLI and GitHub Action that scans MCP,
-OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
-LangChain/LangGraph, CrewAI, n8n, and OpenAI API artifacts, then writes a
-deterministic **Tool-Use Readiness Report** before your agent gets
-production-like permissions.
+Agents Shipgate is an open-source CLI and GitHub Action for local-first,
+static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
+Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, n8n, and
+OpenAI API artifacts, then writes a deterministic **Tool-Use Readiness
+Report** before your agent gets production-like permissions.
 
 **Website:** [threemoonslab.com](https://threemoonslab.com/) —
 [quickstart](https://threemoonslab.com/quickstart/),
@@ -88,7 +88,7 @@ Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md
 ## Copy this into your coding agent
 
 ```text
-Add static release checks for this tool-using AI agent with Agents Shipgate.
+Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
 Run:
 agents-shipgate detect --workspace . --json
 If Shipgate is relevant, run:
@@ -237,9 +237,9 @@ Once an AI agent can refund, email, cancel, deploy, or modify a record, every to
 
 Agents Shipgate produces a deterministic answer to that question, before promotion.
 
-The longer thesis — *healthcare for agents* and the broader
-[agent lifecycle readiness](https://threemoonslab.com/about/) roadmap — lives on
-the marketing site.
+The current product promise is deliberately narrow: a local-first, static
+Tool-Use Readiness release gate. Broader lifecycle ideas are future roadmap
+work, not claims this scanner makes today.
 
 ## Findings Gallery
 
@@ -486,7 +486,7 @@ the same canonical concepts in human-readable, search-optimised form:
 below are the canonical contract; the marketing pages are sized for first-time
 readers and AI search ingest.
 
-- [Agent Release Gate category](docs/category.md)
+- [Tool-Use Readiness release gate category](docs/category.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)

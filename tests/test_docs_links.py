@@ -206,7 +206,7 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
 
 def test_readme_onboarding_copy_pins_agent_contract():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Static release checks for tool-using AI agents" in text
+    assert "Local-first, static Tool-Use Readiness release gate" in text
     assert "5-minute" in text
     assert "Copy this into your coding agent" in text
     assert "https://github.com/marketplace/actions/agents-shipgate" in text

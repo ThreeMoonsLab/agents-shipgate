@@ -13,10 +13,10 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
 
 def render_block() -> str:
     """Return the inner content (between markers) for AGENTS.md."""
-    return f"""## Agent Release Readiness
+    return f"""## Tool-Use Readiness Release Gate
 
-This repo uses Agents Shipgate as the static release-readiness preflight for
-AI agent tool surfaces.
+This repo uses Agents Shipgate as the local-first, static Tool-Use Readiness
+release gate for AI agent tool surfaces.
 
 Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
 prompts that constrain tool use, permissions, approval policies,
