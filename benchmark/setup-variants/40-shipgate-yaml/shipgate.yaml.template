@@ -20,8 +20,7 @@ agent:
 environment:
   target: local
 
-tool_sources:
-{{TOOL_SOURCES}}
+{{TOOL_SURFACE}}
 
 policies:
   require_approval_for_tools: []

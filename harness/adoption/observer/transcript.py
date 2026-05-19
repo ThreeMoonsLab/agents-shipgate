@@ -16,7 +16,7 @@ serialization with subtly different shapes.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ class TranscriptWriter:
             except Exception:
                 pass
 
-    def __enter__(self) -> "TranscriptWriter":
+    def __enter__(self) -> TranscriptWriter:
         return self
 
     def __exit__(self, *_exc: Any) -> None:
@@ -61,7 +61,7 @@ class TranscriptWriter:
 
     @staticmethod
     def _write(handle: Any, payload: dict[str, Any]) -> None:
-        payload = {"ts": datetime.now(timezone.utc).isoformat(), **payload}
+        payload = {"ts": datetime.now(UTC).isoformat(), **payload}
         handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
         handle.flush()
 

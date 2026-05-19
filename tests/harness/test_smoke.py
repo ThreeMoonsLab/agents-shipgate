@@ -7,8 +7,6 @@ cleanly, one that trips multiple blockers. The fixtures live under
 """
 from __future__ import annotations
 
-import os
-import shutil
 from pathlib import Path
 
 import pytest

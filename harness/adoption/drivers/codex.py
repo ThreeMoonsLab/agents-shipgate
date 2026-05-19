@@ -11,9 +11,9 @@ fast with a clear message.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from harness.adoption.drivers.base import AgentDriver, DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult
 from harness.adoption.observer.transcript import TranscriptWriter
 
 
@@ -21,7 +21,7 @@ class CodexDriver:
     name = "codex"
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         msg = (
             "Codex driver is a v2 stub. Edit matrix.yaml to remove codex cells "
             "or install and wire up the Codex CLI per docs/adoption-harness-automated.md."

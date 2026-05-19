@@ -78,8 +78,28 @@ def materialize(root: Path | None = None, *, force: bool = False) -> list[SyncRe
 
 
 def _ignore(_src: str, names: list[str]) -> list[str]:
-    """Skip non-fixture artifacts that would just bloat the vendored copy."""
-    drop = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "expected", "evals"}
+    """Drop non-fixture artifacts AND any pre-existing Shipgate adoption.
+
+    The benchmark archetype must look like an un-adopted target repo so the
+    ``00-no-hints`` variant is actually no-hints. Any Shipgate config, report
+    tree, or `.agents-shipgate/` cache in the source sample would leak through
+    and contaminate the "discover Shipgate cold" criterion.
+    """
+    drop = {
+        # build / IDE noise
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        # sample-only outputs that should not appear in a target repo
+        "expected",
+        "evals",
+        # Shipgate adoption — must not leak into 00-no-hints workspaces
+        "shipgate.yaml",
+        "shipgate.yml",
+        ".agents-shipgate",
+        "agents-shipgate-reports",
+    }
     return [n for n in names if n in drop]
 
 

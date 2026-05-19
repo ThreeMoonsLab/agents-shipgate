@@ -12,10 +12,9 @@ behaviour capture.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
-from harness.adoption.drivers.base import AgentDriver, DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult
 from harness.adoption.observer.transcript import TranscriptWriter
 
 CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (
@@ -51,7 +50,7 @@ class CursorStaticDriver:
     name = "cursor-static"
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         rule_path = inputs.workspace / ".cursor" / "rules" / "agents-shipgate.mdc"
 
         if not rule_path.is_file():
@@ -63,7 +62,7 @@ class CursorStaticDriver:
                     "summary": "No .cursor/rules/agents-shipgate.mdc present.",
                 }
             )
-            ended = datetime.now(timezone.utc)
+            ended = datetime.now(UTC)
             return RunResult(
                 started_at=started,
                 ended_at=ended,
@@ -124,7 +123,7 @@ class CursorStaticDriver:
             f"- triggers_present: {triggers_hit}\n"
             f"- verdict: {verdict}\n"
         )
-        ended = datetime.now(timezone.utc)
+        ended = datetime.now(UTC)
         return RunResult(
             started_at=started,
             ended_at=ended,

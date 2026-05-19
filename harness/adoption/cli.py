@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -61,8 +59,8 @@ def run(
         "--out",
         help="Output root for raw + redacted artifacts.",
     ),
-    run_id: Optional[str] = typer.Option(None, "--run-id"),
-    results_csv: Optional[Path] = typer.Option(
+    run_id: str | None = typer.Option(None, "--run-id"),
+    results_csv: Path | None = typer.Option(
         None,
         "--results-csv",
         help="CSV row destination. Defaults to benchmark/results/<run-id>.csv.",
@@ -72,7 +70,7 @@ def run(
         "--budget-usd",
         help="Hard cap on cumulative cost_usd_estimate; aborts on overrun.",
     ),
-    agent_filter: Optional[str] = typer.Option(
+    agent_filter: str | None = typer.Option(
         None,
         "--agent",
         help="Comma-separated agent filter, e.g. 'claude-code,cursor-static'.",
@@ -192,7 +190,7 @@ def report(
 
 
 def _default_run_id(prefix: str = "run") -> str:
-    return f"{prefix}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    return f"{prefix}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
 
 
 def _select_driver(agent: str):

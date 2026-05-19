@@ -8,4 +8,4 @@ required_placeholders:
   - REPO_NAME
   - AGENT_NAME
   - ONE_LINE_PURPOSE
-  - TOOL_SOURCES
+  - TOOL_SURFACE

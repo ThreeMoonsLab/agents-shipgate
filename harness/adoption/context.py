@@ -37,17 +37,35 @@ class ToolSource:
 
 @dataclass(frozen=True)
 class ArchetypeContext:
-    """Per-archetype values consumed by the overlay renderer."""
+    """Per-archetype values consumed by the overlay renderer.
+
+    ``tool_surface_block()`` returns the full top-level config block — usually
+    ``tool_sources:``, but ``n8n:`` for the n8n archetype per the manifest
+    spec at docs/manifest-v0.1.md::n8n. The template consumes ``{{TOOL_SURFACE}}``
+    rather than hardcoding ``tool_sources:`` so this dispatch is clean.
+    """
 
     repo_name: str
     agent_name: str
     one_line_purpose: str
     tool_sources: list[ToolSource] = field(default_factory=list)
+    n8n_workflows_path: str | None = None
+    """If set, the archetype uses the top-level ``n8n:`` config block with this
+    directory as the only ``workflows[].path`` entry. ``tool_sources`` is then
+    expected to be empty."""
 
-    def tool_sources_yaml(self) -> str:
+    def tool_surface_block(self) -> str:
+        """Return the top-level config block for this archetype's tool surface."""
+        if self.n8n_workflows_path is not None:
+            return (
+                "n8n:\n"
+                "  workflows:\n"
+                f"    - path: {self.n8n_workflows_path}\n"
+                "tool_sources: []"
+            )
         if not self.tool_sources:
-            return "  []"
-        return "\n".join(ts.to_yaml_block() for ts in self.tool_sources)
+            return "tool_sources: []"
+        return "tool_sources:\n" + "\n".join(ts.to_yaml_block() for ts in self.tool_sources)
 
     def as_placeholder_map(self) -> dict[str, str]:
         """Return the mapping used by the overlay renderer's substitution pass."""
@@ -55,7 +73,7 @@ class ArchetypeContext:
             "REPO_NAME": self.repo_name,
             "AGENT_NAME": self.agent_name,
             "ONE_LINE_PURPOSE": self.one_line_purpose,
-            "TOOL_SOURCES": self.tool_sources_yaml(),
+            "TOOL_SURFACE": self.tool_surface_block(),
         }
 
 
@@ -152,9 +170,8 @@ ARCHETYPE_CONTEXTS: dict[str, ArchetypeContext] = {
         repo_name="n8n",
         agent_name="n8n-support-workflow",
         one_line_purpose="run the support-refund workflow with HTTP and Code nodes",
-        tool_sources=[
-            ToolSource(id="n8n_main", type="openapi", path="workflows/support-refund.json"),
-        ],
+        tool_sources=[],
+        n8n_workflows_path="workflows/",
     ),
     "non-agent-negative-control": ArchetypeContext(
         repo_name="non-agent-negative-control",

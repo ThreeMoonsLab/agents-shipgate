@@ -14,8 +14,7 @@ that matches Shipgate's secret patterns. The redaction unit test
 from __future__ import annotations
 
 import os
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from agents_shipgate.core.privacy import RedactionStats, redact_text

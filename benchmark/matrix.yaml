@@ -41,3 +41,21 @@ cells:
   - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
   - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
   - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+
+  # ----- cursor-static parallels (free, activation-only) -----------------
+  # The static driver lints the Cursor rule against the canonical snippet
+  # and the archetype's trigger files. Only `discovers_relevance` and the
+  # cursor-specific verdict are scored; runs_* and blocker detectors are
+  # marked N/A by the scorer (no command execution under a static lint).
+  - {archetype: openai-agents-sdk, variant: 00-no-hints,      prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule,   prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule,   prompt: 04-docs-only-negative,  agent: cursor-static, negative_overlay: 60-docs-only-negative}
+  - {archetype: mcp-only,          variant: 00-no-hints,      prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: mcp-only,          variant: 30-cursor-rule,   prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: mcp-only,          variant: 30-cursor-rule,   prompt: 04-docs-only-negative,  agent: cursor-static, negative_overlay: 60-docs-only-negative}
+  - {archetype: openapi-only,      variant: 00-no-hints,      prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: openapi-only,      variant: 30-cursor-rule,   prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: openapi-only,      variant: 30-cursor-rule,   prompt: 04-docs-only-negative,  agent: cursor-static, negative_overlay: 60-docs-only-negative}
+  - {archetype: n8n,               variant: 00-no-hints,      prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: n8n,               variant: 30-cursor-rule,   prompt: 01-prepare-for-release, agent: cursor-static}
+  - {archetype: n8n,               variant: 30-cursor-rule,   prompt: 04-docs-only-negative,  agent: cursor-static, negative_overlay: 60-docs-only-negative}

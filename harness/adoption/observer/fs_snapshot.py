@@ -22,7 +22,7 @@ class FsSnapshot:
     root: Path
     files: dict[str, str] = field(default_factory=dict)
 
-    def diff(self, other: "FsSnapshot") -> "FsDiff":
+    def diff(self, other: FsSnapshot) -> FsDiff:
         added = sorted(set(other.files) - set(self.files))
         removed = sorted(set(self.files) - set(other.files))
         changed = sorted(

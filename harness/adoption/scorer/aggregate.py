@@ -12,11 +12,10 @@ The aggregate layer takes per-cell :class:`ScorecardV1` objects and:
 from __future__ import annotations
 
 import csv
-import json
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from harness.adoption.scorer.schema import ScorecardV1
 
@@ -48,7 +47,7 @@ class BudgetGuard:
     cells_recorded: int = 0
 
     @classmethod
-    def from_env(cls, default_usd: float = 20.0) -> "BudgetGuard":
+    def from_env(cls, default_usd: float = 20.0) -> BudgetGuard:
         raw = os.environ.get("SHIPGATE_HARNESS_BUDGET_USD")
         cap = float(raw) if raw else default_usd
         return cls(cap_usd=cap)
@@ -67,22 +66,25 @@ def write_csv(
     scorecards: Iterable[ScorecardV1],
     *,
     out_path: Path,
-    schema_version: str = "0.2",
+    schema_version: str = "0.2",  # kept for call-site compatibility; documented in README
 ) -> Path:
     """Write or append a CSV file.
 
-    Uses the existing v0.2 column layout. ``transcript_path`` is the
-    relative path under ``.agents-private/`` where the redacted artifacts
-    live — the file is NOT the artifact itself.
+    Uses the existing v0.2 column layout. ``transcript_path`` is the relative
+    path under ``.agents-private/`` where the redacted artifacts live — the
+    file is NOT the artifact itself.
+
+    The schema version itself is **not** embedded as a row in the CSV — that
+    would break standard CSV readers. It lives in
+    ``benchmark/results/README.md`` and the per-run ``exit_criteria.json``.
     """
+    _ = schema_version  # explicit acknowledgement of unused kwarg
     out_path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not out_path.exists()
     with out_path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS_V0_2)
         if new_file:
-            writer.writerow({col: col for col in CSV_COLUMNS_V0_2})
-            # First non-header row is a meta comment about the schema version.
-            handle.write(f"# benchmark_schema_version: {schema_version}\n")
+            writer.writeheader()
         for sc in scorecards:
             writer.writerow(_scorecard_to_row(sc))
     return out_path

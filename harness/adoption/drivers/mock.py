@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from harness.adoption.drivers.base import AgentDriver, DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult
 from harness.adoption.observer.transcript import TranscriptWriter
 
 
@@ -39,7 +39,7 @@ class MockDriver:
         self.fixture = fixture
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         for line in _read_lines(self.fixture / "transcript.jsonl"):
             writer.transcript(json.loads(line))
         for line in _read_lines(self.fixture / "commands.jsonl"):
@@ -72,7 +72,7 @@ class MockDriver:
         )
         final_diff = diff_proc.stdout or _read_text(self.fixture / "final.diff")
 
-        ended = datetime.now(timezone.utc)
+        ended = datetime.now(UTC)
         return RunResult(
             started_at=started,
             ended_at=ended,

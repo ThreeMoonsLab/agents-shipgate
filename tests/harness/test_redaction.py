@@ -9,7 +9,6 @@ from pathlib import Path
 
 from harness.adoption.observer.redact import RedactionConfig, redact_string, redact_tree
 
-
 SK_TOKEN = "sk-proj-test1234567890abcdef00"
 AWS_TOKEN = "AKIAIOSFODNN7EXAMPLE"
 

@@ -20,12 +20,11 @@ Implementation notes:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from subprocess import run
 from typing import Any
 
-from harness.adoption.drivers.base import AgentDriver, DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult
 from harness.adoption.observer.transcript import TranscriptWriter
 
 # Published Anthropic API prices in USD per 1M tokens. Update when prices change.
@@ -56,14 +55,14 @@ class ClaudeCodeDriver:
         self.default_model = default_model
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         try:
             from claude_agent_sdk import (  # type: ignore[import-untyped]
-                ClaudeSDKClient,
                 ClaudeAgentOptions,
+                ClaudeSDKClient,
             )
         except ImportError as exc:
-            ended = datetime.now(timezone.utc)
+            ended = datetime.now(UTC)
             return RunResult(
                 started_at=started,
                 ended_at=ended,
@@ -108,7 +107,7 @@ class ClaudeCodeDriver:
         except Exception as exc:  # noqa: BLE001 — driver-boundary catch
             error = repr(exc)
 
-        ended = datetime.now(timezone.utc)
+        ended = datetime.now(UTC)
         cost_in, cost_out = PRICE_TABLE_USD_PER_M.get(model, (0.0, 0.0))
         cost = (tokens_in * cost_in + tokens_out * cost_out) / 1_000_000
 
