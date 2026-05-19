@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.common import AgentAction
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -118,6 +119,8 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
             "that this command depends on. Re-scan with the current "
             "CLI: `agents-shipgate scan -c shipgate.yaml --format json`."
         )
+
+    payload = sanitize_report_payload(payload)
 
     try:
         return ReadinessReport.model_validate(payload), payload

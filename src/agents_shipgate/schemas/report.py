@@ -424,6 +424,34 @@ class PolicyAudit(BaseModel):
     )
 
 
+class RedactedPathSummary(BaseModel):
+    """One privacy-audit row for a structural output path.
+
+    The row intentionally carries only aggregate counts and secret kinds,
+    never the original value or a hash/verifier of that value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    count: int = 0
+    kinds: list[str] = Field(default_factory=list)
+
+
+class PrivacyAudit(BaseModel):
+    """Top-level audit envelope proving the default redaction pass ran."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    rules_version: str
+    sensitive_field_inventory_version: str
+    redacted_occurrence_count: int = 0
+    redacted_paths: list[RedactedPathSummary] = Field(default_factory=list)
+    output_surfaces: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -431,7 +459,7 @@ class ReadinessReport(BaseModel):
     # v0.17 trust-hardening: M8 adds ``release_decision.contribution_rules[]``
     # and M1 adds the top-level ``policy_audit`` block. Both are
     # additive — older consumers ignore the new fields.
-    report_schema_version: str = "0.17"
+    report_schema_version: str = "0.18"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -486,3 +514,7 @@ class ReadinessReport(BaseModel):
     # present on emitted scans; Python-Optional so older test helpers can
     # construct minimal reports.
     policy_audit: PolicyAudit | None = None
+    # v0.18: top-level privacy audit. Emitted scans always carry this
+    # envelope after the default-on redaction pass has sanitized public
+    # outputs. Optional at Python level for older fixtures.
+    privacy_audit: PrivacyAudit | None = None

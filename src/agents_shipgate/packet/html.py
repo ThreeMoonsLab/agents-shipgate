@@ -18,6 +18,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
@@ -85,6 +86,7 @@ code { background: #f4f4f4; padding: 0.05rem 0.25rem; border-radius: 3px; }
 def render_packet_html(packet: EvidencePacket) -> str:
     """Return the packet rendered as a self-contained HTML document."""
 
+    packet = sanitize_packet(packet)
     parts: list[str] = []
     parts.append("<!doctype html>")
     parts.append("<html lang=\"en\"><head>")

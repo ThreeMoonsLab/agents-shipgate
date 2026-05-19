@@ -7,6 +7,28 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from agents_shipgate.core.privacy import (
+    BEARER_TOKEN_RE,
+    SECRET_PRECHECK_MARKERS,
+    RedactionStats,
+    redact_data,
+)
+
+_LOGGING_PRECHECK_MAX_DEPTH = 2
+# Bound JSON-log precheck traversal; emitted Shipgate log payloads are shallow.
+
+_SENSITIVE_KEY_PARTS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "credential",
+    "password",
+    "secret",
+    "token",
+)
+_SENSITIVE_VALUE_MARKERS = SECRET_PRECHECK_MARKERS
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -21,6 +43,8 @@ class JsonFormatter(logging.Formatter):
         for key, value in record.__dict__.items():
             if key.startswith("agents_shipgate_"):
                 payload[key.removeprefix("agents_shipgate_")] = value
+        if _might_contain_sensitive_payload(payload):
+            payload = redact_data(payload, stats=RedactionStats(), path="$")
         return json.dumps(payload, sort_keys=True, default=str)
 
 
@@ -40,3 +64,27 @@ def configure_logging(*, verbose: bool = False, force: bool = True) -> None:
     root.addHandler(handler)
     root.setLevel(level)
     root.propagate = False
+
+
+def _might_contain_sensitive_payload(value: Any, *, depth: int = 0) -> bool:
+    if isinstance(value, str):
+        lowered = value.lower()
+        return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS) or bool(
+            BEARER_TOKEN_RE.search(value)
+        )
+    if isinstance(value, dict):
+        for key, item in value.items():
+            lowered_key = str(key).lower()
+            if any(part in lowered_key for part in _SENSITIVE_KEY_PARTS):
+                return True
+            if depth < _LOGGING_PRECHECK_MAX_DEPTH and _might_contain_sensitive_payload(
+                item, depth=depth + 1
+            ):
+                return True
+        return False
+    if isinstance(value, list | tuple):
+        return depth < _LOGGING_PRECHECK_MAX_DEPTH and any(
+            _might_contain_sensitive_payload(item, depth=depth + 1)
+            for item in value
+        )
+    return False

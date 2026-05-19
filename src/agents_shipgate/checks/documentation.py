@@ -4,16 +4,12 @@ import re
 
 from agents_shipgate.checks.base import tool_finding
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.risk_hints import is_high_risk_tool, is_write_tool
-
-SECRET_PATTERNS = [
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\bghp_[A-Za-z0-9_]{16,}"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-]
-LABELED_SECRET_PATTERN = re.compile(
-    r"(?i)\b(password|secret|token|api[_-]?key)\s*[:=]\s*([A-Za-z0-9_./+=-]{20,})"
+from agents_shipgate.core.privacy import (
+    LABELED_SECRET_PATTERN,
+    SECRET_PATTERNS,
+    looks_like_secret_value,
 )
+from agents_shipgate.core.risk_hints import is_high_risk_tool, is_write_tool
 
 INJECTION_PATTERNS = [
     re.compile(r"(?i)ignore (all )?(previous|prior) instructions"),
@@ -81,25 +77,16 @@ def run(context: ScanContext):
 
 def _secret_like_matches(description: str) -> list[str]:
     matches: list[str] = []
-    for pattern in SECRET_PATTERNS:
+    for _kind, pattern in SECRET_PATTERNS:
         if pattern.search(description):
             matches.append(pattern.pattern)
     match = LABELED_SECRET_PATTERN.search(description)
     if not match:
         return matches
-    value = match.group(2)
-    if _looks_like_secret_value(value):
+    value = match.group(5)
+    if looks_like_secret_value(value):
         matches.append("labeled_secret_value")
     return matches
-
-
-def _looks_like_secret_value(value: str) -> bool:
-    if len(value) < 20:
-        return False
-    has_alpha = any(char.isalpha() for char in value)
-    has_digit = any(char.isdigit() for char in value)
-    has_secret_alphabet = all(char.isalnum() or char in "_./+=-" for char in value)
-    return has_alpha and has_digit and has_secret_alphabet
 
 
 def _injection_like_matches(description: str) -> list[str]:

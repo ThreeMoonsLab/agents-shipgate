@@ -104,6 +104,26 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
 - `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5; `dynamic_default_not_supported` added v0.18) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | dynamic_default_not_supported | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`. `dynamic_default_not_supported` (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True` — plugins have no path to wire into `cli/scan.py`'s aggregator, so a swing check would never receive a manifest-effective default and would be silently bypassable.
 - `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
+- `privacy_audit.{enabled, rules_version, sensitive_field_inventory_version, redacted_occurrence_count, redacted_paths, output_surfaces, notes}` (v0.18+) — top-level audit envelope proving the default-on privacy layer ran before public artifacts were emitted. `redacted_paths[]` contains `{path, count, kinds}` aggregate rows only; it never includes raw values or raw-value hashes. Redaction is best-effort pattern/key based and does not claim complete secret-scanner coverage.
+
+### Privacy and redaction
+
+Reports, packets, SARIF, Markdown, GitHub step summaries, `explain-finding`
+payloads, and JSON logs are redacted by default. The sanitizer runs locally and
+does not upload artifacts. Redaction uses the shared rules in
+`agents_shipgate.core.privacy` and the report-field inventory in
+[`docs/report-sensitive-fields.json`](docs/report-sensitive-fields.json).
+False positives are allowed in favor of privacy; local routing metadata such as
+source paths, JSON pointers, and scopes remains structurally present with only
+secret-like substrings replaced.
+
+v0.18 changes public fingerprints for findings whose identity evidence contains
+a recognized secret pattern because the public `findings[].fingerprint` is now
+computed from redacted evidence. During `--baseline` scans, Shipgate also checks
+the pre-v0.18 raw fingerprint in memory so existing baselines continue matching
+without emitting raw hashes. After reviewing the v0.18 report, re-run
+`agents-shipgate baseline save` to migrate the baseline to redacted public
+fingerprints and remove the compatibility dependency.
 
 ### Severity-override floor
 

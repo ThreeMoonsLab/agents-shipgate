@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.core.privacy import sanitize_packet_payload
 from agents_shipgate.schemas.packet import EvidencePacket
 
 
@@ -30,7 +31,7 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     in the JSON so the contract shape is stable.
     """
 
-    payload = packet.model_dump(mode="json")
+    payload = sanitize_packet_payload(packet.model_dump(mode="json"))
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload

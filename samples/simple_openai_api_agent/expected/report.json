@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.17",
-  "run_id": "agents_shipgate_0adc60e9f77f2b2a",
-  "manifest_dir": "/Users/threemoonslab/code/agents-shipgate/.claude/worktrees/kind-bardeen-54bd2a/samples/simple_openai_api_agent",
+  "report_schema_version": "0.18",
+  "run_id": "agents_shipgate_eb6372d0cd28573e",
+  "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
     "owner": "support-platform"
@@ -2093,7 +2093,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/tmp/m1-final/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2149,5 +2150,20 @@
   },
   "policy_audit": {
     "severity_overrides_applied": []
+  },
+  "privacy_audit": {
+    "enabled": true,
+    "rules_version": "0.1",
+    "sensitive_field_inventory_version": "0.1",
+    "redacted_occurrence_count": 0,
+    "redacted_paths": [],
+    "output_surfaces": [
+      "json",
+      "markdown"
+    ],
+    "notes": [
+      "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
+      "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted."
+    ]
   }
 }

@@ -31,6 +31,7 @@ REPORT_SCHEMA_V14 = Path("docs/report-schema.v0.14.json")
 REPORT_SCHEMA_V15 = Path("docs/report-schema.v0.15.json")
 REPORT_SCHEMA_V16 = Path("docs/report-schema.v0.16.json")
 REPORT_SCHEMA_V17 = Path("docs/report-schema.v0.17.json")
+REPORT_SCHEMA_V18 = Path("docs/report-schema.v0.18.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -130,6 +131,15 @@ def test_sample_expected_report_json_is_current(sample_dir, expected_decision):
         f"{expected_decision!r}. If the threshold tuning changed or the "
         "sample evolved, update both the golden and the expected value."
     )
+
+
+def test_sample_expected_report_json_uses_repo_placeholder_for_manifest_dir():
+    """Sample goldens should not expose or churn on contributor home paths."""
+    for path in sorted(Path("samples").glob("*/expected/report.json")):
+        text = path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+        assert str(Path.cwd()) not in text
+        assert payload["manifest_dir"].startswith("<REPO>/samples/")
 
 
 def test_json_report_contains_integration_contract_keys(tmp_path):
@@ -511,9 +521,9 @@ def test_json_schema_is_published():
 
 
 def test_json_report_validates_against_current_schema(tmp_path):
-    """Current schema (v0.17) adds release_decision.contribution_rules[]
-    on top of v0.16's action-surface diff fields and v0.15's
-    provenance_kind. Emitted reports must validate against it."""
+    """Current schema (v0.18) adds privacy_audit on top of the v0.17
+    release decision and policy audit fields. Emitted reports must
+    validate against it."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -522,7 +532,7 @@ def test_json_report_validates_against_current_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V18.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -938,6 +948,26 @@ def test_v17_schema_requires_contribution_rules():
     assert category_enum == {"blocker", "review_item", "excluded"}
 
 
+def test_v18_schema_requires_privacy_audit():
+    """v0.18 adds the default redaction audit envelope."""
+    schema = json.loads(REPORT_SCHEMA_V18.read_text(encoding="utf-8"))
+    assert schema["properties"]["report_schema_version"] == {"const": "0.18"}
+    assert "privacy_audit" in set(schema["required"])
+    assert schema["properties"]["privacy_audit"] == {"$ref": "#/$defs/PrivacyAudit"}
+    audit_def = schema["$defs"]["PrivacyAudit"]
+    assert {
+        "enabled",
+        "rules_version",
+        "sensitive_field_inventory_version",
+        "redacted_occurrence_count",
+        "redacted_paths",
+        "output_surfaces",
+        "notes",
+    } <= set(audit_def["required"])
+    path_def = schema["$defs"]["RedactedPathSummary"]
+    assert {"path", "count", "kinds"} <= set(path_def["required"])
+
+
 def test_v16_schema_requires_action_surface_fields():
     """v0.16 adds first-class Action Surface Diff facts and diff fields."""
     schema = json.loads(REPORT_SCHEMA_V16.read_text(encoding="utf-8"))
@@ -980,7 +1010,7 @@ def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V17.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V18.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

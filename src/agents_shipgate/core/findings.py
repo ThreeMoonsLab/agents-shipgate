@@ -28,6 +28,7 @@ from agents_shipgate.schemas.report import (
     Finding,
     LoadedPolicyPack,
     PolicyAudit,
+    PrivacyAudit,
     ReadinessReport,
     ReleaseDecision,
     ReportSummary,
@@ -53,12 +54,19 @@ def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
     for finding in findings:
         finding.fingerprint = finding_fingerprint(finding)
         by_fingerprint[finding.fingerprint].append(finding)
+    used_ids: dict[str, int] = defaultdict(int)
     for finding in findings:
         assert finding.fingerprint is not None
         if len(by_fingerprint[finding.fingerprint]) == 1:
-            finding.id = finding.fingerprint
-            continue
-        finding.id = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
+            candidate = finding.fingerprint
+        else:
+            candidate = f"{finding.fingerprint}_{_collision_discriminator(finding)}"
+        used_ids[candidate] += 1
+        finding.id = (
+            candidate
+            if used_ids[candidate] == 1
+            else f"{candidate}_{used_ids[candidate]}"
+        )
     return findings
 
 
@@ -781,6 +789,7 @@ def build_report(
     *,
     run_id: str,
     manifest: AgentsShipgateManifest,
+    project: dict[str, object] | None = None,
     agent: dict[str, object],
     environment: dict[str, object],
     tools: list[Tool],
@@ -803,11 +812,12 @@ def build_report(
     action_surface_facts: ActionSurfaceFacts | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
     policy_audit: PolicyAudit | None = None,
+    privacy_audit: PrivacyAudit | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
         manifest_dir=manifest_dir,
-        project=manifest.project.model_dump(exclude_none=True),
+        project=project or manifest.project.model_dump(exclude_none=True),
         agent=agent,
         environment=environment,
         summary=summarize_findings(findings, tools),
@@ -833,6 +843,7 @@ def build_report(
         # ``report.policy_audit.severity_overrides_applied`` without a
         # null check.
         policy_audit=policy_audit or PolicyAudit(),
+        privacy_audit=privacy_audit,
     )
     report.release_decision = build_release_decision(
         report=report,

@@ -6,6 +6,7 @@ from typing import Any
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.report import (
     Finding,
@@ -26,6 +27,7 @@ def write_sarif_report(report: ReadinessReport, path: Path) -> None:
 
 
 def render_sarif_report(report: ReadinessReport) -> dict[str, Any]:
+    report = sanitize_report(report)
     active_findings = [finding for finding in report.findings if not finding.suppressed]
     metadata_by_id = {
         metadata.id: metadata for metadata in check_catalog(plugins_enabled=False)
