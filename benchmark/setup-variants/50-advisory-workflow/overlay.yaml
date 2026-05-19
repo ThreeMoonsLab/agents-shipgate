@@ -1,0 +1,7 @@
+# 50-advisory-workflow — pre-installed advisory GitHub Actions workflow.
+# The agent sees Shipgate already wired into CI in advisory mode; it should
+# not flip the workflow to strict on first contact.
+files:
+  - source: agents-shipgate.yml.template
+    destination: .github/workflows/agents-shipgate.yml
+required_placeholders: []

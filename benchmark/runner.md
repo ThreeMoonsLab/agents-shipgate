@@ -1,5 +1,26 @@
 # Benchmark Runner — Tester Runbook
 
+Two execution paths are supported.
+
+## Automated runner (default)
+
+Run the v1 automated harness for any cell or full matrix:
+
+```bash
+pip install -r harness/requirements.txt
+python -m harness.adoption sync-fixtures
+python -m harness.adoption smoke                     # mock-driver, no API spend
+python -m harness.adoption run \
+  --matrix=benchmark/matrix.yaml \
+  --budget-usd=20
+```
+
+Operational doc: [`../docs/adoption-harness-automated.md`](../docs/adoption-harness-automated.md).
+
+The automated runner writes scorecards under `.agents-private/adoption-sprint/<run-id>/` and a CSV row under `results/<run-id>.csv` using schema v0.2.
+
+## Manual path
+
 A new tester (you, your teammate, or a contractor) should be able to execute one row of the matrix in 15 minutes after reading this file. No prior knowledge of Agents Shipgate is required to score a cell.
 
 ## Pre-flight

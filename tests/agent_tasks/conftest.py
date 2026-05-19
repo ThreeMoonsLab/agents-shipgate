@@ -92,13 +92,46 @@ def test_task(task_dir: Path, tmp_path: Path, request: pytest.FixtureRequest) ->
 
 
 def _run_with_agent(agent: str, task_dir: Path, workdir: Path) -> None:
-    # Hooks for real agent invocations live behind environment-variable gates;
-    # they are not exercised on PRs. Implementations should:
-    #   1. Read prompt.md
-    #   2. Set the agent's working directory to `workdir`
-    #   3. Drive the agent until it returns or times out
-    raise NotImplementedError(
-        f"Agent driver for {agent!r} not implemented in this harness. "
-        "Set up an out-of-band runner that invokes the agent and then "
-        "calls expected/assertions.py:assert_outcome(workdir)."
-    )
+    """Drive a real coding agent through the task's prompt.
+
+    Delegates to the adoption-harness driver layer
+    (``harness.adoption.drivers``). The harness package is local-only and
+    not on the wheel install path; it lives at the repo root.
+    """
+    from datetime import datetime, timezone
+
+    from harness.adoption.drivers.base import DriverInputs
+    from harness.adoption.drivers.claude_code import ClaudeCodeDriver
+    from harness.adoption.drivers.codex import CodexDriver
+    from harness.adoption.drivers.cursor import CursorStaticDriver
+    from harness.adoption.observer.transcript import TranscriptWriter
+
+    drivers = {
+        "claude-code": ClaudeCodeDriver(),
+        "codex": CodexDriver(),
+        "cursor-static": CursorStaticDriver(),
+    }
+    try:
+        driver = drivers[agent]
+    except KeyError as exc:
+        raise NotImplementedError(
+            f"Agent driver for {agent!r} not registered. "
+            f"Known: {sorted(drivers)}"
+        ) from exc
+
+    prompt = (task_dir / "prompt.md").read_text(encoding="utf-8")
+    artifacts_dir = workdir / ".harness_artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    cell_id = f"{task_dir.name}__{agent}__{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    with TranscriptWriter(artifacts_dir) as writer:
+        driver.run(
+            DriverInputs(
+                workspace=workdir,
+                prompt_text=prompt,
+                artifacts_dir=artifacts_dir,
+                cell_id=cell_id,
+                agent_name=agent,
+                model=None,
+            ),
+            writer,
+        )

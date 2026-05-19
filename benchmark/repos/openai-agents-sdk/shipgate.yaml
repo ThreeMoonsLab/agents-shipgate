@@ -1,0 +1,96 @@
+version: "0.1"
+
+project:
+  name: support-refund-agent
+  owner: support-platform
+  repo: github.com/acme/support-refund-agent
+
+agent:
+  name: refund-assistant
+  sdk:
+    type: openai-agents
+    language: python
+    entrypoint: agents/refund_agent.py
+    object: refund_agent
+    static_extract: true
+    deep_import: false
+  declared_purpose:
+    - answer refund policy questions
+    - prepare refund requests for human review
+    - update support ticket notes
+  prohibited_actions:
+    - issue refund without approval
+    - cancel order without explicit confirmation
+    - send external email without preview
+
+environment:
+  target: production_like
+  promotion_from: staging
+  promotion_to: production_like
+
+tool_sources:
+  - id: support_openapi
+    type: openapi
+    path: specs/support-tools.openapi.yaml
+    trust: internal
+  - id: support_mcp_tools
+    type: mcp
+    path: .agents-shipgate/mcp-tools.json
+    trust: internal
+  - id: wildcard_mcp_tools
+    type: mcp
+    path: .agents-shipgate/wildcard-tools.json
+    trust: internal
+  - id: openai_sdk_static
+    type: openai_agents_sdk
+    path: agents/refund_agent.py
+    mode: static
+    optional: true
+
+policies:
+  require_approval_for_tools:
+    - tool: shopify.cancel_order
+      reason: destructive_customer_action
+  require_confirmation_for_tools:
+    - shopify.cancel_order
+  require_idempotency_for_tools:
+    - shopify.cancel_order
+
+permissions:
+  scopes:
+    - zendesk:tickets:read
+    - zendesk:tickets:write
+    - stripe:*
+  credential_mode: service_account
+  notes: "User-delegated identity is not implemented in this sample."
+
+risk_overrides:
+  tools:
+    refund_status_lookup:
+      tags: ["read_only"]
+      remove_tags: ["financial_action"]
+      confidence: manual
+      reason: "Despite name containing refund, this is a read-only lookup."
+    stripe.create_refund:
+      tags: ["external_write", "financial_action"]
+      owner: payments-platform
+      confidence: manual
+      reason: "Creates real payment refunds."
+
+checks:
+  ignore:
+    - check_id: SHIP-SCHEMA-BROAD-FREE-TEXT
+      tool: support.search_kb
+      reason: "Search query intentionally accepts free text."
+
+ci:
+  mode: advisory
+  pr_comment: true
+  annotations: false
+  upload_artifact: true
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

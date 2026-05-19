@@ -1,8 +1,10 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
 #
 # Benchmark variant: existing shipgate.yaml.
-# Replace {{REPO_NAME}} and the placeholders below with values that match the
-# archetype repo this is being layered onto.
+# The harness overlay renderer (harness/adoption/overlay.py) fills the
+# placeholders below from harness/adoption/context.py::ARCHETYPE_CONTEXTS so
+# the rendered manifest is doctor-clean for every archetype. Manual testers
+# can also fill these in by hand — see benchmark/runner.md.
 
 version: "0.1"
 
@@ -18,23 +20,8 @@ agent:
 environment:
   target: local
 
-# Edit this list to match the archetype's tool surface. Common shapes:
-#
-# - id: openapi_main
-#   type: openapi
-#   path: openapi.yaml
-#
-# - id: mcp_export
-#   type: mcp
-#   path: mcp/tools.json
-#
-# - id: openai_agents_sdk_main
-#   type: openai_agents_sdk
-#   path: agent.py
 tool_sources:
-  - id: CHANGE_ME
-    type: openapi
-    path: CHANGE_ME.yaml
+{{TOOL_SOURCES}}
 
 policies:
   require_approval_for_tools: []

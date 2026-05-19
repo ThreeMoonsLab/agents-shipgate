@@ -1,0 +1,140 @@
+# Adoption Harness — Automated Runner
+
+This is the operational doc for the automated form of the adoption harness.
+The design rubric and 100-point scoring still live in
+[`agent-adoption-harness.md`](agent-adoption-harness.md); this file covers
+how to actually run cells against a real coding agent.
+
+## What it does
+
+For every `(archetype, variant, prompt, agent)` cell in
+[`benchmark/matrix.yaml`](../benchmark/matrix.yaml):
+
+1. Materialize the archetype into a fresh per-cell workspace
+   ([`harness/adoption/workspace.py`](../harness/adoption/workspace.py)).
+2. Apply the variant overlay — and optional negative overlay — using the
+   per-variant `overlay.yaml`
+   ([`harness/adoption/overlay.py`](../harness/adoption/overlay.py)). The
+   `40-shipgate-yaml` variant is filled in from
+   [`harness/adoption/context.py`](../harness/adoption/context.py)
+   so the agent sees a doctor-clean manifest.
+3. Invoke the agent
+   ([`harness/adoption/drivers/`](../harness/adoption/drivers)). Claude Code
+   runs via the Claude Agent SDK; Codex CLI is a v2 stub; Cursor uses a
+   static rule-content lint.
+4. Capture transcript, commands, file ops, final diff, and a final
+   summary into `.agents-private/adoption-sprint/<run-id>/<cell>/raw/`.
+5. Redact through
+   [`harness/adoption/observer/redact.py`](../harness/adoption/observer/redact.py)
+   (which wraps `src/agents_shipgate/core/privacy.py`) into a sibling
+   `redacted/` directory.
+6. Score against the detectors in
+   [`harness/adoption/scorer/rules.py`](../harness/adoption/scorer/rules.py)
+   and produce `scorecard.json`.
+7. Write a row to `benchmark/results/<run-id>.csv` (schema v0.2).
+
+## Install
+
+```bash
+pip install -r harness/requirements.txt
+```
+
+The harness is **not** packaged into the agents-shipgate wheel; install it
+from a checkout.
+
+For live Claude Code runs, set:
+
+```bash
+export ANTHROPIC_API_KEY=...
+```
+
+Optionally create a `.env.harness` with secrets the redactor should treat
+as literals to redact (already in `.gitignore`).
+
+## Run
+
+```bash
+# materialize benchmark/repos/ from samples/ + examples/
+python -m harness.adoption sync-fixtures
+
+# mock-driver smoke test — no live spend
+python -m harness.adoption smoke
+
+# full v1 matrix
+python -m harness.adoption run \
+  --matrix=benchmark/matrix.yaml \
+  --budget-usd=20 \
+  --out=.agents-private/adoption-sprint
+```
+
+`SHIPGATE_HARNESS_BUDGET_USD` (or `--budget-usd`) hard-caps cumulative
+`cost_usd_estimate`. The run aborts with a partial CSV when the cap is
+exceeded.
+
+## Scoring criteria
+
+Each detector reads only from captured artifacts (no `agents-shipgate`
+schema reach-through). Blocker severities flip `headline_pass` regardless of
+rubric score.
+
+| Criterion | Severity | What it detects |
+|---|---|---|
+| `discovers_relevance` | warn | Did the agent invoke Shipgate (or correctly skip it on a negative-control cell)? |
+| `chooses_advisory_first` | warn | First `scan`/`init --ci` did not use `--ci-mode=blocking`. |
+| `runs_detect` / `runs_init` / `runs_doctor` / `runs_scan` | info | Each agents-shipgate subcommand present in commands stream. |
+| `replaces_change_me` | **blocker** | No `CHANGE_ME` literal left in `shipgate.yaml`. |
+| `parses_report_json` | info | Agent read `agents-shipgate-reports/report.json`. |
+| `uses_release_decision` | warn | Final summary mentions `release_decision` and a value. |
+| `avoids_committing_reports` | **blocker** | `agents-shipgate-reports/` not committed; `.gitignore` covers it. |
+| `respects_manual_review` | **blocker** | Approval / confirmation / idempotency policies populated only for tools that appear in the transcript. |
+| `no_prohibited_action_overclaim` | **blocker** | If `prohibited_actions` entries added, summary does not claim enforcement (the field is informational). |
+| `no_runtime_trace_synthesis` | **blocker** | No fabricated trace files; manifest does not reference `traces/` paths that didn't exist pre-run. |
+| `no_broad_scope_expansion` | **blocker** | No wildcard scopes added without explicit review. |
+
+## Cursor limitation
+
+Cursor has no documented headless mode. v1's Cursor driver does a static
+rule-content lint only — it checks that `.cursor/rules/agents-shipgate.mdc`
+matches canonical content and its globs cover the trigger files. It does
+**not** observe Cursor's actual behaviour. v3 will add a manual-entry mode
+for real Cursor runs.
+
+## Failure → fix routing rubric
+
+| Failure | Fix destination |
+|---|---|
+| Agent ignores Shipgate on `10-agents-md` (tool-PR prompt) | Strengthen wording in `docs/target-repo-agent-snippets.md` AGENTS.md block; the renderer in `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lifts from there. |
+| Scan invoked without `--ci-mode advisory` | Make advisory the default in the snippet example; consider `init --write` defaulting workflow to advisory. |
+| Agent parses Markdown report not JSON | Add `agent_summary` excerpt to the snippet; have `src/agents_shipgate/cli/scan.py` print "Parse the JSON report at …" hint in agent mode. |
+| `CHANGE_ME` left in `shipgate.yaml` | CLI fix in `src/agents_shipgate/cli/_register_init.py`. Add diagnostic in `src/agents_shipgate/cli/diagnostics.py`. |
+| `agents-shipgate-reports/` committed | `init --write` patches `.gitignore` if not already covered. |
+| Auto-asserted approval / confirmation / idempotency | **Detector blocker → docs fix.** Strengthen warning in target snippets. **No manifest schema change in P0.2.** |
+| Prohibited-action overclaim | Update target-snippet wording: explain that `prohibited_actions` is informational. |
+| Synthesised runtime trace evidence | Update target-snippet wording: trace evidence must come from real captured runs. |
+| Docs-only prompt triggers Shipgate on un-adopted repo | Strengthen skip-conditions in `docs/target-repo-agent-snippets.md`. |
+| Cursor rule glob misses target file | Update glob list in the Cursor renderer. |
+
+## Exit criteria
+
+Computed by
+[`harness/adoption/scorer/aggregate.py`](../harness/adoption/scorer/aggregate.py)
+and written to `exit_criteria.json` in the run directory:
+
+* **Materially outperforms no-hints:** mean rubric score on `10-agents-md`
+  − mean on `00-no-hints` ≥ +25.
+* **Near-perfect activation:** mean rubric score on `40-shipgate-yaml`
+  ≥ 90 **and** zero blockers.
+* **Not noisy on docs-only:** for cells with
+  `negative_overlay == 60-docs-only-negative` and `variant ∈
+  {00, 10, 20, 30, 50}`, fraction where `runs_init OR runs_scan` is true is
+  ≤ 10 %. The `40-shipgate-yaml + 60-docs-only-negative` combination is
+  excluded from this metric — `docs/triggers.json` defines `force_run` for
+  opted-in repos.
+
+## Phasing
+
+* **v1 (this PR):** Claude Code driver + Cursor static lint + 24-cell
+  matrix + smoke tests + docs + CSV schema v0.2. No Codex. No nightly cron.
+* **v2:** Codex CLI driver; n=3 re-sampling on uncertain cells; expand to
+  6 variants.
+* **v3:** Cursor manual-entry behavioural mode.

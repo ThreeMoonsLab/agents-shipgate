@@ -1,0 +1,60 @@
+{
+  "tools": [
+    {
+      "name": "support.search_kb",
+      "description": "Search support knowledge base articles for relevant refund policy guidance.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query."
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["support:kb:read"]
+      },
+      "owner": "support-platform"
+    },
+    {
+      "name": "gmail.send_customer_email",
+      "description": "Send an external email to a customer about refund status or next steps.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["recipient", "subject", "body"],
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "format": "email"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body."
+          }
+        }
+      },
+      "annotations": {
+        "openWorldHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["gmail:send"]
+      },
+      "owner": "support-platform"
+    }
+  ]
+}
+

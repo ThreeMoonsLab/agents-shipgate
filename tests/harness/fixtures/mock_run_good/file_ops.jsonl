@@ -1,0 +1,3 @@
+{"op": "Read", "path": "agents-shipgate-reports/report.json"}
+{"op": "Write", "path": "shipgate.yaml"}
+{"op": "Edit", "path": ".gitignore"}

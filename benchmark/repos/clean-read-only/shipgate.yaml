@@ -1,0 +1,30 @@
+version: "0.1"
+
+project:
+  name: clean-read-only-agent
+
+agent:
+  name: docs-assistant
+  declared_purpose:
+    - look up documentation metadata and answer policy questions
+
+environment:
+  target: local
+
+tool_sources:
+  - id: docs_tools
+    type: mcp
+    path: tools.json
+
+permissions:
+  scopes:
+    - docs:read
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

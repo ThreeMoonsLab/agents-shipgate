@@ -5,21 +5,31 @@ Public scoreboard. Every release adds at least one CSV here; the table below agg
 ## Schema
 
 ```
-benchmark_schema_version: 0.1
+benchmark_schema_version: 0.2
 ```
 
 CSV columns:
 
 | Column | Type | Notes |
 |---|---|---|
-| `model` | string | `claude-code`, `codex`, or `cursor` |
+| `model` | string | `claude-code`, `codex`, `cursor`, or `cursor-static` |
 | `prompt` | string | Prompt filename without extension (e.g. `01-prepare-for-release`) |
 | `archetype` | string | Archetype directory name (e.g. `openai-agents-sdk`) |
 | `variant` | string | Variant directory name (e.g. `10-agents-md`) |
+| `negative_overlay` | string | Optional, e.g. `60-docs-only-negative`. Empty when no negative overlay applied. |
 | `score` | int | 0–100 from the rubric in [`docs/agent-adoption-harness.md`](../../docs/agent-adoption-harness.md#100-point-rubric) |
+| `headline_pass` | bool | `false` iff any **blocker**-severity criterion failed, regardless of `score` |
+| `blocker_count` | int | Number of blocker-severity criteria that failed |
+| `blocker_kinds` | string | Comma-separated detector keys, e.g. `replaces_change_me,no_runtime_trace_synthesis` |
+| `agent_version` | string | Agent model identifier (e.g. `claude-opus-4-7`) plus SDK build |
 | `run_date` | ISO-8601 date | UTC |
 | `transcript_path` | string | Repo-relative path under `.agents-private/`. Not committed. |
 | `notes` | string | Short structured observations. No raw transcript text. |
+
+Schema v0.2 adds: `negative_overlay`, `headline_pass`, `blocker_count`,
+`blocker_kinds`, `agent_version`. Schema v0.1 results predate the automated
+runner and the new blocker-severity detectors; they are kept for history but
+not aggregated into v0.2 leaderboards.
 
 If you change a prompt, archetype set, variant set, or rubric, **bump the schema version in this README**. Old CSV runs are not directly comparable across schema bumps.
 
@@ -27,7 +37,8 @@ If you change a prompt, archetype set, variant set, or rubric, **bump the schema
 
 | File | Date | Schema | Cells | Notes |
 |---|---|---|---|---|
-| _(W2 baseline pending)_ | _2026-W2_ | 0.1 | 16 (planned) | Claude Code × `00-no-hints` & `10-agents-md` × 8 archetypes |
+| _(W2 baseline pending)_ | _2026-W2_ | 0.1 | 16 (planned) | Claude Code × `00-no-hints` & `10-agents-md` × 8 archetypes (manual) |
+| _(automated v1 pending)_ | _2026-W2x_ | 0.2 | 24 (planned) | Automated runner. Claude Code × {`00`, `10`, `40`} × {01, 04} × {openai-agents-sdk, mcp-only, openapi-only, n8n} |
 
 ## Headline metrics
 

@@ -1,0 +1,85 @@
+openapi: "3.0.3"
+info:
+  title: Support Tools
+  version: "1.0.0"
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /tickets/{id}:
+    get:
+      operationId: getTicket
+      summary: Fetch a support ticket by id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Ticket payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string}
+                  status: {type: string}
+                  body: {type: string}
+  /tickets/{id}/notes:
+    post:
+      operationId: appendTicketNote
+      summary: Append a note to a support ticket.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string}
+      responses:
+        "201":
+          description: Note created.
+  /refunds:
+    post:
+      operationId: createRefund
+      summary: Issue a refund.
+      description: |
+        Mutating financial action. Requires approval and confirmation in
+        production; safeguards should include idempotency keys.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, amount_cents, idempotency_key]
+              properties:
+                order_id: {type: string}
+                amount_cents: {type: integer, minimum: 1}
+                idempotency_key: {type: string}
+      responses:
+        "201":
+          description: Refund created.
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            "support:tickets:read": "Read tickets"
+            "support:tickets:write": "Append ticket notes"
+            "payments:refund": "Issue refunds"
+security:
+  - oauth2:
+      - "support:tickets:read"
+      - "support:tickets:write"
+      - "payments:refund"

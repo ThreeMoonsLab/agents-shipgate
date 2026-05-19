@@ -1,0 +1,5 @@
+# 10-agents-md — drop the canonical AGENTS.md Shipgate block into the repo root.
+files:
+  - source: AGENTS.md.template
+    destination: AGENTS.md
+required_placeholders: []

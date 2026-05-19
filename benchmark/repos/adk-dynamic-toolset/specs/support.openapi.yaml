@@ -1,0 +1,18 @@
+openapi: 3.1.0
+info:
+  title: ADK Support API
+  version: "1.0"
+paths:
+  /cases/{case_id}:
+    get:
+      operationId: support.get_case
+      summary: Look up support case metadata.
+      parameters:
+        - name: case_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok

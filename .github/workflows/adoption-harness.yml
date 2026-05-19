@@ -1,0 +1,84 @@
+name: Adoption Harness
+
+# v1: workflow_dispatch only. No nightly cron — Claude Opus over 24 cells is
+# recurring spend. Operators trigger this manually with an explicit budget cap.
+# Smoke tests on PR CI run separately via the existing tests/harness/ pytest
+# files, with no live API calls.
+
+on:
+  workflow_dispatch:
+    inputs:
+      matrix_file:
+        description: "Path to matrix.yaml"
+        required: false
+        default: "benchmark/matrix.yaml"
+      budget_usd:
+        description: "Hard cap on cumulative cost_usd_estimate; aborts on overrun."
+        required: false
+        default: "20"
+      agent_filter:
+        description: "Comma-separated agent filter. Empty = all in matrix."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SHIPGATE_HARNESS_BUDGET_USD: ${{ inputs.budget_usd }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install harness dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r harness/requirements.txt
+          pip install -e .
+      - name: Materialize archetype fixtures
+        run: python -m harness.adoption sync-fixtures
+      - name: Run harness
+        run: |
+          python -m harness.adoption run \
+            --matrix=${{ inputs.matrix_file }} \
+            --budget-usd=${{ inputs.budget_usd }} \
+            ${{ inputs.agent_filter && format('--agent={0}', inputs.agent_filter) || '' }}
+      - name: Upload exit-criteria report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exit-criteria
+          path: .agents-private/adoption-sprint/*/exit_criteria.json
+          if-no-files-found: warn
+      - name: Upload CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-csv
+          path: benchmark/results/*.csv
+          if-no-files-found: warn
+
+  smoke:
+    # Always-on cheap path. Mock driver, no live API spend. Runs on
+    # workflow_dispatch alongside the live run so operators can sanity-check
+    # the pipeline. PR CI exercises the same code via tests/harness/.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install harness dependencies
+        run: |
+          pip install -r harness/requirements.txt
+          pip install -e .
+      - name: Smoke
+        run: python -m harness.adoption smoke

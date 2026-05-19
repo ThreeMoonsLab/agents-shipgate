@@ -1,0 +1,13 @@
+# 60-docs-only-negative — composable negative overlay.
+#
+# Applied AFTER a primary variant overlay. Adds a tiny docs-only diff (a
+# README footnote) to simulate a "docs change" PR. Combined with the
+# 04-docs-only-negative prompt, the agent should NOT propose Shipgate for
+# un-adopted variants (00/10/20/30/50). It MAY run Shipgate for the
+# 40-shipgate-yaml variant per the force_run trigger contract — that
+# combination is excluded from the v1 matrix.
+files:
+  - source: docs-only-note.md.template
+    destination: README.md
+    append: true
+required_placeholders: []

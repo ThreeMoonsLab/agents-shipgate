@@ -1,0 +1,43 @@
+# v1 adoption-harness matrix (24 paid Claude cells + Cursor-static parallels).
+#
+# 4 archetypes × 3 variants × 2 prompts × 1 agent = 24 paid cells.
+# The same 24 (archetype, variant, prompt) tuples also run free under
+# cursor-static, scored only on activation-class criteria.
+#
+# Phase-2 expansion adds Codex CLI, 6 variants, and re-sampling. Edit the
+# cells list below to expand.
+
+benchmark_schema_version: "0.2"
+
+cells:
+  # ----- 00-no-hints (baseline discovery) --------------------------------
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: mcp-only,          variant: 00-no-hints, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: mcp-only,          variant: 00-no-hints, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openapi-only,      variant: 00-no-hints, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openapi-only,      variant: 00-no-hints, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: n8n,               variant: 00-no-hints, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: n8n,               variant: 00-no-hints, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+
+  # ----- 10-agents-md (target-snippet uplift) ----------------------------
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: mcp-only,          variant: 10-agents-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: mcp-only,          variant: 10-agents-md, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openapi-only,      variant: 10-agents-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openapi-only,      variant: 10-agents-md, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: n8n,               variant: 10-agents-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: n8n,               variant: 10-agents-md, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+
+  # ----- 40-shipgate-yaml (existing-manifest activation) -----------------
+  # No 60-docs-only-negative cells here: excluded per matrix.py::EXCLUDED_PAIRS
+  # because TRIGGER-EXISTING-MANIFEST-PRESENT defines force_run.
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: mcp-only,          variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: mcp-only,          variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}

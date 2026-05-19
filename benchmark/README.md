@@ -2,7 +2,9 @@
 
 A frozen, reproducible benchmark for measuring whether coding agents (Claude Code, Codex, Cursor) discover and use Agents Shipgate when given realistic prompts in realistic target repos.
 
-The harness in [`docs/agent-adoption-harness.md`](../docs/agent-adoption-harness.md) is the design; this directory is the executable form: vendored archetypes, frozen prompts, ordered setup variants, a tester-facing runbook, and a public results CSV that moves with every release.
+The harness in [`docs/agent-adoption-harness.md`](../docs/agent-adoption-harness.md) is the design rubric; this directory is the executable form: vendored archetypes, frozen prompts, ordered setup variants, a tester-facing runbook, and a public results CSV that moves with every release.
+
+**Automated runner.** The v1 automated runner lives at [`harness/adoption/`](../harness/adoption/). Operational doc: [`docs/adoption-harness-automated.md`](../docs/adoption-harness-automated.md). The matrix it executes is committed at [`matrix.yaml`](matrix.yaml).
 
 ## Why this exists
 
@@ -22,15 +24,17 @@ The four root barriers identified in the agent-adoption strategy include "no clo
 ## Matrix
 
 ```
-agents:    Claude Code, Codex, Cursor
+agents:    Claude Code, Codex, Cursor (live) + cursor-static (lint only)
 prompts:   01-prepare-for-release, 02-review-tool-pr, 03-improve-readiness, 04-docs-only-negative
 archetypes: openai-agents-sdk, mcp-only, openapi-only, langgraph,
-            adk-dynamic-toolset, crewai, clean-read-only,
+            adk-dynamic-toolset, crewai, clean-read-only, n8n,
             non-agent-negative-control
-variants:  00-no-hints, 10-agents-md, 20-claude-md, 30-cursor-rule, 40-shipgate-yaml
+variants:  00-no-hints, 10-agents-md, 20-claude-md, 30-cursor-rule,
+            40-shipgate-yaml, 50-advisory-workflow
+negative_overlays: 60-docs-only-negative   (composable; not paired with 40)
 ```
 
-That's 3 × 4 × 8 × 5 = 480 cells per release. We don't need to fill every cell every time — Week 2 baselines two variants × eight archetypes for one agent (64 cells), and subsequent weeks expand as the adoption-improving work lands.
+That's a large theoretical matrix. The v1 automated runner samples 24 paid Claude cells (4 archetypes × 3 variants × 2 prompts) plus the same 24 cells under the free `cursor-static` driver; see [`matrix.yaml`](matrix.yaml). Manual runs may still fill any unfilled cells.
 
 ## Scoring
 
