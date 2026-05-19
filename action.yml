@@ -2,10 +2,11 @@ name: Agents Shipgate
 description: >-
   Local-first, static Tool-Use Readiness release gate for AI agent tool
   surfaces. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK,
-  LangChain, and CrewAI artifacts.
+  LangChain, CrewAI, OpenAI API, Codex plugin, and n8n artifacts.
   Writes a Tool-Use Readiness Report (Markdown / JSON / SARIF) before your
-  agent gets production-like permissions. No LLM calls. No agent execution.
-  Apache-2.0.
+  agent gets production-like permissions. Static-by-default. Audited
+  exceptions are pinned per call site in
+  tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS. Apache-2.0.
 author: ThreeMoonsLab
 
 branding:
@@ -79,8 +80,10 @@ inputs:
     description: Optional Agents Shipgate PyPI version to install. Empty installs this action source.
 
 outputs:
+  # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
+  # via the `decision` output below for gating.
   status:
-    description: Agents Shipgate summary status.
+    description: Agents Shipgate summary status (legacy v0.7 caller; baseline-blind).
     value: ${{ steps.report_outputs.outputs.status }}
   critical_count:
     description: Number of unsuppressed critical findings.

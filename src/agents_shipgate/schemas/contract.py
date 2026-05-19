@@ -13,6 +13,25 @@ from agents_shipgate.schemas.report import ReadinessReport
 CONTRACT_VERSION: Literal["1"] = "1"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 # Adding `gating_signal_values` would be a `contract_version: "2"` change.
+# Wire-stable enum-id -> display-alias tuple. Enum-ids match adapter
+# `source_type` ClassVars on inputs/*.py and the `inputs[]` array in
+# .well-known/agents-shipgate.json. Alias tuples are ordered
+# longest-first so substring resolution prefers more specific names
+# (e.g. "Anthropic Messages API" wins over "Anthropic"). Iteration
+# order is the canonical public order; the wire array in .well-known
+# is pinned to list(SUPPORTED_INPUTS).
+SUPPORTED_INPUTS: dict[str, tuple[str, ...]] = {
+    "mcp": ("Model Context Protocol (MCP)", "Model Context Protocol", "MCP"),
+    "openapi": ("OpenAPI 3.x", "OpenAPI"),
+    "openai_agents_sdk": ("OpenAI Agents SDK",),
+    "anthropic_api": ("Anthropic Messages API", "Anthropic"),
+    "google_adk": ("Google ADK",),
+    "langchain": ("LangChain and LangGraph", "LangChain/LangGraph", "LangChain"),
+    "crewai": ("CrewAI",),
+    "openai_api": ("OpenAI API",),
+    "codex_plugin": ("Codex plugin packages and marketplaces", "Codex plugin"),
+    "n8n": ("n8n",),
+}
 MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.review_items",
     # v0.17: per-finding decision audit. Reviewers triaging
@@ -72,6 +91,7 @@ __all__ = [
     "CONTRACT_VERSION",
     "GATING_SIGNAL",
     "MANUAL_REVIEW_SIGNALS",
+    "SUPPORTED_INPUTS",
     "ContractPayload",
     "build_contract_payload",
 ]

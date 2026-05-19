@@ -32,6 +32,7 @@ from agents_shipgate.report.markdown import DISCLAIMER
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
+    SUPPORTED_INPUTS,
     build_contract_payload,
 )
 from agents_shipgate.schemas.diagnostics import NextActionKind
@@ -105,10 +106,21 @@ VERSION_LITERAL_TARGETS = (
         re.compile(r"preparing the\s+`v(\d+\.\d+\.\d+)`\s+release"),
     ),
 )
-# Forbidden public/display forms. Word boundaries on both sides keep
-# "Agents Shipgate" (canonical) from matching.
+# Forbidden public/display forms. Case-sensitive on purpose: `Agents
+# Shipgate` (canonical) must never match. The four banned variants
+# below mirror the "Do not use" list in AGENTS.md §Naming (canonical).
 FORBIDDEN_NAME_PATTERN = re.compile(
-    r"(?<![A-Za-z])Agent\s+(?:Shipcheck|Shipgate)(?![A-Za-z])"
+    r"(?<![A-Za-z])("
+    r"Agent\s+(?:Shipcheck|Shipgate)"      # singular display: "Agent Shipgate"
+    r"|Agents-Shipgate"                     # display kebab
+    r"|agents\s+shipgate"                   # display lowercase
+    r")(?![A-Za-z])"
+)
+# `agent_shipgate` (singular underscore) is always wrong; the correct
+# Python module is `agents_shipgate` (plural). Pinned separately
+# because Python contexts otherwise need `agents_shipgate` to pass.
+SINGULAR_UNDERSCORE_PATTERN = re.compile(
+    r"(?<![A-Za-z_])agent_shipgate(?![A-Za-z_])"
 )
 DO_NOT_USE_CONTEXT_PATTERN = re.compile(
     r"do\s*\*{0,2}\s*not\s*\*{0,2}\s*use|avoid these names|forbidden",
@@ -1408,3 +1420,351 @@ def test_pre_commit_docs_do_not_reference_missing_trigger_subcommand():
     text = _read(".pre-commit-hooks.yaml")
     assert "agents-shipgate triggers --diff" not in text
     assert "python -m agents_shipgate.triggers --git-diff HEAD" in text
+
+
+# ---------------------------------------------------------------------------
+# Supported-input alignment (P0.1)
+# ---------------------------------------------------------------------------
+#
+# SUPPORTED_INPUTS in agents_shipgate.schemas.contract is the in-code
+# source of truth. Every public surface that lists supported inputs must
+# (a) mention every enum-id and (b) not mention anything unknown.
+# Adapter ClassVars are pinned bidirectionally against the constant so a
+# new adapter cannot land without updating SUPPORTED_INPUTS, and a
+# docs-only addition cannot land without a backing adapter (the n8n
+# failure mode that motivated this block).
+
+# Build longest-first so "Anthropic Messages API" beats "Anthropic"
+# when both appear in the same token.
+_ALIAS_TO_ENUM: dict[str, str] = {
+    alias: enum_id
+    for enum_id, aliases in SUPPORTED_INPUTS.items()
+    for alias in aliases
+}
+_ALIASES_LONGEST_FIRST: list[str] = sorted(
+    _ALIAS_TO_ENUM, key=len, reverse=True
+)
+
+# Internal-only adapters that intentionally never appear in user-facing
+# input lists. Adding to this set requires a comment justifying why
+# the adapter isn't a SUPPORTED_INPUTS key.
+INTERNAL_ADAPTERS: set[str] = {
+    # `validation` is the catch-all adapter for shipgate.yaml-only
+    # manifest entries; it's never a user-facing input source.
+    "validation",
+}
+
+
+def _resolve_alias(token: str) -> str | None:
+    """Return the enum-id matching the longest alias that appears as
+    a substring of `token`, or None if nothing matches."""
+    clean = token.strip().rstrip(",.;:")
+    for alias in _ALIASES_LONGEST_FIRST:
+        if alias in clean:
+            return _ALIAS_TO_ENUM[alias]
+    return None
+
+
+def _slice_section(text: str, start_marker: str, end_marker: str) -> str:
+    """Slice between `start_marker` (inclusive of length) and the next
+    occurrence of `end_marker`. Returns the tail if `end_marker` is
+    absent."""
+    start = text.index(start_marker) + len(start_marker)
+    end = text.find(end_marker, start)
+    return text[start:] if end == -1 else text[start:end]
+
+
+def _resolve_tokens(tokens: list[str]) -> tuple[set[str], list[str]]:
+    resolved: set[str] = set()
+    unresolved: list[str] = []
+    for token in tokens:
+        enum_id = _resolve_alias(token)
+        if enum_id is None:
+            unresolved.append(token)
+        else:
+            resolved.add(enum_id)
+    return resolved, unresolved
+
+
+def _resolve_freeform(text: str) -> tuple[set[str], list[str]]:
+    """Substring-scan freeform prose for every alias. Unresolved is
+    always empty for prose — the bidirectional adapter test plus the
+    structured extractors below catch unknown-input drift on surfaces
+    that have a parseable list shape."""
+    resolved: set[str] = set()
+    for alias in _ALIASES_LONGEST_FIRST:
+        if alias in text:
+            resolved.add(_ALIAS_TO_ENUM[alias])
+    return resolved, []
+
+
+def _well_known_input_ids(text: str) -> tuple[set[str], list[str]]:
+    ids = json.loads(text)["inputs"]
+    resolved = {i for i in ids if i in SUPPORTED_INPUTS}
+    unresolved = [i for i in ids if i not in SUPPORTED_INPUTS]
+    return resolved, unresolved
+
+
+def _llms_txt_inputs(text: str) -> tuple[set[str], list[str]]:
+    block = _slice_section(text, "## Inputs", "\n## ")
+    tokens = re.findall(r"^- (.+?)\.?\s*$", block, flags=re.M)
+    return _resolve_tokens(tokens)
+
+
+def _agents_md_inputs_bullet(text: str) -> tuple[set[str], list[str]]:
+    m = re.search(r"\*\*Inputs:\*\*\s+(.+)", text)
+    if not m:
+        return set(), ["<no Inputs bullet found>"]
+    return _resolve_tokens([t.strip() for t in m.group(1).split("·")])
+
+
+def _readme_inputs_table(text: str) -> tuple[set[str], list[str]]:
+    rows = re.findall(
+        r"^\|\s*([^|]+?)\s*\|\s*Supported\s*\|", text, flags=re.M
+    )
+    return _resolve_tokens(rows)
+
+
+def _pyproject_description(text: str) -> tuple[set[str], list[str]]:
+    m = re.search(r'^description\s*=\s*"([^"]+)"', text, flags=re.M)
+    if not m:
+        return set(), ["<no description>"]
+    return _resolve_freeform(m.group(1))
+
+
+def _action_yml_description(text: str) -> tuple[set[str], list[str]]:
+    m = re.search(r"^description:\s*>-\n((?:\s{2,}.+\n)+)", text, flags=re.M)
+    if not m:
+        return set(), ["<no description>"]
+    return _resolve_freeform(m.group(1))
+
+
+def _faq_inputs_block(text: str) -> tuple[set[str], list[str]]:
+    block = _slice_section(
+        text, "## What inputs does it support?", "\n## "
+    )
+    tokens = re.findall(r"^- (.+)$", block, flags=re.M)
+    return _resolve_tokens(tokens)
+
+
+INPUT_SURFACES: tuple[tuple[str, object], ...] = (
+    (".well-known/agents-shipgate.json", _well_known_input_ids),
+    ("llms.txt", _llms_txt_inputs),
+    ("AGENTS.md", _agents_md_inputs_bullet),
+    ("README.md", _readme_inputs_table),
+    ("pyproject.toml", _pyproject_description),
+    ("action.yml", _action_yml_description),
+    ("docs/faq.md", _faq_inputs_block),
+)
+
+
+@pytest.mark.parametrize("relpath,extractor", INPUT_SURFACES)
+def test_public_surface_lists_every_supported_input(relpath, extractor):
+    """Every supported-input surface must list each SUPPORTED_INPUTS
+    enum-id (via at least one alias) and must not list any unknown
+    tokens. Catches the n8n failure mode where a runtime adapter ships
+    but discovery and docs surfaces miss it."""
+    observed, unresolved = extractor(_read(relpath))
+    missing = set(SUPPORTED_INPUTS) - observed
+    assert not missing, (
+        f"{relpath} missing input enum-ids: {sorted(missing)}. "
+        f"Bump the surface or update SUPPORTED_INPUTS in "
+        f"src/agents_shipgate/schemas/contract.py."
+    )
+    assert not unresolved, (
+        f"{relpath} mentions tokens not in SUPPORTED_INPUTS: "
+        f"{unresolved}. Either add the input as an adapter + "
+        f"SUPPORTED_INPUTS entry, or remove the stray reference."
+    )
+
+
+def test_well_known_inputs_order_matches_constant():
+    """Beyond set equality: the wire-stable `inputs` array order must
+    match the declared order of SUPPORTED_INPUTS so external consumers
+    that index positionally see a stable contract."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+    assert data["inputs"] == list(SUPPORTED_INPUTS), (
+        f"`.well-known/agents-shipgate.json::inputs` order drift: got "
+        f"{data['inputs']}, expected {list(SUPPORTED_INPUTS)}."
+    )
+
+
+def test_supported_inputs_match_adapter_class_vars_bidirectionally():
+    """Bidirectional: every adapter `source_type` ClassVar (minus
+    INTERNAL_ADAPTERS) must be in SUPPORTED_INPUTS — catches a new
+    adapter added without updating the contract (the exact n8n
+    failure mode that motivated this test). And every SUPPORTED_INPUTS
+    key must have a backing adapter — catches a docs-only addition
+    without runtime support."""
+    adapter_dir = REPO_ROOT / "src" / "agents_shipgate" / "inputs"
+    pattern = re.compile(r'source_type:\s*ClassVar\[str\]\s*=\s*"([^"]+)"')
+    adapter_ids: set[str] = set()
+    for path in adapter_dir.glob("*.py"):
+        adapter_ids.update(
+            pattern.findall(path.read_text(encoding="utf-8"))
+        )
+    user_facing = adapter_ids - INTERNAL_ADAPTERS
+    assert user_facing == set(SUPPORTED_INPUTS), (
+        f"SUPPORTED_INPUTS vs adapter ClassVars disagree.\n"
+        f"  Missing from SUPPORTED_INPUTS: "
+        f"{sorted(user_facing - set(SUPPORTED_INPUTS))}\n"
+        f"  Missing adapter: "
+        f"{sorted(set(SUPPORTED_INPUTS) - user_facing)}\n"
+        f"Adapter ClassVars are the runtime source of truth."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Trust-claim qualifier coverage (P0.1)
+# ---------------------------------------------------------------------------
+
+TRUST_CLAIM_PATTERN = re.compile(
+    r"\b(no\s+LLM\s+calls?|no\s+tool\s+calls?|no\s+agent\s+execution|"
+    r"no\s+network(?:\s+access|\s+calls?)?|"
+    r"no\s+MCP\s+server\s+connections|"
+    r"does\s+not\s+(?:invoke|run|call|execute|connect)|no\s+telemetry)\b",
+    re.IGNORECASE,
+)
+TRUST_QUALIFIER_PATTERN = re.compile(
+    r"\b(by\s+default|static[-\s]by[-\s]default|"
+    r"audited\s+exceptions?|allowlist(?:ed)?|"
+    r"ALLOWED_EXCEPTIONS|meta-CLI|bootstrap\s+chain)\b",
+    re.IGNORECASE,
+)
+TRUST_QUALIFIER_WINDOW = 400  # ~one paragraph; matches CONTEXT_WINDOW
+
+TRUST_CLAIM_SURFACES = (
+    "README.md",
+    "AGENTS.md",
+    "STABILITY.md",
+    "llms.txt",
+    "action.yml",
+    "docs/faq.md",
+    "docs/agent-recipes.md",
+    "docs/trust-model.md",
+)
+
+
+@pytest.mark.parametrize("relpath", TRUST_CLAIM_SURFACES)
+def test_trust_claims_carry_meta_cli_qualifier(relpath):
+    """Any 'no LLM calls / no agent execution / does not call …' style
+    claim in a public surface must sit within ~one paragraph of a
+    qualifier (`by default`, `static-by-default`, `ALLOWED_EXCEPTIONS`,
+    `audited exceptions`, `meta-CLI`, `bootstrap chain`). Unqualified
+    claims mislead coding agents that read the surface and conclude
+    Shipgate never shells out."""
+    text = _read(relpath)
+    for match in TRUST_CLAIM_PATTERN.finditer(text):
+        window = text[
+            max(0, match.start() - TRUST_QUALIFIER_WINDOW)
+            : match.end() + TRUST_QUALIFIER_WINDOW
+        ]
+        assert TRUST_QUALIFIER_PATTERN.search(window), (
+            f"{relpath}:{text.count(chr(10), 0, match.start()) + 1} "
+            f"makes an unqualified trust claim {match.group(0)!r}. Add "
+            f"'by default' / 'static-by-default' nearby, or reference "
+            f"ALLOWED_EXCEPTIONS (see STABILITY.md §Meta-CLI surfaces)."
+        )
+
+
+_META_CLI_SECTION_PATTERN = re.compile(
+    r"Meta-CLI\s+surfaces\s+\(allowlisted,\s+audited\)"
+)
+
+
+def test_stability_md_pins_canonical_meta_cli_section_exactly_once():
+    """STABILITY.md is the canonical owner of the meta-CLI exception
+    list. The 'Meta-CLI surfaces (allowlisted, audited)' header must
+    appear exactly once (so other surfaces link or summarize rather
+    than restate), and it must point at ALLOWED_EXCEPTIONS by name —
+    rather than enumerate a partial list that drifts when the test
+    file changes."""
+    text = _read("STABILITY.md")
+    matches = list(_META_CLI_SECTION_PATTERN.finditer(text))
+    assert len(matches) == 1, (
+        f"STABILITY.md must declare 'Meta-CLI surfaces (allowlisted, "
+        f"audited)' exactly once; found {len(matches)}."
+    )
+    section = text[matches[0].start(): matches[0].start() + 2500]
+    assert "ALLOWED_EXCEPTIONS" in section, (
+        "Meta-CLI section must reference "
+        "tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS so the "
+        "audited list lives in code, not duplicated prose."
+    )
+
+
+# ---------------------------------------------------------------------------
+# action.yml legacy-status annotation (P0.1)
+# ---------------------------------------------------------------------------
+
+
+def test_action_yml_status_output_marked_legacy():
+    """outputs.status must carry a 'legacy / v0.7 caller / baseline-blind
+    / prefer release_decision' annotation in a YAML comment immediately
+    above or in the description string. The existing prose-level
+    test_public_surface_does_not_recommend_summary_status_for_gating
+    relies on a 400-char window, which doesn't reach across the
+    structured YAML block — this test pins the annotation explicitly."""
+    text = _read("action.yml")
+    m = re.search(
+        r"outputs:\n(?:[^\n]*\n){0,4}\s*status:\n"
+        r"(?:\s*#[^\n]*\n)*"
+        r"\s*description:\s*([^\n]+)\n",
+        text,
+    )
+    assert m is not None, "outputs.status block not found in action.yml"
+    block = text[max(0, m.start() - 200): m.end()]
+    assert re.search(
+        r"legacy|v0\.7\s+caller|baseline-blind|prefer.*release_decision",
+        block,
+        re.IGNORECASE,
+    ), (
+        "action.yml outputs.status must carry a 'legacy / v0.7 caller / "
+        "baseline-blind / prefer release_decision' annotation so CI "
+        "consumers don't gate on it."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Prose schema-reference drift guard (P0.1)
+# ---------------------------------------------------------------------------
+
+CURRENT_SCHEMA_PROSE_PATTERN = re.compile(
+    r"schema\s+v(\d+\.\d+)\s*,?\s*current",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
+def test_prose_current_schema_references_match_runtime(relpath):
+    """Any prose phrase like 'schema v0.X, current' must match the
+    runtime report schema. Catches the FAQ-style drift that the
+    filename-based tests miss (e.g. `schema v0.17, current` while the
+    current report schema is v0.18)."""
+    text = _read(relpath)
+    for match in CURRENT_SCHEMA_PROSE_PATTERN.finditer(text):
+        version = match.group(1)
+        assert version == CURRENT_REPORT_SCHEMA_VERSION, (
+            f"{relpath} prose claims 'schema v{version}, current'; "
+            f"runtime is v{CURRENT_REPORT_SCHEMA_VERSION}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Singular-underscore module name (P0.1, tightens forbidden-name coverage)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
+def test_no_singular_underscore_module_name(relpath):
+    """`agent_shipgate` (singular underscore) is always wrong — the
+    correct Python module is `agents_shipgate` (plural). Caught
+    separately from FORBIDDEN_NAME_PATTERN because Python contexts
+    legitimately need `agents_shipgate` to pass."""
+    text = _read(relpath)
+    for m in SINGULAR_UNDERSCORE_PATTERN.finditer(text):
+        line = text[: m.start()].count("\n") + 1
+        raise AssertionError(
+            f"{relpath}:{line} uses singular `agent_shipgate`; the "
+            f"correct Python module is `agents_shipgate` (plural)."
+        )
