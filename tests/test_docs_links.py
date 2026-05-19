@@ -26,7 +26,7 @@ LINK_RE = re.compile(r"\[[^\]]+\]\(([^)#:][^)#]*)(?:#[^)]*)?\)")
 # previous hardcoded literal ("v0.11") let the docs go stale relative
 # to the runtime — see PR #57 review P2.
 def _current_report_schema_version() -> str:
-    from agents_shipgate.core.models import ReadinessReport
+    from agents_shipgate.schemas.report import ReadinessReport
 
     return str(ReadinessReport.model_fields["report_schema_version"].default)
 
@@ -206,7 +206,7 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
 
 def test_readme_onboarding_copy_pins_agent_contract():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Static release checks for tool-using AI agents" in text
+    assert "Local-first, static Tool-Use Readiness release gate" in text
     assert "5-minute" in text
     assert "Copy this into your coding agent" in text
     assert "https://github.com/marketplace/actions/agents-shipgate" in text

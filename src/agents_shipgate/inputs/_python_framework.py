@@ -5,9 +5,12 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.config.schema import ArtifactPathConfig, ToolSourceConfig
+from agents_shipgate.core.domain import (
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.python_static import (
@@ -15,6 +18,10 @@ from agents_shipgate.inputs.python_static import (
     function_output_schema,
     function_signature,
     parse_python_file,
+)
+from agents_shipgate.schemas.manifest import (
+    ArtifactPathConfig,
+    ToolSourceConfig,
 )
 
 ExtractorFactory = Callable[[ast.Module, str, str, Any], Any]

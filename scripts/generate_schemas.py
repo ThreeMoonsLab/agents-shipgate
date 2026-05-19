@@ -6,13 +6,13 @@ Run from the repo root:
     python scripts/generate_schemas.py --check    # verify no drift; exit 1 on diff
 
 Writes / verifies:
-- docs/manifest-v0.1.json       (from agents_shipgate.config.schema)
+- docs/manifest-v0.1.json       (from agents_shipgate.schemas.manifest)
 - docs/checks.json              (from agents_shipgate.checks.registry.check_catalog)
 - docs/report-schema.v0.<minor>.json
-                                (from agents_shipgate.core.models.ReadinessReport;
+                                (from agents_shipgate.schemas.report.ReadinessReport;
                                  minor derived from report_schema_version default)
 - docs/packet-schema.v0.<minor>.json
-                                (from agents_shipgate.packet.models.EvidencePacket)
+                                (from agents_shipgate.schemas.packet.EvidencePacket)
 
 ``--check`` mode is the M4 trust-hardening gate: it generates each schema in
 memory (running the same post-processing as ``write``) and compares it to the
@@ -31,6 +31,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import get_args
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
@@ -39,6 +40,7 @@ SRC = REPO_ROOT / "src"
 # Allow `python scripts/generate_schemas.py` from a checkout without install.
 sys.path.insert(0, str(SRC))
 
+from agents_shipgate.schemas.common import AgentAction, ProvenanceKind  # noqa: E402
 
 # --- Shared helpers ---------------------------------------------------------
 
@@ -96,7 +98,7 @@ def _emit(target: Path, content: str, *, check_only: bool, drift: list[str]) -> 
 
 
 def build_manifest_schema() -> tuple[Path, str]:
-    from agents_shipgate.config.schema import AgentsShipgateManifest
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
     schema = AgentsShipgateManifest.model_json_schema()
     schema["$id"] = (
@@ -107,7 +109,7 @@ def build_manifest_schema() -> tuple[Path, str]:
     schema["title"] = "Agents Shipgate Manifest v0.1"
     schema["description"] = (
         "JSON Schema for shipgate.yaml. Generated from "
-        "agents_shipgate.config.schema.AgentsShipgateManifest. Do not edit by hand."
+        "agents_shipgate.schemas.manifest.AgentsShipgateManifest. Do not edit by hand."
     )
 
     # v0.17 (M1): `checks.severity_overrides` accepts both the legacy
@@ -167,7 +169,7 @@ def build_report_schema() -> tuple[Path, str]:
       defaults. Optional v0.6 additions (``manifest_dir``, per-finding
       ``patches``) stay optional.
     """
-    from agents_shipgate.core.models import ReadinessReport
+    from agents_shipgate.schemas.report import ReadinessReport
 
     schema = ReadinessReport.model_json_schema()
     minor = ReadinessReport.model_fields["report_schema_version"].default
@@ -181,7 +183,7 @@ def build_report_schema() -> tuple[Path, str]:
     schema["title"] = title
     schema["description"] = (
         "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. "
-        "Generated from agents_shipgate.core.models.ReadinessReport with "
+        "Generated from agents_shipgate.schemas.report.ReadinessReport with "
         "post-processing to preserve the v0.5 public contract. "
         "Do not edit by hand."
     )
@@ -326,22 +328,18 @@ def build_report_schema() -> tuple[Path, str]:
         # field is always a real enum value. AgentAction is a Literal,
         # not a BaseModel, so we cannot $ref it — inline the enum.
         finding_props = defs["Finding"].setdefault("properties", {})
-        from typing import get_args as _get_args
-
-        from agents_shipgate.core.models import AgentAction as _AgentAction
-        from agents_shipgate.core.models import ProvenanceKind as _ProvenanceKind
 
         if "agent_action" in finding_props:
             finding_props["agent_action"] = {
                 "type": "string",
-                "enum": list(_get_args(_AgentAction)),
+                "enum": list(get_args(AgentAction)),
             }
         # v0.15: same tightening for provenance_kind — Python-Optional,
         # wire-required, inline enum (Literal can't be $ref'd).
         if "provenance_kind" in finding_props:
             finding_props["provenance_kind"] = {
                 "type": "string",
-                "enum": list(_get_args(_ProvenanceKind)),
+                "enum": list(get_args(ProvenanceKind)),
             }
     # v0.12: tighten the AgentSummary block. Pydantic auto-detects
     # required only for fields without defaults (verdict, headline);
@@ -891,7 +889,7 @@ def build_packet_schema() -> tuple[Path, str]:
     rerun of this script. CI's clean-tree assertion catches drift.
     """
 
-    from agents_shipgate.packet.models import EvidencePacket
+    from agents_shipgate.schemas.packet import EvidencePacket
 
     schema = EvidencePacket.model_json_schema()
     minor = str(EvidencePacket.model_fields["packet_schema_version"].default)
@@ -903,7 +901,7 @@ def build_packet_schema() -> tuple[Path, str]:
     schema["title"] = f"Agents Shipgate Release Evidence Packet v{minor}"
     schema["description"] = (
         "JSON Schema for packet.json. Generated from "
-        "agents_shipgate.packet.models.EvidencePacket. Do not edit by hand."
+        "agents_shipgate.schemas.packet.EvidencePacket. Do not edit by hand."
     )
     target = DOCS / f"packet-schema.v{minor}.json"
     return target, _canonical_json(schema)

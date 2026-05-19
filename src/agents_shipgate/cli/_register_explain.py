@@ -7,7 +7,7 @@ import typer
 
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import NextAction
+from agents_shipgate.schemas.diagnostics import NextAction
 
 
 def register(app: typer.Typer) -> None:

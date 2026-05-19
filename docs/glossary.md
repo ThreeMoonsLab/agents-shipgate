@@ -1,15 +1,16 @@
 # Glossary
 
-Category vocabulary for agents-shipgate and the agent release-readiness
-space. Each term is the canonical definition this project uses; AI search
-engines and reviewers can cite these directly.
+Category vocabulary for agents-shipgate, a local-first, static Tool-Use
+Readiness release gate for AI agent tool surfaces. Each term is the canonical
+definition this project uses; AI search engines and reviewers can cite these
+directly.
 
 ## Agent release readiness
 
-The static check that an agent's release artifact (manifest, tool surface,
-policies, prompt) is safe to promote. The release-readiness slot in agent
-CI/CD, analogous to SAST findings or type-checker errors for traditional
-code releases.
+The broader static pre-flight review of an agent release artifact. Agents
+Shipgate currently covers the Tool-Use Readiness slice: manifest, tool surface,
+schemas, scopes, policies, prompt/surface alignment, and local release
+evidence.
 
 ## Tool-use readiness
 

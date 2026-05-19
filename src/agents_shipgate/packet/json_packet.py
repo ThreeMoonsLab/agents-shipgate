@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.privacy import sanitize_packet_payload
-from agents_shipgate.packet.models import EvidencePacket
+from agents_shipgate.schemas.packet import EvidencePacket
 
 
 class PacketSchemaError(ValueError):

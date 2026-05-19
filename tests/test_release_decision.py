@@ -7,13 +7,15 @@ from agents_shipgate.ci.exit_policy import (
     exit_code_for_report,
 )
 from agents_shipgate.ci.release_decision import build_release_decision
-from agents_shipgate.core.models import (
+from agents_shipgate.core.domain import (
     AuthInfo,
+    Tool,
+)
+from agents_shipgate.schemas.report import (
     BaselineSummary,
     Finding,
     ReadinessReport,
     ReportSummary,
-    Tool,
     ToolSurfaceSummary,
 )
 
@@ -701,7 +703,7 @@ def test_contribution_rules_default_to_empty_for_legacy_report():
     (e.g., loaded from a v0.16 report via explain-finding, or built by
     minimal test helpers) must accept the missing field and default to
     an empty list. Forward-compat for old reports."""
-    from agents_shipgate.core.models import (
+    from agents_shipgate.schemas.report import (
         BaselineDelta,
         EvidenceCoverageDecision,
         FailPolicy,

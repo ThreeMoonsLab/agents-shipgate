@@ -5,8 +5,10 @@ from agents_shipgate.checks._framework_common import (
     collect_dynamic_surface_findings,
 )
 from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.core.artifact_models import N8nArtifacts
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import Finding, N8nArtifacts, SourceReference
+from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.report import Finding
 
 N8N_TOOL_SOURCE_TYPES = {
     "n8n_ai_tool",

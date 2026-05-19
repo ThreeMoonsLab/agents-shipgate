@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from agents_shipgate.checks.base import tool_finding
+from agents_shipgate.core.artifact_models import (
+    AnthropicArtifacts,
+    OpenAIApiArtifacts,
+)
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import AnthropicArtifacts, OpenAIApiArtifacts
 from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_only, risk_tags
 
 APPROVAL_TAGS = {

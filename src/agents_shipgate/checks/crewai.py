@@ -5,8 +5,8 @@ from agents_shipgate.checks._framework_common import (
     collect_dynamic_surface_findings,
 )
 from agents_shipgate.checks.base import tool_finding
+from agents_shipgate.core.artifact_models import CrewAiArtifacts
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import CrewAiArtifacts
 
 
 def run(context: ScanContext):

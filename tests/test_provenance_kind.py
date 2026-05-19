@@ -15,8 +15,9 @@ from jsonschema import ValidationError, validate
 
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.findings import finding_fingerprint
-from agents_shipgate.core.models import Finding, ProvenanceKind
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.common import ProvenanceKind
+from agents_shipgate.schemas.report import Finding
 
 SAMPLES = [
     Path("samples/support_refund_agent/shipgate.yaml"),

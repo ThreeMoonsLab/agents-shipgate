@@ -4,7 +4,7 @@ import json
 
 import typer
 
-from agents_shipgate.contract import build_contract_payload
+from agents_shipgate.schemas.contract import build_contract_payload
 
 
 def register(app: typer.Typer) -> None:

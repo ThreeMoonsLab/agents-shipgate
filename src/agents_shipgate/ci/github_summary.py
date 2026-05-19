@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.report.markdown import _safe_markdown_text
+from agents_shipgate.schemas.report import ReadinessReport
 
 
 def write_github_step_summary(report: ReadinessReport) -> None:

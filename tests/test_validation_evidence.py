@@ -9,16 +9,19 @@ from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import (
+from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.findings import finding_fingerprint
+from agents_shipgate.inputs.validation import load_validation_artifacts
+from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.manifest import (
     ArtifactPathConfig,
     ValidationConfig,
     ValidationEvidenceConfig,
 )
-from agents_shipgate.core.errors import ConfigError, InputParseError
-from agents_shipgate.core.findings import finding_fingerprint
-from agents_shipgate.core.models import Finding, ReadinessReport
-from agents_shipgate.inputs.validation import load_validation_artifacts
-from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
+)
 
 SAMPLE = Path("samples/hitl_evidence_agent/shipgate.yaml")
 COVERED_SAMPLE = Path("samples/hitl_evidence_covered_agent/shipgate.yaml")

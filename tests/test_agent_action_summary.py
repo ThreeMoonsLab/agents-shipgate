@@ -27,8 +27,14 @@ from agents_shipgate.core.findings import (
     build_agent_summary,
     derive_agent_action,
 )
-from agents_shipgate.core.models import (
-    AgentAction,
+from agents_shipgate.schemas.common import AgentAction
+from agents_shipgate.schemas.patches import (
+    AppendPointerPatch,
+    ManualPatch,
+    RemovePointerPatch,
+    SetPointerPatch,
+)
+from agents_shipgate.schemas.report import (
     AgentSummary,
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -37,12 +43,6 @@ from agents_shipgate.core.models import (
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
-)
-from agents_shipgate.core.patches import (
-    AppendPointerPatch,
-    ManualPatch,
-    RemovePointerPatch,
-    SetPointerPatch,
 )
 
 # --- AgentAction enum surface contract ----------------------------------

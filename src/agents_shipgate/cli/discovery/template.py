@@ -24,7 +24,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_n8n_artifacts,
     discover_openai_api_artifacts,
 )
-from agents_shipgate.cli.discovery.signals import DetectResult
+from agents_shipgate.schemas.detect import DetectResult
 
 # Frameworks that register one tool_sources entry per candidate file.
 PYTHON_AST_FRAMEWORKS = {"langchain", "crewai", "google_adk", "openai_agents_sdk"}

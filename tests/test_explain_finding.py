@@ -28,7 +28,7 @@ from agents_shipgate.cli.explain_finding import (
 )
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import Finding
+from agents_shipgate.schemas.report import Finding
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_MANIFEST = REPO_ROOT / "samples" / "support_refund_agent" / "shipgate.yaml"

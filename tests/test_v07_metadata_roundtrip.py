@@ -33,7 +33,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.models import ReadinessReport
+from agents_shipgate.schemas.report import ReadinessReport
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = REPO_ROOT / "samples"

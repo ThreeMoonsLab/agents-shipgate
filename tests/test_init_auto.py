@@ -21,7 +21,7 @@ from agents_shipgate.cli.discovery import (
     render_manifest_template,
 )
 from agents_shipgate.cli.main import app
-from agents_shipgate.config.schema import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 

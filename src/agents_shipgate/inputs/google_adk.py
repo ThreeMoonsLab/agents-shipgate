@@ -4,20 +4,17 @@ import ast
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    ArtifactPathConfig,
-    ToolSourceConfig,
-)
-from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
-    AuthInfo,
+from agents_shipgate.core.artifact_models import (
     GoogleAdkArtifacts,
     GoogleAdkToolset,
+)
+from agents_shipgate.core.domain import (
+    AuthInfo,
     LoadedToolSource,
     Tool,
     ToolParameter,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -28,6 +25,11 @@ from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import load_trace_artifacts
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ArtifactPathConfig,
+    ToolSourceConfig,
+)
 
 AGENT_CLASS_NAMES = {
     "Agent",

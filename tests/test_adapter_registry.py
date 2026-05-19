@@ -17,9 +17,7 @@ import pytest
 
 from agents_shipgate.cli.scan import _load_sources
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.config.schema import AgentsShipgateManifest, ToolSourceConfig
-from agents_shipgate.core.errors import ConfigError, InputParseError
-from agents_shipgate.core.models import (
+from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
@@ -28,12 +26,17 @@ from agents_shipgate.core.models import (
     OpenAIApiArtifacts,
     ValidationArtifacts,
 )
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.inputs.protocol import (
     REGISTRY,
     AdapterRegistry,
     ArtifactBag,
     LoadedAdapterResult,
     ToolSourceAdapter,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolSourceConfig,
 )
 
 

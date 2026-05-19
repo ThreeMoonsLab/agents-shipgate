@@ -4,20 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.config.schema import (
-    AgentsShipgateManifest,
-    ArtifactPathConfig,
-    ToolSourceConfig,
-    ValidationConfig,
-)
+from agents_shipgate.core.artifact_models import ValidationArtifacts
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.models import (
-    HitlProvenanceStatus,
-    HitlProvenanceType,
-    HitlSourceProvenance,
-    ValidationArtifacts,
-    sorted_hitl_source_provenance,
-)
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -25,6 +13,18 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.traces import normalize_trace_event
+from agents_shipgate.schemas.common import (
+    HitlProvenanceStatus,
+    HitlProvenanceType,
+    HitlSourceProvenance,
+    sorted_hitl_source_provenance,
+)
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ArtifactPathConfig,
+    ToolSourceConfig,
+    ValidationConfig,
+)
 
 STREAM_SUFFIXES = {".json", ".jsonl"}
 DECLARATIVE_SUFFIXES = {".json", ".yaml", ".yml"}

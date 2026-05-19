@@ -17,16 +17,18 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
-from agents_shipgate.core.models import (
-    ActionSurfaceDiffSummary,
+from agents_shipgate.schemas.common import HitlSourceProvenance
+from agents_shipgate.schemas.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
     FailPolicy,
-    HitlSourceProvenance,
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
     Severity,
+)
+from agents_shipgate.schemas.surfaces import (
+    ActionSurfaceDiffSummary,
     ToolSurfaceDiffSummary,
 )
 

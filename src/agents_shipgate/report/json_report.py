@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.core.models import ReadinessReport
 from agents_shipgate.core.privacy import sanitize_report_payload
+from agents_shipgate.schemas.report import ReadinessReport
 
 _PROVENANCE_KEYS = ("path", "start_line", "end_line", "start_column", "pointer")
 

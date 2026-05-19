@@ -4,20 +4,17 @@ from pathlib import Path
 
 from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.baseline import (
-    BaselineFile,
-    BaselineFinding,
-    apply_baseline,
-    baseline_resolved_fingerprints,
-)
+from agents_shipgate.core.baseline import apply_baseline, baseline_resolved_fingerprints
 from agents_shipgate.core.findings import (
     assign_finding_ids,
     dedupe_findings,
     finding_fingerprint,
 )
 from agents_shipgate.core.logging import _might_contain_sensitive_payload
-from agents_shipgate.core.models import Finding, ReadinessReport, SourceReference
 from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_findings
+from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
+from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.report import Finding, ReadinessReport
 
 
 def test_redact_data_redacts_nested_patterns_and_sensitive_keys():

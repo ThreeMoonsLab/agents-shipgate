@@ -240,13 +240,13 @@ def sanitize_model[T: BaseModel](
 
 
 def sanitize_tools(tools: Iterable[Any], *, stats: RedactionStats) -> list[Any]:
-    from agents_shipgate.core.models import Tool
+    from agents_shipgate.core.domain import Tool
 
     return [sanitize_model(tool, Tool, stats=stats, path="tools[]") for tool in tools]
 
 
 def sanitize_findings(findings: Iterable[Any], *, stats: RedactionStats) -> list[Any]:
-    from agents_shipgate.core.models import Finding
+    from agents_shipgate.schemas.report import Finding
 
     return [
         sanitize_model(finding, Finding, stats=stats, path="findings[]")
@@ -255,7 +255,7 @@ def sanitize_findings(findings: Iterable[Any], *, stats: RedactionStats) -> list
 
 
 def sanitize_report(report: Any) -> Any:
-    from agents_shipgate.core.models import ReadinessReport
+    from agents_shipgate.schemas.report import ReadinessReport
 
     payload = sanitize_report_payload(report.model_dump(mode="python"))
     return ReadinessReport.model_validate(payload)
@@ -267,7 +267,7 @@ def sanitize_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def sanitize_packet(packet: Any) -> Any:
-    from agents_shipgate.packet.models import EvidencePacket
+    from agents_shipgate.schemas.packet import EvidencePacket
 
     payload = sanitize_packet_payload(packet.model_dump(mode="python"))
     return EvidencePacket.model_validate(payload)
@@ -284,7 +284,7 @@ def build_privacy_audit(
     output_surfaces: Iterable[str],
     notes: Iterable[str] | None = None,
 ) -> Any:
-    from agents_shipgate.core.models import PrivacyAudit, RedactedPathSummary
+    from agents_shipgate.schemas.report import PrivacyAudit, RedactedPathSummary
 
     return PrivacyAudit(
         enabled=True,

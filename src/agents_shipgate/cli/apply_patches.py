@@ -33,7 +33,7 @@ import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
-from agents_shipgate.core.patches import (
+from agents_shipgate.schemas.patches import (
     AppendPointerPatch,
     ManualPatch,
     Patch,

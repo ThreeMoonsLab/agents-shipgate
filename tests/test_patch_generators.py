@@ -28,12 +28,12 @@ from agents_shipgate.checks.patches import (
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.models import Finding
-from agents_shipgate.core.patches import (
+from agents_shipgate.schemas.patches import (
     AppendPointerPatch,
     ManualPatch,
     RemovePointerPatch,
 )
+from agents_shipgate.schemas.report import Finding
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 

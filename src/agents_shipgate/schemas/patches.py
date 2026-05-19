@@ -18,7 +18,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Confidence = Literal["low", "medium", "high"]
+from agents_shipgate.schemas.common import Confidence
+
+SuggestedPatchKind = Literal[
+    "manual",
+    "remove_pointer",
+    "append_pointer",
+    "set_pointer",
+    "none",
+]
 
 
 class _PatchBase(BaseModel):

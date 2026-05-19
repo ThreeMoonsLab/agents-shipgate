@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.core.artifact_models import CodexPluginArtifacts
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.models import CodexPluginArtifacts
 
 
 def run(context: ScanContext):

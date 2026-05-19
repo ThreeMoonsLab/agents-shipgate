@@ -19,7 +19,7 @@ from html import escape
 from pathlib import Path
 
 from agents_shipgate.core.privacy import sanitize_packet
-from agents_shipgate.packet.models import (
+from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
     CapabilityIntentDiff,

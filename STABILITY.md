@@ -527,6 +527,11 @@ These are not stable — assume they may grow but not shrink:
 These are explicitly NOT part of the public contract:
 
 - **Internal module layout** under `src/agents_shipgate/`. Importing from non-public modules will break.
+- **Legacy internal schema imports** such as `agents_shipgate.core.models`,
+  `agents_shipgate.config.schema`, `agents_shipgate.core.patches`, and
+  `agents_shipgate.packet.models`. Public wire-contract models live under
+  `agents_shipgate.schemas.*`; internal scan/domain containers live under
+  `agents_shipgate.core.*` and are not a stable consumer API.
 - **Markdown report layout.** Section ordering, exact wording, and table format may change. Parse the JSON report instead.
 - **Risk classifier keyword sets** in `core/risk_hints.py`. False positives are tuned over time. To pin specific behavior, use `risk_overrides.tools.{tool}.{tags,remove_tags}` in your manifest.
 - **Default `init` template.** The starter manifest format may grow new sections.

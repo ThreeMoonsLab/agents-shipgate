@@ -7,8 +7,10 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 
+from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.finding_refs import finding_tool_names
-from agents_shipgate.core.models import (
+from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.schemas.report import (
     CapabilityFact,
     CapabilityIncludedReason,
     DeclaredIntention,
@@ -21,9 +23,7 @@ from agents_shipgate.core.models import (
     ReleaseConsequence,
     SuggestedScenario,
     SuggestedScenarioType,
-    Tool,
 )
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 
 RISK_TAG_PRIORITY = (
     "financial_action",

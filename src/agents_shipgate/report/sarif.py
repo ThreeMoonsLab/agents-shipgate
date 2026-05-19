@@ -6,8 +6,12 @@ from typing import Any
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
-from agents_shipgate.core.models import CheckMetadata, Finding, ReadinessReport
 from agents_shipgate.core.privacy import sanitize_report
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
+)
 
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 MAX_EVIDENCE_ITEMS = 20

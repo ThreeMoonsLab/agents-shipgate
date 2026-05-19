@@ -1613,7 +1613,7 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "JSON Schema for shipgate.yaml. Generated from agents_shipgate.config.schema.AgentsShipgateManifest. Do not edit by hand.",
+  "description": "JSON Schema for shipgate.yaml. Generated from agents_shipgate.schemas.manifest.AgentsShipgateManifest. Do not edit by hand.",
   "properties": {
     "action_surface": {
       "$ref": "#/$defs/ActionSurfaceConfig"

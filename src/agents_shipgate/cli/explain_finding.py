@@ -23,14 +23,14 @@ from pydantic import ValidationError
 
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import NextAction
-from agents_shipgate.core.models import (
-    AgentAction,
-    CheckMetadata,
+from agents_shipgate.core.privacy import sanitize_report_payload
+from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.common import AgentAction
+from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
 )
-from agents_shipgate.core.privacy import sanitize_report_payload
 
 _MIN_SUPPORTED_SCHEMA = "0.12"
 

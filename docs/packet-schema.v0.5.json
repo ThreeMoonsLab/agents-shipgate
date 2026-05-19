@@ -1178,7 +1178,7 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "JSON Schema for packet.json. Generated from agents_shipgate.packet.models.EvidencePacket. Do not edit by hand.",
+  "description": "JSON Schema for packet.json. Generated from agents_shipgate.schemas.packet.EvidencePacket. Do not edit by hand.",
   "properties": {
     "action_surface_diff": {
       "$ref": "#/$defs/ActionSurfaceDiffSection"

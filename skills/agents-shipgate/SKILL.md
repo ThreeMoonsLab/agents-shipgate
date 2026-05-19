@@ -1,11 +1,11 @@
 ---
 name: agents-shipgate
-description: Use when the user wants to add release-readiness checks for an AI agent's tool surface, run agents-shipgate scans, fix or triage Shipgate findings, add Shipgate to CI, or interpret a shipgate report. Triggers on phrases like "add shipgate", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/report.json", "fix shipgate finding".
+description: Use when the user wants to add a local-first, static Tool-Use Readiness release gate for an AI agent's tool surface, run agents-shipgate scans, fix or triage Shipgate findings, add Shipgate to CI, or interpret a shipgate report. Triggers on phrases like "add shipgate", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/report.json", "fix shipgate finding".
 ---
 
 # agents-shipgate skill
 
-`agents-shipgate` is a static release-readiness scanner for AI agent tool surfaces. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, Codex plugin package metadata) and emits deterministic findings as Markdown, JSON, and SARIF.
+`agents-shipgate` is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, Codex plugin package metadata) and emits deterministic findings as Markdown, JSON, and SARIF.
 
 It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry. Static analysis only.
 
@@ -13,7 +13,7 @@ It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or 
 
 ## When to use this skill
 
-- The user asks to add release-readiness or pre-merge checks to an agent project.
+- The user asks to add Tool-Use Readiness or pre-merge checks to an agent project.
 - The repo already has `shipgate.yaml` or `agents-shipgate-reports/report.json`.
 - The user asks to fix, triage, suppress, or explain a Shipgate finding.
 - The user wants to add Shipgate to CI (GitHub Actions, GitLab CI, CircleCI).

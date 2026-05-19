@@ -16,6 +16,9 @@ def render_block() -> str:
     """Return the inner content (between markers) for CLAUDE.md."""
     return f"""## Agents Shipgate
 
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
+
 For agent tool-surface or release-policy changes, run:
 
 ```bash

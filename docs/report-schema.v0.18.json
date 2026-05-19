@@ -3813,7 +3813,7 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.18.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
-  "description": "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. Generated from agents_shipgate.core.models.ReadinessReport with post-processing to preserve the v0.5 public contract. Do not edit by hand.",
+  "description": "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. Generated from agents_shipgate.schemas.report.ReadinessReport with post-processing to preserve the v0.5 public contract. Do not edit by hand.",
   "properties": {
     "action_surface_diff": {
       "$ref": "#/$defs/ActionSurfaceDiff"

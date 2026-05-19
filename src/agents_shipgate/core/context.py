@@ -4,11 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeVar
 
-from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.models import (
-    ActionSurfaceFacts,
-    Agent,
+from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
@@ -16,9 +12,15 @@ from agents_shipgate.core.models import (
     LangChainArtifacts,
     N8nArtifacts,
     OpenAIApiArtifacts,
-    Tool,
     ValidationArtifacts,
 )
+from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.domain import (
+    Agent,
+    Tool,
+)
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
 T = TypeVar("T")
 

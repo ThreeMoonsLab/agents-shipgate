@@ -1,19 +1,21 @@
-from agents_shipgate.config.schema import AgentsShipgateManifest
-from agents_shipgate.core.models import (
-    Finding,
+from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
+)
+from agents_shipgate.report.tool_surface_diff import (
+    ToolSurfaceDiffReference,
+    build_tool_surface_facts,
+    compute_tool_surface_diff,
+)
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.surfaces import (
     ToolSurfaceControlFact,
     ToolSurfaceFacts,
     ToolSurfaceFindingDeltaItem,
     ToolSurfacePolicyFact,
     ToolSurfaceScopeFact,
     ToolSurfaceToolFact,
-)
-from agents_shipgate.report.tool_surface_diff import (
-    ToolSurfaceDiffReference,
-    build_tool_surface_facts,
-    compute_tool_surface_diff,
 )
 
 

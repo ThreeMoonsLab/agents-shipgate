@@ -16,10 +16,11 @@ from agents_shipgate.cli._helpers import (
     _run_multi_scan,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import NextAction, top_next_actions
+from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.schemas.diagnostics import NextAction
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def register(app: typer.Typer) -> None:
         ),
         verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
     ) -> None:
-        """Run a static release-readiness scan."""
+        """Run the local-first, static Tool-Use Readiness release gate for AI agent tool surfaces."""
         # Parse CLI options first, in their own try block. ConfigError raised
         # here is about flag values, not the manifest — emitting a manifest
         # diagnostic ("edit shipgate.yaml") would route the agent to the

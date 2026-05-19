@@ -1,7 +1,8 @@
 name: Agents Shipgate
 description: >-
-  Static release-readiness gate for AI agent tool surfaces. Scans MCP, OpenAPI,
-  OpenAI Agents SDK, Anthropic, Google ADK, LangChain, and CrewAI artifacts.
+  Local-first, static Tool-Use Readiness release gate for AI agent tool
+  surfaces. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK,
+  LangChain, and CrewAI artifacts.
   Writes a Tool-Use Readiness Report (Markdown / JSON / SARIF) before your
   agent gets production-like permissions. No LLM calls. No agent execution.
   Apache-2.0.
