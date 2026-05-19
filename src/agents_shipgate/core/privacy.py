@@ -105,10 +105,6 @@ def redact_text(
         return None
     if REDACTION_MARKER_RE.fullmatch(value.strip()):
         return value
-    if force_kind and value:
-        if stats is not None:
-            stats.record(path, force_kind)
-        return _marker(force_kind)
 
     redacted = value
     for kind, pattern in SECRET_PATTERNS:
@@ -116,14 +112,61 @@ def redact_text(
         if count and stats is not None:
             stats.record(path, kind, count)
     redacted = _redact_labeled_secret(redacted, stats=stats, path=path)
+    if force_kind and redacted == value and value:
+        if stats is not None:
+            stats.record(path, force_kind)
+        return _marker(force_kind)
     return redacted
 
 
-def redact_data(value: Any, *, stats: RedactionStats | None = None, path: str = "$") -> Any:
+def redact_data(
+    value: Any,
+    *,
+    stats: RedactionStats | None = None,
+    path: str = "$",
+    force_kind: str | None = None,
+) -> Any:
+    return _redact_value(
+        value,
+        stats=stats,
+        path=path,
+        force_kind=force_kind,
+        preserve_models=False,
+    )
+
+
+def _redact_value(
+    value: Any,
+    *,
+    stats: RedactionStats | None,
+    path: str,
+    force_kind: str | None,
+    preserve_models: bool,
+) -> Any:
     if isinstance(value, BaseModel):
-        return redact_data(value.model_dump(mode="python"), stats=stats, path=path)
+        if not preserve_models:
+            return _redact_value(
+                value.model_dump(mode="python"),
+                stats=stats,
+                path=path,
+                force_kind=force_kind,
+                preserve_models=False,
+            )
+        updates: dict[str, Any] = {}
+        for field_name in type(value).model_fields:
+            child_force_kind = (
+                "sensitive_field" if _is_sensitive_key(field_name) else force_kind
+            )
+            updates[field_name] = _redact_value(
+                getattr(value, field_name),
+                stats=stats,
+                path=f"{path}.{_path_key(field_name)}",
+                force_kind=child_force_kind,
+                preserve_models=True,
+            )
+        return value.model_copy(update=updates, deep=True)
     if isinstance(value, str):
-        return redact_text(value, stats=stats, path=path)
+        return redact_text(value, stats=stats, path=path, force_kind=force_kind)
     if isinstance(value, dict):
         redacted: dict[Any, Any] = {}
         for raw_key, raw_item in value.items():
@@ -134,33 +177,66 @@ def redact_data(value: Any, *, stats: RedactionStats | None = None, path: str = 
                 else raw_key
             )
             child_path = f"{path}.{_path_key(key)}"
-            if isinstance(raw_item, str) and _is_sensitive_key(raw_key):
-                redacted_item = redact_text(raw_item, stats=stats, path=child_path)
-                if redacted_item == raw_item:
-                    redacted_item = redact_text(
-                        raw_item,
-                        stats=stats,
-                        path=child_path,
-                        force_kind="sensitive_field",
-                    )
-                redacted[key] = redacted_item
-            else:
-                redacted[key] = redact_data(raw_item, stats=stats, path=child_path)
+            child_force_kind = (
+                "sensitive_field" if _is_sensitive_key(raw_key) else force_kind
+            )
+            redacted[key] = _redact_value(
+                raw_item,
+                stats=stats,
+                path=child_path,
+                force_kind=child_force_kind,
+                preserve_models=preserve_models,
+            )
         return redacted
     if isinstance(value, list):
-        return [redact_data(item, stats=stats, path=f"{path}[]") for item in value]
+        return [
+            _redact_value(
+                item,
+                stats=stats,
+                path=f"{path}[]",
+                force_kind=force_kind,
+                preserve_models=preserve_models,
+            )
+            for item in value
+        ]
     if isinstance(value, tuple):
-        return tuple(redact_data(item, stats=stats, path=f"{path}[]") for item in value)
+        return tuple(
+            _redact_value(
+                item,
+                stats=stats,
+                path=f"{path}[]",
+                force_kind=force_kind,
+                preserve_models=preserve_models,
+            )
+            for item in value
+        )
     if isinstance(value, set):
-        return {redact_data(item, stats=stats, path=f"{path}[]") for item in value}
+        return {
+            _redact_value(
+                item,
+                stats=stats,
+                path=f"{path}[]",
+                force_kind=force_kind,
+                preserve_models=preserve_models,
+            )
+            for item in value
+        }
     return copy.deepcopy(value)
 
 
 def sanitize_model[T: BaseModel](
     model: T, model_type: type[T], *, stats: RedactionStats, path: str
 ) -> T:
-    payload = redact_data(model.model_dump(mode="python"), stats=stats, path=path)
-    return model_type.model_validate(payload)
+    redacted = _redact_value(
+        model,
+        stats=stats,
+        path=path,
+        force_kind=None,
+        preserve_models=True,
+    )
+    if isinstance(redacted, model_type):
+        return redacted
+    return model_type.model_validate(redacted)
 
 
 def sanitize_tools(tools: Iterable[Any], *, stats: RedactionStats) -> list[Any]:
@@ -234,7 +310,7 @@ def looks_like_secret_value(value: str) -> bool:
     has_alpha = any(char.isalpha() for char in value)
     has_digit = any(char.isdigit() for char in value)
     has_secret_alphabet = all(char.isalnum() or char in "_./+=-" for char in value)
-    return has_alpha and has_digit and has_secret_alphabet
+    return (has_alpha or has_digit) and has_secret_alphabet
 
 
 def _redact_labeled_secret(

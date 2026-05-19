@@ -51,6 +51,9 @@ def test_redact_text_covers_quoted_labeled_and_common_secret_patterns():
     secrets = [
         '"api_key":"abcdefghijklmnop1234567890"',
         "password=abcdefghijklmnop1234567890",
+        "password=correcthorsebatterystaple",
+        "password=12345678901234567890",
+        "password=longlonglonglonglongvalue",
         "ASIAABCDEFGHIJKLMNOP",
         "github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "xoxa-2-aaaaaaaaaaaaaaaa",
@@ -68,11 +71,32 @@ def test_redact_text_covers_quoted_labeled_and_common_secret_patterns():
         assert secret not in rendered
     assert '"api_key":"[REDACTED:labeled_secret_value]"' in redacted_text
     assert "password=[REDACTED:labeled_secret_value]" in redacted_text
+    assert "correcthorsebatterystaple" not in rendered
+    assert "12345678901234567890" not in rendered
+    assert "longlonglonglonglongvalue" not in rendered
     assert "[REDACTED:aws_access_key]" in rendered
     assert "[REDACTED:github_token]" in rendered
     assert "[REDACTED:slack_token]" in rendered
     assert "[REDACTED:stripe_webhook_secret]" in rendered
     assert rendered.count("[REDACTED:database_url]") == 2
+
+
+def test_sensitive_parent_keys_force_redact_nested_string_values():
+    payload = {
+        "credentials": ["alpha", "beta"],
+        "credential": {"value": "short"},
+        "metadata": {"value": "short"},
+    }
+    stats = RedactionStats()
+
+    redacted = redact_data(payload, stats=stats, path="$")
+    rendered = json.dumps(redacted, sort_keys=True)
+
+    assert "alpha" not in rendered
+    assert "beta" not in rendered
+    assert '"credential": {"value": "[REDACTED:sensitive_field]"}' in rendered
+    assert redacted["metadata"]["value"] == "short"
+    assert stats.occurrence_count == 3
 
 
 def test_sanitized_findings_preserve_distinct_raw_secret_evidence():
@@ -284,6 +308,81 @@ tool_sources:
     assert raw_secret not in rendered_explanation
     assert github_token not in rendered_explanation
     assert agent_secret not in rendered_explanation
+
+
+def test_scan_does_not_revalidate_manifest_after_redaction_collapses_action_tools(
+    tmp_path,
+):
+    raw_one = "sk-aaaaaaaaaaaaaaaaaaaa"
+    raw_two = "sk-bbbbbbbbbbbbbbbbbbbb"
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    project.mkdir()
+    (project / "openapi.yaml").write_text(
+        f"""
+openapi: 3.1.0
+info:
+  title: Privacy Action Fixture
+  version: "1.0"
+paths:
+  /one:
+    post:
+      operationId: "send_{raw_one}"
+      responses:
+        "200":
+          description: ok
+  /two:
+    post:
+      operationId: "send_{raw_two}"
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        f"""
+version: "0.1"
+project:
+  name: privacy-action-project
+agent:
+  name: privacy-action-agent
+  declared_purpose:
+    - send messages
+environment:
+  target: local
+action_surface:
+  actions:
+    - tool: "send_{raw_one}"
+      effect: write
+    - tool: "send_{raw_two}"
+      effect: write
+tool_sources:
+  - id: openapi
+    type: openapi
+    path: openapi.yaml
+    optional: false
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    report_text = (reports / "report.json").read_text(encoding="utf-8")
+    action_ids = [action.action_id for action in report.action_surface_facts.actions]
+
+    assert raw_one not in report_text
+    assert raw_two not in report_text
+    assert hashlib.sha256(raw_one.encode()).hexdigest() not in report_text
+    assert hashlib.sha256(raw_two.encode()).hexdigest() not in report_text
+    assert len(action_ids) == 2
+    assert len(set(action_ids)) == 2
+    assert report.privacy_audit.redacted_occurrence_count > 0
 
 
 def test_report_sensitive_field_inventory_covers_current_report_fields():

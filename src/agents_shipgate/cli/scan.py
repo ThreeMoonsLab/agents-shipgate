@@ -34,7 +34,9 @@ from agents_shipgate.core.findings import (
     tool_inventory,
 )
 from agents_shipgate.core.models import (
+    ActionFact,
     ActionSurfaceFacts,
+    ActionSurfaceHashes,
     Agent,
     AnthropicArtifacts,
     BaselineSummary,
@@ -98,6 +100,7 @@ from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
 from agents_shipgate.report.tool_surface_diff import (
     ToolSurfaceDiffReference,
+    _stable_hash,
     build_tool_surface_facts,
     compute_tool_surface_diff,
     disabled_tool_surface_diff,
@@ -490,15 +493,12 @@ def run_scan(
         diff_reference,
         stats=privacy_stats,
     )
-    public_action_surface_facts = sanitize_model(
-        build_action_surface_facts(
-            public_manifest,
-            agent_id=public_agent.id,
-            tools=public_tools,
-        ),
-        ActionSurfaceFacts,
+    public_action_surface_facts = _build_public_action_surface_facts(
+        raw_facts=action_surface_facts,
+        manifest=public_manifest,
+        agent_id=public_agent.id,
+        tools=public_tools,
         stats=privacy_stats,
-        path="action_surface_facts",
     )
     public_action_reference = action_reference_from_scan_reference(public_diff_reference)
     public_action_surface_diff = compute_action_surface_diff(
@@ -1483,6 +1483,94 @@ def _frameworks_surface(
     return surface
 
 
+def _build_public_action_surface_facts(
+    *,
+    raw_facts: ActionSurfaceFacts,
+    manifest: AgentsShipgateManifest,
+    agent_id: str,
+    tools: list[Tool],
+    stats: RedactionStats,
+) -> ActionSurfaceFacts:
+    try:
+        return sanitize_model(
+            build_action_surface_facts(
+                manifest,
+                agent_id=agent_id,
+                tools=tools,
+            ),
+            ActionSurfaceFacts,
+            stats=stats,
+            path="action_surface_facts",
+        )
+    except ConfigError:
+        logger.debug(
+            "redacted action surface collapsed distinct raw action ids; "
+            "falling back to a sanitized raw snapshot with public-only "
+            "ordinal disambiguators"
+        )
+        return _sanitize_existing_action_surface_facts(
+            raw_facts,
+            stats=stats,
+            path="action_surface_facts",
+        )
+
+
+def _sanitize_existing_action_surface_facts(
+    facts: ActionSurfaceFacts,
+    *,
+    stats: RedactionStats,
+    path: str,
+) -> ActionSurfaceFacts:
+    public_facts = sanitize_model(
+        facts,
+        ActionSurfaceFacts,
+        stats=stats,
+        path=path,
+    )
+    _disambiguate_public_action_ids(public_facts)
+    return public_facts
+
+
+def _disambiguate_public_action_ids(facts: ActionSurfaceFacts) -> None:
+    seen: dict[str, int] = {}
+    for action in facts.actions:
+        count = seen.get(action.action_id, 0) + 1
+        seen[action.action_id] = count
+        if count > 1:
+            action.action_id = f"{action.action_id}#{count}"
+        _refresh_public_action_hashes(action)
+
+
+def _refresh_public_action_hashes(action: ActionFact) -> None:
+    schema_hash = _stable_hash(
+        {
+            "input_fields": action.input_fields,
+            "required_input_fields": action.required_input_fields,
+        }
+    )
+    policy_hash = _stable_hash(
+        {
+            "approval": action.approval_policy.model_dump(mode="json"),
+            "safeguards": action.safeguards.model_dump(mode="json"),
+            "evidence": action.evidence.model_dump(mode="json"),
+        }
+    )
+    risk_hash = _stable_hash(
+        {
+            "effect": action.effect,
+            "risk_tags": action.risk_tags,
+            "required_scopes": action.required_scopes,
+        }
+    )
+    action.input_schema_hash = schema_hash
+    action.hashes = ActionSurfaceHashes(
+        identity_hash=_stable_hash(action.action_id),
+        schema_hash=schema_hash,
+        policy_hash=policy_hash,
+        risk_hash=risk_hash,
+    )
+
+
 def _sanitize_codex_plugin_surface(
     surface: CodexPluginSurface | None,
     *,
@@ -1516,9 +1604,8 @@ def _sanitize_diff_reference(
         else None
     )
     action_facts = (
-        sanitize_model(
+        _sanitize_existing_action_surface_facts(
             reference.action_facts,
-            ActionSurfaceFacts,
             stats=stats,
             path="action_surface_diff.base.facts",
         )
