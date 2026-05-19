@@ -66,8 +66,12 @@ wildcard, an ``admin``/``root``/``superuser`` family, or a generic catch-all."""
 # (approval-traces.jsonl, override-log.jsonl, high-risk-exclusions.yaml,
 # promotion-criteria.yaml). New files under any of these locations during
 # a run are blocker-eligible — they may be fabricated.
+#
+# Lookbehind allows the match to fire inside JSON-quoted manifest values
+# like ``"evidence": "traces/approval.jsonl"`` — the preceding char is a
+# quote, not a path component, so we negate path-like leaders only.
 TRACE_PATH_RE = re.compile(
-    r"(?:^|/)(?:"
+    r"(?<![A-Za-z0-9._-])(?:"
     r"traces/"
     r"|\.agents-shipgate/traces/"
     r"|validation/(?:approval-traces|override-log|override-logs|"

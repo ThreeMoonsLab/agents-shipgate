@@ -1,8 +1,17 @@
-# v1 adoption-harness matrix (24 paid Claude cells + Cursor-static parallels).
+# v1 adoption-harness matrix.
 #
-# 4 archetypes × 3 variants × 2 prompts × 1 agent = 24 paid cells.
-# The same 24 (archetype, variant, prompt) tuples also run free under
-# cursor-static, scored only on activation-class criteria.
+# - 24 paid Claude-Code cells: 4 archetypes × 3 variants ({00, 10, 40}) × 2
+#   prompts ({01-prepare-for-release, 04-docs-only-negative}). The 40 cells
+#   omit the docs-only-negative overlay because TRIGGER-EXISTING-MANIFEST-
+#   PRESENT defines force_run, which is incompatible with the "not noisy"
+#   exit criterion.
+#
+# - 12 free cursor-static cells: 4 archetypes × {00-no-hints,
+#   30-cursor-rule (positive), 30-cursor-rule + 60-docs-only-negative}.
+#   Cursor coverage is intentionally a different variant subset from Claude
+#   — the Cursor static driver only meaningfully scores the 30 rule
+#   activation, so we run 30 (and its docs-only composition) plus a 00
+#   baseline. Variants 10 and 40 are not exercised by cursor-static.
 #
 # Phase-2 expansion adds Codex CLI, 6 variants, and re-sampling. Edit the
 # cells list below to expand.

@@ -98,7 +98,7 @@ def _run_with_agent(agent: str, task_dir: Path, workdir: Path) -> None:
     (``harness.adoption.drivers``). The harness package is local-only and
     not on the wheel install path; it lives at the repo root.
     """
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from harness.adoption.drivers.base import DriverInputs
     from harness.adoption.drivers.claude_code import ClaudeCodeDriver
@@ -122,7 +122,7 @@ def _run_with_agent(agent: str, task_dir: Path, workdir: Path) -> None:
     prompt = (task_dir / "prompt.md").read_text(encoding="utf-8")
     artifacts_dir = workdir / ".harness_artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    cell_id = f"{task_dir.name}__{agent}__{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    cell_id = f"{task_dir.name}__{agent}__{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
     with TranscriptWriter(artifacts_dir) as writer:
         driver.run(
             DriverInputs(

@@ -35,14 +35,23 @@ For every `(archetype, variant, prompt, agent)` cell in
 
 ## Install
 
+The harness imports both `harness.adoption` (in the repo's `harness/` tree)
+and `agents_shipgate` (in `src/agents_shipgate/`). The harness package is
+**not** packaged into the agents-shipgate wheel — it has to come from a
+checkout. Install both in one go from the repo root:
+
 ```bash
+pip install -e .                       # makes agents_shipgate importable
 pip install -r harness/requirements.txt
 ```
 
-The harness is **not** packaged into the agents-shipgate wheel; install it
-from a checkout.
+If you cannot install agents-shipgate in editable mode (e.g., CI lockdown),
+set `PYTHONPATH=src:.` before invoking `python -m harness.adoption …`. The
+shipped `conftest.py` already does the equivalent for pytest, so the test
+suite works without the editable install — only direct CLI invocations
+need it.
 
-For live Claude Code runs, set:
+For live Claude Code runs:
 
 ```bash
 export ANTHROPIC_API_KEY=...

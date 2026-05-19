@@ -163,7 +163,9 @@ ARCHETYPE_CONTEXTS: dict[str, ArchetypeContext] = {
         agent_name="readonly-helper",
         one_line_purpose="provide read-only lookups against internal knowledge base",
         tool_sources=[
-            ToolSource(id="tools_main", type="openai_api", path="tools.json"),
+            # tools.json follows the MCP tool-list shape (name/inputSchema/auth).
+            # `openai_api` is not a valid tool_sources.type per the v0.1 schema.
+            ToolSource(id="tools_main", type="mcp", path="tools.json"),
         ],
     ),
     "n8n": ArchetypeContext(

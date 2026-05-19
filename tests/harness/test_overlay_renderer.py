@@ -44,6 +44,23 @@ def test_40_shipgate_yaml_renders_clean_for_every_archetype(tmp_path: Path) -> N
         assert "{{" not in text, f"Unresolved placeholder for {archetype}"
 
 
+def test_every_archetype_uses_a_valid_tool_source_type() -> None:
+    """Each archetype's ``ToolSource.type`` must be in the v0.1 manifest enum.
+
+    Catches regressions like the original ``openai_api`` typo for
+    clean-read-only that would otherwise only surface when an operator runs
+    ``agents-shipgate doctor`` on a rendered 40-shipgate-yaml manifest.
+    """
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    allowed = set(ToolSourceConfig.model_fields["type"].annotation.__args__)
+    for archetype, ctx in ctx_mod.ARCHETYPE_CONTEXTS.items():
+        for ts in ctx.tool_sources:
+            assert ts.type in allowed, (
+                f"{archetype}: tool_source.type={ts.type!r} is not one of {sorted(allowed)}"
+            )
+
+
 def test_missing_required_placeholder_fails_loudly(tmp_path: Path) -> None:
     """Forgetting a required placeholder is a cell failure, not a silent bad render."""
     variant_dir = VARIANTS_DIR / "40-shipgate-yaml"

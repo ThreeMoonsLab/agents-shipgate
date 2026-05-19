@@ -98,8 +98,16 @@ def run(
         try:
             sc = _run_one_cell(cell=cell, run_id=run_id, run_dir=run_dir)
         except Exception as exc:  # noqa: BLE001 — cell-level catch
+            # Record a visible failure scorecard so infrastructure breakage
+            # (missing API keys, SDK crashes, workspace setup failures) can
+            # never be silently absorbed into the leaderboard.
             typer.echo(f"  ! cell failed: {exc}")
-            continue
+            sc = _infrastructure_failure_scorecard(
+                cell=cell,
+                run_id=run_id,
+                run_dir=run_dir,
+                error=repr(exc),
+            )
         scorecards.append(sc)
         try:
             guard.record(sc)
@@ -226,7 +234,6 @@ def _run_one_cell(
         workspace_root=artifacts_dir,
         cell_id="workspace_root",
     )
-    pre_snap = snapshot(ws.root)
 
     variant_dirs = [repo_root / "benchmark" / "setup-variants" / cell.variant]
     if cell.negative_overlay:
@@ -238,6 +245,10 @@ def _run_one_cell(
         placeholders=placeholders,
     )
     ws_mod.commit_overlay(ws, message=f"overlay {cell.variant}")
+    # Snapshot AFTER overlays so fs_diff captures only agent-created files —
+    # otherwise overlay templates would show up as "new" in the diff and
+    # leak into trace-synthesis detection.
+    pre_snap = snapshot(ws.root)
 
     prompt_path = repo_root / "benchmark" / "prompts" / f"{cell.prompt}.txt"
     prompt_text = prompt_path.read_text(encoding="utf-8") if prompt_path.is_file() else ""
@@ -279,9 +290,93 @@ def _run_one_cell(
         tokens_out=run_result.tokens_out,
         cost_usd_estimate=run_result.cost_usd_estimate,
         agent_version=cell.model or driver.name,
-        driver_degraded=run_result.degraded,
+        driver_degraded=run_result.degraded or bool(run_result.error),
         run_id=run_id,
         artifacts_dir_rel=str(artifacts_dir),
+    )
+    # If the driver reported a runtime error, mark the scorecard as an
+    # infrastructure failure so it never masquerades as a low-but-valid score.
+    if run_result.error:
+        _mark_infrastructure_failure(scorecard, run_result.error)
+    agg_mod.write_scorecard_json(scorecard, artifacts_dir / "scorecard.json")
+    return scorecard
+
+
+# --------------------------------------------------------------------------- failure scorecards
+
+
+_INFRA_BLOCKER_KIND = "infrastructure_failure"
+
+
+def _mark_infrastructure_failure(scorecard, error: str) -> None:
+    """In-place: add an ``infrastructure_failure`` blocker to a scorecard.
+
+    Driver-reported errors (missing API key, SDK crash, timeout) must surface
+    as a blocker so the leaderboard cannot silently treat them as a normal
+    low-scoring cell.
+    """
+    from harness.adoption.scorer.schema import Blocker, CriterionResult
+
+    scorecard.criteria[_INFRA_BLOCKER_KIND] = CriterionResult(
+        status="fail",
+        severity="blocker",
+        signal=f"Driver runtime error: {error[:200]}",
+    )
+    scorecard.blockers.append(
+        Blocker(kind=_INFRA_BLOCKER_KIND, detail=error[:500], evidence_ref=None)
+    )
+    scorecard.headline_pass = False
+    scorecard.driver_degraded = True
+    if not scorecard.notes:
+        scorecard.notes = f"{_INFRA_BLOCKER_KIND}: {error[:120]}"
+
+
+def _infrastructure_failure_scorecard(
+    *,
+    cell: Cell,
+    run_id: str,
+    run_dir: Path,
+    error: str,
+):
+    """Build a minimal scorecard for a cell that crashed before producing one.
+
+    Used by the outer ``run`` loop when ``_run_one_cell`` raises. The
+    resulting scorecard is written to ``benchmark/results/<run-id>.csv``
+    with ``headline_pass=False`` and ``blocker_kinds=infrastructure_failure``
+    so the failure is impossible to miss.
+    """
+    from datetime import UTC, datetime
+
+    from harness.adoption.scorer.schema import Blocker, CriterionResult, ScorecardV1
+
+    now = datetime.now(UTC)
+    artifacts_dir = run_dir / cell.cell_id
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    scorecard = ScorecardV1(
+        run_id=run_id,
+        cell_id=cell.cell_id,
+        archetype=cell.archetype,
+        variant=cell.variant,
+        negative_overlay=cell.negative_overlay,
+        prompt_id=cell.prompt,
+        agent=cell.agent,
+        model=cell.model,
+        started_at=now,
+        ended_at=now,
+        duration_s=0.0,
+        criteria={
+            _INFRA_BLOCKER_KIND: CriterionResult(
+                status="fail",
+                severity="blocker",
+                signal=f"Cell setup or scoring crashed: {error[:200]}",
+            ),
+        },
+        blockers=[Blocker(kind=_INFRA_BLOCKER_KIND, detail=error[:500])],
+        rubric_score=0,
+        headline_pass=False,
+        driver_degraded=True,
+        artifacts_dir=str(artifacts_dir),
+        notes=f"{_INFRA_BLOCKER_KIND}: {error[:120]}",
     )
     agg_mod.write_scorecard_json(scorecard, artifacts_dir / "scorecard.json")
     return scorecard
