@@ -66,6 +66,7 @@ SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "ghu_",
     "github_pat_",
     "mssql://",
+    "mongodb",
     "mysql://",
     "postgres://",
     "postgresql://",

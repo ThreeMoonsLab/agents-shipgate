@@ -11,7 +11,12 @@ from agents_shipgate.core.findings import (
     finding_fingerprint,
 )
 from agents_shipgate.core.logging import _might_contain_sensitive_payload
-from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_findings
+from agents_shipgate.core.privacy import (
+    RedactionStats,
+    redact_data,
+    redact_text,
+    sanitize_findings,
+)
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.report import Finding, ReadinessReport
@@ -193,6 +198,38 @@ def test_json_logging_redaction_uses_fast_precheck():
     assert not _might_contain_sensitive_payload({"message": "Bearer Stearns is a company"})
     assert _might_contain_sensitive_payload({"message": "Bearer abcdefghijklmnop"})
     assert _might_contain_sensitive_payload({"payload": {"api_key": "value"}})
+
+
+def test_logging_precheck_covers_every_secret_pattern():
+    samples = {
+        "openai_api_key": "sk-abcdefghijklmnopqrst",
+        "aws_access_key": "AKIAABCDEFGHIJKLMNOP",
+        "github_token": "ghp_abcdefghijklmnopqrst",
+        "github_pat": "github_pat_abcdefghijklmnopqrst",
+        "stripe_key": "sk_live_abcdefghijklmnopqrst",
+        "stripe_webhook_secret": "whsec_abcdefghijklmnopqrst",
+        "slack_token": "xoxb-abcdefghij",
+        "jwt": "eyJabc.eyJdef.signature",
+        "bearer_token": "Bearer abcdefghijkl",
+        "db_postgres": "postgres://u:p@h/d",
+        "db_postgresql": "postgresql://u:p@h/d",
+        "db_mysql": "mysql://u:p@h/d",
+        "db_mongodb": "mongodb://u:p@h/d",
+        "db_mongodb_srv": "mongodb+srv://u:p@h/d",
+        "db_redis": "redis://u:p@h/d",
+        "db_rediss": "rediss://u:p@h/d",
+        "db_mssql": "mssql://u:p@h/d",
+        "db_sqlserver": "sqlserver://u:p@h/d",
+        "db_clickhouse": "clickhouse://u:p@h/d",
+    }
+
+    for kind, sample in samples.items():
+        assert redact_text(sample) != sample, (
+            f"{kind} sample does not match any secret redaction pattern"
+        )
+        assert _might_contain_sensitive_payload({"msg": sample}), (
+            f"{kind} sample bypasses the logging precheck"
+        )
 
 
 def test_scan_redacts_public_outputs_and_reports_privacy_audit(tmp_path, monkeypatch):
