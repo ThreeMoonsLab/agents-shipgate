@@ -356,6 +356,16 @@ def _run_one_cell(
     artifacts_dir = run_dir / cell.cell_id
     raw_dir = artifacts_dir / "raw"
     redacted_dir = artifacts_dir / "redacted"
+    # TranscriptWriter opens its JSONL files in append mode; without clearing
+    # ``raw/`` first, a second run against the same run_id+cell would
+    # accumulate stale command/transcript events from the previous run and
+    # silently distort scoring. Same for ``redacted/`` and the snapshots
+    # sidecar — they're derivations of raw and must not survive across runs.
+    import shutil as _shutil
+
+    for stale in (raw_dir, redacted_dir, artifacts_dir / "snapshots"):
+        if stale.exists():
+            _shutil.rmtree(stale)
 
     ws = ws_mod.materialize(
         archetype_dir=archetype_dir,

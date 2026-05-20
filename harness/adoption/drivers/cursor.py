@@ -31,13 +31,35 @@ FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (
     "shipgate.yaml",
     "**/*openapi*.yaml",
+    "**/*openapi*.yml",
+    "**/*openapi*.json",
+    "**/*swagger*.yaml",
+    "**/*swagger*.yml",
+    "**/*swagger*.json",
     "**/*mcp*.json",
     "**/*tools*.json",
+    ".codex-plugin/**",
+    "**/.codex-plugin/**",
+    ".agents/plugins/**",
+    "**/.agents/plugins/**",
+    "**/.app.json",
+    "**/.mcp.json",
+    "**/SKILL.md",
     "n8n/*.json",
     "workflows/*.json",
+    "**/*workflow*.json",
+    ".agents-shipgate/*.json",
+    "prompts/**",
+    "policies/**",
     ".github/workflows/agents-shipgate.yml",
+    ".github/workflows/agents-shipgate.yaml",
 )
-"""Globs the canonical Cursor rule must cover. Misses surface as warnings."""
+"""Globs the canonical Cursor rule must cover.
+
+Kept in sync with the canonical block in
+``docs/target-repo-agent-snippets.md`` — any drift makes the
+``cursor-static`` driver pass rules that the real Cursor rule would not.
+"""
 
 TRIGGER_FILES_BY_ARCHETYPE: dict[str, tuple[str, ...]] = {
     "openai-agents-sdk": ("shipgate.yaml", "specs/support-tools.openapi.yaml"),

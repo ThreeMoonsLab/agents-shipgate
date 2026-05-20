@@ -96,18 +96,53 @@ def test_body_only_globs_score_as_globs_incomplete(tmp_path: Path) -> None:
     assert "verdict: rule_active" not in result.summary_text
 
 
+def test_canonical_globs_match_target_snippet_doc() -> None:
+    """Pin the cursor-static lint to the canonical snippet in
+    docs/target-repo-agent-snippets.md. If that doc adds globs (e.g.
+    new framework hooks), the lint must learn about them at the same
+    time — otherwise the static driver would happily score drifted rules
+    as 'active'."""
+    import re
+
+    from harness.adoption import cli as cli_mod
+    from harness.adoption.drivers.cursor import CANONICAL_GLOBS_REQUIRED
+
+    doc = (
+        Path(cli_mod._repo_root())
+        / "docs"
+        / "target-repo-agent-snippets.md"
+    ).read_text(encoding="utf-8")
+    # Carve out the Cursor frontmatter block.
+    match = re.search(
+        r"## `\.cursor/rules/agents-shipgate\.mdc`[\s\S]*?```md\s*\n([\s\S]*?)\n```",
+        doc,
+    )
+    assert match, "couldn't locate the canonical Cursor block in target-repo-agent-snippets.md"
+    canonical_block = match.group(1)
+    fm_match = re.search(r"---\s*\n([\s\S]*?)\n---", canonical_block)
+    assert fm_match, "Cursor block has no frontmatter"
+    import yaml
+
+    fm = yaml.safe_load(fm_match.group(1))
+    doc_globs = set(fm.get("globs") or [])
+    lint_globs = set(CANONICAL_GLOBS_REQUIRED)
+    missing_in_lint = doc_globs - lint_globs
+    assert not missing_in_lint, (
+        f"cursor-static lint missing canonical globs: {sorted(missing_in_lint)}"
+    )
+
+
 def test_well_formed_rule_with_matching_glob_scores_active(tmp_path: Path) -> None:
+    # Build a frontmatter that declares every canonical glob — anything
+    # less and the new sync check would (correctly) flag the rule as
+    # incomplete.
+    from harness.adoption.drivers.cursor import CANONICAL_GLOBS_REQUIRED
+
+    globs_yaml = "\n".join(f"  - '{g}'" for g in CANONICAL_GLOBS_REQUIRED)
     text = (
         "---\n"
         "description: ok\n"
-        "globs:\n"
-        "  - 'shipgate.yaml'\n"
-        "  - '**/*openapi*.yaml'\n"
-        "  - '**/*mcp*.json'\n"
-        "  - '**/*tools*.json'\n"
-        "  - 'n8n/*.json'\n"
-        "  - 'workflows/*.json'\n"
-        "  - '.github/workflows/agents-shipgate.yml'\n"
+        f"globs:\n{globs_yaml}\n"
         "---\n"
         "body\n"
     )

@@ -156,6 +156,42 @@ def test_text_only_proposal_is_detected(repo_tmp_path: Path) -> None:
     assert _agent_proposed_shipgate(art) is True
 
 
+def test_negated_command_literal_does_not_register_as_proposal(repo_tmp_path: Path) -> None:
+    """Pins round-eleven finding P2.1: a negated reference to a Shipgate
+    command in the summary (e.g. 'I did not run agents-shipgate detect
+    because this is docs-only') must NOT register as a proposal."""
+    from harness.adoption.scorer.rules import _agent_proposed_shipgate
+
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    for f in ("transcript.jsonl", "commands.jsonl", "file_ops.jsonl", "final.diff"):
+        (redacted / f).write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "I did not run `agents-shipgate detect` because this is a "
+        "docs-only change — Shipgate is not relevant here.",
+        encoding="utf-8",
+    )
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    art = CellArtifacts(
+        cell=Cell(
+            archetype="openai-agents-sdk",
+            variant="00-no-hints",
+            negative_overlay="60-docs-only-negative",
+            prompt="04-docs-only-negative",
+            agent="claude-code",
+            model="claude-opus-4-7",
+        ),
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    assert _agent_proposed_shipgate(art) is False
+
+
 def test_skip_language_does_not_register_as_proposal(repo_tmp_path: Path) -> None:
     """The companion check: bare skip language stays scored as no-proposal."""
     from harness.adoption.scorer.rules import _agent_proposed_shipgate

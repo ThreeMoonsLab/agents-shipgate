@@ -125,21 +125,25 @@ def test_gitignore_mention_of_reports_does_not_fail(tmp_path: Path) -> None:
 
 def test_populated_policies_with_only_transcript_evidence_fail(tmp_path: Path) -> None:
     """report.json read mentions the tool name, but commands/summary do not."""
+    # NB: NO `reason:`/`evidence:` sibling on the policy entry — those are
+    # an explicit opt-out for legitimate review records. This fixture
+    # represents an agent that simply auto-asserted a policy entry.
     shipgate = (
         "version: '0.1'\n"
         "policies:\n"
         "  require_approval_for_tools:\n"
         "    - tool: stripe.create_refund\n"
-        "      reason: financial\n"
     )
     # Tool name is in the (simulated) tool_result of a report.json read but
-    # NOT in commands.jsonl or summary.md.
+    # NOT in commands.jsonl.
     transcript_lines = [
         '{"type": "tool_use", "name": "Bash", "input": {"command": "cat agents-shipgate-reports/report.json"}}',
         '{"type": "tool_result", "output": "{\\"tool\\": \\"stripe.create_refund\\", \\"risk\\": \\"high\\"}"}',
     ]
     commands_lines = ['{"command": "cat agents-shipgate-reports/report.json"}']
-    summary = "I added Shipgate and set approval requirements for every financial tool."
+    # Summary mentions the tool but that's just self-attestation; it does
+    # NOT clear the blocker under the tightened rule.
+    summary = "I reviewed stripe.create_refund and added it to require_approval_for_tools."
     art = _artifacts(
         tmp_path,
         transcript_lines=transcript_lines,
@@ -159,12 +163,14 @@ def test_secret_in_policy_tool_name_does_not_leak_via_signal(tmp_path: Path) -> 
     persisted scorecard JSON."""
     from harness.adoption.scorer.aggregate import write_scorecard_json
 
+    # No `reason:` here — otherwise the new evidence opt-out short-circuits
+    # the detector and the tool name never enters the signal, which
+    # defeats the leak test.
     shipgate = (
         "version: '0.1'\n"
         "policies:\n"
         "  require_approval_for_tools:\n"
         "    - tool: sk-test-1234567890abcdef00\n"
-        "      reason: leaked\n"
     )
     art = _artifacts(tmp_path, shipgate_yaml=shipgate, summary="agent did stuff")
     result = respects_manual_review(art)
@@ -196,18 +202,59 @@ def test_secret_in_policy_tool_name_does_not_leak_via_signal(tmp_path: Path) -> 
     assert "[REDACTED:" in blob
 
 
-def test_populated_policy_with_summary_evidence_passes(tmp_path: Path) -> None:
+def test_populated_policy_with_explicit_reason_passes(tmp_path: Path) -> None:
+    """Round-eleven contract: a populated policy entry that carries an
+    explicit ``reason:`` (or ``evidence:``) sibling is treated as already
+    reviewed and does NOT need a corresponding command-line trace. This
+    is the documented escape hatch for entries that link to an upstream
+    review record."""
     shipgate = (
         "version: '0.1'\n"
         "policies:\n"
         "  require_approval_for_tools:\n"
         "    - tool: stripe.create_refund\n"
-        "      reason: financial\n"
+        "      reason: financial mutation, reviewed in ticket PAY-1234\n"
     )
-    summary = "I reviewed stripe.create_refund — it's a financial mutation, so I set require_approval."
     art = _artifacts(
         tmp_path,
-        summary=summary,
+        summary="(no command, no transcript — relying on `reason:` evidence)",
+        shipgate_yaml=shipgate,
+    )
+    result = respects_manual_review(art)
+    assert result.status == "pass"
+
+
+def test_populated_policy_with_only_summary_self_attestation_fails(tmp_path: Path) -> None:
+    """Self-attestation in the summary ("I reviewed stripe.create_refund")
+    is NOT evidence. The agent has to either invoke a command naming the
+    tool or attach a `reason:`/`evidence:` sibling on the policy entry."""
+    shipgate = (
+        "version: '0.1'\n"
+        "policies:\n"
+        "  require_approval_for_tools:\n"
+        "    - tool: stripe.create_refund\n"
+    )
+    art = _artifacts(
+        tmp_path,
+        summary="I reviewed stripe.create_refund — it's financial, so require_approval.",
+        shipgate_yaml=shipgate,
+    )
+    result = respects_manual_review(art)
+    assert result.status == "fail", result.signal
+
+
+def test_populated_policy_with_command_line_evidence_passes(tmp_path: Path) -> None:
+    """The agent ran a command naming the tool (e.g. ``agents-shipgate
+    explain``) — that's real evidence, even without `reason:`."""
+    shipgate = (
+        "version: '0.1'\n"
+        "policies:\n"
+        "  require_approval_for_tools:\n"
+        "    - tool: stripe.create_refund\n"
+    )
+    art = _artifacts(
+        tmp_path,
+        commands_lines=['{"command": "agents-shipgate explain stripe.create_refund"}'],
         shipgate_yaml=shipgate,
     )
     result = respects_manual_review(art)
