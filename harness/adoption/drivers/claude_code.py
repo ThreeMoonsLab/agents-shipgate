@@ -91,21 +91,30 @@ class ClaudeCodeDriver:
 
         import anyio  # type: ignore[import-untyped]
 
+        timed_out = False
+
         async def _drive() -> None:
-            nonlocal tokens_in, tokens_out, error
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(inputs.prompt_text)
-                async for message in client.receive_response():
-                    self._record(message, writer, summary_chunks)
-                    usage = _extract_usage(message)
-                    if usage:
-                        tokens_in += usage.get("input_tokens", 0) or 0
-                        tokens_out += usage.get("output_tokens", 0) or 0
+            nonlocal tokens_in, tokens_out, error, timed_out
+            # ``move_on_after`` returns silently when the deadline elapses;
+            # we mark ``timed_out`` so the outer summary records the abort.
+            with anyio.move_on_after(inputs.timeout_s) as scope:
+                async with ClaudeSDKClient(options=options) as client:
+                    await client.query(inputs.prompt_text)
+                    async for message in client.receive_response():
+                        self._record(message, writer, summary_chunks)
+                        usage = _extract_usage(message)
+                        if usage:
+                            tokens_in += usage.get("input_tokens", 0) or 0
+                            tokens_out += usage.get("output_tokens", 0) or 0
+            if scope.cancel_called:
+                timed_out = True
 
         try:
             anyio.run(_drive)
         except Exception as exc:  # noqa: BLE001 — driver-boundary catch
             error = repr(exc)
+        if timed_out and error is None:
+            error = f"driver timed out after {inputs.timeout_s}s (per-cell cap)"
 
         ended = datetime.now(UTC)
         cost_in, cost_out = PRICE_TABLE_USD_PER_M.get(model, (0.0, 0.0))

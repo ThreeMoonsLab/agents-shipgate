@@ -93,10 +93,23 @@ def run(
     guard = agg_mod.BudgetGuard.from_env(default_usd=budget_usd)
 
     scorecards: list = []
+    cell_timeout_s = int(os.environ.get("SHIPGATE_HARNESS_CELL_TIMEOUT_S", "600"))
     for i, cell in enumerate(cells, start=1):
         typer.echo(f"[{i}/{len(cells)}] {cell.cell_id}")
+        # Pre-cell budget check so a single expensive cell can't blow past
+        # the cap before we get a chance to abort.
+        remaining = guard.cap_usd - guard.spent_usd
+        if guard.cap_usd >= 0 and remaining <= 0:
+            typer.echo(f"  ! budget exhausted before cell {i}; spent={guard.spent_usd:.4f}")
+            break
         try:
-            sc = _run_one_cell(cell=cell, run_id=run_id, run_dir=run_dir)
+            sc = _run_one_cell(
+                cell=cell,
+                run_id=run_id,
+                run_dir=run_dir,
+                timeout_s=cell_timeout_s,
+                remaining_budget_usd=remaining if guard.cap_usd >= 0 else None,
+            )
         except Exception as exc:  # noqa: BLE001 — cell-level catch
             # Record a visible failure scorecard so infrastructure breakage
             # (missing API keys, SDK crashes, workspace setup failures) can
@@ -122,6 +135,24 @@ def run(
         json.dumps(exit_report.as_dict(), indent=2), encoding="utf-8"
     )
     typer.echo(f"wrote {csv_path} and {run_dir / 'exit_criteria.json'}")
+
+    # Exit nonzero so CI (and operators) see broken runs as broken runs.
+    #   - any infrastructure_failure blocker → exit 4 (driver/setup crash)
+    #   - any failed exit criterion → exit 3 (matrix did not meet thresholds)
+    # A zero exit means "every cell ran AND exit criteria passed."
+    infra_failures = [sc for sc in scorecards if any(b.kind == _INFRA_BLOCKER_KIND for b in sc.blockers)]
+    if infra_failures:
+        typer.echo(f"FAIL: {len(infra_failures)} cell(s) had infrastructure failures.")
+        raise typer.Exit(code=4)
+    if not all(
+        [
+            exit_report.materially_outperforms_no_hints,
+            exit_report.near_perfect_activation,
+            exit_report.not_noisy_on_docs_only,
+        ]
+    ):
+        typer.echo("FAIL: one or more exit criteria not met (see exit_criteria.json).")
+        raise typer.Exit(code=3)
 
 
 @app.command()
@@ -221,8 +252,18 @@ def _run_one_cell(
     run_id: str,
     run_dir: Path,
     driver_override=None,
+    timeout_s: int = 600,
+    remaining_budget_usd: float | None = None,
 ):
-    """Prepare workspace, run driver, capture artifacts, score."""
+    """Prepare workspace, run driver, capture artifacts, score.
+
+    ``timeout_s`` is a per-cell wall-clock cap honoured by the driver
+    (Claude Code wraps the SDK loop in ``anyio.move_on_after``). The mock
+    and cursor-static drivers ignore it — they're effectively instantaneous.
+
+    ``remaining_budget_usd`` is informational: it lets a driver short-circuit
+    a long loop when it knows it would exceed the cap on this cell alone.
+    """
     repo_root = _repo_root()
     archetype_dir = repo_root / "benchmark" / "repos" / cell.archetype
     artifacts_dir = run_dir / cell.cell_id
@@ -261,6 +302,8 @@ def _run_one_cell(
         cell_id=cell.cell_id,
         agent_name=cell.agent,
         model=cell.model,
+        timeout_s=timeout_s,
+        budget_usd=remaining_budget_usd,
     )
     with TranscriptWriter(raw_dir) as writer:
         run_result = driver.run(inputs, writer)
