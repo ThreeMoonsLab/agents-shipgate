@@ -92,9 +92,12 @@ class ClaudeCodeDriver:
         import anyio  # type: ignore[import-untyped]
 
         timed_out = False
+        budget_aborted = False
+        # Resolve prices once up front so the per-event budget check is cheap.
+        cost_in_per_m, cost_out_per_m = PRICE_TABLE_USD_PER_M.get(model, (0.0, 0.0))
 
         async def _drive() -> None:
-            nonlocal tokens_in, tokens_out, error, timed_out
+            nonlocal tokens_in, tokens_out, error, timed_out, budget_aborted
             # ``move_on_after`` returns silently when the deadline elapses;
             # we mark ``timed_out`` so the outer summary records the abort.
             with anyio.move_on_after(inputs.timeout_s) as scope:
@@ -106,6 +109,18 @@ class ClaudeCodeDriver:
                         if usage:
                             tokens_in += usage.get("input_tokens", 0) or 0
                             tokens_out += usage.get("output_tokens", 0) or 0
+                        # Mid-loop hard cap: a single expensive cell must abort
+                        # the moment its cumulative cost would exceed the
+                        # remaining per-run budget. Without this, an
+                        # ``--max-turns=25`` cell could blow the cap before
+                        # the outer BudgetGuard ever sees the result.
+                        if inputs.budget_usd is not None:
+                            current = (
+                                tokens_in * cost_in_per_m + tokens_out * cost_out_per_m
+                            ) / 1_000_000
+                            if current >= inputs.budget_usd:
+                                budget_aborted = True
+                                break
             if scope.cancel_called:
                 timed_out = True
 
@@ -115,10 +130,14 @@ class ClaudeCodeDriver:
             error = repr(exc)
         if timed_out and error is None:
             error = f"driver timed out after {inputs.timeout_s}s (per-cell cap)"
+        if budget_aborted and error is None:
+            error = (
+                f"driver aborted mid-loop: budget cap {inputs.budget_usd:.4f} USD "
+                "would have been exceeded"
+            )
 
         ended = datetime.now(UTC)
-        cost_in, cost_out = PRICE_TABLE_USD_PER_M.get(model, (0.0, 0.0))
-        cost = (tokens_in * cost_in + tokens_out * cost_out) / 1_000_000
+        cost = (tokens_in * cost_in_per_m + tokens_out * cost_out_per_m) / 1_000_000
 
         run(["git", "add", "-A"], cwd=inputs.workspace, check=False, capture_output=True)
         diff_proc = run(

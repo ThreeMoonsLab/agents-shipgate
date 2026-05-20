@@ -29,7 +29,7 @@ from harness.adoption.drivers.codex import CodexDriver
 from harness.adoption.drivers.cursor import CursorStaticDriver
 from harness.adoption.drivers.mock import MockDriver
 from harness.adoption.matrix import Cell, load_matrix
-from harness.adoption.observer.fs_snapshot import snapshot
+from harness.adoption.observer.fs_snapshot import FsDiff, snapshot
 from harness.adoption.observer.redact import default_config, redact_tree
 from harness.adoption.observer.transcript import TranscriptWriter
 from harness.adoption.scorer import aggregate as agg_mod
@@ -212,17 +212,80 @@ def smoke() -> None:
 
 
 @app.command()
+def score(
+    run_dir: Path = typer.Option(
+        ...,
+        "--run-dir",
+        exists=True,
+        file_okay=False,
+        help="Path to a previous run's directory under .agents-private/adoption-sprint/",
+    ),
+    results_csv: Path | None = typer.Option(
+        None,
+        "--results-csv",
+        help="CSV destination (default: <run-dir>/rescored.csv).",
+    ),
+) -> None:
+    """Re-run detectors against a previous run's captured artifacts.
+
+    Used to iterate on detectors without rerunning agents. Reads each
+    cell's ``scorecard.json`` for archetype/variant metadata, replays the
+    redacted artifacts through the current ``score_cell`` implementation,
+    and writes a fresh CSV.
+    """
+    cell_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir() and (p / "scorecard.json").is_file())
+    if not cell_dirs:
+        typer.echo(f"No cell directories with scorecard.json under {run_dir}")
+        raise typer.Exit(code=2)
+    new_scorecards: list = []
+    for cell_dir in cell_dirs:
+        sc = _rescore_cell(cell_dir)
+        if sc is not None:
+            new_scorecards.append(sc)
+    out = results_csv or (run_dir / "rescored.csv")
+    agg_mod.write_csv(new_scorecards, out_path=out)
+    exit_report = agg_mod.check_exit_criteria(new_scorecards)
+    (run_dir / "rescored_exit_criteria.json").write_text(
+        json.dumps(exit_report.as_dict(), indent=2), encoding="utf-8"
+    )
+    typer.echo(f"rescored {len(new_scorecards)} cell(s) → {out}")
+
+
+@app.command()
 def report(
     results_csv: Path = typer.Option(..., "--results-csv", exists=True),
 ) -> None:
-    """Print an exit-criteria summary against a CSV file.
+    """Print a human-readable summary of a results CSV.
 
-    Note: this loads the CSV's own ``score`` column rather than recomputing
-    detectors. Use ``score`` to re-run detectors against captured artifacts.
+    Loads the CSV's score / headline_pass / blocker columns and aggregates
+    by (agent, variant). Does NOT recompute detectors — use ``score`` for
+    that against a run directory.
     """
-    typer.echo(f"reporting against {results_csv}")
-    # Implementation deferred to v2; smoke + run already emit exit_criteria.json.
-    typer.echo("(use exit_criteria.json from the run directory in v1)")
+    import csv
+
+    rows = list(csv.DictReader(results_csv.open(encoding="utf-8")))
+    if not rows:
+        typer.echo(f"empty CSV at {results_csv}")
+        return
+    typer.echo(f"results: {results_csv} ({len(rows)} rows)")
+    by_group: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for row in rows:
+        key = (row.get("model", "?"), row.get("variant", "?"))
+        by_group.setdefault(key, []).append(row)
+    typer.echo("")
+    typer.echo(f"{'agent':<20} {'variant':<22} {'n':>3} {'mean_score':>10} {'pass_rate':>10} {'blockers':>9}")
+    typer.echo("-" * 80)
+    for (agent, variant), group in sorted(by_group.items()):
+        n = len(group)
+        scores = [int(r.get("score") or 0) for r in group]
+        passes = sum(1 for r in group if str(r.get("headline_pass", "")).lower() == "true")
+        blockers = sum(int(r.get("blocker_count") or 0) for r in group)
+        mean_score = sum(scores) / n if n else 0.0
+        pass_rate = passes / n if n else 0.0
+        typer.echo(
+            f"{agent:<20} {variant:<22} {n:>3d} {mean_score:>10.1f} "
+            f"{pass_rate:>10.0%} {blockers:>9d}"
+        )
 
 
 # --------------------------------------------------------------------------- internals
@@ -345,10 +408,93 @@ def _run_one_cell(
     return scorecard
 
 
+# --------------------------------------------------------------------------- rescore
+
+
+def _rescore_cell(cell_dir: Path):
+    """Rebuild a CellArtifacts from a previous run's captured files and re-score.
+
+    Returns None if the cell directory is missing required artifacts (e.g.,
+    a partial run that crashed before writing the scorecard).
+    """
+    scorecard_path = cell_dir / "scorecard.json"
+    if not scorecard_path.is_file():
+        typer.echo(f"  ! {cell_dir.name}: missing scorecard.json, skipping")
+        return None
+    prior = json.loads(scorecard_path.read_text(encoding="utf-8"))
+    cell = Cell(
+        archetype=prior["archetype"],
+        variant=prior["variant"],
+        negative_overlay=prior.get("negative_overlay"),
+        prompt=prior["prompt_id"],
+        agent=prior["agent"],
+        model=prior.get("model"),
+    )
+    redacted_dir = cell_dir / "redacted"
+    workspace_dir = cell_dir / "workspace_root" / "workspace"
+    if not redacted_dir.is_dir():
+        typer.echo(f"  ! {cell.cell_id}: missing redacted/, skipping (was the cell an infra failure?)")
+        return None
+
+    # Reconstruct fs snapshots from the workspace directory if it survived.
+    post_files: dict[str, str] = {}
+    if workspace_dir.is_dir():
+        post_snap = snapshot(workspace_dir)
+        post_files = post_snap.files
+    artifacts = CellArtifacts(
+        cell=cell,
+        artifacts_dir=cell_dir,
+        redacted_dir=redacted_dir,
+        # Pre/post snapshots aren't persisted by the original run, but the
+        # detectors that need fs_diff (no_runtime_trace_synthesis) only look
+        # at *added* paths. For rescoring we approximate by treating every
+        # current file as "post"; pre is empty. This over-flags created-
+        # during-run files but that's safe (a rescore that turns a pass
+        # into a fail surfaces real signal). For tighter rescoring, future
+        # work can persist the FsDiff alongside scorecard.json.
+        pre_workspace_files={},
+        post_workspace_files=post_files,
+        fs_diff=FsDiff(added=sorted(post_files), removed=[], changed=[]),
+        workspace_dir=workspace_dir,
+    )
+    from datetime import datetime as _dt
+
+    started = _dt.fromisoformat(prior["started_at"].replace("Z", "+00:00"))
+    ended = _dt.fromisoformat(prior["ended_at"].replace("Z", "+00:00"))
+    scorecard = score_cell(
+        cell=cell,
+        artifacts=artifacts,
+        started_at=started,
+        ended_at=ended,
+        tokens_in=prior.get("tokens_in", 0) or 0,
+        tokens_out=prior.get("tokens_out", 0) or 0,
+        cost_usd_estimate=prior.get("cost_usd_estimate", 0.0) or 0.0,
+        agent_version=prior.get("model") or prior.get("agent"),
+        driver_degraded=prior.get("driver_degraded", False),
+        run_id=prior["run_id"],
+        artifacts_dir_rel=str(cell_dir),
+    )
+    return scorecard
+
+
 # --------------------------------------------------------------------------- failure scorecards
 
 
 _INFRA_BLOCKER_KIND = "infrastructure_failure"
+
+
+def _redact_error(error: str) -> str:
+    """Run a driver error message through the harness redactor.
+
+    Driver exceptions can carry API keys (e.g., HTTP error responses from
+    the Claude SDK include the bearer token in the request log), absolute
+    paths under ``$HOME``, and ``.env.harness`` values. We MUST scrub these
+    before storing the message anywhere the scorecard JSON or public CSV
+    can see.
+    """
+    from harness.adoption.observer.redact import default_config, redact_string
+
+    return redact_string(error, config=default_config())
 
 
 def _mark_infrastructure_failure(scorecard, error: str) -> None:
@@ -356,22 +502,23 @@ def _mark_infrastructure_failure(scorecard, error: str) -> None:
 
     Driver-reported errors (missing API key, SDK crash, timeout) must surface
     as a blocker so the leaderboard cannot silently treat them as a normal
-    low-scoring cell.
+    low-scoring cell. The error string is redacted before storage.
     """
     from harness.adoption.scorer.schema import Blocker, CriterionResult
 
+    safe = _redact_error(error)
     scorecard.criteria[_INFRA_BLOCKER_KIND] = CriterionResult(
         status="fail",
         severity="blocker",
-        signal=f"Driver runtime error: {error[:200]}",
+        signal=f"Driver runtime error: {safe[:200]}",
     )
     scorecard.blockers.append(
-        Blocker(kind=_INFRA_BLOCKER_KIND, detail=error[:500], evidence_ref=None)
+        Blocker(kind=_INFRA_BLOCKER_KIND, detail=safe[:500], evidence_ref=None)
     )
     scorecard.headline_pass = False
     scorecard.driver_degraded = True
     if not scorecard.notes:
-        scorecard.notes = f"{_INFRA_BLOCKER_KIND}: {error[:120]}"
+        scorecard.notes = f"{_INFRA_BLOCKER_KIND}: {safe[:120]}"
 
 
 def _infrastructure_failure_scorecard(
@@ -386,12 +533,14 @@ def _infrastructure_failure_scorecard(
     Used by the outer ``run`` loop when ``_run_one_cell`` raises. The
     resulting scorecard is written to ``benchmark/results/<run-id>.csv``
     with ``headline_pass=False`` and ``blocker_kinds=infrastructure_failure``
-    so the failure is impossible to miss.
+    so the failure is impossible to miss. The error string is redacted
+    before any field is populated.
     """
     from datetime import UTC, datetime
 
     from harness.adoption.scorer.schema import Blocker, CriterionResult, ScorecardV1
 
+    safe = _redact_error(error)
     now = datetime.now(UTC)
     artifacts_dir = run_dir / cell.cell_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -411,15 +560,15 @@ def _infrastructure_failure_scorecard(
             _INFRA_BLOCKER_KIND: CriterionResult(
                 status="fail",
                 severity="blocker",
-                signal=f"Cell setup or scoring crashed: {error[:200]}",
+                signal=f"Cell setup or scoring crashed: {safe[:200]}",
             ),
         },
-        blockers=[Blocker(kind=_INFRA_BLOCKER_KIND, detail=error[:500])],
+        blockers=[Blocker(kind=_INFRA_BLOCKER_KIND, detail=safe[:500])],
         rubric_score=0,
         headline_pass=False,
         driver_degraded=True,
         artifacts_dir=str(artifacts_dir),
-        notes=f"{_INFRA_BLOCKER_KIND}: {error[:120]}",
+        notes=f"{_INFRA_BLOCKER_KIND}: {safe[:120]}",
     )
     agg_mod.write_scorecard_json(scorecard, artifacts_dir / "scorecard.json")
     return scorecard
