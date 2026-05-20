@@ -6,6 +6,7 @@ blocker, never as missing rows or quietly low scores.
 """
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -84,6 +85,59 @@ def test_infrastructure_failure_redacts_secrets_in_error_message(tmp_path: Path)
     blob = sc.model_dump_json()
     assert "sk-test-1234567890abcdef00" not in blob, "raw API token leaked into scorecard"
     assert "[REDACTED:" in blob, "redaction marker missing"
+
+
+def test_rescore_keeps_setup_time_infra_failure_with_no_redacted_dir(tmp_path: Path) -> None:
+    """Round-six regression: when a cell crashed at setup (so no redacted/
+    was ever written), rescore must still emit a row showing the failure.
+    Previously _rescore_cell returned None and the broken cell vanished from
+    the rescored CSV — exactly the silent-pass mode round three was meant
+    to prevent."""
+    cell_dir = tmp_path / "openai-agents-sdk__00-no-hints__01-prepare-for-release__claude-code"
+    cell_dir.mkdir(parents=True)
+    # NB: no redacted/ — that's the setup-time-failure state.
+    prior = cli_mod._infrastructure_failure_scorecard(
+        cell=_cell(),
+        run_id="prior-run",
+        run_dir=tmp_path,
+        error="WorkspaceError: archetype directory missing",
+    )
+    # The helper writes scorecard.json into the cell_dir it computes from
+    # the Cell.cell_id, which matches what we set up here.
+    sc_path = tmp_path / prior.cell_id / "scorecard.json"
+    assert sc_path.is_file()
+
+    new_sc = cli_mod._rescore_cell(tmp_path / prior.cell_id)
+    assert new_sc is not None, "rescore must not drop setup-time infra failures"
+    assert new_sc.headline_pass is False
+    assert "infrastructure_failure" in {b.kind for b in new_sc.blockers}
+
+
+def test_artifacts_dir_is_repo_relative_in_failure_scorecard(tmp_path: Path) -> None:
+    """The CSV ``transcript_path`` column must be a repo-relative path under
+    .agents-private/, not an absolute host path."""
+    # Use a subdirectory under .agents-private/ in the actual repo so the
+    # relativisation has a real anchor. tmp_path is outside the repo, so we
+    # accept either repo-relative OR absolute fallback — the contract is
+    # "use relative when possible".
+    repo_relative_dir = (
+        Path(cli_mod._repo_root()) / ".agents-private" / "adoption-sprint" / "review-test"
+    )
+    repo_relative_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        sc = cli_mod._infrastructure_failure_scorecard(
+            cell=_cell(),
+            run_id="r",
+            run_dir=repo_relative_dir,
+            error="boom",
+        )
+        assert not sc.artifacts_dir.startswith("/"), (
+            f"artifacts_dir must be repo-relative when artifacts live in the repo; "
+            f"got {sc.artifacts_dir!r}"
+        )
+        assert ".agents-private/adoption-sprint" in sc.artifacts_dir
+    finally:
+        shutil.rmtree(repo_relative_dir, ignore_errors=True)
 
 
 def test_rescore_preserves_infrastructure_failure(tmp_path: Path) -> None:

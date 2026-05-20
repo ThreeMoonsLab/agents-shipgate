@@ -403,7 +403,7 @@ def _run_one_cell(
         agent_version=cell.model or driver.name,
         driver_degraded=run_result.degraded or bool(run_result.error),
         run_id=run_id,
-        artifacts_dir_rel=str(artifacts_dir),
+        artifacts_dir_rel=_relative_artifacts_path(artifacts_dir),
     )
     # If the driver reported a runtime error, mark the scorecard as an
     # infrastructure failure so it never masquerades as a low-but-valid score.
@@ -413,7 +413,75 @@ def _run_one_cell(
     return scorecard
 
 
+def _relative_artifacts_path(artifacts_dir: Path) -> str:
+    """Render an artifacts path as a repo-relative string when possible.
+
+    The results CSV schema documents ``transcript_path`` as repo-relative
+    under ``.agents-private/``. Without this normalisation, ``smoke`` (which
+    builds its run-dir from ``_repo_root()`` — always absolute) and any
+    ``--out=/abs/path`` invocation would publish absolute host paths.
+
+    Falls back to the absolute path when the artifacts live outside the
+    repo (rare, but supported so the function never raises).
+    """
+    try:
+        return str(artifacts_dir.relative_to(_repo_root()))
+    except ValueError:
+        return str(artifacts_dir)
+
+
 # --------------------------------------------------------------------------- rescore
+
+
+def _is_setup_time_infra_failure(prior: dict) -> bool:
+    """True iff the prior scorecard JSON represents a cell that crashed
+    before producing redacted artifacts."""
+    return any(
+        (b.get("kind") == _INFRA_BLOCKER_KIND)
+        for b in (prior.get("blockers") or [])
+    )
+
+
+def _replay_infra_only_scorecard(prior: dict, cell_dir: Path):
+    """Rehydrate a prior scorecard as-is for setup-time infra failures.
+
+    Used when ``_rescore_cell`` cannot run detectors (no ``redacted/``)
+    because the original cell never reached the driver. The rescored CSV
+    must still show the row as ``headline_pass=false`` with the original
+    blocker — otherwise rescoring would silently clean up a broken run.
+    """
+    from datetime import datetime as _dt
+
+    from harness.adoption.scorer.schema import (
+        Blocker,
+        CriterionResult,
+        ScorecardV1,
+    )
+
+    started = _dt.fromisoformat(prior["started_at"].replace("Z", "+00:00"))
+    ended = _dt.fromisoformat(prior["ended_at"].replace("Z", "+00:00"))
+    return ScorecardV1(
+        run_id=prior["run_id"],
+        cell_id=prior["cell_id"],
+        archetype=prior["archetype"],
+        variant=prior["variant"],
+        negative_overlay=prior.get("negative_overlay"),
+        prompt_id=prior["prompt_id"],
+        agent=prior["agent"],
+        model=prior.get("model"),
+        started_at=started,
+        ended_at=ended,
+        duration_s=prior.get("duration_s", 0.0) or 0.0,
+        criteria={
+            k: CriterionResult(**v) for k, v in (prior.get("criteria") or {}).items()
+        },
+        blockers=[Blocker(**b) for b in (prior.get("blockers") or [])],
+        rubric_score=prior.get("rubric_score", 0) or 0,
+        headline_pass=False,  # forced — a setup failure cannot be a pass
+        driver_degraded=True,
+        artifacts_dir=_relative_artifacts_path(cell_dir),
+        notes=prior.get("notes", ""),
+    )
 
 
 def _persist_fs_snapshots(
@@ -484,8 +552,19 @@ def _rescore_cell(cell_dir: Path):
     )
     redacted_dir = cell_dir / "redacted"
     workspace_dir = cell_dir / "workspace_root" / "workspace"
+
+    # Setup-time failures (driver never ran, missing archetype, etc.) have a
+    # scorecard but no redacted/ tree. Return the prior scorecard verbatim
+    # so the failure remains visible in the rescored CSV — there's nothing
+    # to re-score behaviourally, but skipping the row would let `score`
+    # silently turn a broken run into a clean-looking artifact.
     if not redacted_dir.is_dir():
-        typer.echo(f"  ! {cell.cell_id}: missing redacted/, skipping (was the cell an infra failure?)")
+        if _is_setup_time_infra_failure(prior):
+            typer.echo(
+                f"  ! {cell.cell_id}: setup-time infra failure (no redacted/); replaying prior scorecard."
+            )
+            return _replay_infra_only_scorecard(prior, cell_dir)
+        typer.echo(f"  ! {cell.cell_id}: missing redacted/ but no infra blocker; skipping")
         return None
 
     pre_files, post_files, snapshots_ok = _load_fs_snapshots(cell_dir)
@@ -531,7 +610,7 @@ def _rescore_cell(cell_dir: Path):
         agent_version=prior.get("model") or prior.get("agent"),
         driver_degraded=prior.get("driver_degraded", False),
         run_id=prior["run_id"],
-        artifacts_dir_rel=str(cell_dir),
+        artifacts_dir_rel=_relative_artifacts_path(cell_dir),
     )
 
     # Mark filesystem-dependent criteria N/A when we couldn't load real
@@ -658,7 +737,7 @@ def _infrastructure_failure_scorecard(
         rubric_score=0,
         headline_pass=False,
         driver_degraded=True,
-        artifacts_dir=str(artifacts_dir),
+        artifacts_dir=_relative_artifacts_path(artifacts_dir),
         notes=f"{_INFRA_BLOCKER_KIND}: {safe[:120]}",
     )
     agg_mod.write_scorecard_json(scorecard, artifacts_dir / "scorecard.json")
