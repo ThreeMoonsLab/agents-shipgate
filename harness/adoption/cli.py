@@ -376,6 +376,11 @@ def _run_one_cell(
 
     post_snap = snapshot(ws.root)
     fs_diff = pre_snap.diff(post_snap)
+    # Persist the snapshots so `score` can rebuild a faithful CellArtifacts
+    # without re-running the agent. fs_snapshot files are SAFE to put under
+    # raw/ (just sha256 hashes — never file contents) but we keep them
+    # outside the redacted/ mirror by writing alongside as sidecar JSON.
+    _persist_fs_snapshots(artifacts_dir, pre_snap.files, post_snap.files)
 
     redact_tree(raw_dir, redacted_dir, config=default_config())
     artifacts = CellArtifacts(
@@ -411,11 +416,58 @@ def _run_one_cell(
 # --------------------------------------------------------------------------- rescore
 
 
+def _persist_fs_snapshots(
+    artifacts_dir: Path, pre_files: dict[str, str], post_files: dict[str, str]
+) -> None:
+    """Write pre/post FS snapshots so ``score`` can rebuild a faithful CellArtifacts.
+
+    Snapshots contain only relative paths and sha256 digests — no file
+    contents. Safe to leave outside the ``redacted/`` mirror.
+    """
+    snap_dir = artifacts_dir / "snapshots"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    (snap_dir / "pre.json").write_text(
+        json.dumps({"files": pre_files}, indent=2), encoding="utf-8"
+    )
+    (snap_dir / "post.json").write_text(
+        json.dumps({"files": post_files}, indent=2), encoding="utf-8"
+    )
+
+
+def _load_fs_snapshots(
+    artifacts_dir: Path,
+) -> tuple[dict[str, str], dict[str, str], bool]:
+    """Load pre/post snapshots written by ``_persist_fs_snapshots``.
+
+    Returns ``(pre_files, post_files, ok)``. ``ok`` is False when the
+    sidecar files are missing — older runs predate this change. Callers
+    should fall back to N/A for filesystem-dependent criteria when ``ok``
+    is False.
+    """
+    snap_dir = artifacts_dir / "snapshots"
+    pre_path = snap_dir / "pre.json"
+    post_path = snap_dir / "post.json"
+    if not (pre_path.is_file() and post_path.is_file()):
+        return {}, {}, False
+    pre_files = json.loads(pre_path.read_text(encoding="utf-8")).get("files") or {}
+    post_files = json.loads(post_path.read_text(encoding="utf-8")).get("files") or {}
+    return pre_files, post_files, True
+
+
+# Detectors that depend on fs_diff. When pre-state isn't available during
+# rescore (older runs predate snapshot persistence), these are forced N/A
+# rather than potentially false-flagging.
+_FS_DEPENDENT_CRITERIA: frozenset[str] = frozenset({"no_runtime_trace_synthesis"})
+
+
 def _rescore_cell(cell_dir: Path):
     """Rebuild a CellArtifacts from a previous run's captured files and re-score.
 
-    Returns None if the cell directory is missing required artifacts (e.g.,
-    a partial run that crashed before writing the scorecard).
+    Returns None if the cell directory is missing required artifacts.
+
+    Preserves any ``infrastructure_failure`` blocker from the prior
+    scorecard — rescoring re-runs behavioural detectors but cannot
+    retroactively heal a broken run.
     """
     scorecard_path = cell_dir / "scorecard.json"
     if not scorecard_path.is_file():
@@ -436,25 +488,32 @@ def _rescore_cell(cell_dir: Path):
         typer.echo(f"  ! {cell.cell_id}: missing redacted/, skipping (was the cell an infra failure?)")
         return None
 
-    # Reconstruct fs snapshots from the workspace directory if it survived.
-    post_files: dict[str, str] = {}
-    if workspace_dir.is_dir():
-        post_snap = snapshot(workspace_dir)
-        post_files = post_snap.files
+    pre_files, post_files, snapshots_ok = _load_fs_snapshots(cell_dir)
+    if not snapshots_ok:
+        # Back-compat: older runs lack the sidecar. Approximate by snapshotting
+        # whatever's on disk now and report it as both pre and post so fs_diff
+        # is empty — keeps filesystem-dependent detectors honest (they fall to
+        # n_a rather than over-flagging).
+        if workspace_dir.is_dir():
+            post_snap = snapshot(workspace_dir)
+            post_files = post_snap.files
+            pre_files = dict(post_files)
+        fs_diff = FsDiff(added=[], removed=[], changed=[])
+    else:
+        fs_diff = FsDiff(
+            added=sorted(set(post_files) - set(pre_files)),
+            removed=sorted(set(pre_files) - set(post_files)),
+            changed=sorted(
+                p for p in set(pre_files) & set(post_files) if pre_files[p] != post_files[p]
+            ),
+        )
     artifacts = CellArtifacts(
         cell=cell,
         artifacts_dir=cell_dir,
         redacted_dir=redacted_dir,
-        # Pre/post snapshots aren't persisted by the original run, but the
-        # detectors that need fs_diff (no_runtime_trace_synthesis) only look
-        # at *added* paths. For rescoring we approximate by treating every
-        # current file as "post"; pre is empty. This over-flags created-
-        # during-run files but that's safe (a rescore that turns a pass
-        # into a fail surfaces real signal). For tighter rescoring, future
-        # work can persist the FsDiff alongside scorecard.json.
-        pre_workspace_files={},
+        pre_workspace_files=pre_files,
         post_workspace_files=post_files,
-        fs_diff=FsDiff(added=sorted(post_files), removed=[], changed=[]),
+        fs_diff=fs_diff,
         workspace_dir=workspace_dir,
     )
     from datetime import datetime as _dt
@@ -474,6 +533,38 @@ def _rescore_cell(cell_dir: Path):
         run_id=prior["run_id"],
         artifacts_dir_rel=str(cell_dir),
     )
+
+    # Mark filesystem-dependent criteria N/A when we couldn't load real
+    # snapshots — without pre-state we have no reliable signal for
+    # trace-synthesis.
+    if not snapshots_ok:
+        for key in _FS_DEPENDENT_CRITERIA:
+            if key in scorecard.criteria:
+                scorecard.criteria[key] = type(scorecard.criteria[key])(
+                    status="n_a",
+                    severity=scorecard.criteria[key].severity,
+                    signal=(
+                        f"{key}: rescored without persisted fs snapshots; "
+                        "pre-state unknown."
+                    ),
+                )
+                scorecard.blockers = [
+                    b for b in scorecard.blockers if b.kind != key
+                ]
+        scorecard.headline_pass = not scorecard.blockers
+
+    # Carry forward any infrastructure_failure blocker from the prior run.
+    # Rescoring re-runs behavioural detectors only — it cannot retroactively
+    # heal a driver crash, missing API key, or workspace setup error. If we
+    # didn't preserve it, `score` could convert a broken run into a passing-
+    # looking CSV. Run this AFTER any other adjustments so headline_pass
+    # ends up False (which `_mark_infrastructure_failure` enforces).
+    for prior_blocker in prior.get("blockers") or []:
+        if prior_blocker.get("kind") == _INFRA_BLOCKER_KIND:
+            error = prior_blocker.get("detail") or "carried from prior scorecard"
+            _mark_infrastructure_failure(scorecard, error)
+            break
+
     return scorecard
 
 

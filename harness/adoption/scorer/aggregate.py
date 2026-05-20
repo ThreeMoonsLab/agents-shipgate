@@ -148,34 +148,57 @@ class ExitCriteriaReport:
         }
 
 
+# Behavioural agents whose rubric scores feed the three published exit
+# criteria. Static lints (e.g., ``cursor-static``) are aggregated
+# separately because their rubric semantics differ — a cursor-static
+# ``00-no-hints`` cell correctly scores 100 when the rule is absent, which
+# would inflate any Claude-uplift metric if mixed in.
+BEHAVIORAL_AGENTS: frozenset[str] = frozenset({"claude-code", "codex"})
+
+
 def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
     """Compute the three exit-criteria metrics from the plan.
 
-    Thresholds:
+    Thresholds (all evaluated over BEHAVIORAL agent rows only — Claude
+    Code, Codex; ``cursor-static`` is reported as a separate detail):
+
       * 10-agents-md mean − 00-no-hints mean ≥ +25 rubric points.
       * 40-shipgate-yaml mean ≥ 90 AND zero blockers across that subset.
       * docs-only-negative-overlay cells on un-adopted variants:
         ``runs_init OR runs_scan`` true in ≤ 10 % of cells.
     """
-    mean_00 = _mean_score(scorecards, variant="00-no-hints")
-    mean_10 = _mean_score(scorecards, variant="10-agents-md")
-    mean_40 = _mean_score(scorecards, variant="40-shipgate-yaml")
-    blockers_40 = sum(len(sc.blockers) for sc in scorecards if sc.variant == "40-shipgate-yaml")
+    behavioural = [sc for sc in scorecards if sc.agent in BEHAVIORAL_AGENTS]
+    cursor = [sc for sc in scorecards if sc.agent == "cursor-static"]
+
+    mean_00 = _mean_score(behavioural, variant="00-no-hints")
+    mean_10 = _mean_score(behavioural, variant="10-agents-md")
+    mean_40 = _mean_score(behavioural, variant="40-shipgate-yaml")
+    blockers_40 = sum(
+        len(sc.blockers) for sc in behavioural if sc.variant == "40-shipgate-yaml"
+    )
 
     docs_cells = [
         sc
-        for sc in scorecards
+        for sc in behavioural
         if sc.negative_overlay == "60-docs-only-negative"
         and sc.variant in {"00-no-hints", "10-agents-md", "20-claude-md", "30-cursor-rule", "50-advisory-workflow"}
     ]
     noisy = sum(1 for sc in docs_cells if _ran_init_or_scan(sc))
     noisy_fraction = (noisy / len(docs_cells)) if docs_cells else 0.0
 
+    cursor_pass = (
+        sum(1 for sc in cursor if sc.headline_pass) / len(cursor) if cursor else None
+    )
+
+    has_behavioural = bool(behavioural)
     return ExitCriteriaReport(
-        materially_outperforms_no_hints=(mean_10 - mean_00) >= 25 if scorecards else False,
-        near_perfect_activation=mean_40 >= 90 and blockers_40 == 0,
+        materially_outperforms_no_hints=has_behavioural and (mean_10 - mean_00) >= 25,
+        near_perfect_activation=has_behavioural and mean_40 >= 90 and blockers_40 == 0,
         not_noisy_on_docs_only=noisy_fraction <= 0.10,
         details={
+            "behavioural_cells": len(behavioural),
+            "cursor_static_cells": len(cursor),
+            "cursor_static_pass_rate": cursor_pass,
             "mean_score_00_no_hints": mean_00,
             "mean_score_10_agents_md": mean_10,
             "mean_score_40_shipgate_yaml": mean_40,

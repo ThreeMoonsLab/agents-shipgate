@@ -86,6 +86,55 @@ def test_infrastructure_failure_redacts_secrets_in_error_message(tmp_path: Path)
     assert "[REDACTED:" in blob, "redaction marker missing"
 
 
+def test_rescore_preserves_infrastructure_failure(tmp_path: Path) -> None:
+    """A prior infrastructure_failure must survive rescoring — rescore
+    re-runs behavioural detectors only and cannot retroactively heal a
+    driver crash. This pins the round-five regression."""
+    from harness.adoption.scorer.aggregate import write_scorecard_json
+    from harness.adoption.scorer.schema import Blocker, CriterionResult
+
+    cell_dir = tmp_path / "openai-agents-sdk__10-agents-md__01-prepare-for-release__codex"
+    (cell_dir / "redacted").mkdir(parents=True)
+    (cell_dir / "redacted" / "transcript.jsonl").write_text("", encoding="utf-8")
+    (cell_dir / "redacted" / "commands.jsonl").write_text("", encoding="utf-8")
+    (cell_dir / "redacted" / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (cell_dir / "redacted" / "summary.md").write_text("", encoding="utf-8")
+    (cell_dir / "redacted" / "final.diff").write_text("", encoding="utf-8")
+
+    prior = ScorecardV1(
+        run_id="prior-run",
+        cell_id=cell_dir.name,
+        archetype="openai-agents-sdk",
+        variant="10-agents-md",
+        prompt_id="01-prepare-for-release",
+        agent="codex",
+        model="codex-v2-stub",
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
+        duration_s=0.0,
+        criteria={
+            "infrastructure_failure": CriterionResult(
+                status="fail",
+                severity="blocker",
+                signal="Codex driver is a v2 stub",
+            ),
+        },
+        blockers=[
+            Blocker(kind="infrastructure_failure", detail="Codex driver is a v2 stub"),
+        ],
+        rubric_score=0,
+        headline_pass=False,
+        driver_degraded=True,
+        artifacts_dir=str(cell_dir),
+    )
+    write_scorecard_json(prior, cell_dir / "scorecard.json")
+
+    new_sc = cli_mod._rescore_cell(cell_dir)
+    assert new_sc is not None
+    assert new_sc.headline_pass is False, "rescore must not heal a broken run"
+    assert "infrastructure_failure" in {b.kind for b in new_sc.blockers}
+
+
 def test_rescore_cell_replays_artifacts(tmp_path: Path) -> None:
     """The score subcommand's _rescore_cell helper must replay captured
     artifacts through the current scorer and produce a fresh scorecard."""
