@@ -239,6 +239,35 @@ def test_rescore_cell_replays_artifacts(repo_tmp_path: Path) -> None:
     assert new_sc.criteria, "rescored scorecard should populate criteria"
 
 
+def test_unknown_model_refuses_to_start(repo_tmp_path: Path) -> None:
+    """Pins round-fourteen finding P2.2: an unknown model name must fail
+    preflight rather than letting the run proceed with (0,0) pricing
+    (which would render the budget cap ineffective)."""
+    from harness.adoption.drivers.base import DriverInputs
+    from harness.adoption.drivers.claude_code import ClaudeCodeDriver
+    from harness.adoption.observer.transcript import TranscriptWriter
+
+    raw = repo_tmp_path / "raw"
+    raw.mkdir()
+    with TranscriptWriter(raw) as writer:
+        result = ClaudeCodeDriver().run(
+            DriverInputs(
+                workspace=repo_tmp_path,
+                prompt_text="(probe)",
+                artifacts_dir=repo_tmp_path,
+                cell_id="probe-unknown-model",
+                agent_name="claude-code",
+                model="claude-typo-9000",  # not in PRICE_TABLE_USD_PER_M
+                budget_usd=10.0,
+            ),
+            writer,
+        )
+    assert result.error is not None
+    assert "unknown model" in result.error.lower()
+    assert result.degraded is True
+    assert result.cost_usd_estimate == 0.0
+
+
 def test_mark_infrastructure_failure_redacts_secrets(repo_tmp_path: Path) -> None:
     tmp_path = repo_tmp_path
     sc = ScorecardV1(

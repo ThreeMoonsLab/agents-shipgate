@@ -56,6 +56,28 @@ class ClaudeCodeDriver:
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
         started = datetime.now(UTC)
+        # Refuse unknown models BEFORE attempting any other setup. With
+        # (0, 0) pricing the mid-loop budget check would never abort and
+        # the outer BudgetGuard would never see spend — a model typo
+        # could bypass the entire budget cap. The error flows through
+        # _mark_infrastructure_failure → blocker → exit 4. Running this
+        # check before the SDK import also lets unit tests exercise the
+        # preflight without needing claude-agent-sdk on path.
+        model = inputs.model or self.default_model
+        if model not in PRICE_TABLE_USD_PER_M:
+            ended = datetime.now(UTC)
+            return RunResult(
+                started_at=started,
+                ended_at=ended,
+                degraded=True,
+                error=(
+                    f"unknown model {model!r}: not in PRICE_TABLE_USD_PER_M. "
+                    "Add the pricing tuple before paid runs — otherwise the "
+                    "budget cap is ineffective."
+                ),
+                summary_text="(driver refused to start due to unknown model pricing)",
+            )
+
         try:
             from claude_agent_sdk import (  # type: ignore[import-untyped]
                 ClaudeAgentOptions,
@@ -71,7 +93,6 @@ class ClaudeCodeDriver:
                 summary_text="(driver could not load; install harness/requirements.txt)",
             )
 
-        model = inputs.model or self.default_model
         options = ClaudeAgentOptions(
             cwd=str(inputs.workspace),
             allowed_tools=list(DEFAULT_ALLOWED_TOOLS),
@@ -94,7 +115,8 @@ class ClaudeCodeDriver:
         timed_out = False
         budget_aborted = False
         # Resolve prices once up front so the per-event budget check is cheap.
-        cost_in_per_m, cost_out_per_m = PRICE_TABLE_USD_PER_M.get(model, (0.0, 0.0))
+        # Safe to index directly — model membership was checked above.
+        cost_in_per_m, cost_out_per_m = PRICE_TABLE_USD_PER_M[model]
 
         async def _drive() -> None:
             nonlocal tokens_in, tokens_out, error, timed_out, budget_aborted

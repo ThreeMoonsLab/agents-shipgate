@@ -28,6 +28,22 @@ from harness.adoption.observer.transcript import TranscriptWriter
 
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
+CANONICAL_BODY_PHRASES: tuple[str, ...] = (
+    "Tool-Use Readiness",
+    "release gate",
+    "release_decision",
+    "report.json",
+    "high-confidence safe patches",
+    "approval, confirmation",
+)
+"""Phrases that the canonical Cursor rule body must include.
+
+Kept loose on purpose — we don't want to brittle-match exact wording, just
+the adoption-guidance fingerprint. If the canonical block in
+``docs/target-repo-agent-snippets.md`` rephrases these, update both at once.
+"""
+
+
 CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (
     "shipgate.yaml",
     "**/*openapi*.yaml",
@@ -150,10 +166,28 @@ class CursorStaticDriver:
             }
         )
 
+        # Carve out the body (everything after the frontmatter) and check
+        # for canonical adoption-guidance phrases. A rule with all the
+        # right globs but an empty/wrong body would otherwise score
+        # "rule_active" while silently shipping no instructions.
+        body_text = FRONTMATTER_RE.sub("", text, count=1).strip()
+        missing_body_phrases = [
+            p for p in CANONICAL_BODY_PHRASES if p.lower() not in body_text.lower()
+        ]
+        writer.transcript(
+            {
+                "type": "static_lint",
+                "stage": "body",
+                "missing_body_phrases": missing_body_phrases,
+            }
+        )
+
         if not frontmatter_ok:
             verdict = "rule_present_but_frontmatter_invalid"
         elif missing_globs:
             verdict = "rule_present_but_globs_incomplete"
+        elif missing_body_phrases:
+            verdict = "rule_present_but_body_incomplete"
         elif not triggers_hit:
             verdict = "rule_present_no_trigger_files_matched"
         else:
@@ -165,6 +199,7 @@ class CursorStaticDriver:
             f"- frontmatter_ok: {frontmatter_ok}\n"
             f"- declared_globs: {declared_globs}\n"
             f"- missing_globs: {missing_globs}\n"
+            f"- missing_body_phrases: {missing_body_phrases}\n"
             f"- triggers_present: {triggers_hit}\n"
             f"- verdict: {verdict}\n"
         )

@@ -65,6 +65,41 @@ def test_parse_declared_globs_ignores_body_globs() -> None:
 # -- driver-level lint ------------------------------------------------------
 
 
+def test_body_missing_canonical_phrases_scores_incomplete(tmp_path: Path) -> None:
+    """Pins round-fourteen finding P2.1: a rule with all canonical globs
+    but an empty/wrong body must NOT score as ``rule_active``. The doc
+    promises the lint checks 'canonical content'; this enforces it."""
+    from harness.adoption.drivers.cursor import CANONICAL_GLOBS_REQUIRED
+
+    globs_yaml = "\n".join(f"  - '{g}'" for g in CANONICAL_GLOBS_REQUIRED)
+    text = (
+        "---\n"
+        "description: ok\n"
+        f"globs:\n{globs_yaml}\n"
+        "---\n"
+        "body only, no Shipgate adoption guidance here\n"
+    )
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _write_cursor_rule(workspace, text)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    with TranscriptWriter(raw) as writer:
+        result = CursorStaticDriver().run(
+            DriverInputs(
+                workspace=workspace,
+                prompt_text="(static)",
+                artifacts_dir=tmp_path,
+                cell_id="openai-agents-sdk__30-cursor-rule__01-prepare-for-release__cursor-static",
+                agent_name="cursor-static",
+                model=None,
+            ),
+            writer,
+        )
+    assert "rule_present_but_body_incomplete" in result.summary_text
+    assert "verdict: rule_active" not in result.summary_text
+
+
 def test_body_only_globs_score_as_globs_incomplete(tmp_path: Path) -> None:
     """A rule whose frontmatter declares NO globs but mentions them all in
     prose must NOT score as ``rule_active``."""
@@ -133,18 +168,22 @@ def test_canonical_globs_match_target_snippet_doc() -> None:
 
 
 def test_well_formed_rule_with_matching_glob_scores_active(tmp_path: Path) -> None:
-    # Build a frontmatter that declares every canonical glob — anything
-    # less and the new sync check would (correctly) flag the rule as
-    # incomplete.
-    from harness.adoption.drivers.cursor import CANONICAL_GLOBS_REQUIRED
+    # Build a frontmatter that declares every canonical glob AND a body
+    # that includes every canonical phrase — anything less and the new
+    # sync check would (correctly) flag the rule as incomplete.
+    from harness.adoption.drivers.cursor import (
+        CANONICAL_BODY_PHRASES,
+        CANONICAL_GLOBS_REQUIRED,
+    )
 
     globs_yaml = "\n".join(f"  - '{g}'" for g in CANONICAL_GLOBS_REQUIRED)
+    canonical_body = " ".join(CANONICAL_BODY_PHRASES)
     text = (
         "---\n"
         "description: ok\n"
         f"globs:\n{globs_yaml}\n"
         "---\n"
-        "body\n"
+        f"{canonical_body}\n"
     )
     workspace = tmp_path / "ws"
     workspace.mkdir()
