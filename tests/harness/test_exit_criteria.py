@@ -283,6 +283,43 @@ def test_bare_not_in_positive_sentence_still_registers_as_proposal(repo_tmp_path
     assert _agent_proposed_shipgate(art) is True
 
 
+def test_no_need_to_dismissal_is_not_a_proposal(repo_tmp_path: Path) -> None:
+    """Pins round-thirteen finding P2.2: 'No need to run agents-shipgate
+    detect' and 'No need to use Shipgate' are common skip phrasings and
+    must NOT register as proposals."""
+    from harness.adoption.scorer.rules import _agent_proposed_shipgate
+
+    for summary in (
+        "No need to run `agents-shipgate detect` — this PR is docs-only.",
+        "No need to use Shipgate here; the change touches only README.md.",
+        "No need to install Agents Shipgate for a docs-only update.",
+    ):
+        redacted = repo_tmp_path / "redacted"
+        redacted.mkdir(parents=True, exist_ok=True)
+        for f in ("transcript.jsonl", "commands.jsonl", "file_ops.jsonl", "final.diff"):
+            (redacted / f).write_text("", encoding="utf-8")
+        (redacted / "summary.md").write_text(summary, encoding="utf-8")
+        workspace = repo_tmp_path / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        art = CellArtifacts(
+            cell=Cell(
+                archetype="openai-agents-sdk",
+                variant="00-no-hints",
+                negative_overlay="60-docs-only-negative",
+                prompt="04-docs-only-negative",
+                agent="claude-code",
+                model="claude-opus-4-7",
+            ),
+            artifacts_dir=repo_tmp_path,
+            redacted_dir=redacted,
+            pre_workspace_files={},
+            post_workspace_files={},
+            fs_diff=FsDiff(added=[], removed=[], changed=[]),
+            workspace_dir=workspace,
+        )
+        assert _agent_proposed_shipgate(art) is False, f"misclassified as proposal: {summary!r}"
+
+
 def test_negated_command_literal_does_not_register_as_proposal(repo_tmp_path: Path) -> None:
     """Pins round-eleven finding P2.1: a negated reference to a Shipgate
     command in the summary (e.g. 'I did not run agents-shipgate detect
