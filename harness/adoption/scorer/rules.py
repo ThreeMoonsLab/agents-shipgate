@@ -134,24 +134,57 @@ def _transcript_text(art: CellArtifacts) -> str:
     return "\n".join(json.dumps(line, ensure_ascii=False) for line in art.transcript_lines())
 
 
+_PROPOSAL_FILE_PATHS = (
+    "shipgate.yaml",
+    "shipgate.yml",
+    ".github/workflows/agents-shipgate.yml",
+    ".github/workflows/agents-shipgate.yaml",
+)
+
+
+def _agent_proposed_shipgate(art: CellArtifacts) -> bool:
+    """True iff the agent took observable action to install/invoke Shipgate.
+
+    Action means one of:
+      * ran an ``agents-shipgate <verb>`` command;
+      * wrote or edited ``shipgate.yaml`` (or the workflow file);
+      * the workspace now has files at those paths and didn't before.
+
+    A bare mention in the summary ("Shipgate is not relevant, skipped") is
+    explicitly NOT a proposal — otherwise a correctly-skipped docs-only-
+    negative cell would be marked as a false-positive proposal.
+    """
+    if SHIPGATE_CMD_RE.search(_commands_text(art)):
+        return True
+    for op in art.file_op_lines():
+        path = (op.get("path") or "").lower()
+        if any(path.endswith(p.lower()) for p in _PROPOSAL_FILE_PATHS):
+            return True
+    # Filesystem fallback: any of those paths created during the run.
+    for added in art.fs_diff.added:
+        if any(added.endswith(p) for p in _PROPOSAL_FILE_PATHS):
+            return True
+    return False
+
+
 def discovers_relevance(art: CellArtifacts) -> CriterionResult:
     """Did the agent recognise Shipgate as relevant (or correctly skip it)?
 
     For static-lint agents this collapses to: did the Cursor rule activate
     (rule present, globs cover at least one trigger file)? The cursor driver
     emits ``static_lint`` events into the transcript that we read here.
+
+    "Proposed" means the agent took action toward installing or invoking
+    Shipgate — running an ``agents-shipgate`` command, writing
+    ``shipgate.yaml``, or editing ``.github/workflows/agents-shipgate.yml``.
+    Merely mentioning Shipgate (e.g. "Shipgate is not relevant, skipping")
+    does NOT count, otherwise an agent correctly explaining its decision
+    on a docs-only-negative cell would be scored as a false-positive.
     """
     if art.cell.agent in STATIC_LINT_AGENTS:
         return _static_lint_discovers_relevance(art)
 
-    commands = _commands_text(art)
-    transcript = _transcript_text(art)
-    summary = art.summary_text()
-    haystack = "\n".join((commands, transcript, summary))
-    proposed = bool(
-        SHIPGATE_CMD_RE.search(commands) or SHIPGATE_MENTION_RE.search(haystack)
-    )
-
+    proposed = _agent_proposed_shipgate(art)
     expects_proposal = _expects_proposal(art.cell)
     if expects_proposal is None:
         return CriterionResult(
@@ -679,16 +712,30 @@ def score_cell(
     """Run every detector and produce a fully-populated scorecard."""
     results: dict[str, CriterionResult] = {}
     static_lint = cell.agent in STATIC_LINT_AGENTS
+    # Negative-control cells expect the agent to take NO action. Behavioural
+    # criteria like ``runs_detect`` / ``runs_scan`` / ``replaces_change_me``
+    # would all be "fail" or "n_a" by default; under the existing rubric
+    # that pushes a correct skip down to ~20/100 instead of the documented
+    # 100 (benchmark/runner.md). Force them to N/A so the score reflects
+    # whether the agent honoured the negative control, not whether it
+    # ticked off action items it shouldn't have run.
+    negative_control = _expects_proposal(cell) is False
     for key, fn in DETECTORS.items():
-        # Static-lint drivers (Cursor v1) do not execute commands or produce
-        # a diff. Only ``discovers_relevance`` carries meaningful signal; the
-        # remaining criteria are forced to N/A so static cells aren't graded
-        # against expectations they cannot satisfy.
         if static_lint and key != "discovers_relevance":
             results[key] = CriterionResult(
                 status="n_a",
                 severity="info",
                 signal=f"N/A for static-lint driver {cell.agent!r}.",
+            )
+            continue
+        if negative_control and key != "discovers_relevance":
+            results[key] = CriterionResult(
+                status="n_a",
+                severity="info",
+                signal=(
+                    "N/A on negative-control cell — the agent was expected "
+                    "to take no Shipgate action."
+                ),
             )
             continue
         try:

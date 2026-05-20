@@ -50,6 +50,41 @@ def test_empty_run_exits_nonzero(repo_tmp_path: Path) -> None:
     assert "0 scorecards" in combined
 
 
+def test_score_exits_nonzero_on_replayed_infra_failure(repo_tmp_path: Path) -> None:
+    """``score`` replays infrastructure_failure rows verbatim. It must
+    propagate that into a nonzero exit code, otherwise it's unsafe as a
+    CI/check command for detector iteration."""
+    # Build a minimal cell dir that looks like a setup-time infra failure:
+    # scorecard.json with an infrastructure_failure blocker, no redacted/.
+    from harness.adoption.matrix import Cell
+
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="00-no-hints",
+        negative_overlay=None,
+        prompt="01-prepare-for-release",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    cli_mod._infrastructure_failure_scorecard(
+        cell=cell,
+        run_id="r",
+        run_dir=repo_tmp_path,
+        error="WorkspaceError: archetype directory missing",
+    )
+    result = _run_harness(
+        "score",
+        f"--run-dir={repo_tmp_path}",
+        f"--results-csv={repo_tmp_path / 'rescored.csv'}",
+    )
+    assert result.returncode != 0, (
+        f"expected nonzero exit on replayed infra failure; "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    combined = result.stdout + result.stderr
+    assert "infrastructure failures" in combined.lower()
+
+
 def test_out_of_repo_out_dir_rejected_before_any_cell(tmp_path: Path) -> None:
     """``--out=/tmp/...`` must be rejected by preflight BEFORE any cell
     runs. Without preflight, a paid Claude cell would complete and only

@@ -9,7 +9,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from harness.adoption.matrix import Cell
+from harness.adoption.observer.fs_snapshot import FsDiff
 from harness.adoption.scorer.aggregate import check_exit_criteria
+from harness.adoption.scorer.rules import CellArtifacts, score_cell
 from harness.adoption.scorer.schema import ScorecardV1
 
 
@@ -110,6 +113,59 @@ def test_empty_behavioural_set_is_not_a_pass() -> None:
     report = check_exit_criteria(scorecards)
     assert report.materially_outperforms_no_hints is False
     assert report.near_perfect_activation is False
+
+
+def test_negative_control_correct_skip_scores_100(repo_tmp_path: Path) -> None:
+    """A docs-only-negative cell where the agent correctly takes NO Shipgate
+    action must score 100/100 per benchmark/runner.md, not 20 (the previous
+    bug from earlier rounds where runs_detect/init/scan/doctor failed).
+
+    Also: the agent saying "Shipgate is not relevant, skipping" in summary
+    must NOT count as a proposal (bare mention != action).
+    """
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="00-no-hints",
+        negative_overlay="60-docs-only-negative",
+        prompt="04-docs-only-negative",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    (redacted / "transcript.jsonl").write_text("", encoding="utf-8")
+    (redacted / "commands.jsonl").write_text("", encoding="utf-8")  # no commands
+    (redacted / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "Shipgate is not relevant for a docs-only change, so I skipped it.",
+        encoding="utf-8",
+    )
+    (redacted / "final.diff").write_text("", encoding="utf-8")
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    artifacts = CellArtifacts(
+        cell=cell,
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    now = datetime.now(UTC)
+    sc = score_cell(
+        cell=cell,
+        artifacts=artifacts,
+        started_at=now,
+        ended_at=now,
+        run_id="r",
+        artifacts_dir_rel="x",
+    )
+    assert sc.rubric_score == 100, (
+        f"correct negative-control skip must score 100; got {sc.rubric_score}"
+    )
+    assert sc.headline_pass is True
 
 
 def test_behavioural_cells_count_drives_exit_gating() -> None:

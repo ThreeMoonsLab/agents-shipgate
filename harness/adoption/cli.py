@@ -153,52 +153,15 @@ def run(
     )
     typer.echo(f"wrote {csv_path} and {run_dir / 'exit_criteria.json'}")
 
-    # Empty-run guard: matrix asked for N cells but we wrote zero scorecards
-    # (budget cap zero, or every cell raised and somehow scorecards empty).
-    # A vacuously-true exit-criteria pass would make CI green for nothing.
-    if not scorecards:
-        typer.echo(
-            "FAIL: 0 scorecards written despite a non-empty matrix "
-            f"(requested={len(cells)}; budget_aborted_early={budget_aborted_early}). "
+    _gate_exit_codes(
+        scorecards=scorecards,
+        exit_report=exit_report,
+        requested=len(cells),
+        empty_diagnostic=(
+            f"requested={len(cells)}; budget_aborted_early={budget_aborted_early}. "
             "Raise --budget-usd or investigate."
-        )
-        raise typer.Exit(code=5)
-
-    # Exit nonzero so CI (and operators) see broken runs as broken runs.
-    #   - any infrastructure_failure blocker → exit 4 (driver/setup crash)
-    #   - any failed BEHAVIOURAL exit criterion → exit 3 (matrix didn't meet
-    #     thresholds). Behavioural metrics require behavioural agent rows,
-    #     so a filtered run that has none (e.g., --agent=cursor-static) does
-    #     NOT fail on those metrics. The docs-only-noisy criterion also
-    #     applies only when there are behavioural cells.
-    #   - any cursor-static cell failure → exit 3 (rule misconfigured).
-    # A zero exit means "every cell ran AND every relevant criterion passed."
-    infra_failures = [
-        sc for sc in scorecards if any(b.kind == _INFRA_BLOCKER_KIND for b in sc.blockers)
-    ]
-    if infra_failures:
-        typer.echo(f"FAIL: {len(infra_failures)} cell(s) had infrastructure failures.")
-        raise typer.Exit(code=4)
-
-    behavioural_n = int(exit_report.details.get("behavioural_cells") or 0)
-    cursor_pass = exit_report.details.get("cursor_static_pass_rate")
-    failures: list[str] = []
-    if behavioural_n > 0:
-        if not exit_report.materially_outperforms_no_hints:
-            failures.append("materially_outperforms_no_hints")
-        if not exit_report.near_perfect_activation:
-            failures.append("near_perfect_activation")
-        if not exit_report.not_noisy_on_docs_only:
-            failures.append("not_noisy_on_docs_only")
-    if cursor_pass is not None and cursor_pass < 1.0:
-        failures.append(f"cursor_static_pass_rate={cursor_pass:.0%} (< 100%)")
-    if failures:
-        typer.echo(
-            "FAIL: exit criteria not met: "
-            + ", ".join(failures)
-            + " — see exit_criteria.json"
-        )
-        raise typer.Exit(code=3)
+        ),
+    )
 
 
 @app.command()
@@ -295,6 +258,15 @@ def score(
         json.dumps(exit_report.as_dict(), indent=2), encoding="utf-8"
     )
     typer.echo(f"rescored {len(new_scorecards)} cell(s) → {out}")
+    # Apply the same exit-code policy as ``run`` so ``score`` is safe to use
+    # as a CI/check command: rescoring a broken run must not exit 0 just
+    # because we successfully wrote a CSV row for the failure.
+    _gate_exit_codes(
+        scorecards=new_scorecards,
+        exit_report=exit_report,
+        requested=len(cell_dirs),
+        empty_diagnostic=f"requested={len(cell_dirs)}; rescore replayed 0 scorecards",
+    )
 
 
 @app.command()
@@ -457,6 +429,55 @@ def _run_one_cell(
         _mark_infrastructure_failure(scorecard, run_result.error)
     agg_mod.write_scorecard_json(scorecard, artifacts_dir / "scorecard.json")
     return scorecard
+
+
+def _gate_exit_codes(
+    *,
+    scorecards: list,
+    exit_report,
+    requested: int,
+    empty_diagnostic: str,
+) -> None:
+    """Translate scorecards + exit_report into a process exit code.
+
+    Shared between ``run`` and ``score`` so the two commands agree on what
+    counts as a CI failure:
+
+      * 0 cells written despite a non-empty matrix → exit 5 (empty run)
+      * any infrastructure_failure blocker        → exit 4
+      * any failed exit criterion / cursor pass   → exit 3
+      * otherwise                                  → return (caller exits 0)
+    """
+    if requested > 0 and not scorecards:
+        typer.echo(f"FAIL: 0 scorecards written despite a non-empty matrix ({empty_diagnostic})")
+        raise typer.Exit(code=5)
+
+    infra_failures = [
+        sc for sc in scorecards if any(b.kind == _INFRA_BLOCKER_KIND for b in sc.blockers)
+    ]
+    if infra_failures:
+        typer.echo(f"FAIL: {len(infra_failures)} cell(s) had infrastructure failures.")
+        raise typer.Exit(code=4)
+
+    behavioural_n = int(exit_report.details.get("behavioural_cells") or 0)
+    cursor_pass = exit_report.details.get("cursor_static_pass_rate")
+    failures: list[str] = []
+    if behavioural_n > 0:
+        if not exit_report.materially_outperforms_no_hints:
+            failures.append("materially_outperforms_no_hints")
+        if not exit_report.near_perfect_activation:
+            failures.append("near_perfect_activation")
+        if not exit_report.not_noisy_on_docs_only:
+            failures.append("not_noisy_on_docs_only")
+    if cursor_pass is not None and cursor_pass < 1.0:
+        failures.append(f"cursor_static_pass_rate={cursor_pass:.0%} (< 100%)")
+    if failures:
+        typer.echo(
+            "FAIL: exit criteria not met: "
+            + ", ".join(failures)
+            + " — see exit_criteria.json"
+        )
+        raise typer.Exit(code=3)
 
 
 def _relative_artifacts_path(artifacts_dir: Path) -> str:
