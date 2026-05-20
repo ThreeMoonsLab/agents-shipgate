@@ -76,9 +76,24 @@ python -m harness.adoption run \
   --out=.agents-private/adoption-sprint
 ```
 
-`SHIPGATE_HARNESS_BUDGET_USD` (or `--budget-usd`) hard-caps cumulative
-`cost_usd_estimate`. The run aborts with a partial CSV when the cap is
-exceeded.
+`--budget-usd` hard-caps cumulative `cost_usd_estimate`. The CLI flag is
+the only knob — there is no env-var fallback, because env precedence
+could let a stale (possibly higher) value silently override a deliberately
+lower CLI cap, which is unsafe for paid runs. Operators who want an
+env-driven cap should pass the env var through the flag explicitly:
+
+```bash
+python -m harness.adoption run --budget-usd "$SHIPGATE_HARNESS_BUDGET_USD"
+```
+
+The run aborts with a partial CSV when the cap is exceeded. If the cap
+is reached before any cell completes (e.g. `--budget-usd=0`), the run
+exits non-zero (code 5) — a 0-cell run never looks green.
+
+`--out` must point inside the repo (default
+`.agents-private/adoption-sprint/`). Out-of-repo paths are rejected at
+preflight, before any cell runs, so a misconfigured CI invocation does
+not spend live API budget.
 
 ## Scoring criteria
 

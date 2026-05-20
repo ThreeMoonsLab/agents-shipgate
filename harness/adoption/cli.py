@@ -89,6 +89,17 @@ def run(
     run_dir = out / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Preflight ``--out``: catch a non-repo artifacts root BEFORE any cell
+    # runs. Without this, an invalid ``--out=/elsewhere`` would happily run
+    # paid Claude cells, then crash inside ``_relative_artifacts_path`` —
+    # AND the infra-failure handler would crash too (it calls the same
+    # helper) so no CSV would be written and the spend would be wasted.
+    try:
+        _relative_artifacts_path(run_dir)
+    except ValueError as exc:
+        typer.echo(f"FAIL: {exc}")
+        raise typer.Exit(code=2) from exc
+
     # The CLI flag is the authoritative source. Reading env after `setdefault`
     # would let a stale (possibly higher) SHIPGATE_HARNESS_BUDGET_USD silently
     # override a deliberately lower CLI cap. Operators who want env to drive
@@ -97,6 +108,7 @@ def run(
     guard = agg_mod.BudgetGuard(cap_usd=budget_usd)
 
     scorecards: list = []
+    budget_aborted_early = False
     cell_timeout_s = int(os.environ.get("SHIPGATE_HARNESS_CELL_TIMEOUT_S", "600"))
     for i, cell in enumerate(cells, start=1):
         typer.echo(f"[{i}/{len(cells)}] {cell.cell_id}")
@@ -105,6 +117,7 @@ def run(
         remaining = guard.cap_usd - guard.spent_usd
         if guard.cap_usd >= 0 and remaining <= 0:
             typer.echo(f"  ! budget exhausted before cell {i}; spent={guard.spent_usd:.4f}")
+            budget_aborted_early = True
             break
         try:
             sc = _run_one_cell(
@@ -139,6 +152,17 @@ def run(
         json.dumps(exit_report.as_dict(), indent=2), encoding="utf-8"
     )
     typer.echo(f"wrote {csv_path} and {run_dir / 'exit_criteria.json'}")
+
+    # Empty-run guard: matrix asked for N cells but we wrote zero scorecards
+    # (budget cap zero, or every cell raised and somehow scorecards empty).
+    # A vacuously-true exit-criteria pass would make CI green for nothing.
+    if not scorecards:
+        typer.echo(
+            "FAIL: 0 scorecards written despite a non-empty matrix "
+            f"(requested={len(cells)}; budget_aborted_early={budget_aborted_early}). "
+            "Raise --budget-usd or investigate."
+        )
+        raise typer.Exit(code=5)
 
     # Exit nonzero so CI (and operators) see broken runs as broken runs.
     #   - any infrastructure_failure blocker → exit 4 (driver/setup crash)
