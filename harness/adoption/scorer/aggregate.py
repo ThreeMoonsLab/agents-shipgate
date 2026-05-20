@@ -216,7 +216,11 @@ def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
         if sc.negative_overlay == "60-docs-only-negative"
         and sc.variant in {"00-no-hints", "10-agents-md", "20-claude-md", "30-cursor-rule", "50-advisory-workflow"}
     ]
-    noisy = sum(1 for sc in docs_cells if _ran_init_or_scan(sc))
+    # The behavioural criteria on negative-control cells are N/A by design
+    # (so a correct skip scores 100), which means ``runs_init OR runs_scan``
+    # would always read N/A here. Use the ``agent_proposed_shipgate`` field
+    # the scorer computes independently of the N/A logic.
+    noisy = sum(1 for sc in docs_cells if sc.agent_proposed_shipgate)
     noisy_fraction = (noisy / len(docs_cells)) if docs_cells else 0.0
 
     cursor_pass = (

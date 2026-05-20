@@ -115,6 +115,96 @@ def test_empty_behavioural_set_is_not_a_pass() -> None:
     assert report.near_perfect_activation is False
 
 
+def test_init_on_existing_manifest_variant_trips_blocker(repo_tmp_path: Path) -> None:
+    """Pins round-twelve finding P1.1: 40-shipgate-yaml exists to catch
+    agents that re-init over an existing manifest. Running `init` on this
+    variant must trip a blocker AND remove the rubric points for runs_init."""
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="40-shipgate-yaml",
+        negative_overlay=None,
+        prompt="01-prepare-for-release",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    (redacted / "transcript.jsonl").write_text("", encoding="utf-8")
+    (redacted / "commands.jsonl").write_text(
+        '{"command": "agents-shipgate detect"}\n'
+        '{"command": "agents-shipgate init --write"}\n'
+        '{"command": "agents-shipgate scan"}\n',
+        encoding="utf-8",
+    )
+    (redacted / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text("ran detect, init, scan", encoding="utf-8")
+    (redacted / "final.diff").write_text("", encoding="utf-8")
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    art = CellArtifacts(
+        cell=cell,
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    now = datetime.now(UTC)
+    sc = score_cell(
+        cell=cell,
+        artifacts=art,
+        started_at=now,
+        ended_at=now,
+        run_id="r",
+        artifacts_dir_rel="x",
+    )
+    assert sc.headline_pass is False, (
+        "running init on 40-shipgate-yaml must flip headline_pass to False"
+    )
+    assert "respects_existing_manifest" in {b.kind for b in sc.blockers}
+    # runs_init must be N/A on this variant (no bonus points for the wrong action).
+    assert sc.criteria["runs_init"].status == "n_a"
+
+
+def test_docs_only_noise_visible_via_agent_proposed_field(repo_tmp_path: Path) -> None:
+    """Pins round-twelve finding P1.2: docs-only-negative cells force
+    runs_init/runs_scan to N/A, so the aggregate must use the
+    ``agent_proposed_shipgate`` field instead. A docs-only cell where the
+    agent ran init+scan should count as noisy."""
+    from harness.adoption.scorer.aggregate import check_exit_criteria
+    from harness.adoption.scorer.schema import ScorecardV1
+
+    now = datetime.now(UTC)
+    scorecards = [
+        # A docs-only cell where the agent (incorrectly) proposed Shipgate.
+        ScorecardV1(
+            run_id="r",
+            cell_id="x",
+            archetype="openai-agents-sdk",
+            variant="00-no-hints",
+            negative_overlay="60-docs-only-negative",
+            prompt_id="04-docs-only-negative",
+            agent="claude-code",
+            model="claude-opus-4-7",
+            started_at=now,
+            ended_at=now,
+            duration_s=0.1,
+            criteria={},
+            blockers=[],
+            rubric_score=0,
+            headline_pass=False,
+            artifacts_dir="x",
+            agent_proposed_shipgate=True,
+        ),
+    ]
+    report = check_exit_criteria(scorecards)
+    assert report.details["docs_only_cells"] == 1
+    assert report.details["docs_only_noisy_cells"] == 1
+    assert report.details["docs_only_noisy_fraction"] == 1.0
+    assert report.not_noisy_on_docs_only is False
+
+
 def test_text_only_proposal_is_detected(repo_tmp_path: Path) -> None:
     """Pins round-ten finding P1: an agent that recommends Shipgate
     in its summary (without running a command) must register as having
@@ -137,6 +227,43 @@ def test_text_only_proposal_is_detected(repo_tmp_path: Path) -> None:
     workspace = repo_tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
 
+    art = CellArtifacts(
+        cell=Cell(
+            archetype="openai-agents-sdk",
+            variant="00-no-hints",
+            negative_overlay=None,
+            prompt="01-prepare-for-release",
+            agent="claude-code",
+            model="claude-opus-4-7",
+        ),
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    assert _agent_proposed_shipgate(art) is True
+
+
+def test_bare_not_in_positive_sentence_still_registers_as_proposal(repo_tmp_path: Path) -> None:
+    """Pins round-twelve finding P2.1: a positive recommendation that
+    incidentally uses the word 'not' (e.g. 'Shipgate is not currently
+    configured; I recommend adding it') must still register as a proposal.
+    The previous bare-'not' negation pattern over-suppressed."""
+    from harness.adoption.scorer.rules import _agent_proposed_shipgate
+
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    for f in ("transcript.jsonl", "commands.jsonl", "file_ops.jsonl", "final.diff"):
+        (redacted / f).write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "Shipgate is not currently configured; I recommend adding "
+        "Agents Shipgate CI before release.",
+        encoding="utf-8",
+    )
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
     art = CellArtifacts(
         cell=Cell(
             archetype="openai-agents-sdk",

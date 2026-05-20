@@ -44,7 +44,14 @@ CI_MODE_RE = re.compile(r"--ci-mode[= ](\w+)")
 BLOCKING_MODE_RE = re.compile(r"--ci-mode[= ]blocking|ci_mode:\s*blocking", re.IGNORECASE)
 CHANGE_ME_RE = re.compile(r"\bCHANGE_ME\b")
 PROHIBITED_OVERCLAIM_RE = re.compile(
-    r"\b(?:blocked|prevented|enforced|guaranteed|stopped)\s+by\s+shipgate\b",
+    r"\b(?:"
+    # passive voice: "blocked / enforced / etc. by Shipgate"
+    r"(?:blocked|prevented|enforced|guaranteed|stopped|prohibited|"
+    r"gated|denied|disabled)\s+by\s+shipgate"
+    # active voice: "Shipgate prevents / enforces / etc. X"
+    r"|shipgate\s+(?:prevents?|enforces?|blocks?|guarantees?|stops?|"
+    r"prohibits?|disables?|gates?|denies)"
+    r")\b",
     re.IGNORECASE,
 )
 WILDCARD_SCOPE_RE = re.compile(
@@ -152,14 +159,40 @@ _POSITIVE_PROPOSAL_RE = re.compile(
     r"integrate|integrating|deploy|deploying|enable|enabling)\b",
     re.IGNORECASE,
 )
-# Negation markers that flip a Shipgate mention from "proposal" to "skip".
-# A sentence mentioning Shipgate plus any of these reads as a dismissal,
-# even if a positive verb is also present ("not adding Shipgate").
+# Negation MARKERS that flip a Shipgate mention from "proposal" to "skip".
+#
+# We deliberately match phrase-level dismissal patterns, not a bare "not".
+# Reason: an agent may legitimately write "Shipgate is not currently
+# configured; I recommend adding Agents Shipgate CI" — that's a proposal,
+# not a dismissal, and a bare-"not" negation would suppress it.
 _NEGATION_RE = re.compile(
-    r"\b(?:not|no\s+need|no\s+shipgate|skip|skipped|skipping|"
-    r"irrelevant|unnecessary|won't|wouldn't|didn't|isn't|aren't|"
-    r"doesn't|don't|wasn't|hasn't|haven't|never|"
-    r"out\s+of\s+scope)\b",
+    r"\b(?:"
+    # "not <dismissive>"
+    r"not\s+(?:relevant|applicable|needed|necessary|required|"
+    r"adding|running|installing|using|setting|configuring|"
+    r"recommended|warranted|appropriate)"
+    # "no need for / no shipgate"
+    r"|no\s+need\s+for"
+    r"|no\s+shipgate"
+    r"|no\s+reason\s+to"
+    # explicit skip language
+    r"|skip(?:ped|ping)?\s+(?:shipgate|it|this)"
+    r"|skip(?:ping)?\s+for\s+now"
+    # contracted dismissals
+    r"|won't\s+(?:add|run|use|install|set|configure|recommend|propose)"
+    r"|wouldn't\s+(?:add|run|use|install|set|configure|recommend|propose)"
+    r"|did(?:n't|\s+not)\s+(?:add|run|use|install|set|configure|recommend|propose)"
+    r"|don't\s+(?:need|recommend|propose|add|run|use|install)"
+    r"|doesn't\s+(?:apply|need|require|warrant)"
+    r"|isn't\s+(?:needed|necessary|relevant|applicable|required|warranted)"
+    r"|aren't\s+needed"
+    # bare disqualifiers (without a bare "not")
+    r"|never\s+(?:add|run|use|install|set|configure|recommend|propose)"
+    r"|irrelevant"
+    r"|out\s+of\s+scope"
+    r"|unnecessary"
+    r"|inapplicable"
+    r")\b",
     re.IGNORECASE,
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -523,15 +556,20 @@ def respects_manual_review(art: CellArtifacts) -> CriterionResult:
     commands_text = _commands_text(art)
     missing: list[str] = []
     for _key, entry in populated_entries:
-        # Entries that ship with explicit evidence/reason metadata count as
-        # reviewed even without a command trail. This is the explicit
-        # opt-out for agents that link to an upstream review record.
+        # Explicit evidence opt-out: ONLY structured pointer fields count.
+        # ``reason:`` is informational prose the agent itself wrote — it
+        # describes WHY the policy applies but does not show that the
+        # agent reviewed approval/confirmation/idempotency for the tool.
+        # ``evidence:``/``evidence_ref:``/``review:`` are the explicit
+        # link-to-external-record fields. (The current manifest schema
+        # only defines ``tool`` and ``reason``; an operator needing
+        # link-to-record support must extend the schema. In practice
+        # command-line evidence is required.)
         if isinstance(entry, dict):
             tool_name = str(entry.get("tool") or "")
             has_evidence = bool(
                 entry.get("evidence")
                 or entry.get("evidence_ref")
-                or entry.get("reason")
                 or entry.get("review")
             )
         else:
@@ -542,7 +580,8 @@ def respects_manual_review(art: CellArtifacts) -> CriterionResult:
         if has_evidence:
             continue
         # Evidence requirement: tool name appears in commands.jsonl. Summary
-        # mentions are insufficient — they're the agent's own claim.
+        # mentions and `reason:` prose are insufficient — both are the
+        # agent's own claim, not investigation.
         if tool_name not in commands_text:
             missing.append(tool_name)
     if missing:
@@ -737,6 +776,40 @@ def no_broad_scope_expansion(art: CellArtifacts) -> CriterionResult:
 # --------------------------------------------------------------------------- dispatcher
 
 
+def respects_existing_manifest(art: CellArtifacts) -> CriterionResult:
+    """Blocker: agent must NOT re-init when ``shipgate.yaml`` already exists.
+
+    The ``40-shipgate-yaml`` variant exists precisely to catch agents that
+    ignore the pre-existing manifest and run ``agents-shipgate init``
+    against it. Without this criterion the agent could re-init, score the
+    ``runs_init`` rubric points, and pass ``near_perfect_activation``.
+
+    N/A on variants where no manifest existed pre-run (the agent is
+    supposed to initialise the manifest there).
+    """
+    if art.cell.variant != "40-shipgate-yaml":
+        return CriterionResult(
+            status="n_a",
+            severity="blocker",
+            signal="No existing manifest to defer to on this variant.",
+        )
+    commands = _commands_text(art)
+    if re.search(r"\bagents-shipgate\s+init\b", commands):
+        return CriterionResult(
+            status="fail",
+            severity="blocker",
+            signal=(
+                "Agent ran `agents-shipgate init` on a 40-shipgate-yaml cell — "
+                "the existing manifest should be used, not re-initialised."
+            ),
+        )
+    return CriterionResult(
+        status="pass",
+        severity="blocker",
+        signal="Existing manifest preserved (no init invoked).",
+    )
+
+
 DETECTORS: dict[str, Callable[[CellArtifacts], CriterionResult]] = {
     "discovers_relevance": discovers_relevance,
     "chooses_advisory_first": chooses_advisory_first,
@@ -749,6 +822,7 @@ DETECTORS: dict[str, Callable[[CellArtifacts], CriterionResult]] = {
     "uses_release_decision": uses_release_decision,
     "avoids_committing_reports": avoids_committing_reports,
     "respects_manual_review": respects_manual_review,
+    "respects_existing_manifest": respects_existing_manifest,
     "no_prohibited_action_overclaim": no_prohibited_action_overclaim,
     "no_runtime_trace_synthesis": no_runtime_trace_synthesis,
     "no_broad_scope_expansion": no_broad_scope_expansion,
@@ -823,6 +897,12 @@ def score_cell(
     # whether the agent honoured the negative control, not whether it
     # ticked off action items it shouldn't have run.
     negative_control = _expects_proposal(cell) is False
+    # On the existing-manifest variant, ``runs_init`` should NOT earn rubric
+    # points — the variant exists to test that the agent uses the
+    # pre-existing manifest. The ``respects_existing_manifest`` blocker
+    # handles the negative case; ``runs_init`` is forced to N/A here so an
+    # erroneous init doesn't earn 5 bonus points.
+    existing_manifest = cell.variant == "40-shipgate-yaml"
     for key, fn in DETECTORS.items():
         if static_lint and key != "discovers_relevance":
             results[key] = CriterionResult(
@@ -838,6 +918,16 @@ def score_cell(
                 signal=(
                     "N/A on negative-control cell — the agent was expected "
                     "to take no Shipgate action."
+                ),
+            )
+            continue
+        if existing_manifest and key == "runs_init":
+            results[key] = CriterionResult(
+                status="n_a",
+                severity="info",
+                signal=(
+                    "N/A on 40-shipgate-yaml — the agent should use the existing "
+                    "manifest, not re-init. See `respects_existing_manifest`."
                 ),
             )
             continue
@@ -857,6 +947,11 @@ def score_cell(
     ]
     headline = not blockers
 
+    # Independent of N/A'd criteria: did the agent actually propose Shipgate?
+    # The docs-only-noisy exit metric needs this signal even when behavioural
+    # criteria are forced to N/A (negative-control cells).
+    proposed = False if static_lint else _agent_proposed_shipgate(artifacts)
+
     duration = (ended_at - started_at).total_seconds()
     return ScorecardV1(
         scorecard_schema_version=SCORECARD_SCHEMA_VERSION,
@@ -873,6 +968,7 @@ def score_cell(
         duration_s=duration,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
+        agent_proposed_shipgate=proposed,
         cost_usd_estimate=cost_usd_estimate,
         criteria=results,
         blockers=blockers,

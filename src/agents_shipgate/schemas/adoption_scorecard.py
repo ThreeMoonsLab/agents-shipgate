@@ -110,6 +110,16 @@ class ScorecardV1(BaseModel):
         default=False,
         description="True when the driver fell back to a degraded capture mode.",
     )
+    agent_proposed_shipgate: bool = Field(
+        default=False,
+        description=(
+            "Whether the agent observably proposed Shipgate (ran a command, "
+            "wrote shipgate.yaml/workflow, or recommended Shipgate in summary). "
+            "Stored independently of criteria so the docs-only-noisy exit "
+            "metric still has signal on negative-control cells (where the "
+            "behavioural criteria are forced to N/A)."
+        ),
+    )
     redaction_applied: bool = True
     artifacts_dir: str = Field(
         description=(
