@@ -12,7 +12,6 @@ The aggregate layer takes per-cell :class:`ScorecardV1` objects and:
 from __future__ import annotations
 
 import csv
-import os
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,20 +36,22 @@ CSV_COLUMNS_V0_2: tuple[str, ...] = (
 
 
 class BudgetExceeded(RuntimeError):
-    """Raised when cumulative spend has crossed ``SHIPGATE_HARNESS_BUDGET_USD``."""
+    """Raised when cumulative spend has crossed the per-run cap."""
 
 
 @dataclass
 class BudgetGuard:
+    """Per-run cumulative-cost cap.
+
+    The CLI ``--budget-usd`` flag is the only knob; there is no env-var
+    fallback. A previous version honoured ``SHIPGATE_HARNESS_BUDGET_USD``
+    but env-precedence let stale values silently override a deliberately
+    lower CLI cap, which is unsafe for paid runs.
+    """
+
     cap_usd: float
     spent_usd: float = 0.0
     cells_recorded: int = 0
-
-    @classmethod
-    def from_env(cls, default_usd: float = 20.0) -> BudgetGuard:
-        raw = os.environ.get("SHIPGATE_HARNESS_BUDGET_USD")
-        cap = float(raw) if raw else default_usd
-        return cls(cap_usd=cap)
 
     def record(self, scorecard: ScorecardV1) -> None:
         self.spent_usd += scorecard.cost_usd_estimate
@@ -86,6 +87,11 @@ def write_csv(
         if new_file:
             writer.writeheader()
         for sc in scorecards:
+            # The scorecard JSON sidecar path already runs through
+            # ``write_scorecard_json``, which redacts in place. CSV calls
+            # may write without that path (e.g., smoke aggregates), so
+            # apply the same pass here defensively.
+            redact_scorecard_in_place(sc)
             writer.writerow(_scorecard_to_row(sc))
     return out_path
 
@@ -121,7 +127,34 @@ def _build_notes(sc: ScorecardV1) -> str:
     return "; ".join(parts)[:200]
 
 
+def redact_scorecard_in_place(scorecard: ScorecardV1) -> None:
+    """Run every text-bearing field through the harness redactor.
+
+    Detectors read live-workspace files (``shipgate.yaml``, ``.gitignore``)
+    and may copy raw values — including tool names, policy entries, scope
+    strings — into ``CriterionResult.signal``, ``Blocker.detail``, and
+    ``ScorecardV1.notes``. Those values can carry secrets that the
+    redacted JSONL stream never sees. This pass is the choke point that
+    enforces the contract: the only scorecards that ever reach disk or
+    CSV must be fully redacted.
+    """
+    from harness.adoption.observer.redact import default_config, redact_string
+
+    cfg = default_config()
+    for crit in scorecard.criteria.values():
+        crit.signal = redact_string(crit.signal, config=cfg)
+        if crit.evidence_ref:
+            crit.evidence_ref = redact_string(crit.evidence_ref, config=cfg)
+    for blocker in scorecard.blockers:
+        blocker.detail = redact_string(blocker.detail, config=cfg)
+        if blocker.evidence_ref:
+            blocker.evidence_ref = redact_string(blocker.evidence_ref, config=cfg)
+    if scorecard.notes:
+        scorecard.notes = redact_string(scorecard.notes, config=cfg)
+
+
 def write_scorecard_json(scorecard: ScorecardV1, path: Path) -> Path:
+    redact_scorecard_in_place(scorecard)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(scorecard.model_dump_json(indent=2), encoding="utf-8")
     return path

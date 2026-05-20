@@ -110,3 +110,30 @@ def test_empty_behavioural_set_is_not_a_pass() -> None:
     report = check_exit_criteria(scorecards)
     assert report.materially_outperforms_no_hints is False
     assert report.near_perfect_activation is False
+
+
+def test_behavioural_cells_count_drives_exit_gating() -> None:
+    """For the run-command's exit-code logic: when behavioural_cells == 0,
+    behavioural metrics MUST not gate the exit. This pins the contract
+    used by ``cli.run`` (where ``--agent=cursor-static`` yields 0
+    behavioural cells)."""
+    scorecards = [
+        _sc(agent="cursor-static", variant="00-no-hints", score=100),
+        _sc(agent="cursor-static", variant="30-cursor-rule", score=100),
+    ]
+    report = check_exit_criteria(scorecards)
+    assert report.details["behavioural_cells"] == 0
+    assert report.details["cursor_static_pass_rate"] == 1.0
+    # When there are no behavioural rows, the run command treats the
+    # uplift / activation / docs-only metrics as N/A and exits 0 iff
+    # cursor_static_pass_rate == 1.0 and no infra failures. The test
+    # below documents that gate logic without invoking the CLI.
+    behavioural = int(report.details.get("behavioural_cells") or 0)
+    cursor_pass = report.details.get("cursor_static_pass_rate")
+    failures: list[str] = []
+    if behavioural > 0:
+        if not report.materially_outperforms_no_hints:
+            failures.append("materially_outperforms_no_hints")
+    if cursor_pass is not None and cursor_pass < 1.0:
+        failures.append("cursor_static_pass_rate")
+    assert failures == [], f"unexpected failures for cursor-only run: {failures}"

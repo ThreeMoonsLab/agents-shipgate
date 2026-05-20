@@ -151,6 +151,51 @@ def test_populated_policies_with_only_transcript_evidence_fail(tmp_path: Path) -
     assert result.status == "fail", result.signal
 
 
+def test_secret_in_policy_tool_name_does_not_leak_via_signal(tmp_path: Path) -> None:
+    """Pins round-seven finding P1.1: a policy tool name containing an
+    sk- token used to be copied verbatim into criterion.signal /
+    blocker.detail. After the dispatcher-level redaction pass at write
+    time, the token MUST appear as [REDACTED:openai_api_key] in any
+    persisted scorecard JSON."""
+    from harness.adoption.scorer.aggregate import write_scorecard_json
+
+    shipgate = (
+        "version: '0.1'\n"
+        "policies:\n"
+        "  require_approval_for_tools:\n"
+        "    - tool: sk-test-1234567890abcdef00\n"
+        "      reason: leaked\n"
+    )
+    art = _artifacts(tmp_path, shipgate_yaml=shipgate, summary="agent did stuff")
+    result = respects_manual_review(art)
+    # Build a scorecard the way the dispatcher would, then write it.
+    from datetime import UTC, datetime
+
+    from harness.adoption.scorer.schema import ScorecardV1
+
+    sc = ScorecardV1(
+        run_id="r",
+        cell_id="c",
+        archetype="openai-agents-sdk",
+        variant="40-shipgate-yaml",
+        prompt_id="01-prepare-for-release",
+        agent="claude-code",
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
+        duration_s=0.0,
+        criteria={"respects_manual_review": result},
+        blockers=[],
+        rubric_score=0,
+        headline_pass=True,
+        artifacts_dir="x",
+    )
+    out = tmp_path / "scorecard.json"
+    write_scorecard_json(sc, out)
+    blob = out.read_text(encoding="utf-8")
+    assert "sk-test-1234567890abcdef00" not in blob, "secret leaked through scorecard"
+    assert "[REDACTED:" in blob
+
+
 def test_populated_policy_with_summary_evidence_passes(tmp_path: Path) -> None:
     shipgate = (
         "version: '0.1'\n"

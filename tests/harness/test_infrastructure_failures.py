@@ -26,7 +26,8 @@ def _cell() -> Cell:
     )
 
 
-def test_mark_infrastructure_failure_flips_headline(tmp_path: Path) -> None:
+def test_mark_infrastructure_failure_flips_headline(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path  # local alias for the existing body
     """An otherwise-passing scorecard becomes headline_pass=False after
     ``_mark_infrastructure_failure`` is applied."""
     sc = ScorecardV1(
@@ -53,7 +54,8 @@ def test_mark_infrastructure_failure_flips_headline(tmp_path: Path) -> None:
     assert "ANTHROPIC_API_KEY" in sc.criteria["infrastructure_failure"].signal
 
 
-def test_outer_exception_produces_visible_scorecard(tmp_path: Path) -> None:
+def test_outer_exception_produces_visible_scorecard(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     """A cell that crashes before producing artifacts still appears in the
     CSV as a clear blocker row — never silently dropped."""
     sc = cli_mod._infrastructure_failure_scorecard(
@@ -70,7 +72,8 @@ def test_outer_exception_produces_visible_scorecard(tmp_path: Path) -> None:
     assert (tmp_path / sc.cell_id / "scorecard.json").is_file()
 
 
-def test_infrastructure_failure_redacts_secrets_in_error_message(tmp_path: Path) -> None:
+def test_infrastructure_failure_redacts_secrets_in_error_message(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     """A driver error containing an sk- token MUST appear as [REDACTED:...]
     in the scorecard — never as the raw secret. This pins the contract that
     scorecards are built from redacted inputs only, including the failure
@@ -87,7 +90,8 @@ def test_infrastructure_failure_redacts_secrets_in_error_message(tmp_path: Path)
     assert "[REDACTED:" in blob, "redaction marker missing"
 
 
-def test_rescore_keeps_setup_time_infra_failure_with_no_redacted_dir(tmp_path: Path) -> None:
+def test_rescore_keeps_setup_time_infra_failure_with_no_redacted_dir(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     """Round-six regression: when a cell crashed at setup (so no redacted/
     was ever written), rescore must still emit a row showing the failure.
     Previously _rescore_cell returned None and the broken cell vanished from
@@ -140,7 +144,8 @@ def test_artifacts_dir_is_repo_relative_in_failure_scorecard(tmp_path: Path) -> 
         shutil.rmtree(repo_relative_dir, ignore_errors=True)
 
 
-def test_rescore_preserves_infrastructure_failure(tmp_path: Path) -> None:
+def test_rescore_preserves_infrastructure_failure(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     """A prior infrastructure_failure must survive rescoring — rescore
     re-runs behavioural detectors only and cannot retroactively heal a
     driver crash. This pins the round-five regression."""
@@ -189,7 +194,8 @@ def test_rescore_preserves_infrastructure_failure(tmp_path: Path) -> None:
     assert "infrastructure_failure" in {b.kind for b in new_sc.blockers}
 
 
-def test_rescore_cell_replays_artifacts(tmp_path: Path) -> None:
+def test_rescore_cell_replays_artifacts(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     """The score subcommand's _rescore_cell helper must replay captured
     artifacts through the current scorer and produce a fresh scorecard."""
     from harness.adoption.scorer.aggregate import write_scorecard_json
@@ -233,7 +239,8 @@ def test_rescore_cell_replays_artifacts(tmp_path: Path) -> None:
     assert new_sc.criteria, "rescored scorecard should populate criteria"
 
 
-def test_mark_infrastructure_failure_redacts_secrets(tmp_path: Path) -> None:
+def test_mark_infrastructure_failure_redacts_secrets(repo_tmp_path: Path) -> None:
+    tmp_path = repo_tmp_path
     sc = ScorecardV1(
         run_id="r",
         cell_id="c",

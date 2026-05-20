@@ -89,8 +89,12 @@ def run(
     run_dir = out / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    os.environ.setdefault("SHIPGATE_HARNESS_BUDGET_USD", str(budget_usd))
-    guard = agg_mod.BudgetGuard.from_env(default_usd=budget_usd)
+    # The CLI flag is the authoritative source. Reading env after `setdefault`
+    # would let a stale (possibly higher) SHIPGATE_HARNESS_BUDGET_USD silently
+    # override a deliberately lower CLI cap. Operators who want env to drive
+    # the cap should pass it via the flag explicitly:
+    #   python -m harness.adoption run --budget-usd "$SHIPGATE_HARNESS_BUDGET_USD"
+    guard = agg_mod.BudgetGuard(cap_usd=budget_usd)
 
     scorecards: list = []
     cell_timeout_s = int(os.environ.get("SHIPGATE_HARNESS_CELL_TIMEOUT_S", "600"))
@@ -138,20 +142,38 @@ def run(
 
     # Exit nonzero so CI (and operators) see broken runs as broken runs.
     #   - any infrastructure_failure blocker → exit 4 (driver/setup crash)
-    #   - any failed exit criterion → exit 3 (matrix did not meet thresholds)
-    # A zero exit means "every cell ran AND exit criteria passed."
-    infra_failures = [sc for sc in scorecards if any(b.kind == _INFRA_BLOCKER_KIND for b in sc.blockers)]
+    #   - any failed BEHAVIOURAL exit criterion → exit 3 (matrix didn't meet
+    #     thresholds). Behavioural metrics require behavioural agent rows,
+    #     so a filtered run that has none (e.g., --agent=cursor-static) does
+    #     NOT fail on those metrics. The docs-only-noisy criterion also
+    #     applies only when there are behavioural cells.
+    #   - any cursor-static cell failure → exit 3 (rule misconfigured).
+    # A zero exit means "every cell ran AND every relevant criterion passed."
+    infra_failures = [
+        sc for sc in scorecards if any(b.kind == _INFRA_BLOCKER_KIND for b in sc.blockers)
+    ]
     if infra_failures:
         typer.echo(f"FAIL: {len(infra_failures)} cell(s) had infrastructure failures.")
         raise typer.Exit(code=4)
-    if not all(
-        [
-            exit_report.materially_outperforms_no_hints,
-            exit_report.near_perfect_activation,
-            exit_report.not_noisy_on_docs_only,
-        ]
-    ):
-        typer.echo("FAIL: one or more exit criteria not met (see exit_criteria.json).")
+
+    behavioural_n = int(exit_report.details.get("behavioural_cells") or 0)
+    cursor_pass = exit_report.details.get("cursor_static_pass_rate")
+    failures: list[str] = []
+    if behavioural_n > 0:
+        if not exit_report.materially_outperforms_no_hints:
+            failures.append("materially_outperforms_no_hints")
+        if not exit_report.near_perfect_activation:
+            failures.append("near_perfect_activation")
+        if not exit_report.not_noisy_on_docs_only:
+            failures.append("not_noisy_on_docs_only")
+    if cursor_pass is not None and cursor_pass < 1.0:
+        failures.append(f"cursor_static_pass_rate={cursor_pass:.0%} (< 100%)")
+    if failures:
+        typer.echo(
+            "FAIL: exit criteria not met: "
+            + ", ".join(failures)
+            + " — see exit_criteria.json"
+        )
         raise typer.Exit(code=3)
 
 
@@ -414,20 +436,33 @@ def _run_one_cell(
 
 
 def _relative_artifacts_path(artifacts_dir: Path) -> str:
-    """Render an artifacts path as a repo-relative string when possible.
+    """Render an artifacts path as a repo-relative string.
 
-    The results CSV schema documents ``transcript_path`` as repo-relative
-    under ``.agents-private/``. Without this normalisation, ``smoke`` (which
-    builds its run-dir from ``_repo_root()`` — always absolute) and any
-    ``--out=/abs/path`` invocation would publish absolute host paths.
+    The results CSV ``transcript_path`` column is contract-bound to be
+    repo-relative under ``.agents-private/``. Two failure modes that
+    earlier rounds hit:
 
-    Falls back to the absolute path when the artifacts live outside the
-    repo (rare, but supported so the function never raises).
+    * macOS ``/tmp`` is a symlink to ``/private/tmp``; ``_repo_root()``
+      resolves symlinks but the caller's path may not, so a naive
+      ``relative_to`` raises ``ValueError`` and we used to silently
+      fall back to the absolute host path. Both sides are now resolved
+      first.
+
+    * ``--out=/elsewhere`` (artifacts root outside the repo) used to
+      leak the absolute host path into the public CSV. We now raise
+      loudly — that's a misconfiguration the operator should know
+      about, not a quiet leak.
     """
+    repo_root = _repo_root().resolve()
+    resolved = artifacts_dir.resolve()
     try:
-        return str(artifacts_dir.relative_to(_repo_root()))
-    except ValueError:
-        return str(artifacts_dir)
+        return str(resolved.relative_to(repo_root))
+    except ValueError as exc:
+        raise ValueError(
+            f"artifacts_dir {resolved} is not under repo root {repo_root}. "
+            "Pass --out= inside the repo (defaults to .agents-private/adoption-sprint/) "
+            "so the published CSV transcript_path stays repo-relative."
+        ) from exc
 
 
 # --------------------------------------------------------------------------- rescore
