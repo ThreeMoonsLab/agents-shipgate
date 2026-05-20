@@ -252,6 +252,12 @@ def score(
         if sc is not None:
             new_scorecards.append(sc)
     out = results_csv or (run_dir / "rescored.csv")
+    # Rescore replaces the prior CSV — write_csv opens in append mode
+    # (because run-time aggregation may accumulate across cells), so
+    # unlinking first prevents duplicate rows on re-runs of `score`
+    # against the same output path.
+    if out.exists():
+        out.unlink()
     agg_mod.write_csv(new_scorecards, out_path=out)
     exit_report = agg_mod.check_exit_criteria(new_scorecards)
     (run_dir / "rescored_exit_criteria.json").write_text(

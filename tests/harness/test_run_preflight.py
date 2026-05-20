@@ -85,6 +85,42 @@ def test_score_exits_nonzero_on_replayed_infra_failure(repo_tmp_path: Path) -> N
     assert "infrastructure failures" in combined.lower()
 
 
+def test_score_truncates_existing_csv(repo_tmp_path: Path) -> None:
+    """Repeated `score --run-dir X --results-csv same.csv` must not
+    duplicate rows. The write_csv helper opens in append mode for the
+    run-time aggregation use case, so `score` must unlink first."""
+    from harness.adoption.matrix import Cell
+
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="00-no-hints",
+        negative_overlay=None,
+        prompt="01-prepare-for-release",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    # Materialise one cell-dir + scorecard so `score` has something to rescore.
+    cli_mod._infrastructure_failure_scorecard(
+        cell=cell,
+        run_id="r",
+        run_dir=repo_tmp_path,
+        error="WorkspaceError: stub",
+    )
+    csv_path = repo_tmp_path / "rescored.csv"
+    # Run score twice — second call must replace, not append.
+    for _ in range(2):
+        _run_harness(
+            "score",
+            f"--run-dir={repo_tmp_path}",
+            f"--results-csv={csv_path}",
+        )
+    lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
+    # Header + exactly 1 data row.
+    assert len(lines) == 2, (
+        f"expected 2 lines after two `score` runs, got {len(lines)}: {lines!r}"
+    )
+
+
 def test_out_of_repo_out_dir_rejected_before_any_cell(tmp_path: Path) -> None:
     """``--out=/tmp/...`` must be rejected by preflight BEFORE any cell
     runs. Without preflight, a paid Claude cell would complete and only

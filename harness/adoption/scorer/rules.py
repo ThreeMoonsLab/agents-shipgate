@@ -141,18 +141,70 @@ _PROPOSAL_FILE_PATHS = (
     ".github/workflows/agents-shipgate.yaml",
 )
 
+# Action verbs that, when paired with a Shipgate mention in a non-negated
+# sentence, count as a recommendation/proposal. The runbook scores whether
+# the agent *proposes* Shipgate, not only whether it executes it.
+_POSITIVE_PROPOSAL_RE = re.compile(
+    r"\b(?:add|adding|install|installing|set\s*up|setting\s*up|"
+    r"wire\s*up|wiring\s*up|configure|configuring|use|using|"
+    r"adopt|adopting|propose|proposing|recommend|recommending|"
+    r"suggest|suggesting|run|running|introduce|introducing|"
+    r"integrate|integrating|deploy|deploying|enable|enabling)\b",
+    re.IGNORECASE,
+)
+# Negation markers that flip a Shipgate mention from "proposal" to "skip".
+# A sentence mentioning Shipgate plus any of these reads as a dismissal,
+# even if a positive verb is also present ("not adding Shipgate").
+_NEGATION_RE = re.compile(
+    r"\b(?:not|no\s+need|no\s+shipgate|skip|skipped|skipping|"
+    r"irrelevant|unnecessary|won't|wouldn't|didn't|isn't|aren't|"
+    r"doesn't|don't|wasn't|hasn't|haven't|never|"
+    r"out\s+of\s+scope)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _summary_has_proposal(summary: str) -> bool:
+    """Detect proposal/recommendation language in the agent's final summary.
+
+    A sentence counts as a proposal if it mentions Shipgate, contains a
+    positive proposal verb, and lacks a negation marker. Additionally, a
+    literal ``agents-shipgate <verb>`` string in the summary is a
+    recommendation regardless of surrounding sentence shape — agents
+    almost never write "do not run agents-shipgate detect".
+    """
+    if not summary:
+        return False
+    if SHIPGATE_CMD_RE.search(summary):
+        return True
+    for sentence in _SENTENCE_SPLIT_RE.split(summary):
+        if not SHIPGATE_MENTION_RE.search(sentence):
+            continue
+        if _NEGATION_RE.search(sentence):
+            continue
+        if _POSITIVE_PROPOSAL_RE.search(sentence):
+            return True
+    return False
+
 
 def _agent_proposed_shipgate(art: CellArtifacts) -> bool:
-    """True iff the agent took observable action to install/invoke Shipgate.
+    """True iff the agent took observable action OR recommended Shipgate.
 
-    Action means one of:
-      * ran an ``agents-shipgate <verb>`` command;
-      * wrote or edited ``shipgate.yaml`` (or the workflow file);
-      * the workspace now has files at those paths and didn't before.
+    Three classes of proposal signal:
+      * Action: ran an ``agents-shipgate <verb>`` command, wrote/edited
+        ``shipgate.yaml`` or the workflow file, or created such a file
+        during the run.
+      * Command-literal mention: the summary references an
+        ``agents-shipgate <verb>`` command (a written recommendation
+        even when the agent didn't execute it).
+      * Recommendation language: a non-negated sentence in the summary
+        pairs a positive proposal verb (add, install, recommend, run,
+        adopt, …) with a Shipgate mention.
 
-    A bare mention in the summary ("Shipgate is not relevant, skipped") is
-    explicitly NOT a proposal — otherwise a correctly-skipped docs-only-
-    negative cell would be marked as a false-positive proposal.
+    Skip language ("Shipgate is not relevant, skipping") is explicitly
+    NOT a proposal — that's what saves correctly-skipped negative-
+    control cells from being scored as false positives.
     """
     if SHIPGATE_CMD_RE.search(_commands_text(art)):
         return True
@@ -160,10 +212,11 @@ def _agent_proposed_shipgate(art: CellArtifacts) -> bool:
         path = (op.get("path") or "").lower()
         if any(path.endswith(p.lower()) for p in _PROPOSAL_FILE_PATHS):
             return True
-    # Filesystem fallback: any of those paths created during the run.
     for added in art.fs_diff.added:
         if any(added.endswith(p) for p in _PROPOSAL_FILE_PATHS):
             return True
+    if _summary_has_proposal(art.summary_text()):
+        return True
     return False
 
 

@@ -34,7 +34,7 @@ variants:  00-no-hints, 10-agents-md, 20-claude-md, 30-cursor-rule,
 negative_overlays: 60-docs-only-negative   (composable; not paired with 40)
 ```
 
-That's a large theoretical matrix. The v1 automated runner samples 24 paid Claude cells (4 archetypes × 3 variants × 2 prompts) plus the same 24 cells under the free `cursor-static` driver; see [`matrix.yaml`](matrix.yaml). Manual runs may still fill any unfilled cells.
+That's a large theoretical matrix. The v1 automated runner samples 24 paid Claude cells (4 archetypes × 3 variants × 2 prompts) plus 12 free `cursor-static` cells (4 archetypes × {`00-no-hints`, `30-cursor-rule`, `30-cursor-rule` + `60-docs-only-negative`}); see [`matrix.yaml`](matrix.yaml) for the explicit list. Cursor static coverage is intentionally a different variant subset from Claude — the static driver can only meaningfully score the rule's own activation. Manual runs may still fill any unfilled cells.
 
 ## Scoring
 

@@ -115,6 +115,81 @@ def test_empty_behavioural_set_is_not_a_pass() -> None:
     assert report.near_perfect_activation is False
 
 
+def test_text_only_proposal_is_detected(repo_tmp_path: Path) -> None:
+    """Pins round-ten finding P1: an agent that recommends Shipgate
+    in its summary (without running a command) must register as having
+    proposed Shipgate. The previous detector required an actual command
+    or file op and would have missed this — falsely scoring a positive
+    cold-start cell as 0 and a docs-only-negative cell as 100."""
+    from harness.adoption.scorer.rules import _agent_proposed_shipgate
+
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    (redacted / "transcript.jsonl").write_text("", encoding="utf-8")
+    (redacted / "commands.jsonl").write_text("", encoding="utf-8")
+    (redacted / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "I recommend adding Agents Shipgate CI and running "
+        "`agents-shipgate detect` to inventory the tool surface.",
+        encoding="utf-8",
+    )
+    (redacted / "final.diff").write_text("", encoding="utf-8")
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    art = CellArtifacts(
+        cell=Cell(
+            archetype="openai-agents-sdk",
+            variant="00-no-hints",
+            negative_overlay=None,
+            prompt="01-prepare-for-release",
+            agent="claude-code",
+            model="claude-opus-4-7",
+        ),
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    assert _agent_proposed_shipgate(art) is True
+
+
+def test_skip_language_does_not_register_as_proposal(repo_tmp_path: Path) -> None:
+    """The companion check: bare skip language stays scored as no-proposal."""
+    from harness.adoption.scorer.rules import _agent_proposed_shipgate
+
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    for f in ("transcript.jsonl", "commands.jsonl", "file_ops.jsonl", "final.diff"):
+        (redacted / f).write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "Shipgate is not relevant for a docs-only change, so I skipped it.",
+        encoding="utf-8",
+    )
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    art = CellArtifacts(
+        cell=Cell(
+            archetype="openai-agents-sdk",
+            variant="00-no-hints",
+            negative_overlay="60-docs-only-negative",
+            prompt="04-docs-only-negative",
+            agent="claude-code",
+            model="claude-opus-4-7",
+        ),
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    assert _agent_proposed_shipgate(art) is False
+
+
 def test_negative_control_correct_skip_scores_100(repo_tmp_path: Path) -> None:
     """A docs-only-negative cell where the agent correctly takes NO Shipgate
     action must score 100/100 per benchmark/runner.md, not 20 (the previous
