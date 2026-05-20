@@ -7,20 +7,25 @@ Eight target-repo archetypes covering the framework / shape combinations the har
 
 Vendoring keeps the benchmark reproducible without requiring submodule fetches; submoduling keeps the size of this repo down. We use vendoring for the smaller archetypes and submoduling for the larger ones.
 
-## The 8 archetypes
+## The 9 archetypes
 
 | Slug | Framework / shape | Source | Pinning recipe |
 |---|---|---|---|
 | `openai-agents-sdk` | OpenAI Agents SDK refund/email tools | `samples/support_refund_agent` (vendored from this repo) | `cp -r ../../samples/support_refund_agent ./openai-agents-sdk` |
-| `mcp-only` | MCP server with no Python framework | `examples/golden-prs/mcp-only-tool-server` | `cp -r ../../examples/golden-prs/mcp-only-tool-server ./mcp-only` |
-| `openapi-only` | OpenAPI-described tool surface | `examples/golden-prs/openapi-support-agent` | `cp -r ../../examples/golden-prs/openapi-support-agent ./openapi-only` |
+| `mcp-only` | MCP server with no Python framework | `samples/mcp_only_server` | `cp -r ../../samples/mcp_only_server ./mcp-only` |
+| `openapi-only` | OpenAPI-described tool surface | `samples/openapi_only_agent` | `cp -r ../../samples/openapi_only_agent ./openapi-only` |
 | `langgraph` | LangGraph agent | `samples/simple_langchain_agent` | `cp -r ../../samples/simple_langchain_agent ./langgraph` |
 | `adk-dynamic-toolset` | Google ADK with dynamic toolsets | `samples/google_adk_agent` | `cp -r ../../samples/google_adk_agent ./adk-dynamic-toolset` |
 | `crewai` | CrewAI agent | `samples/simple_crewai_agent` | `cp -r ../../samples/simple_crewai_agent ./crewai` |
 | `clean-read-only` | Read-only agent (negative tool-surface case) | `samples/clean_read_only_agent` | `cp -r ../../samples/clean_read_only_agent ./clean-read-only` |
+| `n8n` | n8n workflow JSON with HTTP + Code nodes | `samples/n8n_workflow_agent` | `cp -r ../../samples/n8n_workflow_agent ./n8n` |
 | `non-agent-negative-control` | Repo with no agent at all | A small public Python library (e.g. `python-attrs/attrs` at a pinned commit) | `git submodule add https://github.com/python-attrs/attrs.git non-agent-negative-control && cd non-agent-negative-control && git checkout <pinned-sha> && cd .. && git add non-agent-negative-control` |
 
-Six of the eight reuse the bundled `samples/` and `examples/` fixtures, which are already pinned by this repo's git history. The negative-control archetype is the only true external dependency — pin a specific commit when adding it.
+Eight of the nine reuse the bundled `samples/` fixtures (pinned by this repo's git history). The negative-control archetype is the only true external dependency — pin a specific commit when adding it.
+
+### Automation
+
+The canonical materializer is [`harness/adoption/scripts/sync_fixtures.py`](../../harness/adoption/scripts/sync_fixtures.py); run `python -m harness.adoption sync-fixtures` to apply the table above in one shot. The script skips the submoduled negative-control archetype (do that step by hand).
 
 ## Why these specifically
 

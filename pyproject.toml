@@ -125,6 +125,8 @@ exclude = [
   "/dist",
   "/docs/decks",
   "/docs/decks/**",
+  "/harness",
+  "/harness/**",
   "/htmlcov",
   "/marketing",
   "/marketing/**",
@@ -132,7 +134,7 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-q"
 
 [tool.ruff]

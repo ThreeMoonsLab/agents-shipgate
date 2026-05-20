@@ -1,0 +1,5 @@
+# 20-claude-md — drop the Claude Code-specific CLAUDE.md snippet into the repo root.
+files:
+  - source: CLAUDE.md.template
+    destination: CLAUDE.md
+required_placeholders: []

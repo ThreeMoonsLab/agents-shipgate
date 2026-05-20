@@ -1,0 +1,18 @@
+{
+  "tools": [
+    {
+      "name": "support.search",
+      "description": "Search support articles for a customer support case.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" }
+        },
+        "required": ["query"]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

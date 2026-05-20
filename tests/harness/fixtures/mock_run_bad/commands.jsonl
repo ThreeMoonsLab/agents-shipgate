@@ -1,0 +1,1 @@
+{"command": "agents-shipgate scan -c shipgate.yaml --ci-mode blocking --format json", "exit_code": 0}

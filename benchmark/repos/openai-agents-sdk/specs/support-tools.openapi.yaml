@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: Support Tools
+  version: "1.0"
+
+servers:
+  - url: https://support-tools.example.test
+
+security:
+  - supportOAuth: []
+
+components:
+  securitySchemes:
+    stripeOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.test/oauth/token
+          scopes:
+            stripe:refunds:write: Create Stripe refunds.
+    shopifyOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.test/oauth/token
+          scopes:
+            shopify:orders:write: Modify Shopify orders.
+    zendeskOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.test/oauth/token
+          scopes:
+            zendesk:tickets:write: Update support tickets.
+  schemas:
+    RefundRequest:
+      type: object
+      required:
+        - payment_id
+        - amount
+        - currency
+      properties:
+        payment_id:
+          type: string
+          description: Payment identifier to refund.
+        amount:
+          type: number
+          minimum: 0
+          description: Refund amount.
+        currency:
+          type: string
+          enum: ["USD", "CAD"]
+    CancelOrderRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          description: Customer-visible cancellation reason.
+    UpdateTicketRequest:
+      type: object
+      required:
+        - updates
+      properties:
+        updates:
+          type: object
+          description: Arbitrary ticket updates.
+
+paths:
+  /refunds/{payment_id}/status:
+    get:
+      operationId: refund_status_lookup
+      summary: Look up refund status by payment identifier.
+      description: Returns refund status only and does not modify payment records.
+      x-readOnlyHint: true
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - stripeOAuth: []
+      responses:
+        "200":
+          description: Refund status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /refunds:
+    post:
+      operationId: stripe.create_refund
+      summary: Create a payment refund for a customer.
+      description: Creates an external financial refund against a customer payment.
+      x-retryPolicy: automatic
+      security:
+        - stripeOAuth:
+            - stripe:refunds:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundRequest"
+      responses:
+        "201":
+          description: Refund created.
+
+  /orders/{order_id}/cancel:
+    post:
+      operationId: shopify.cancel_order
+      summary: Cancel a customer order.
+      description: Cancels an order after explicit user confirmation.
+      x-destructiveHint: true
+      x-idempotentHint: true
+      security:
+        - shopifyOAuth:
+            - shopify:orders:write
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelOrderRequest"
+      responses:
+        "200":
+          description: Order canceled.
+
+  /tickets/{ticket_id}:
+    patch:
+      operationId: zendesk.update_ticket
+      summary: Update support ticket notes.
+      description: Updates internal support ticket notes and metadata.
+      security:
+        - zendeskOAuth:
+            - zendesk:tickets:write
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTicketRequest"
+      responses:
+        "200":
+          description: Ticket updated.
+

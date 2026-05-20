@@ -1,0 +1,4 @@
+{"type": "assistant_message", "text": "I'll add Shipgate. The API key is sk-proj-mock1234567890abcdef00 — let me set it."}
+{"type": "tool_use", "name": "Bash", "input": {"command": "agents-shipgate scan -c shipgate.yaml --ci-mode blocking --format json"}}
+{"type": "tool_use", "name": "Edit", "input": {"file_path": "shipgate.yaml"}}
+{"type": "assistant_message", "text": "Done. I added prohibited_actions to the manifest and these actions are now blocked by Shipgate. I also added a wildcard scope."}

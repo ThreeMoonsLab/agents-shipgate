@@ -1,0 +1,5 @@
+---
+
+> _Note added in a docs-only PR to clarify the project's purpose. This change
+> touches only documentation; no tool surface, prompts, permissions, or CI
+> configuration are affected._

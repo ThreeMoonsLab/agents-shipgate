@@ -1,5 +1,5 @@
 ---
-description: Run Agents Shipgate for AI agent tool-surface release readiness.
+description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"
@@ -10,12 +10,30 @@ globs:
   - "**/*swagger*.json"
   - "**/*mcp*.json"
   - "**/*tools*.json"
-  - "**/*.py"
+  - ".codex-plugin/**"
+  - "**/.codex-plugin/**"
+  - ".agents/plugins/**"
+  - "**/.agents/plugins/**"
+  - "**/.app.json"
+  - "**/.mcp.json"
+  - "**/SKILL.md"
+  - "n8n/*.json"
+  - "workflows/*.json"
+  - "**/*workflow*.json"
+  - ".agents-shipgate/*.json"
+  - "prompts/**"
+  - "policies/**"
+  - ".github/workflows/agents-shipgate.yml"
+  - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
 ---
 
+Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
+AI agent tool surfaces.
+
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
+Default to advisory scans while adopting the gate.
 
 Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
 `release_decision.decision` over legacy severity/status summaries.

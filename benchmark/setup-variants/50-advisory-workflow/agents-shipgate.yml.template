@@ -1,0 +1,22 @@
+name: Agents Shipgate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  agents-shipgate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: "true"

@@ -1,0 +1,46 @@
+actions:
+  - op: write
+    path: shipgate.yaml
+    content: |
+      version: "0.1"
+      project:
+        name: openai-agents-sdk
+      agent:
+        name: refund-assistant
+        declared_purpose:
+          - answer refund policy questions
+        prohibited_actions:
+          - issue refund without approval
+          - delete customer records
+      environment:
+        target: local
+      tool_sources:
+        - id: openapi_main
+          type: openapi
+          path: specs/support-tools.openapi.yaml
+      policies:
+        require_approval_for_tools:
+          - tool: stripe.create_refund
+            reason: financial
+          - tool: gmail.send_customer_email
+            reason: external
+        require_confirmation_for_tools:
+          - tool: stripe.create_refund
+            reason: financial
+        require_idempotency_for_tools:
+          - tool: stripe.create_refund
+            reason: financial
+      permissions:
+        scopes:
+          - "*"
+      ci:
+        mode: blocking
+      output:
+        directory: agents-shipgate-reports
+        formats:
+          - markdown
+          - json
+  - op: write
+    path: traces/refund-success.json
+    content: |
+      {"trace": "fabricated"}

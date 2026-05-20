@@ -1,0 +1,11 @@
+# 40-shipgate-yaml — pre-existing manifest. The renderer must fill every
+# placeholder from harness/adoption/context.py::ARCHETYPE_CONTEXTS so the agent
+# sees a doctor-clean shipgate.yaml, not template scaffolding.
+files:
+  - source: shipgate.yaml.template
+    destination: shipgate.yaml
+required_placeholders:
+  - REPO_NAME
+  - AGENT_NAME
+  - ONE_LINE_PURPOSE
+  - TOOL_SURFACE

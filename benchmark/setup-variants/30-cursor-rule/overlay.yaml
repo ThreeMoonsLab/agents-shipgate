@@ -1,0 +1,6 @@
+# 30-cursor-rule — install the Cursor rule so its globs activate on tool-surface changes.
+# The template lives at the variant root and lands at .cursor/rules/ inside the workspace.
+files:
+  - source: agents-shipgate.mdc.template
+    destination: .cursor/rules/agents-shipgate.mdc
+required_placeholders: []

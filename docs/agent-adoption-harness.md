@@ -1,8 +1,13 @@
 # Agent Adoption Harness
 
-This is a manual evaluation protocol for testing whether coding agents discover
-and use Agents Shipgate in realistic target repos. Do not automate calls to
-Claude Code, Codex, Cursor, or other coding agents in this P0 work.
+This is the design rubric and protocol for testing whether coding agents
+discover and use Agents Shipgate in realistic target repos.
+
+For automated execution, see
+[`adoption-harness-automated.md`](adoption-harness-automated.md) — the
+operational doc for the runner under
+[`harness/adoption/`](../harness/adoption/). The rubric below is the
+authoritative scoring spec for both manual and automated runs.
 
 Run results and scorecards belong in `.agents-private/adoption-sprint/`. Add
 `.agents-private/` to `.gitignore` before recording private runs.

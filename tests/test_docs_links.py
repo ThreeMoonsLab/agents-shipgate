@@ -241,14 +241,32 @@ def test_target_repo_cursor_globs_cover_shipgate_discovery_names():
     assert '"**/*.py"' not in text
 
 
-def test_agent_adoption_harness_is_manual_and_keeps_results_private():
+def test_agent_adoption_harness_is_design_rubric_and_keeps_results_private():
+    """The manual harness doc is the design rubric for both manual and
+    automated runs. P0.2 lifted the 'Do not automate' rule and added a
+    pointer to the new operational doc; we keep the rubric anchor, the
+    results-private guidance, and the release-decision contract."""
     text = (DOCS_DIR / "agent-adoption-harness.md").read_text(encoding="utf-8")
-    assert "Do not automate calls" in text
+    assert "Do not automate calls" not in text, (
+        "The 'Do not automate' line was removed by P0.2. If the manual harness "
+        "doc reintroduces it, also restore docs/adoption-harness-automated.md."
+    )
+    assert "adoption-harness-automated.md" in text, (
+        "The manual doc must point at the automated operational doc."
+    )
     assert ".agents-private/adoption-sprint/" in text
     assert "`.agents-private/` to `.gitignore`" in text
     assert "100-Point Rubric" in text
     assert "negative-control non-agent repo" in text
     assert "release_decision.decision" in text
+
+
+def test_adoption_harness_automated_doc_present():
+    """The automated operational doc must exist and link the matrix file."""
+    text = (DOCS_DIR / "adoption-harness-automated.md").read_text(encoding="utf-8")
+    assert "benchmark/matrix.yaml" in text
+    assert "harness/adoption/" in text
+    assert "release_decision" in text
 
 
 def test_golden_pr_examples_exist_and_reference_real_samples():

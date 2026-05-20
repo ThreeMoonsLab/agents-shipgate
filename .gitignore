@@ -19,6 +19,8 @@ dist/
 .DS_Store
 agents-shipgate-reports/
 .agents-private/
+.env.harness
+harness/adoption/artifacts/
 # Ignore .claude/ developer-local state, but keep the public agent surface checked in.
 .claude/*
 !.claude/commands/

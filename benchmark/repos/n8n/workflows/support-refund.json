@@ -1,0 +1,60 @@
+{
+  "name": "Support Refund Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-refund",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://support.example.com/v1/tickets/{{$json[\"ticket_id\"]}}",
+        "method": "GET",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supportApi"
+      },
+      "name": "HTTP Request: Lookup Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [400, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://payments.example.com/v1/orders/{{$json[\"order_id\"]}}/eligibility",
+        "method": "GET",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "paymentsApi"
+      },
+      "name": "HTTP Request: Validate Refund Eligibility",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Mutating action: call Stripe to issue a refund.\nconst order = $input.first().json;\nconst refund = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.stripe.com/v1/refunds',\n  headers: {Authorization: `Bearer ${$credentials.stripeApi.apiKey}`},\n  body: {charge: order.charge_id, amount: order.amount_cents},\n  json: true,\n});\nreturn [{json: refund}];"
+      },
+      "name": "Code: Issue Refund via Stripe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "HTTP Request: Lookup Ticket", "type": "main", "index": 0}]]},
+    "HTTP Request: Lookup Ticket": {"main": [[{"node": "HTTP Request: Validate Refund Eligibility", "type": "main", "index": 0}]]},
+    "HTTP Request: Validate Refund Eligibility": {"main": [[{"node": "Code: Issue Refund via Stripe", "type": "main", "index": 0}]]}
+  },
+  "credentials": {
+    "supportApi": {"id": "1", "name": "Support API"},
+    "paymentsApi": {"id": "2", "name": "Payments API"},
+    "stripeApi": {"id": "3", "name": "Stripe API"}
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "tools": [
+    {
+      "name": "support.search_kb",
+      "description": "Search support knowledge-base articles by free-text query.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "description": "Search query."}
+        }
+      },
+      "annotations": {"readOnlyHint": true, "idempotentHint": true},
+      "auth": {"type": "oauth2", "scopes": ["support:kb:read"]},
+      "owner": "support-platform"
+    },
+    {
+      "name": "support.lookup_ticket",
+      "description": "Fetch a Zendesk ticket by id.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id"],
+        "properties": {
+          "ticket_id": {"type": "string"}
+        }
+      },
+      "annotations": {"readOnlyHint": true, "idempotentHint": true},
+      "auth": {"type": "oauth2", "scopes": ["zendesk:tickets:read"]},
+      "owner": "support-platform"
+    },
+    {
+      "name": "gmail.send_customer_email",
+      "description": "Send an outbound email to a customer.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["recipient", "subject", "body"],
+        "properties": {
+          "recipient": {"type": "string", "format": "email"},
+          "subject": {"type": "string"},
+          "body": {"type": "string"}
+        }
+      },
+      "annotations": {"readOnlyHint": false, "destructiveHint": false},
+      "auth": {"type": "oauth2", "scopes": ["gmail:send"]},
+      "owner": "comms-platform"
+    }
+  ]
+}
