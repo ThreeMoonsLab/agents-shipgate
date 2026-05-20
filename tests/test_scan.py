@@ -163,6 +163,252 @@ ci:
     assert exit_code == 20
 
 
+def test_policy_evidence_source_threads_manifest_pointer(tmp_path):
+    """High-risk policy/idempotency findings must carry both source
+    pointers: the tool location (in ``Finding.source``) AND the manifest
+    evidence pointer (in ``Finding.policy_evidence_source``) so a
+    reviewer can jump to the manifest line where the missing mitigation
+    should be declared without grep.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        """
+{
+  "tools": [
+    {
+      "name": "dangerous.write",
+      "description": "Update a record.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "updates": {"type": "object"}
+        }
+      },
+      "annotations": {"destructiveHint": true}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: dual-source-test
+agent:
+  name: dual-source-agent
+  declared_purpose:
+    - update records
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+ci:
+  mode: advisory
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    approval = next(
+        f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING"
+    )
+    assert approval.source is not None
+    # Tool source intact: the MCP loader sets source.type to the tool
+    # source type so the reviewer can jump to the tool definition.
+    assert approval.source.type == "mcp"
+    # Manifest evidence pointer added: structured fields point at the
+    # exact YAML line where the missing-policy declaration belongs.
+    assert approval.policy_evidence_source is not None
+    assert approval.policy_evidence_source.type == "manifest"
+    assert approval.policy_evidence_source.pointer == (
+        "/policies/require_approval_for_tools"
+    )
+    assert approval.policy_evidence_source.path == "shipgate.yaml"
+    # The pointer doesn't resolve (the manifest doesn't declare the
+    # block), so ``start_line`` is None — the reviewer still gets the
+    # pointer string and the manifest filename for orientation.
+    assert approval.policy_evidence_source.start_line is None
+
+
+def test_policy_evidence_source_resolves_existing_pointer_line(tmp_path):
+    """When the manifest declares the block the policy_evidence_source
+    points at (even if the tool isn't in the list), the YAML position
+    index must resolve the pointer to a concrete line number."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        """
+{
+  "tools": [
+    {
+      "name": "dangerous.write",
+      "description": "Update a record.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"updates": {"type": "object"}}
+      },
+      "annotations": {"destructiveHint": true}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: dual-source-test
+agent:
+  name: dual-source-agent
+  declared_purpose:
+    - update records
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+policies:
+  require_approval_for_tools:
+    - some.other.tool
+ci:
+  mode: advisory
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    approval = next(
+        f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING"
+    )
+    assert approval.policy_evidence_source is not None
+    assert approval.policy_evidence_source.pointer == (
+        "/policies/require_approval_for_tools"
+    )
+    # Block IS declared, so the position index resolves a line number.
+    assert approval.policy_evidence_source.start_line is not None
+    assert approval.policy_evidence_source.start_line > 0
+
+
+def test_fingerprint_stable_with_policy_evidence_source(tmp_path):
+    """Threading the manifest pointer must not invalidate existing
+    baselines. ``finding_fingerprint`` hashes ``check_id + tool_name +
+    evidence``; ``policy_evidence_source`` is provenance metadata and
+    must stay out of the identity hash."""
+    from agents_shipgate.core.findings import finding_fingerprint
+    from agents_shipgate.schemas.common import SourceReference
+    from agents_shipgate.schemas.report import Finding
+
+    base = Finding(
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        title="t",
+        severity="critical",
+        category="policy",
+        tool_name="stripe.create_refund",
+        evidence={"risk_tags": ["financial_action"]},
+        confidence="high",
+        recommendation="r",
+    )
+    enriched = Finding(
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        title="t",
+        severity="critical",
+        category="policy",
+        tool_name="stripe.create_refund",
+        evidence={"risk_tags": ["financial_action"]},
+        confidence="high",
+        recommendation="r",
+        policy_evidence_source=SourceReference(
+            type="manifest",
+            ref="shipgate.yaml#/policies/require_approval_for_tools",
+            path="shipgate.yaml",
+            start_line=42,
+            pointer="/policies/require_approval_for_tools",
+        ),
+    )
+    assert finding_fingerprint(base) == finding_fingerprint(enriched)
+
+
+def test_change_me_placeholders_route_to_review_required(tmp_path):
+    """Unresolved CHANGE_ME placeholders in shipgate.yaml must surface as
+    source_warnings so the existing
+    ``source_warning_count > 0 → review_required`` branch in
+    release_decision.evidence_coverage trips. Without that, a scan
+    against a manifest still carrying stub values would emit a release
+    packet that looks like real evidence.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        """
+{
+  "tools": [
+    {
+      "name": "docs.lookup",
+      "description": "Look up documentation metadata.",
+      "annotations": {"readOnlyHint": true}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: CHANGE_ME
+agent:
+  name: docs-agent
+  declared_purpose:
+    - look up documentation
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+ci:
+  mode: advisory
+""",
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    placeholder_warnings = [
+        warning for warning in report.source_warnings if "CHANGE_ME" in warning
+    ]
+    assert placeholder_warnings, report.source_warnings
+    assert any("shipgate.yaml:" in warning for warning in placeholder_warnings)
+    assert report.release_decision is not None
+    assert report.release_decision.evidence_coverage.source_warning_count >= 1
+    assert report.release_decision.decision == "review_required"
+    # advisory mode does not fail CI, but the gate above is still routed.
+    assert exit_code == 0
+
+
 def test_run_id_is_stable_across_verbose_optional_source_warning(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

@@ -53,6 +53,8 @@ For each "must not assert" category, the check IDs that surface it in `agents-sh
 
 These findings carry `requires_human_review: true` and `suggested_patch_kind: "manual"` (or are derived to safe-closed when patches are absent — see [`autofix-policy.md`](autofix-policy.md) §"Three patch states"). They do **not** auto-apply via `apply-patches --confidence high`.
 
+The catalog enforces this boundary independently of the per-patch derivation: each check in the table above sets `requires_human_review_regardless_of_patch=True` in its `CheckMetadata` entry, so `annotate_remediation` forces `autofix_safe=False` even when a third-party patch generator emits a high-confidence non-manual patch for one of these check IDs. `agent_action` for such a finding lands at `propose_patch_for_review` (the patch is still surfaced for the human to apply) rather than `auto_apply`.
+
 ---
 
 ## Why the line is here

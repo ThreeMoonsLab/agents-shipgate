@@ -27,6 +27,7 @@ def tool_finding(
     context: ScanContext,
     provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
+    policy_evidence_pointer: str | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -49,6 +50,9 @@ def tool_finding(
             start_column=tool.source_start_column,
             pointer=tool.source_pointer,
         ),
+        policy_evidence_source=_policy_evidence_source(
+            context, policy_evidence_pointer
+        ),
         recommendation=recommendation,
         patches=patches,
     )
@@ -66,6 +70,7 @@ def agent_finding(
     context: ScanContext,
     provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
+    policy_evidence_pointer: str | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -76,7 +81,10 @@ def agent_finding(
         evidence=evidence,
         confidence=parse_confidence(confidence),
         provenance_kind=provenance_kind,
-        source=SourceReference(type="manifest", ref=_manifest_ref(context.config_path)),
+        source=_agent_finding_source(context, policy_evidence_pointer),
+        policy_evidence_source=_policy_evidence_source(
+            context, policy_evidence_pointer
+        ),
         recommendation=recommendation,
         patches=patches,
     )
@@ -84,6 +92,68 @@ def agent_finding(
 
 def _manifest_ref(config_path: Path) -> str:
     return config_path.name
+
+
+def _agent_finding_source(
+    context: ScanContext, policy_evidence_pointer: str | None
+) -> SourceReference:
+    """Return the primary ``Finding.source`` for an agent-level finding.
+
+    For agent findings the "primary" source IS the manifest pointer
+    (there is no underlying Tool). Threading ``path``/``start_line``
+    here means a reviewer opening the SARIF or report.json sees the
+    manifest line directly. ``location`` intentionally stays None so
+    ``_run_id`` — which hashes legacy ``source.ref``/``source.location``
+    but not the structured fields — remains stable across scans that
+    upgrade their pointer threading.
+    """
+    ref = _manifest_ref(context.config_path)
+    if policy_evidence_pointer is None:
+        return SourceReference(type="manifest", ref=ref)
+    line = _lookup_position(context, policy_evidence_pointer)
+    return SourceReference(
+        type="manifest",
+        ref=f"{ref}#{policy_evidence_pointer}",
+        path=ref,
+        start_line=line,
+        pointer=policy_evidence_pointer,
+    )
+
+
+def _policy_evidence_source(
+    context: ScanContext, policy_evidence_pointer: str | None
+) -> SourceReference | None:
+    """Build the secondary ``Finding.policy_evidence_source`` pointer.
+
+    Returns ``None`` when no manifest pointer was supplied. When a
+    pointer is supplied we always emit a structured ``SourceReference``
+    (path + pointer), and add ``start_line`` only when the manifest
+    position index can resolve it. The legacy ``location`` field stays
+    None — populating it would shift ``_run_id`` for every scan that
+    upgrades, and SARIF / packet renderers already prefer the
+    structured fields.
+    """
+    if policy_evidence_pointer is None:
+        return None
+    ref = _manifest_ref(context.config_path)
+    line = _lookup_position(context, policy_evidence_pointer)
+    return SourceReference(
+        type="manifest",
+        ref=f"{ref}#{policy_evidence_pointer}",
+        path=ref,
+        start_line=line,
+        pointer=policy_evidence_pointer,
+    )
+
+
+def _lookup_position(
+    context: ScanContext, pointer: str
+) -> int | None:
+    pos = context.manifest_positions.lookup(pointer)
+    if pos is None:
+        return None
+    line, _column = pos
+    return line
 
 
 # v0.14: framework checks (ADK, LangChain, CrewAI) fire against Tools

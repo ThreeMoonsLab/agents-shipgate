@@ -135,6 +135,7 @@ def write_github_step_summary(report: ReadinessReport) -> None:
 
 def _action_diff_highlights(report: ReadinessReport) -> list[str]:
     diff = report.action_surface_diff
+    inv = _tool_inventory_by_name(report)
     highlights: list[str] = []
     for item in diff.modified:
         if item.type in {
@@ -146,20 +147,24 @@ def _action_diff_highlights(report: ReadinessReport) -> list[str]:
             highlights.append(
                 f"`{_safe_markdown_text(item.tool_name or item.action_id)}`: "
                 f"{_safe_markdown_text(item.type)}"
+                f"{_inventory_citation(inv.get(item.tool_name))}"
             )
     for item in diff.added:
         highlights.append(
             f"Added action `{_safe_markdown_text(item.tool_name or item.action_id)}`"
+            f"{_inventory_citation(inv.get(item.tool_name))}"
         )
     for item in diff.removed:
         highlights.append(
             f"Removed action `{_safe_markdown_text(item.tool_name or item.action_id)}`"
+            f"{_inventory_citation(inv.get(item.tool_name))}"
         )
     return highlights[:5]
 
 
 def _diff_highlights(report: ReadinessReport) -> list[str]:
     diff = report.tool_surface_diff
+    inv = _tool_inventory_by_name(report)
     risk_highlights: list[str] = []
     control_highlights: list[str] = []
     tool_highlights: list[str] = []
@@ -169,22 +174,61 @@ def _diff_highlights(report: ReadinessReport) -> list[str]:
                 "New high-risk tag "
                 f"`{_safe_markdown_text(item.tag)}` on "
                 f"`{_safe_markdown_text(item.tool)}`"
+                f"{_inventory_citation(inv.get(item.tool))}"
             )
     for item in diff.controls:
         if item.kind == "removed":
             control_highlights.append(
                 f"Removed `{_safe_markdown_text(item.control)}` for "
                 f"`{_safe_markdown_text(item.tool)}`"
+                f"{_inventory_citation(inv.get(item.tool))}"
             )
     for item in diff.tools:
         if item.kind == "added":
-            tool_highlights.append(f"Added tool `{_safe_markdown_text(item.name)}`")
+            tool_highlights.append(
+                f"Added tool `{_safe_markdown_text(item.name)}`"
+                f"{_inventory_citation(inv.get(item.name))}"
+            )
         elif item.kind == "removed":
-            tool_highlights.append(f"Removed tool `{_safe_markdown_text(item.name)}`")
+            tool_highlights.append(
+                f"Removed tool `{_safe_markdown_text(item.name)}`"
+                f"{_inventory_citation(inv.get(item.name))}"
+            )
     return _interleaved_highlights(
         [control_highlights, risk_highlights, tool_highlights],
         limit=5,
     )
+
+
+def _tool_inventory_by_name(
+    report: ReadinessReport,
+) -> dict[str, dict[str, object]]:
+    """Build a tool-name → inventory-row index for citation lookups.
+
+    The v0.19 ``tool_inventory`` rows carry ``source_path``,
+    ``source_start_line``, and ``source_pointer`` per tool. The
+    GitHub Step Summary uses this lookup to append a ``(path:line)``
+    suffix to each diff highlight so a reviewer can jump straight to
+    the tool definition without scrolling through the inventory.
+    """
+    index: dict[str, dict[str, object]] = {}
+    for entry in report.tool_inventory:
+        name = entry.get("name")
+        if isinstance(name, str):
+            index[name] = entry
+    return index
+
+
+def _inventory_citation(entry: dict[str, object] | None) -> str:
+    if entry is None:
+        return ""
+    path = entry.get("source_path")
+    line = entry.get("source_start_line")
+    if isinstance(path, str) and isinstance(line, int):
+        return f" (`{_safe_markdown_text(f'{path}:{line}')}`)"
+    if isinstance(path, str):
+        return f" (`{_safe_markdown_text(path)}`)"
+    return ""
 
 
 def _interleaved_highlights(groups: list[list[str]], *, limit: int) -> list[str]:

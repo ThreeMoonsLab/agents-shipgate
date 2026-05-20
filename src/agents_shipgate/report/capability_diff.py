@@ -400,7 +400,14 @@ def _capability_fact(tool: Tool, related_findings: list[Finding]) -> CapabilityF
         ),
         tool_name=tool.name,
         source_type=tool.source_type,
-        source_ref=tool.source_ref,
+        # v0.19 reviewer-grade provenance: enrich the free-form
+        # ``source_ref`` with the YAML line when the underlying tool
+        # carries one. ``source_ref`` is a ``str | None`` so this is
+        # additive — older consumers continue to parse the legacy form
+        # (e.g. ``openapi.yaml#/paths/...``). The ``#L{line}`` suffix
+        # mirrors the GitHub line-anchor convention reviewers already
+        # know from PR file views.
+        source_ref=_enriched_source_ref(tool),
         capability=capability,
         risk_tags=tags,
         auth_scopes=tool.auth.scopes,
@@ -409,6 +416,13 @@ def _capability_fact(tool: Tool, related_findings: list[Finding]) -> CapabilityF
         control_status=_control_status(tool, related_findings),
         related_findings=related_refs,
     )
+
+
+def _enriched_source_ref(tool: Tool) -> str | None:
+    ref = tool.source_ref
+    if ref is None or tool.source_start_line is None:
+        return ref
+    return f"{ref}#L{tool.source_start_line}"
 
 
 def _capability(tags: list[str]) -> str:

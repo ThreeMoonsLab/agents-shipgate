@@ -55,6 +55,15 @@ class Finding(BaseModel):
     # wire via scripts/generate_schemas.py.
     provenance_kind: ProvenanceKind | None = None
     source: SourceReference | None = None
+    # v0.19 reviewer-grade provenance: dual-source citation for findings
+    # whose triggering evidence lives in TWO places — the tool itself
+    # (carried by ``source``) and a missing/declared mitigation in the
+    # manifest. Approval/confirmation/idempotency/scope/HITL checks
+    # populate this field with the manifest pointer (e.g.
+    # ``/policies/require_approval_for_tools``) plus the YAML line
+    # number resolved through the manifest ``PositionIndex``. Optional
+    # because most findings only have one provenance source.
+    policy_evidence_source: SourceReference | None = None
     recommendation: str
     # v0.16: explicit release-blocking signal for Action Surface Diff
     # policy findings. This is orthogonal to severity: advisory CI can
@@ -151,6 +160,14 @@ class ReleaseDecisionItem(BaseModel):
     title: str
     baseline_status: BaselineStatus | None = None
     blocks_release: bool = False
+    # v0.19 reviewer-grade provenance: mirror the dual-source pointers
+    # from the originating ``Finding`` so packet §1 blocker / review
+    # item rendering and re-rendering from ``packet.json`` can cite the
+    # tool location AND the manifest evidence pointer without a side
+    # lookup. Both default to None for backwards compatibility — old
+    # consumers ignore the fields.
+    source: SourceReference | None = None
+    policy_evidence_source: SourceReference | None = None
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -459,7 +476,13 @@ class ReadinessReport(BaseModel):
     # v0.17 trust-hardening: M8 adds ``release_decision.contribution_rules[]``
     # and M1 adds the top-level ``policy_audit`` block. Both are
     # additive — older consumers ignore the new fields.
-    report_schema_version: str = "0.18"
+    # v0.19 reviewer-grade provenance: ``Finding.policy_evidence_source``
+    # and ``ReleaseDecisionItem.{source, policy_evidence_source}`` are
+    # additive optional fields carrying a second structured pointer
+    # (manifest YAML path + line) for high-risk findings whose
+    # triggering evidence also lives in the manifest. Old consumers
+    # ignore the new fields.
+    report_schema_version: str = "0.19"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

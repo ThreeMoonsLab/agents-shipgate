@@ -1033,6 +1033,11 @@ def _findings_with_check(
 def _to_decision_items(findings: list[Finding]) -> list[ReleaseDecisionItem]:
     items: list[ReleaseDecisionItem] = []
     for finding in findings:
+        # v0.19 reviewer-grade provenance: mirror the dual-source pointers
+        # onto packet ReleaseDecisionItem rows so packet markdown / HTML
+        # rendering and re-rendering from packet.json carry the tool
+        # location and the manifest evidence pointer without a side
+        # lookup into ``report.findings``.
         items.append(
             ReleaseDecisionItem(
                 id=finding.id,
@@ -1042,6 +1047,8 @@ def _to_decision_items(findings: list[Finding]) -> list[ReleaseDecisionItem]:
                 title=finding.title,
                 baseline_status=finding.baseline_status,
                 blocks_release=finding.blocks_release,
+                source=finding.source,
+                policy_evidence_source=finding.policy_evidence_source,
             )
         )
     return items

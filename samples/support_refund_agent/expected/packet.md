@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_6150f69e2312264e
+- Run id: agents\_shipgate\_79e79939da7265db
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.5
 
@@ -23,27 +23,27 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Blockers
 
-- `SHIP-POLICY-APPROVAL-MISSING` (critical): stripe.create\_refund lacks a declared approval policy
-- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (critical): stripe.create\_refund lacks idempotency evidence
+- `SHIP-POLICY-APPROVAL-MISSING` (critical): stripe.create\_refund lacks a declared approval policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:51`
+- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (critical): stripe.create\_refund lacks idempotency evidence — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:56`
 
 ### Review items
 
-- `SHIP-INVENTORY-WILDCARD-TOOLS` (high): Wildcard tool exposure declared
-- `SHIP-SCHEMA-MISSING-BOUNDS` (high): stripe.create\_refund.amount has no maximum bound
-- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): zendesk.update\_ticket accepts broad free-form action input
-- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): gmail.send\_customer\_email accepts broad free-form action input
-- `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output
-- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes
-- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest
-- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest
-- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): gmail.send\_customer\_email requires scopes not declared in the manifest
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): stripe.create\_refund appears to overlap with a prohibited action
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): gmail.send\_customer\_email appears to overlap with a prohibited action
-- `SHIP-POLICY-CONFIRMATION-MISSING` (high): stripe.create\_refund lacks a declared confirmation policy
-- `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy
-- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (high): gmail.send\_customer\_email lacks idempotency evidence
-- `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` (high): shopify.cancel\_order is high-risk but has no owner
-- `SHIP-MANIFEST-UNUSED-SCOPE` (medium): Manifest declares unused permission scope zendesk:tickets:read
+- `SHIP-INVENTORY-WILDCARD-TOOLS` (high): Wildcard tool exposure declared — `.agents-shipgate/wildcard-tools.json\#/wildcard`
+- `SHIP-SCHEMA-MISSING-BOUNDS` (high): stripe.create\_refund.amount has no maximum bound — `specs/support-tools.openapi.yaml:97`
+- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): zendesk.update\_ticket accepts broad free-form action input — `specs/support-tools.openapi.yaml:142`
+- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): gmail.send\_customer\_email accepts broad free-form action input — `.agents-shipgate/mcp-tools.json\#/tools/1`
+- `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output — `agents/refund\_agent.py:5`
+- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:60` — `shipgate.yaml:60`
+- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
+- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
+- `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): gmail.send\_customer\_email requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/1`
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): stripe.create\_refund appears to overlap with a prohibited action — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:22`
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): gmail.send\_customer\_email appears to overlap with a prohibited action — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:24`
+- `SHIP-POLICY-CONFIRMATION-MISSING` (high): stripe.create\_refund lacks a declared confirmation policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:54`
+- `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:54`
+- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (high): gmail.send\_customer\_email lacks idempotency evidence — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:56`
+- `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` (high): shopify.cancel\_order is high-risk but has no owner — `specs/support-tools.openapi.yaml:116`
+- `SHIP-MANIFEST-UNUSED-SCOPE` (medium): Manifest declares unused permission scope zendesk:tickets:read — `shipgate.yaml`
 
 ## §2 Capability ↔ Intent diff — missing
 
@@ -69,8 +69,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Divergences
 
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: stripe.create\_refund appears to overlap with a prohibited action
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: gmail.send\_customer\_email appears to overlap with a prohibited action
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: stripe.create\_refund appears to overlap with a prohibited action — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:22`
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: gmail.send\_customer\_email appears to overlap with a prohibited action — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:24`
 
 ## §3 High-risk tool surface — partial
 

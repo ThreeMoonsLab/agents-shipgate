@@ -685,6 +685,50 @@ def test_singleton_yaml_tool_keeps_line_provenance(tmp_path):
     assert tool.source_start_line == 1
 
 
+def test_sarif_emits_dual_locations_for_policy_evidence_source():
+    """v0.19 reviewer-grade provenance: a finding with both
+    ``source`` (tool location) and ``policy_evidence_source``
+    (manifest pointer) emits two SARIF locations so the reviewer can
+    jump to either site from the same code-scanning result."""
+    from agents_shipgate.report.sarif import _result
+
+    finding = Finding(
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        title="stripe.create_refund lacks an approval policy",
+        severity="critical",
+        category="policy",
+        tool_name="stripe.create_refund",
+        evidence={},
+        confidence="high",
+        recommendation="r",
+        source=SourceReference(
+            type="openapi",
+            ref="api.yaml#/paths/~1refunds/post",
+            path="api.yaml",
+            start_line=42,
+            pointer="/paths/~1refunds/post",
+        ),
+        policy_evidence_source=SourceReference(
+            type="manifest",
+            ref="shipgate.yaml#/policies/require_approval_for_tools",
+            path="shipgate.yaml",
+            start_line=17,
+            pointer="/policies/require_approval_for_tools",
+        ),
+    )
+    result = _result(finding)
+    locations = result["locations"]
+    assert len(locations) == 2
+    tool_loc, policy_loc = locations
+    assert tool_loc["physicalLocation"]["artifactLocation"]["uri"] == "api.yaml"
+    assert tool_loc["physicalLocation"]["region"]["startLine"] == 42
+    assert policy_loc["physicalLocation"]["artifactLocation"]["uri"] == "shipgate.yaml"
+    assert policy_loc["physicalLocation"]["region"]["startLine"] == 17
+    assert policy_loc["properties"] == {
+        "shipgatePointer": "/policies/require_approval_for_tools"
+    }
+
+
 def test_sarif_emits_empty_pointer_for_root_document_singleton():
     """``""`` is a valid RFC 6901 pointer (root). SARIF must surface it
     under ``properties.shipgatePointer`` — dropping it loses the

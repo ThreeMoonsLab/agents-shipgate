@@ -111,9 +111,20 @@ def _result(finding: Finding) -> dict[str, Any]:
     }
     if finding.fingerprint:
         result["fingerprints"] = {"agentsShipgateFingerprint": finding.fingerprint}
-    location = _location(finding)
-    if location:
-        result["locations"] = [location]
+    # v0.19 reviewer-grade provenance: SARIF results carry up to two
+    # physical locations — the tool source (Finding.source) and the
+    # manifest evidence pointer (Finding.policy_evidence_source). SARIF
+    # 2.1.0 ``locations`` accepts a list, so reviewers opening the
+    # SARIF in an IDE see both lines as separate jump targets.
+    locations: list[dict[str, Any]] = []
+    primary = _location(finding)
+    if primary is not None:
+        locations.append(primary)
+    secondary = _policy_evidence_location(finding)
+    if secondary is not None:
+        locations.append(secondary)
+    if locations:
+        result["locations"] = locations
     return result
 
 
@@ -133,9 +144,34 @@ def _sarif_tags(finding: Finding, *, category: str | None = None) -> list[str]:
 
 
 def _location(finding: Finding) -> dict[str, Any] | None:
-    if not finding.source:
+    """Render the primary ``Finding.source`` as a SARIF ``location``."""
+    return _source_to_location(
+        finding.source,
+        finding.tool_name or finding.agent_id or finding.check_id,
+    )
+
+
+def _policy_evidence_location(finding: Finding) -> dict[str, Any] | None:
+    """Render the v0.19 secondary ``Finding.policy_evidence_source`` as
+    a SARIF ``location`` so the dual-source provenance round-trips
+    into a second ``locations[]`` entry for the same result."""
+    return _source_to_location(
+        finding.policy_evidence_source,
+        finding.tool_name or finding.agent_id or finding.check_id,
+    )
+
+
+def _source_to_location(
+    source: Any, logical_name: str | None
+) -> dict[str, Any] | None:
+    """Shared rendering core for primary and secondary source pointers.
+
+    Both ``_location`` and ``_policy_evidence_location`` defer here so
+    the structured / legacy fallback logic and pointer-emission rules
+    stay in one place.
+    """
+    if not source:
         return None
-    source = finding.source
     artifact_uri: str | None = None
     line: int | None = None
     end_line: int | None = None
@@ -173,9 +209,7 @@ def _location(finding: Finding) -> dict[str, Any] | None:
         physical_location["region"] = region
     location: dict[str, Any] = {
         "physicalLocation": physical_location,
-        "logicalLocations": [
-            {"name": finding.tool_name or finding.agent_id or finding.check_id}
-        ],
+        "logicalLocations": [{"name": logical_name or "<unknown>"}],
     }
     # Empty string is a valid RFC 6901 root-document pointer (singleton
     # YAML object case), so check ``is not None`` rather than truthiness.

@@ -89,6 +89,22 @@ manual: `"manual"`. If the patches list is empty: `"none"`.)
 `docs_url` always comes from `CheckMetadata.docs_url`. Patches
 don't carry per-instance documentation URLs.
 
+### Catalog-driven escalation override
+
+The strict derivation rule above can be **forced safe-closed** by a
+per-check policy flag. When `CheckMetadata.requires_human_review_regardless_of_patch`
+is `True`, `annotate_remediation` sets `autofix_safe=False` and
+`requires_human_review=True` regardless of the per-patch derivation,
+so `agent_action` lands at `propose_patch_for_review` (the patch is
+still surfaced) instead of `auto_apply`. This catches the
+approval/confirmation/idempotency, broad-scope, prohibited-action,
+runtime-trace and HITL-evidence categories listed in
+[`agent-autofix-boundary.md`](agent-autofix-boundary.md) §"Check-ID
+mapping"; even a third-party patch generator emitting a clean
+high-confidence non-manual patch on one of those check IDs cannot
+auto-apply. The catalog is the contract: those check IDs always
+escalate, regardless of how the patches were derived.
+
 ### Three patch states
 
 | `Finding.patches` | Source of derived fields |
@@ -204,7 +220,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.18.json`](report-schema.v0.18.json) — current JSON
+- [`report-schema.v0.19.json`](report-schema.v0.19.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

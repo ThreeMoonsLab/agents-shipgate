@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.18",
-  "run_id": "agents_shipgate_479ce82e931c425e",
+  "report_schema_version": "0.19",
+  "run_id": "agents_shipgate_75f9c3e73779b880",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
@@ -401,8 +401,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp63hlahq0/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp63hlahq0/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -411,6 +411,9 @@
       "name": "FileReadTool",
       "source_type": "crewai_prebuilt_tool",
       "source_ref": "crew.py",
+      "source_path": null,
+      "source_start_line": null,
+      "source_pointer": null,
       "risk_tags": [],
       "risk_tag_confidence": {},
       "auth_scopes": [],
@@ -421,6 +424,9 @@
       "name": "lookup_case",
       "source_type": "crewai_class_tool",
       "source_ref": "crew.py",
+      "source_path": null,
+      "source_start_line": null,
+      "source_pointer": null,
       "risk_tags": [
         "read_only"
       ],
@@ -435,6 +441,9 @@
       "name": "summarize_case",
       "source_type": "crewai_function",
       "source_ref": "crew.py",
+      "source_path": null,
+      "source_start_line": null,
+      "source_pointer": null,
       "risk_tags": [],
       "risk_tag_confidence": {},
       "auth_scopes": [],

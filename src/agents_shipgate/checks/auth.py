@@ -23,6 +23,7 @@ def run(context: ScanContext):
                 recommendation="Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
                 context=context,
                 provenance_kind="keyword_heuristic",
+                policy_evidence_pointer="/permissions/scopes",
             )
         )
     for tool in context.tools:
@@ -82,6 +83,12 @@ def run(context: ScanContext):
                     recommendation=f"Replace broad scopes for {tool.name} with narrower operation-specific scopes.",
                     context=context,
                     provenance_kind="keyword_heuristic",
+                    # Tool source already points at the OpenAPI/MCP/etc.
+                    # location where the broad scope is declared; the
+                    # manifest pointer below is intentionally
+                    # /permissions/scopes (where reviewers can
+                    # cross-check the manifest-level scope grant).
+                    policy_evidence_pointer="/permissions/scopes",
                 )
             )
     return findings

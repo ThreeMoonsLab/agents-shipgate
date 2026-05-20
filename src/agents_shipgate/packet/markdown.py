@@ -51,6 +51,33 @@ def _escape_table_cell(value: object) -> str:
 
     return _escape(value)
 
+
+def _citation(source: object | None) -> str:
+    """Render a ``SourceReference`` as a `` — path:line`` suffix when
+    structured fields are available, otherwise the empty string.
+
+    Used by packet §1 (Blockers / Review items) and §2 (Capability
+    intent divergences) so reviewers see the originating evidence
+    location inline. The path string flows through the same Markdown
+    escaper as user-controlled tool names so a hostile manifest field
+    cannot break tables.
+    """
+    if source is None:
+        return ""
+    path = getattr(source, "path", None)
+    line = getattr(source, "start_line", None)
+    if path and line is not None:
+        return f" — `{_escape(f'{path}:{line}')}`"
+    if path:
+        pointer = getattr(source, "pointer", None)
+        if pointer is not None:
+            return f" — `{_escape(f'{path}#{pointer}')}`"
+        return f" — `{_escape(path)}`"
+    legacy = getattr(source, "location", None) or getattr(source, "ref", None)
+    if legacy:
+        return f" — `{_escape(legacy)}`"
+    return ""
+
 _STATUS_LABEL: dict[SectionStatus, str] = {
     "covered": "covered",
     "partial": "partial",
@@ -149,9 +176,18 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
         lines.append("### Blockers")
         lines.append("")
         for item in section.blockers:
+            # v0.19 reviewer-grade provenance: cite the tool source
+            # (where the high-risk capability lives) AND, when the
+            # finding fires because of a missing manifest mitigation,
+            # the manifest evidence pointer. ReleaseDecisionItem.source
+            # and .policy_evidence_source mirror Finding.source and
+            # Finding.policy_evidence_source so the citation works for
+            # packet markdown re-rendered from packet.json too.
             lines.append(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
                 f"{_escape(item.title)}"
+                f"{_citation(item.source)}"
+                f"{_citation(item.policy_evidence_source)}"
             )
         lines.append("")
     if section.review_items:
@@ -161,6 +197,8 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             lines.append(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
                 f"{_escape(item.title)}"
+                f"{_citation(item.source)}"
+                f"{_citation(item.policy_evidence_source)}"
             )
         lines.append("")
 
@@ -200,7 +238,10 @@ def _append_capability_intent(lines: list[str], section: CapabilityIntentDiff) -
         )
         for item in section.divergence_findings:
             lines.append(
-                f"- `{_escape(item.check_id)}`{suffix}: {_escape(item.title)}"
+                f"- `{_escape(item.check_id)}`{suffix}: "
+                f"{_escape(item.title)}"
+                f"{_citation(item.source)}"
+                f"{_citation(item.policy_evidence_source)}"
             )
         lines.append("")
 

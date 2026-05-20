@@ -32,6 +32,14 @@ class CheckMetadata(BaseModel):
     autofix_safe: bool = False
     requires_human_review: bool = True
     suggested_patch_kind: SuggestedPatchKind = "manual"
+    # Reviewer-grade escalation: when ``True``, ``annotate_remediation``
+    # forces ``autofix_safe=False`` and ``requires_human_review=True``
+    # regardless of the per-patch derivation. Used for the high-risk
+    # categories — approval/confirmation, idempotency, broad-scope,
+    # prohibited-action, runtime-trace — where even a high-confidence
+    # non-manual patch must not auto-apply without explicit human review.
+    # In-process only (not serialised in ``report.json``).
+    requires_human_review_regardless_of_patch: bool = False
     # v0.17 (M1 + M5): hard severity floor used by two callers.
     # M1 (manifest-side): ``checks.severity_overrides`` cannot resolve
     # to a weaker severity than ``floor_severity``; the resolver raises

@@ -78,13 +78,14 @@ def run(context: ScanContext):
                         ),
                         context=context,
                         provenance_kind="keyword_heuristic",
+                        policy_evidence_pointer="/agent/declared_purpose",
                     )
                 )
 
     for tool in context.tools:
         if is_effectively_read_only(tool):
             continue
-        for prohibited in prohibited_actions:
+        for prohibited_index, prohibited in enumerate(prohibited_actions):
             if _prohibited_action_is_mitigated(context, tool, prohibited):
                 continue
             if _tool_matches_prohibited_action(tool, prohibited):
@@ -106,6 +107,9 @@ def run(context: ScanContext):
                         ),
                         context=context,
                         provenance_kind="keyword_heuristic",
+                        policy_evidence_pointer=(
+                            f"/agent/prohibited_actions/{prohibited_index}"
+                        ),
                     )
                 )
                 break

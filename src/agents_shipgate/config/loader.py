@@ -7,7 +7,11 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.inputs.common import (
+    PositionIndex,
+    load_structured_file_with_positions,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 
@@ -29,6 +33,41 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
 def load_manifest(path: str | Path) -> AgentsShipgateManifest:
     config_path = Path(path)
     data = load_yaml_file(config_path)
+    return _validate_manifest_data(data, config_path)
+
+
+def load_manifest_with_positions(
+    path: str | Path,
+) -> tuple[AgentsShipgateManifest, PositionIndex]:
+    """Load the manifest AND a JSON-pointer → ``(line, col)`` position
+    index built from the same YAML source.
+
+    The manifest is loaded through :func:`load_manifest` so monkeypatch
+    hooks (test fixtures that patch the loader to inject overrides)
+    continue to work. The position index is built via a separate
+    :func:`load_structured_file_with_positions` call, with
+    ``InputParseError`` mapped to ``ConfigError`` so doctor / scan
+    exit codes remain identical to the existing :func:`load_manifest`
+    contract.
+
+    The position index may be ``PositionIndex(supported=False)`` when
+    the file is JSON or when ruamel rejects content that PyYAML
+    accepted; callers should treat lookups as best-effort and fall
+    back to the legacy filename-only provenance when no line is
+    available.
+    """
+    manifest = load_manifest(path)
+    config_path = Path(path)
+    try:
+        _, positions = load_structured_file_with_positions(config_path)
+    except InputParseError as exc:
+        raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
+    return manifest, positions
+
+
+def _validate_manifest_data(
+    data: dict[str, Any], config_path: Path
+) -> AgentsShipgateManifest:
     version = data.get("version")
     if version != "0.1":
         raise ConfigError(

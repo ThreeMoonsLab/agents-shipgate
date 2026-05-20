@@ -53,6 +53,11 @@ def run(context: ScanContext):
                     recommendation=f"Declare an approval policy for {tool.name} or remove this tool from the release.",
                     context=context,
                     provenance_kind="static_declaration",
+                    # Reviewer-grade provenance: the *tool* source already
+                    # points at where the high-risk tool is defined; the
+                    # *manifest* evidence pointer tells the reviewer
+                    # where to declare the missing policy.
+                    policy_evidence_pointer="/policies/require_approval_for_tools",
                 )
             )
         if (
@@ -71,6 +76,7 @@ def run(context: ScanContext):
                     recommendation=f"Declare a user confirmation policy for {tool.name} or remove this action from the release.",
                     context=context,
                     provenance_kind="static_declaration",
+                    policy_evidence_pointer="/policies/require_confirmation_for_tools",
                 )
             )
     return findings
