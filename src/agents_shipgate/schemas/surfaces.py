@@ -124,6 +124,13 @@ class ToolSurfaceToolChange(BaseModel):
     source_type: str | None = None
     source_id: str | None = None
     changes: list[ToolSurfaceFieldChange] = Field(default_factory=list)
+    # v0.19 reviewer-grade provenance: tool path:line for jump-to-source.
+    # Populated by ``enrich_tool_surface_diff_with_source`` from the
+    # live ``tool_inventory``; defaults to None for the
+    # ``compute_tool_surface_diff`` output before enrichment and for
+    # tools that were removed (the index no longer carries them).
+    source_path: str | None = None
+    source_start_line: int | None = None
 
 
 class ToolSurfaceHighRiskEffectChange(BaseModel):
@@ -132,6 +139,9 @@ class ToolSurfaceHighRiskEffectChange(BaseModel):
     kind: ToolSurfaceChangeKind
     tool: str
     tag: str
+    # v0.19 reviewer-grade provenance: see ToolSurfaceToolChange above.
+    source_path: str | None = None
+    source_start_line: int | None = None
 
 
 class ToolSurfaceScopeChange(BaseModel):
@@ -152,6 +162,13 @@ class ToolSurfaceControlChange(BaseModel):
     tool: str
     source: str | None = None
     reason: str | None = None
+    # v0.19 reviewer-grade provenance: tool path:line for jump-to-source.
+    # ``source`` (above) is the manifest-policy origin label (e.g.
+    # ``"openai_api"``, ``"policies"``); ``source_path`` /
+    # ``source_start_line`` carry the underlying TOOL's source so a
+    # reviewer can jump straight to the OpenAPI / MCP / SDK definition.
+    source_path: str | None = None
+    source_start_line: int | None = None
 
 
 class ToolSurfaceMetadataChange(BaseModel):
@@ -162,6 +179,9 @@ class ToolSurfaceMetadataChange(BaseModel):
     metadata: str
     before: Any = None
     after: Any = None
+    # v0.19 reviewer-grade provenance: see ToolSurfaceToolChange above.
+    source_path: str | None = None
+    source_start_line: int | None = None
 
 
 class ToolSurfacePolicyDrift(BaseModel):
@@ -330,6 +350,17 @@ class ActionSurfaceChange(BaseModel):
     after: Any = None
     added: list[str] = Field(default_factory=list)
     removed: list[str] = Field(default_factory=list)
+    # v0.19 reviewer-grade provenance: tool path:line populated by
+    # ``enrich_action_surface_diff_with_source`` from the live
+    # ``tool_inventory``. Kept on a structured field instead of being
+    # baked into ``reason`` because ``ActionSurfaceChange.model_dump``
+    # lands in policy-finding ``evidence`` payloads and finding
+    # fingerprints hash ``evidence`` — a string suffix in ``reason``
+    # would leak line numbers into baseline identity. The internal
+    # diff used by policy evaluation is never enriched; only the
+    # public diff renders the source fields.
+    source_path: str | None = None
+    source_start_line: int | None = None
 
 
 class ActionSurfaceDiff(BaseModel):

@@ -38,7 +38,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.6"`, adding `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.5)
+- [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.6"`, adding the top-level `evidence_matrix` section (PR #104) and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance (PR #103) on top of v0.5)
 - [`packet-schema.v0.5.json`](packet-schema.v0.5.json) — frozen v0.5 reference packet schema; pre-v0.6 packets validate against this
 - [`packet-schema.v0.4.json`](packet-schema.v0.4.json) — frozen v0.4 reference packet schema
 - [`packet-schema.v0.3.json`](packet-schema.v0.3.json) — frozen v0.3 reference packet schema

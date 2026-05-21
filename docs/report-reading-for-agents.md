@@ -86,7 +86,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.5`; full schema at [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json).
+The packet schema is `0.6`; full schema at [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json).
 
 ---
 

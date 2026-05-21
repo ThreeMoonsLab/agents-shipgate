@@ -331,13 +331,20 @@ def test_action_surface_external_side_effect_alias_matches_external_communicatio
     )
 
 
-def test_enrich_action_surface_diff_appends_tool_source_to_reason():
-    """v0.19 reviewer-grade provenance: every change-row reason gets a
-    ``(source: path:line)`` suffix when the underlying tool source is
-    known. Without this, action-surface change rows in report.json
-    carried no clue where the underlying tool was defined and
-    reviewers had to grep tool_inventory to find the OpenAPI / MCP /
-    SDK line."""
+def test_enrich_action_surface_diff_populates_structured_source_fields():
+    """v0.19 reviewer-grade provenance: every change row gains
+    structured ``source_path`` / ``source_start_line`` fields when the
+    underlying tool source is known. Without these, action-surface
+    change rows in report.json carried no clue where the underlying
+    tool was defined and reviewers had to grep tool_inventory.
+
+    The fields are deliberately structured (not a ``(source: ...)``
+    suffix in ``reason``) because ``ActionSurfaceChange.model_dump``
+    lands in policy-finding ``evidence`` payloads and finding
+    fingerprints hash ``evidence`` — text in ``reason`` would leak
+    line numbers into baseline identity. The reason field stays
+    byte-stable; the structured fields ride on the public diff only.
+    """
     base = ActionSurfaceFacts(
         actions=[
             ActionFact(
@@ -384,6 +391,9 @@ def test_enrich_action_surface_diff_appends_tool_source_to_reason():
         ]
     )
     diff = compute_action_surface_diff(current, base)
+    pre_reason = next(
+        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
+    ).reason
     enrich_action_surface_diff_with_source(
         diff,
         {"stripe.create_refund": ("api.yaml", 97)},
@@ -392,9 +402,46 @@ def test_enrich_action_surface_diff_appends_tool_source_to_reason():
     approval_removed = next(
         row for row in diff.modified if row.type == "APPROVAL_REMOVED"
     )
-    assert approval_removed.reason.endswith("(source: api.yaml:97)"), (
-        approval_removed.reason
+    assert approval_removed.source_path == "api.yaml"
+    assert approval_removed.source_start_line == 97
+    # Reason stays byte-stable so finding fingerprints don't churn.
+    assert approval_removed.reason == pre_reason
+
+
+def test_enrich_action_surface_diff_does_not_mutate_reason():
+    """Regression: an earlier draft suffixed ``reason`` with
+    ``(source: path:line)``. That leaks line numbers into the
+    ``ActionSurfaceChange.model_dump()`` payload that ``evidence``
+    carries in ``evaluate_action_surface_policies`` findings, and
+    ``finding_fingerprint`` hashes ``evidence``. Keep the reason
+    byte-stable so baseline fingerprints don't churn when a tool
+    moves in its source file."""
+    base = ActionSurfaceFacts()
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:t",
+                agent_id="agent",
+                tool_id="tool:t",
+                tool_name="t",
+                provider="custom",
+                source_type="openapi",
+                operation="op",
+                effect="read",
+                input_schema_hash="0" * 64,
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
     )
+    diff = compute_action_surface_diff(current, base)
+    original = [row.reason for row in diff.added]
+    enrich_action_surface_diff_with_source(diff, {"t": ("api.yaml", 42)})
+    assert [row.reason for row in diff.added] == original
 
 
 def test_enrich_action_surface_diff_skipped_when_index_empty():

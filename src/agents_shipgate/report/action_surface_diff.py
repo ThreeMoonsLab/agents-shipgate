@@ -116,8 +116,9 @@ def enrich_action_surface_diff_with_source(
     diff: ActionSurfaceDiff,
     tool_source_index: dict[str, tuple[str | None, int | None]] | None,
 ) -> ActionSurfaceDiff:
-    """Append ``(source: path:line)`` to each change row's ``reason``
-    field when the tool's structured source is known.
+    """Populate ``ActionSurfaceChange.source_path`` /
+    ``source_start_line`` on each change row when the tool's
+    structured source is known.
 
     Mutates the diff in place and returns it. ``tool_source_index``
     maps ``tool_name → (source_path, source_start_line)``; callers
@@ -125,36 +126,31 @@ def enrich_action_surface_diff_with_source(
     ``tool_inventory`` rows). Without an index, the diff is returned
     untouched.
 
-    Without this enrichment, action-surface change rows like
-    ``Action approval policy was removed.`` carry no clue where the
-    underlying tool is defined — reviewers have to grep
-    ``tool_inventory`` to find the OpenAPI / MCP / SDK line. With it,
-    the rendered row reads ``Action approval policy was removed.
-    (source: api.yaml:97)`` so the reviewer can jump straight to the
-    artifact.
+    The enrichment lands on structured fields rather than mutating
+    ``reason``: ``ActionSurfaceChange.model_dump()`` is serialized
+    into policy-finding ``evidence`` payloads in
+    ``evaluate_action_surface_policies`` and ``finding_fingerprint``
+    hashes ``evidence``. Baking line numbers into ``reason`` would
+    therefore churn the finding fingerprint every time a tool moved
+    in its source file, breaking baseline matches. Structured
+    ``source_path``/``source_start_line`` carry the same reviewer
+    information without entering the identity hash (downstream
+    renderers read them explicitly).
+
+    For safety, this function is only called on the PUBLIC diff
+    (``cli/scan.py``); the internal diff stays semantic so policy
+    findings can be evaluated against unchanged evidence.
     """
     if not tool_source_index:
         return diff
     for row in (*diff.added, *diff.removed, *diff.modified):
-        suffix = _format_source_suffix(
-            tool_source_index.get(row.tool_name or "")
-        )
-        if suffix:
-            row.reason = f"{row.reason}{suffix}"
+        entry = tool_source_index.get(row.tool_name or "")
+        if entry is None:
+            continue
+        path, line = entry
+        row.source_path = path
+        row.source_start_line = line
     return diff
-
-
-def _format_source_suffix(
-    entry: tuple[str | None, int | None] | None,
-) -> str:
-    if entry is None:
-        return ""
-    path, line = entry
-    if path and line is not None:
-        return f" (source: {path}:{line})"
-    if path:
-        return f" (source: {path})"
-    return ""
 
 
 def compute_action_surface_diff(

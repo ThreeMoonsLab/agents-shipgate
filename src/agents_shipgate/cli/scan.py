@@ -83,7 +83,7 @@ from agents_shipgate.report.action_surface_diff import (
     evaluate_action_surface_policies,
 )
 from agents_shipgate.report.capability_diff import apply_capability_diff
-from agents_shipgate.report.json_report import write_json_report
+from agents_shipgate.report.json_report import report_json_payload, write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
 from agents_shipgate.report.sarif import write_sarif_report
 from agents_shipgate.report.tool_surface_diff import (
@@ -266,15 +266,15 @@ def run_scan(
     if diff_reference_error:
         action_surface_diff.enabled = False
         action_surface_diff.notes = [diff_reference_error]
-    # v0.19 reviewer-grade provenance: enrich the internal
-    # (non-public) action-surface diff rows with the tool path:line
-    # citation before they're used downstream (release_decision
-    # contribution rules, finding policy evaluation). The public
-    # diff below goes through the same enrichment with the redacted
-    # tool list so both surfaces stay consistent.
-    enrich_action_surface_diff_with_source(
-        action_surface_diff, _tool_source_index(tools)
-    )
+    # v0.19 reviewer-grade provenance: the INTERNAL action-surface
+    # diff stays semantic — ``evaluate_action_surface_policies`` below
+    # serializes ``ActionSurfaceChange.model_dump()`` into finding
+    # ``evidence`` payloads, and ``finding_fingerprint`` hashes
+    # ``evidence``. Mutating ``reason`` here would leak ``path:line``
+    # into the identity hash and a tool moving from line 10 to line 11
+    # would churn the finding fingerprint, breaking baseline matches.
+    # The PUBLIC action-surface diff (rendered into report.json /
+    # packet) is enriched separately below from ``public_tools``.
     context = ScanContext(
         manifest=manifest,
         agent=agent,
@@ -713,6 +713,7 @@ def run_scan(
         privacy_audit=privacy_audit,
     )
     apply_capability_diff(report, public_tools)
+    public_report_payload = report_json_payload(report)
     _write_reports(report, generated_paths, manifest.output.formats)
     if packet_cfg.enabled and packet_format_set:
         assert report.release_decision is not None
@@ -731,6 +732,7 @@ def run_scan(
             validation_artifacts=public_validation_artifacts,
             tool_surface_diff=report.tool_surface_diff,
             action_surface_diff=report.action_surface_diff,
+            report_payload=public_report_payload,
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )

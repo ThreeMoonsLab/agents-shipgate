@@ -403,6 +403,110 @@
       "title": "EvidenceCoverageDecision",
       "type": "object"
     },
+    "EvidenceMatrixRow": {
+      "additionalProperties": false,
+      "description": "One compact row in the packet-only evidence matrix.\n\nThe row is a derived review aid only. ``blocking_findings`` and\n``review_items`` are subsets copied from ``release_decision``; the\nmatrix never reclassifies findings or contributes to gate behavior.",
+      "properties": {
+        "blocking_findings": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Blocking Findings",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "unknown",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "mixed",
+            "unknown"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "domain": {
+          "enum": [
+            "Inventory",
+            "Schema",
+            "Auth",
+            "Approval",
+            "Confirmation",
+            "Idempotency",
+            "Side effects",
+            "Memory isolation",
+            "Human-in-the-loop evidence",
+            "Prompt/scope alignment",
+            "Retry/timeout",
+            "Baseline debt",
+            "Action-surface policy"
+          ],
+          "title": "Domain",
+          "type": "string"
+        },
+        "evidence_present": {
+          "enum": [
+            "covered",
+            "partial",
+            "not_declared",
+            "missing",
+            "informational"
+          ],
+          "title": "Evidence Present",
+          "type": "string"
+        },
+        "evidence_source": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Source",
+          "type": "array"
+        },
+        "missing_controls": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Controls",
+          "type": "array"
+        },
+        "review_items": {
+          "items": {
+            "$ref": "#/$defs/ReleaseDecisionItem"
+          },
+          "title": "Review Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain",
+        "evidence_present"
+      ],
+      "title": "EvidenceMatrixRow",
+      "type": "object"
+    },
+    "EvidenceMatrixSection": {
+      "additionalProperties": false,
+      "description": "Compact packet-only review matrix derived from public report JSON.",
+      "properties": {
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/EvidenceMatrixRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "title": "EvidenceMatrixSection",
+      "type": "object"
+    },
     "FailPolicy": {
       "properties": {
         "ci_mode": {
@@ -1321,6 +1425,9 @@
       "additionalProperties": true,
       "title": "Environment",
       "type": "object"
+    },
+    "evidence_matrix": {
+      "$ref": "#/$defs/EvidenceMatrixSection"
     },
     "generated_at": {
       "anyOf": [

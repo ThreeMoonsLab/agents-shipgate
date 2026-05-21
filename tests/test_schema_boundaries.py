@@ -228,14 +228,14 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         contract_version="1",
         cli_version="0.0.0",
         report_schema_version="0.17",
-        packet_schema_version="0.5",
+        packet_schema_version="0.6",
         gating_signal="release_decision.decision",
         manual_review_signals=[],
     ).model_dump(mode="json") == {
         "contract_version": "1",
         "cli_version": "0.0.0",
         "report_schema_version": "0.17",
-        "packet_schema_version": "0.5",
+        "packet_schema_version": "0.6",
         "gating_signal": "release_decision.decision",
         "manual_review_signals": [],
     }
