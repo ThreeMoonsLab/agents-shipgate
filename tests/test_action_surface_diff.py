@@ -15,6 +15,7 @@ from agents_shipgate.report.action_surface_diff import (
     _dedupe_findings,
     build_action_surface_facts,
     compute_action_surface_diff,
+    enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -328,6 +329,104 @@ def test_action_surface_external_side_effect_alias_matches_external_communicatio
         and finding.blocks_release
         for finding in findings
     )
+
+
+def test_enrich_action_surface_diff_appends_tool_source_to_reason():
+    """v0.19 reviewer-grade provenance: every change-row reason gets a
+    ``(source: path:line)`` suffix when the underlying tool source is
+    known. Without this, action-surface change rows in report.json
+    carried no clue where the underlying tool was defined and
+    reviewers had to grep tool_inventory to find the OpenAPI / MCP /
+    SDK line."""
+    base = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:stripe.create_refund",
+                agent_id="agent",
+                tool_id="tool:stripe.create_refund",
+                tool_name="stripe.create_refund",
+                provider="custom",
+                source_type="openapi",
+                operation="create_refund",
+                effect="financial_write",
+                input_schema_hash="0" * 64,
+                approval_policy=ActionApprovalFact(required=True),
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:stripe.create_refund",
+                agent_id="agent",
+                tool_id="tool:stripe.create_refund",
+                tool_name="stripe.create_refund",
+                provider="custom",
+                source_type="openapi",
+                operation="create_refund",
+                effect="financial_write",
+                input_schema_hash="0" * 64,
+                # Approval removed → trigger APPROVAL_REMOVED row.
+                approval_policy=ActionApprovalFact(required=False),
+                hashes=ActionSurfaceHashes(
+                    identity_hash="1" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="1" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    diff = compute_action_surface_diff(current, base)
+    enrich_action_surface_diff_with_source(
+        diff,
+        {"stripe.create_refund": ("api.yaml", 97)},
+    )
+    assert diff.modified
+    approval_removed = next(
+        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
+    )
+    assert approval_removed.reason.endswith("(source: api.yaml:97)"), (
+        approval_removed.reason
+    )
+
+
+def test_enrich_action_surface_diff_skipped_when_index_empty():
+    """No-op when the index is None / empty so callers don't need to
+    branch on the absence of structured source data."""
+    base = ActionSurfaceFacts()
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:t",
+                agent_id="agent",
+                tool_id="tool:t",
+                tool_name="t",
+                provider="custom",
+                source_type="openapi",
+                operation="op",
+                effect="read",
+                input_schema_hash="0" * 64,
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    diff = compute_action_surface_diff(current, base)
+    original_reasons = [row.reason for row in diff.added]
+    enrich_action_surface_diff_with_source(diff, None)
+    enrich_action_surface_diff_with_source(diff, {})
+    assert [row.reason for row in diff.added] == original_reasons
 
 
 def test_action_surface_diff_reports_added_and_removed_actions():

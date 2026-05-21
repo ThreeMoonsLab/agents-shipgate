@@ -277,10 +277,16 @@ def _source_block(finding: Finding) -> dict[str, Any] | None:
     into the per-row scenario YAML.
 
     Returns ``None`` when neither pointer carries usable data so the
-    YAML payload stays terse for findings without provenance.
+    YAML payload stays terse for findings without provenance. Dedupes
+    when the secondary pointer is byte-equal to the primary (e.g.
+    agent-level findings whose primary source IS the manifest
+    pointer) so the YAML never carries two identical ``{path, line,
+    pointer}`` mappings.
     """
     tool_block = _pointer_block(finding.source)
     policy_block = _pointer_block(finding.policy_evidence_source)
+    if policy_block is not None and policy_block == tool_block:
+        policy_block = None
     if tool_block is None and policy_block is None:
         return None
     block: dict[str, Any] = {}

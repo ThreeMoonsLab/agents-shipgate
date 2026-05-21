@@ -112,6 +112,51 @@ def build_action_surface_facts(
     return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
 
 
+def enrich_action_surface_diff_with_source(
+    diff: ActionSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]] | None,
+) -> ActionSurfaceDiff:
+    """Append ``(source: path:line)`` to each change row's ``reason``
+    field when the tool's structured source is known.
+
+    Mutates the diff in place and returns it. ``tool_source_index``
+    maps ``tool_name → (source_path, source_start_line)``; callers
+    pass the index from the live ``Tool`` list (or from the post-scan
+    ``tool_inventory`` rows). Without an index, the diff is returned
+    untouched.
+
+    Without this enrichment, action-surface change rows like
+    ``Action approval policy was removed.`` carry no clue where the
+    underlying tool is defined — reviewers have to grep
+    ``tool_inventory`` to find the OpenAPI / MCP / SDK line. With it,
+    the rendered row reads ``Action approval policy was removed.
+    (source: api.yaml:97)`` so the reviewer can jump straight to the
+    artifact.
+    """
+    if not tool_source_index:
+        return diff
+    for row in (*diff.added, *diff.removed, *diff.modified):
+        suffix = _format_source_suffix(
+            tool_source_index.get(row.tool_name or "")
+        )
+        if suffix:
+            row.reason = f"{row.reason}{suffix}"
+    return diff
+
+
+def _format_source_suffix(
+    entry: tuple[str | None, int | None] | None,
+) -> str:
+    if entry is None:
+        return ""
+    path, line = entry
+    if path and line is not None:
+        return f" (source: {path}:{line})"
+    if path:
+        return f" (source: {path})"
+    return ""
+
+
 def compute_action_surface_diff(
     current: ActionSurfaceFacts,
     base: ActionSurfaceFacts | None,

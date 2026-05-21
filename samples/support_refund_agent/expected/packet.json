@@ -725,16 +725,7 @@
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "fingerprint": "fp_d27325cbdbbf5483",
         "id": "fp_d27325cbdbbf5483",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/permissions/scopes",
-          "ref": "shipgate.yaml#/permissions/scopes",
-          "start_column": null,
-          "start_line": 60,
-          "type": "manifest"
-        },
+        "policy_evidence_source": null,
         "severity": "high",
         "source": {
           "end_line": null,

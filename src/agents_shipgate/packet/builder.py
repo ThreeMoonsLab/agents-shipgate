@@ -161,10 +161,13 @@ def build_packet(
         high_risk_surface=_build_high_risk_surface(
             tools, approval_declared, idempotency_declared
         ),
-        tool_surface_diff=_build_tool_surface_diff(tool_surface_diff),
+        tool_surface_diff=_build_tool_surface_diff(
+            tool_surface_diff, tools
+        ),
         action_surface_diff=_build_action_surface_diff(
             action_surface_diff,
             active,
+            tools,
         ),
         approval_coverage=_build_approval_coverage(
             manifest, api_artifacts, anthropic_artifacts, tools, active
@@ -321,6 +324,13 @@ def _tools_from_inventory(inventory: list[dict]) -> list[Tool]:
                 source_id=None,
                 source_ref=item.get("source_ref"),
                 source_location=None,
+                # v0.19 reviewer-grade provenance: tool_inventory rows
+                # now carry source_path / source_start_line / source_pointer
+                # so reconstructed tools keep the citation surface
+                # working in the rebuilt-from-report packet path.
+                source_path=item.get("source_path"),
+                source_start_line=item.get("source_start_line"),
+                source_pointer=item.get("source_pointer"),
                 input_schema={},
                 output_schema={},
                 parameters=[],
@@ -355,8 +365,37 @@ def _build_release_decision(decision: ReleaseDecision) -> ReleaseDecisionSection
     )
 
 
+def _tool_source_index(
+    tools: list[Tool],
+) -> dict[str, tuple[str | None, int | None]]:
+    """Build the tool-name → ``(source_path, source_start_line)`` map
+    used to annotate §3A / §3B diff highlights with source citations.
+    Mirrors the helper in ``cli.scan`` so both surfaces stay
+    consistent — when both sides are populated, the same suffix lands
+    on machine-readable ``reason`` strings AND on packet markdown
+    highlight bullets."""
+    return {
+        tool.name: (tool.source_path, tool.source_start_line)
+        for tool in tools
+    }
+
+
+def _source_suffix(
+    entry: tuple[str | None, int | None] | None,
+) -> str:
+    if entry is None:
+        return ""
+    path, line = entry
+    if path and line is not None:
+        return f" ({path}:{line})"
+    if path:
+        return f" ({path})"
+    return ""
+
+
 def _build_tool_surface_diff(
     diff: ToolSurfaceDiff | None,
+    tools: list[Tool],
 ) -> ToolSurfaceDiffSection:
     if diff is None:
         return ToolSurfaceDiffSection(
@@ -376,25 +415,44 @@ def _build_tool_surface_diff(
         enabled=True,
         base_kind=diff.base.kind,
         summary=diff.summary,
-        highlights=_tool_surface_diff_highlights(diff),
+        highlights=_tool_surface_diff_highlights(
+            diff, _tool_source_index(tools)
+        ),
         notes=list(diff.notes[:3]),
     )
 
 
-def _tool_surface_diff_highlights(diff: ToolSurfaceDiff) -> list[str]:
+def _tool_surface_diff_highlights(
+    diff: ToolSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]],
+) -> list[str]:
     highlights: list[str] = []
     for item in diff.high_risk_effects:
         if item.kind == "added":
-            highlights.append(f"New high-risk tag {item.tag} on {item.tool}")
+            highlights.append(
+                f"New high-risk tag {item.tag} on {item.tool}"
+                f"{_source_suffix(tool_source_index.get(item.tool))}"
+            )
     for item in diff.controls:
         if item.kind == "removed":
-            highlights.append(f"Removed {item.control} for {item.tool}")
+            highlights.append(
+                f"Removed {item.control} for {item.tool}"
+                f"{_source_suffix(tool_source_index.get(item.tool))}"
+            )
     for item in diff.tools:
         if item.kind == "added":
-            highlights.append(f"Added tool {item.name}")
+            highlights.append(
+                f"Added tool {item.name}"
+                f"{_source_suffix(tool_source_index.get(item.name))}"
+            )
         elif item.kind == "removed":
-            highlights.append(f"Removed tool {item.name}")
+            highlights.append(
+                f"Removed tool {item.name}"
+                f"{_source_suffix(tool_source_index.get(item.name))}"
+            )
     for item in diff.policy_drift:
+        # Policy drift rows reference manifest keys, not tools; no
+        # path:line citation is emitted from the tool index here.
         highlights.append(f"{item.kind.title()} {item.policy_kind} {item.key}")
     return highlights[:5]
 
@@ -402,6 +460,7 @@ def _tool_surface_diff_highlights(diff: ToolSurfaceDiff) -> list[str]:
 def _build_action_surface_diff(
     diff: ActionSurfaceDiff | None,
     findings: list[Finding],
+    tools: list[Tool],
 ) -> ActionSurfaceDiffSection:
     if diff is None:
         return ActionSurfaceDiffSection(
@@ -429,24 +488,34 @@ def _build_action_surface_diff(
         enabled=True,
         base_kind=diff.base.kind,
         summary=diff.summary,
-        highlights=_action_surface_diff_highlights(diff),
+        highlights=_action_surface_diff_highlights(
+            diff, _tool_source_index(tools)
+        ),
         blocking_reasons=_action_surface_blocking_reasons(blocking),
         notes=list(diff.notes[:3]),
     )
 
 
-def _action_surface_diff_highlights(diff: ActionSurfaceDiff) -> list[str]:
+def _action_surface_diff_highlights(
+    diff: ActionSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]],
+) -> list[str]:
     highlights: list[str] = []
     for item in diff.added:
         highlights.append(
             f"Added action {item.tool_name or item.action_id} ({item.severity})"
+            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
         )
     for item in diff.modified:
         highlights.append(
             f"Modified action {item.tool_name or item.action_id}: {item.type} ({item.severity})"
+            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
         )
     for item in diff.removed:
-        highlights.append(f"Removed action {item.tool_name or item.action_id}")
+        highlights.append(
+            f"Removed action {item.tool_name or item.action_id}"
+            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
+        )
     return highlights[:8]
 
 

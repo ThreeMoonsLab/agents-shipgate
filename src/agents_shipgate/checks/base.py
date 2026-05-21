@@ -72,6 +72,15 @@ def agent_finding(
     patches: list[Patch] | None = None,
     policy_evidence_pointer: str | None = None,
 ) -> Finding:
+    # Reviewer-grade dual-source provenance: for agent-level findings
+    # the primary ``source`` IS the manifest pointer. Setting
+    # ``policy_evidence_source`` from the same pointer would produce
+    # identical (path, start_line, pointer) tuples and force every
+    # downstream renderer (packet markdown, SARIF, scenario YAML) to
+    # dedupe before emitting. Skip it here so the contract carries
+    # the secondary pointer only when it genuinely differs from the
+    # primary (the ``tool_finding`` case, where source is the tool's
+    # location and policy_evidence is the manifest).
     return Finding(
         check_id=check_id,
         title=title,
@@ -82,9 +91,7 @@ def agent_finding(
         confidence=parse_confidence(confidence),
         provenance_kind=provenance_kind,
         source=_agent_finding_source(context, policy_evidence_pointer),
-        policy_evidence_source=_policy_evidence_source(
-            context, policy_evidence_pointer
-        ),
+        policy_evidence_source=None,
         recommendation=recommendation,
         patches=patches,
     )

@@ -408,7 +408,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.5)
+### Release Evidence Packet (v0.6)
 
 `scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
 

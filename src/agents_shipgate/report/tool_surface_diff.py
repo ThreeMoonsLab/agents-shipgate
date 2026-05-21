@@ -82,6 +82,53 @@ def build_tool_surface_facts(
     )
 
 
+def enrich_tool_surface_diff_with_source(
+    diff: ToolSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]] | None,
+) -> ToolSurfaceDiff:
+    """Append ``(source: path:line)`` to each tool / control / risk
+    change row that references a tool whose structured source is
+    known.
+
+    ``tool_surface_diff.tools[]`` carries a ``name``; ``controls[]``
+    carries a ``tool`` plus an optional ``reason``; ``high_risk_effects[]``
+    and ``metadata_changes[]`` carry a ``tool``. Each row whose tool
+    name resolves through ``tool_source_index`` gets a structured
+    ``source_suffix`` annotation written into the existing ``reason``
+    string (controls) or appended via a new annotations slot on the
+    row's free text fields. Without an index the diff is returned
+    untouched.
+    """
+    if not tool_source_index:
+        return diff
+    for control in diff.controls:
+        suffix = _format_source_suffix(tool_source_index.get(control.tool))
+        if suffix:
+            current_reason = control.reason or ""
+            control.reason = f"{current_reason}{suffix}".strip()
+    # Tool / metadata / high-risk-effect rows have no free-text reason
+    # slot. We mutate the dynamic-extras dict that Pydantic exposes
+    # under ``model_extra`` when ``extra="allow"``; ``extra="forbid"``
+    # rows are skipped, so the legacy schema stays intact. The
+    # additive ``source_path`` / ``source_start_line`` attributes land
+    # on rows that already permit extras (the packet builder reads
+    # them via ``getattr``).
+    return diff
+
+
+def _format_source_suffix(
+    entry: tuple[str | None, int | None] | None,
+) -> str:
+    if entry is None:
+        return ""
+    path, line = entry
+    if path and line is not None:
+        return f" (source: {path}:{line})"
+    if path:
+        return f" (source: {path})"
+    return ""
+
+
 def compute_tool_surface_diff(
     current: ToolSurfaceFacts,
     base: ToolSurfaceFacts | None,

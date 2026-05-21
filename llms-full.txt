@@ -433,7 +433,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.5)
+### Release Evidence Packet (v0.6)
 
 `scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
 
@@ -911,11 +911,14 @@ Per-finding `provenance_kind` enum (v0.15+), additive classification — read th
 Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
 
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
-Packet schema `0.5` preserves the v0.4 HITL fields
-(`human_in_the_loop.runtime_control_disclaimer` and
-`human_in_the_loop.source_provenance[]`) and adds
-`action_surface_diff` so packet-only consumers can see release-blocking action
-changes. The `release_decision.verdict` label includes
+Packet schema `0.6` adds `ReleaseDecisionItem.source` and
+`ReleaseDecisionItem.policy_evidence_source` so packet §1 / §2
+re-renders carry the same dual-source provenance that
+`Finding.source` / `Finding.policy_evidence_source` expose in the
+report. It preserves every v0.5 field
+(`human_in_the_loop.runtime_control_disclaimer`,
+`human_in_the_loop.source_provenance[]`, `action_surface_diff`).
+The `release_decision.verdict` label includes
 `INSUFFICIENT EVIDENCE` when the report decision is insufficient evidence.
 
 ## Don't use for new gating

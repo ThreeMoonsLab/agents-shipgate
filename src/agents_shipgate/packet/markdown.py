@@ -78,6 +78,22 @@ def _citation(source: object | None) -> str:
         return f" — `{_escape(legacy)}`"
     return ""
 
+
+def _dual_citation(primary: object | None, secondary: object | None) -> str:
+    """Render up to two source citations, deduped so renderer output
+    never carries the same `path:line` twice.
+
+    Defends against plugins (or future code paths) that populate both
+    ``Finding.source`` and ``Finding.policy_evidence_source`` from the
+    same manifest pointer. The primary citation always wins; the
+    secondary is suppressed when it would produce a byte-equal suffix.
+    """
+    primary_text = _citation(primary)
+    secondary_text = _citation(secondary)
+    if not secondary_text or secondary_text == primary_text:
+        return primary_text
+    return primary_text + secondary_text
+
 _STATUS_LABEL: dict[SectionStatus, str] = {
     "covered": "covered",
     "partial": "partial",
@@ -183,11 +199,13 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             # and .policy_evidence_source mirror Finding.source and
             # Finding.policy_evidence_source so the citation works for
             # packet markdown re-rendered from packet.json too.
+            # ``_dual_citation`` dedupes when both pointers resolve to
+            # the same ``path:line`` (e.g. agent-level findings where
+            # the manifest IS the primary source).
             lines.append(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
                 f"{_escape(item.title)}"
-                f"{_citation(item.source)}"
-                f"{_citation(item.policy_evidence_source)}"
+                f"{_dual_citation(item.source, item.policy_evidence_source)}"
             )
         lines.append("")
     if section.review_items:
@@ -197,8 +215,7 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             lines.append(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
                 f"{_escape(item.title)}"
-                f"{_citation(item.source)}"
-                f"{_citation(item.policy_evidence_source)}"
+                f"{_dual_citation(item.source, item.policy_evidence_source)}"
             )
         lines.append("")
 
@@ -240,8 +257,7 @@ def _append_capability_intent(lines: list[str], section: CapabilityIntentDiff) -
             lines.append(
                 f"- `{_escape(item.check_id)}`{suffix}: "
                 f"{_escape(item.title)}"
-                f"{_citation(item.source)}"
-                f"{_citation(item.policy_evidence_source)}"
+                f"{_dual_citation(item.source, item.policy_evidence_source)}"
             )
         lines.append("")
 

@@ -116,13 +116,19 @@ def _result(finding: Finding) -> dict[str, Any]:
     # manifest evidence pointer (Finding.policy_evidence_source). SARIF
     # 2.1.0 ``locations`` accepts a list, so reviewers opening the
     # SARIF in an IDE see both lines as separate jump targets.
+    # Dedupe by physicalLocation so agent-level findings (where the
+    # primary source IS the manifest pointer) don't emit two identical
+    # locations — code-scanning UIs render them as visual duplicates.
     locations: list[dict[str, Any]] = []
-    primary = _location(finding)
-    if primary is not None:
-        locations.append(primary)
-    secondary = _policy_evidence_location(finding)
-    if secondary is not None:
-        locations.append(secondary)
+    seen_physical: list[dict[str, Any]] = []
+    for candidate in (_location(finding), _policy_evidence_location(finding)):
+        if candidate is None:
+            continue
+        physical = candidate.get("physicalLocation")
+        if physical in seen_physical:
+            continue
+        seen_physical.append(physical)
+        locations.append(candidate)
     if locations:
         result["locations"] = locations
     return result

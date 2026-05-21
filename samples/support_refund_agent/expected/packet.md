@@ -33,7 +33,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): zendesk.update\_ticket accepts broad free-form action input — `specs/support-tools.openapi.yaml:142`
 - `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): gmail.send\_customer\_email accepts broad free-form action input — `.agents-shipgate/mcp-tools.json\#/tools/1`
 - `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output — `agents/refund\_agent.py:5`
-- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:60` — `shipgate.yaml:60`
+- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:60`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): gmail.send\_customer\_email requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/1`

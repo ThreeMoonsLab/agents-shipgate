@@ -79,6 +79,7 @@ from agents_shipgate.report.action_surface_diff import (
     attach_action_surface_finding_summary,
     build_action_surface_facts,
     compute_action_surface_diff,
+    enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
 from agents_shipgate.report.capability_diff import apply_capability_diff
@@ -91,6 +92,7 @@ from agents_shipgate.report.tool_surface_diff import (
     build_tool_surface_facts,
     compute_tool_surface_diff,
     disabled_tool_surface_diff,
+    enrich_tool_surface_diff_with_source,
     load_tool_surface_diff_reference,
     reference_from_baseline,
 )
@@ -264,6 +266,15 @@ def run_scan(
     if diff_reference_error:
         action_surface_diff.enabled = False
         action_surface_diff.notes = [diff_reference_error]
+    # v0.19 reviewer-grade provenance: enrich the internal
+    # (non-public) action-surface diff rows with the tool path:line
+    # citation before they're used downstream (release_decision
+    # contribution rules, finding policy evaluation). The public
+    # diff below goes through the same enrichment with the redacted
+    # tool list so both surfaces stay consistent.
+    enrich_action_surface_diff_with_source(
+        action_surface_diff, _tool_source_index(tools)
+    )
     context = ScanContext(
         manifest=manifest,
         agent=agent,
@@ -527,6 +538,13 @@ def run_scan(
             stats=privacy_stats,
             path="action_surface_diff.notes",
         )
+    # v0.19 reviewer-grade provenance: enrich the PUBLIC action-surface
+    # diff rows from ``public_tools`` (already sanitized) so the
+    # rendered ``report.json`` and packet §3B carry tool source
+    # citations on every reason field.
+    enrich_action_surface_diff_with_source(
+        public_action_surface_diff, _tool_source_index(public_tools)
+    )
 
     baseline_summary = None
     if baseline_file and baseline_display_path:
@@ -629,6 +647,13 @@ def run_scan(
             public_findings,
             reference=public_diff_reference,
         )
+    # v0.19 reviewer-grade provenance: enrich tool-surface diff
+    # controls (and any other reason-bearing rows) with the public
+    # tool path:line citation so the rendered report.json and packet
+    # §3A carry source info on every change-row reason.
+    enrich_tool_surface_diff_with_source(
+        public_tool_surface_diff, _tool_source_index(public_tools)
+    )
     privacy_audit = build_privacy_audit(
         privacy_stats,
         output_surfaces=output_surfaces,
@@ -920,6 +945,24 @@ def _load_sources(
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 
     return per_source_loaded + per_scan_loaded, bag
+
+
+def _tool_source_index(
+    tools: list[Tool],
+) -> dict[str, tuple[str | None, int | None]]:
+    """Build a tool-name → ``(source_path, source_start_line)`` map for
+    surface-diff enrichment.
+
+    Used by ``enrich_action_surface_diff_with_source`` and
+    ``enrich_tool_surface_diff_with_source`` to append
+    ``(source: path:line)`` to change-row ``reason`` strings, and by
+    the packet builder to suffix §3A / §3B highlights. Empty when the
+    tool list is empty so callers can rely on a boolean test.
+    """
+    return {
+        tool.name: (tool.source_path, tool.source_start_line)
+        for tool in tools
+    }
 
 
 def _artifact_warnings(artifact_bag: ArtifactBag) -> list[str]:

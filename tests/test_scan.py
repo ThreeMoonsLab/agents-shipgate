@@ -163,6 +163,68 @@ ci:
     assert exit_code == 20
 
 
+def test_agent_finding_does_not_emit_duplicate_policy_evidence_source(tmp_path):
+    """v0.19 reviewer-grade provenance: agent-level findings have a
+    single citation site (the manifest pointer IS the primary
+    ``source``). Setting ``policy_evidence_source`` to the same
+    pointer would force every downstream renderer (packet markdown,
+    SARIF, scenario YAML) to dedupe and would otherwise produce
+    ``... — shipgate.yaml:N — shipgate.yaml:N`` style output.
+
+    Regression: an early v0.19 draft set both source AND
+    policy_evidence_source from the same manifest pointer.
+    """
+    import json as _json
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        '{"tools": [{"name": "docs.read", "description": "read", '
+        '"annotations": {"readOnlyHint": true}}]}',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project: {name: dedupe-test}
+agent:
+  name: t
+  declared_purpose: [read]
+environment: {target: local}
+tool_sources:
+  - {id: tools, type: mcp, path: tools.json}
+permissions:
+  scopes: ["*"]
+ci: {mode: advisory}
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "out",
+        formats=["json", "sarif"],
+        ci_mode="advisory",
+    )
+    broad = next(
+        f for f in report.findings if f.check_id == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
+    )
+    # Primary source carries the manifest pointer.
+    assert broad.source is not None
+    assert broad.source.path == "shipgate.yaml"
+    assert broad.source.pointer == "/permissions/scopes"
+    # Secondary is None — the agent-level finding has only one site.
+    assert broad.policy_evidence_source is None
+    # SARIF emits exactly one location, not two duplicates.
+    sarif = _json.loads(
+        (tmp_path / "out" / "report.sarif").read_text(encoding="utf-8")
+    )
+    matches = [
+        r for r in sarif["runs"][0]["results"]
+        if r["ruleId"] == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
+    ]
+    assert matches and len(matches[0].get("locations", [])) == 1
+
+
 def test_policy_evidence_source_threads_manifest_pointer(tmp_path):
     """High-risk policy/idempotency findings must carry both source
     pointers: the tool location (in ``Finding.source``) AND the manifest
