@@ -529,7 +529,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.5",
+  "packet_schema_version": "0.6",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -741,7 +741,7 @@
           "location": null,
           "path": "shipgate.yaml",
           "pointer": "/permissions/scopes",
-          "ref": "shipgate.yaml#/permissions/scopes",
+          "ref": "shipgate.yaml",
           "start_column": null,
           "start_line": 60,
           "type": "manifest"
@@ -996,7 +996,7 @@
     ],
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_79e79939da7265db",
+  "run_id": "agents_shipgate_ebb71d7248235cc3",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

@@ -100,12 +100,16 @@ def _agent_finding_source(
     """Return the primary ``Finding.source`` for an agent-level finding.
 
     For agent findings the "primary" source IS the manifest pointer
-    (there is no underlying Tool). Threading ``path``/``start_line``
-    here means a reviewer opening the SARIF or report.json sees the
-    manifest line directly. ``location`` intentionally stays None so
-    ``_run_id`` — which hashes legacy ``source.ref``/``source.location``
-    but not the structured fields — remains stable across scans that
-    upgrade their pointer threading.
+    (there is no underlying Tool). Structured ``path`` / ``start_line``
+    / ``pointer`` carry the v0.19 reviewer-grade fields so SARIF and
+    report.json show the manifest line. ``ref`` and ``location``
+    intentionally stay as the bare manifest filename so ``_run_id``
+    — which hashes legacy ``source.ref`` / ``source.location`` for
+    backwards compatibility — does NOT churn for findings that
+    previously emitted ``SourceReference(type="manifest", ref=<name>)``
+    only. The new manifest pointer is reachable via the structured
+    ``pointer`` field plus ``policy_evidence_source`` for downstream
+    consumers; the legacy hash inputs are deliberately frozen.
     """
     ref = _manifest_ref(context.config_path)
     if policy_evidence_pointer is None:
@@ -113,7 +117,7 @@ def _agent_finding_source(
     line = _lookup_position(context, policy_evidence_pointer)
     return SourceReference(
         type="manifest",
-        ref=f"{ref}#{policy_evidence_pointer}",
+        ref=ref,
         path=ref,
         start_line=line,
         pointer=policy_evidence_pointer,

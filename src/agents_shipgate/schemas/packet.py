@@ -278,7 +278,15 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.5"] = "0.5"
+    # v0.6 (this PR): ``ReleaseDecisionItem`` (imported from the report
+    # schema) gained the optional ``source`` and ``policy_evidence_source``
+    # pointers for reviewer-grade dual-source provenance. The packet
+    # version bumps so consumers that validate against the frozen
+    # v0.5 schema (``additionalProperties: false`` on the
+    # ``ReleaseDecisionItem`` defs) can either pin v0.5 packets or
+    # upgrade to v0.6 — STABILITY.md's "frozen schema by version"
+    # contract is preserved.
+    packet_schema_version: Literal["0.6"] = "0.6"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

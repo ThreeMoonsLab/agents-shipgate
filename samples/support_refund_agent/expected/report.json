@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.19",
-  "run_id": "agents_shipgate_79e79939da7265db",
+  "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -250,7 +250,7 @@
         "blocks_release": false,
         "source": {
           "type": "manifest",
-          "ref": "shipgate.yaml#/permissions/scopes",
+          "ref": "shipgate.yaml",
           "location": null,
           "path": "shipgate.yaml",
           "start_line": 60,
@@ -728,7 +728,7 @@
       "id": "cap_fd7aa0505dafb1dc",
       "tool_name": "shopify.cancel_order",
       "source_type": "openapi",
-      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post#L116",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
       "capability": "destructive",
       "risk_tags": [
         "destructive",
@@ -749,7 +749,7 @@
       "id": "cap_4df422ae44a17657",
       "tool_name": "stripe.create_refund",
       "source_type": "openapi",
-      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post#L97",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
       "capability": "financial_action",
       "risk_tags": [
         "external_write",
@@ -808,7 +808,7 @@
       "id": "cap_0da3f29d7a7c1ee8",
       "tool_name": "zendesk.update_ticket",
       "source_type": "openapi",
-      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch#L142",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
       "capability": "write",
       "risk_tags": [
         "write"
@@ -2305,7 +2305,7 @@
       "provenance_kind": "keyword_heuristic",
       "source": {
         "type": "manifest",
-        "ref": "shipgate.yaml#/permissions/scopes",
+        "ref": "shipgate.yaml",
         "location": null,
         "path": "shipgate.yaml",
         "start_line": 60,
@@ -2898,8 +2898,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpr_dwkybf/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpr_dwkybf/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp6ldhejjh/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp6ldhejjh/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
