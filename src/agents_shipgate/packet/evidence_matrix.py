@@ -444,7 +444,6 @@ def _domains_for_release_item(item: ReleaseDecisionItem) -> set[EvidenceMatrixDo
     return _domains_for_check_id(
         check_id=item.check_id,
         baseline_status=item.baseline_status,
-        blocks_release=item.blocks_release,
     )
 
 
@@ -452,12 +451,10 @@ def _domains_for_finding(finding: dict[str, Any]) -> set[EvidenceMatrixDomain]:
     check_id = str(finding.get("check_id") or "")
     category = str(finding.get("category") or "")
     baseline_status = finding.get("baseline_status")
-    blocks_release = finding.get("blocks_release") is True
     return _domains_for_check_id(
         check_id=check_id,
         category=category,
         baseline_status=baseline_status if isinstance(baseline_status, str) else None,
-        blocks_release=blocks_release,
     )
 
 
@@ -466,7 +463,6 @@ def _domains_for_check_id(
     check_id: str,
     category: str = "",
     baseline_status: str | None = None,
-    blocks_release: bool = False,
 ) -> set[EvidenceMatrixDomain]:
     domains: set[EvidenceMatrixDomain] = set()
 
@@ -492,11 +488,7 @@ def _domains_for_check_id(
         domains.add("Retry/timeout")
     if check_id in _BASELINE_CHECKS or category == "baseline":
         domains.add("Baseline debt")
-    if (
-        check_id.startswith("SHIP-ACTION-")
-        or category == "action_surface"
-        or blocks_release
-    ):
+    if check_id.startswith("SHIP-ACTION-") or category == "action_surface":
         domains.add("Action-surface policy")
     if baseline_status == "matched":
         domains.add("Baseline debt")

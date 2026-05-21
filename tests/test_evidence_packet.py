@@ -315,19 +315,28 @@ def test_evidence_matrix_confidence_mixed_stays_domain_local():
     assert approval.confidence == "unknown"
 
 
-def test_evidence_matrix_action_surface_uses_blocks_release_finding():
+def test_evidence_matrix_action_surface_uses_blocks_release_for_action_finding():
     payload = {
         "release_decision": {
             "blockers": [
                 {
                     "id": "blocker-1",
                     "fingerprint": "fp_blocker",
+                    "check_id": "SHIP-ACTION-CONTROL-DOWNGRADE",
+                    "severity": "critical",
+                    "title": "Action control downgraded",
+                    "baseline_status": None,
+                    "blocks_release": True,
+                },
+                {
+                    "id": "non-action-blocker",
+                    "fingerprint": "fp_non_action",
                     "check_id": "SHIP-POLICY-APPROVAL-MISSING",
                     "severity": "critical",
                     "title": "Approval missing",
                     "baseline_status": None,
                     "blocks_release": True,
-                }
+                },
             ],
             "review_items": [],
         },
@@ -335,6 +344,18 @@ def test_evidence_matrix_action_surface_uses_blocks_release_finding():
             {
                 "id": "finding-1",
                 "fingerprint": "fp_blocker",
+                "check_id": "SHIP-ACTION-CONTROL-DOWNGRADE",
+                "severity": "critical",
+                "category": "action_surface",
+                "title": "Action control downgraded",
+                "tool_name": "refund",
+                "confidence": "high",
+                "suppressed": False,
+                "blocks_release": True,
+            },
+            {
+                "id": "non-action-finding",
+                "fingerprint": "fp_non_action",
                 "check_id": "SHIP-POLICY-APPROVAL-MISSING",
                 "severity": "critical",
                 "category": "policy",
@@ -343,7 +364,7 @@ def test_evidence_matrix_action_surface_uses_blocks_release_finding():
                 "confidence": "high",
                 "suppressed": False,
                 "blocks_release": True,
-            }
+            },
         ],
     }
 
@@ -354,11 +375,15 @@ def test_evidence_matrix_action_surface_uses_blocks_release_finding():
 
     assert "findings[].blocks_release" in action_surface.evidence_source
     assert any(
+        "SHIP-ACTION-CONTROL-DOWNGRADE" in item
+        for item in action_surface.missing_controls
+    )
+    assert not any(
         "SHIP-POLICY-APPROVAL-MISSING" in item
         for item in action_surface.missing_controls
     )
     assert [item.check_id for item in action_surface.blocking_findings] == [
-        "SHIP-POLICY-APPROVAL-MISSING"
+        "SHIP-ACTION-CONTROL-DOWNGRADE"
     ]
 
 
