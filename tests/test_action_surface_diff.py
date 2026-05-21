@@ -25,6 +25,7 @@ from agents_shipgate.schemas.surfaces import (
     ActionEvidenceFact,
     ActionFact,
     ActionSafeguardsFact,
+    ActionSurfaceChange,
     ActionSurfaceDiff,
     ActionSurfaceFacts,
     ActionSurfaceHashes,
@@ -406,6 +407,50 @@ def test_enrich_action_surface_diff_populates_structured_source_fields():
     assert approval_removed.source_start_line == 97
     # Reason stays byte-stable so finding fingerprints don't churn.
     assert approval_removed.reason == pre_reason
+
+
+def test_action_policy_finding_evidence_excludes_v019_source_fields():
+    """v0.19 reviewer-grade provenance: ``ActionSurfaceChange`` carries
+    ``source_path`` / ``source_start_line`` fields but
+    ``evaluate_action_surface_policies`` MUST NOT include them in the
+    ``evidence`` payload it dumps into action policy findings, or every
+    existing action-surface finding fingerprint would churn relative
+    to pre-v0.19 baselines (even when the new fields are ``None``,
+    their mere presence as keys shifts the canonicalised hash).
+
+    Regression for review #5: ``change.model_dump(mode='json')``
+    silently included ``source_path: None`` / ``source_start_line: None``
+    keys; finding_fingerprint hashed them and the same legacy change
+    payload produced two different fingerprints. The fix excludes
+    those keys at the dump site so the evidence stays byte-equal to
+    legacy. The diff row itself still carries the structured fields
+    for renderers.
+    """
+    from agents_shipgate.report.action_surface_diff import _change_evidence
+
+    change = ActionSurfaceChange(
+        type="APPROVAL_REMOVED",
+        action_id="agent:t",
+        agent_id="agent",
+        tool_name="t",
+        operation="op",
+        severity="critical",
+        reason="Action approval policy was removed.",
+        before={"required": True},
+        after={"required": False},
+    )
+    # Pre-enrichment dump — same as a pre-v0.19 payload.
+    pre = _change_evidence(change)
+    # Enrich to simulate the public diff carrying source fields.
+    change.source_path = "api.yaml"
+    change.source_start_line = 97
+    # Post-enrichment dump must still match — source fields excluded.
+    post = _change_evidence(change)
+    assert pre == post, "evidence dump must drop source_path/source_start_line"
+    assert "source_path" not in post
+    assert "source_start_line" not in post
+    # Reason and other fields are preserved verbatim.
+    assert post["reason"] == "Action approval policy was removed."
 
 
 def test_enrich_action_surface_diff_does_not_mutate_reason():
