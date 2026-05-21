@@ -29,6 +29,8 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF,
     PACKET_NON_PROOF_HEADLINE,
 )
+from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
+from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.common import (
     HitlSourceProvenance,
     sorted_hitl_source_provenance,
@@ -130,6 +132,7 @@ def build_packet(
     validation_artifacts: ValidationArtifacts | None = None,
     tool_surface_diff: ToolSurfaceDiff | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
+    report_payload: dict | None = None,
     generated_at: str | None = None,
     config_ref: str = "shipgate.yaml",
     hitl_provenance_mode: str = "fresh_scan",
@@ -157,6 +160,7 @@ def build_packet(
         agent=agent,
         environment=environment,
         release_decision=_build_release_decision(release_decision),
+        evidence_matrix=build_evidence_matrix(report_payload),
         capability_intent=_build_capability_intent(manifest, agent, tools, active),
         high_risk_surface=_build_high_risk_surface(
             tools, approval_declared, idempotency_declared
@@ -241,6 +245,7 @@ def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
         source_warnings=list(report.source_warnings),
         tool_surface_diff=report.tool_surface_diff,
         action_surface_diff=report.action_surface_diff,
+        report_payload=report_json_payload(report),
         hitl_provenance_mode="rebuilt_from_findings",
     )
     packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)

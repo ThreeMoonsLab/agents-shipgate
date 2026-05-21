@@ -106,18 +106,19 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json)
-and has fixed reviewer sections (release decision, capability/intent,
+default. The packet is governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
+and has fixed reviewer sections (release decision, evidence matrix, capability/intent,
 high-risk surface, tool-surface diff, action-surface diff, approval coverage,
 idempotency risk, scope coverage, memory isolation, human-in-the-loop,
 dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v05).
-Packet schema v0.5 adds the packet-level `action_surface_diff` section and
-preserves the v0.4 `INSUFFICIENT EVIDENCE` verdict label, HITL
-runtime-control disclaimer text, and local HITL source provenance when
-validation evidence artifacts are available.
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
+Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
+adds `evidence_matrix`, a compact packet-only review aid derived from public
+`report.json` fields. The matrix never contributes to `release_decision`, CI
+exit behavior, severity, suppression, baseline matching, or `agent_summary`;
+its blocker and review-item cells are copied from `release_decision`.
 Skip emission with `--no-packet`; re-render later with
 `agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json`.
 

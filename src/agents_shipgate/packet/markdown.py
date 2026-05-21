@@ -23,6 +23,7 @@ from agents_shipgate.schemas.packet import (
     ApprovalCoverageSection,
     CapabilityIntentDiff,
     DynamicScenariosSection,
+    EvidenceMatrixSection,
     EvidencePacket,
     HighRiskSurfaceSection,
     HumanInTheLoopEvidence,
@@ -34,6 +35,7 @@ from agents_shipgate.schemas.packet import (
     SectionStatus,
     ToolSurfaceDiffSection,
 )
+from agents_shipgate.schemas.report import ReleaseDecisionItem
 
 
 def _escape(value: object) -> str:
@@ -67,6 +69,7 @@ def render_packet_markdown(packet: EvidencePacket) -> str:
     lines: list[str] = []
     _append_header(lines, packet)
     _append_release_decision(lines, packet.release_decision)
+    _append_evidence_matrix(lines, packet.evidence_matrix)
     _append_capability_intent(lines, packet.capability_intent)
     _append_high_risk_surface(lines, packet.high_risk_surface)
     _append_tool_surface_diff(lines, packet.tool_surface_diff)
@@ -163,6 +166,56 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
                 f"{_escape(item.title)}"
             )
         lines.append("")
+
+
+def _append_evidence_matrix(lines: list[str], section: EvidenceMatrixSection) -> None:
+    lines.append("## §1A Evidence matrix — compact review summary")
+    lines.append("")
+    if section.notes:
+        for note in section.notes:
+            lines.append(f"- {_escape(note)}")
+        lines.append("")
+    lines.append(
+        "| Domain | Evidence present | Evidence source | Confidence | "
+        "Missing controls | Blocking findings | Review items |"
+    )
+    lines.append("|---|---|---|---|---|---|---|")
+    for row in section.rows:
+        lines.append(
+            f"| {_escape_table_cell(row.domain)} "
+            f"| {_escape_table_cell(row.evidence_present)} "
+            f"| {_escape_table_cell(_compact_text(row.evidence_source))} "
+            f"| {_escape_table_cell(row.confidence)} "
+            f"| {_escape_table_cell(_compact_text(row.missing_controls))} "
+            f"| {_escape_table_cell(_compact_decision_items(row.blocking_findings))} "
+            f"| {_escape_table_cell(_compact_decision_items(row.review_items))} |"
+        )
+    lines.append("")
+
+
+def _compact_text(values: list[str], *, limit: int = 2) -> str:
+    if not values:
+        return "—"
+    shown = values[:limit]
+    suffix = f"; +{len(values) - limit} more" if len(values) > limit else ""
+    return "; ".join(shown) + suffix
+
+
+def _compact_decision_items(
+    values: list[ReleaseDecisionItem],
+    *,
+    limit: int = 2,
+) -> str:
+    if not values:
+        return "—"
+    labels = []
+    for item in values[:limit]:
+        tool_suffix = ""
+        if getattr(item, "baseline_status", None):
+            tool_suffix = f" [{item.baseline_status}]"
+        labels.append(f"{item.check_id} ({item.severity}){tool_suffix}")
+    suffix = f"; +{len(values) - limit} more" if len(values) > limit else ""
+    return "; ".join(labels) + suffix
 
 
 def _append_capability_intent(lines: list[str], section: CapabilityIntentDiff) -> None:

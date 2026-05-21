@@ -293,6 +293,421 @@
     "promotion_to": "production_like",
     "target": "production_like"
   },
+  "evidence_matrix": {
+    "notes": [
+      "Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens."
+    ],
+    "rows": [
+      {
+        "blocking_findings": [],
+        "confidence": "high",
+        "domain": "Inventory",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_inventory",
+          "tool_surface",
+          "source_warnings",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-INVENTORY-WILDCARD-TOOLS on wildcard_mcp_tools.*: Wildcard tool exposure declared"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
+            "fingerprint": "fp_fc02d8ecd30f2578",
+            "id": "fp_fc02d8ecd30f2578",
+            "severity": "high",
+            "title": "Wildcard tool exposure declared"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "mixed",
+        "domain": "Schema",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_surface_facts.tools[].hashes",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-SCHEMA-MISSING-BOUNDS on stripe.create_refund: stripe.create_refund.amount has no maximum bound",
+          "SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update_ticket: zendesk.update_ticket accepts broad free-form action input",
+          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input",
+          "SHIP-SCHEMA-FREEFORM-OUTPUT on send_email_preview: send_email_preview returns free-form text output"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
+            "fingerprint": "fp_ab60b01cb53cfcbe",
+            "id": "fp_ab60b01cb53cfcbe",
+            "severity": "high",
+            "title": "stripe.create_refund.amount has no maximum bound"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+            "fingerprint": "fp_ff2f028953d1c220",
+            "id": "fp_ff2f028953d1c220",
+            "severity": "high",
+            "title": "zendesk.update_ticket accepts broad free-form action input"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+            "fingerprint": "fp_acd63b899d49aa1c",
+            "id": "fp_acd63b899d49aa1c",
+            "severity": "high",
+            "title": "gmail.send_customer_email accepts broad free-form action input"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+            "fingerprint": "fp_85f8513ad72cd9ea",
+            "id": "fp_85f8513ad72cd9ea",
+            "severity": "medium",
+            "title": "send_email_preview returns free-form text output"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "mixed",
+        "domain": "Auth",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_surface_facts.scopes",
+          "tool_inventory[].auth_scopes",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes",
+          "SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel_order: shopify.cancel_order requires scopes not declared in the manifest",
+          "SHIP-AUTH-SCOPE-COVERAGE-MISSING on support.search_kb: support.search_kb requires scopes not declared in the manifest",
+          "SHIP-AUTH-SCOPE-COVERAGE-MISSING on gmail.send_customer_email: gmail.send_customer_email requires scopes not declared in the manifest",
+          "SHIP-MANIFEST-UNUSED-SCOPE: Manifest declares unused permission scope zendesk:tickets:read"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
+            "fingerprint": "fp_d27325cbdbbf5483",
+            "id": "fp_d27325cbdbbf5483",
+            "severity": "high",
+            "title": "Manifest declares broad permission scopes"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+            "fingerprint": "fp_83852fbd6b440524",
+            "id": "fp_83852fbd6b440524",
+            "severity": "high",
+            "title": "shopify.cancel_order requires scopes not declared in the manifest"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+            "fingerprint": "fp_d8e6d1865dae97cc",
+            "id": "fp_d8e6d1865dae97cc",
+            "severity": "high",
+            "title": "support.search_kb requires scopes not declared in the manifest"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+            "fingerprint": "fp_1f6cfd6b7daa9b7c",
+            "id": "fp_1f6cfd6b7daa9b7c",
+            "severity": "high",
+            "title": "gmail.send_customer_email requires scopes not declared in the manifest"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
+            "fingerprint": "fp_39b9ae878f343d1b",
+            "id": "fp_39b9ae878f343d1b",
+            "severity": "medium",
+            "title": "Manifest declares unused permission scope zendesk:tickets:read"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+            "fingerprint": "fp_f092940f62fbb012",
+            "id": "fp_f092940f62fbb012",
+            "severity": "critical",
+            "title": "stripe.create_refund lacks a declared approval policy"
+          }
+        ],
+        "confidence": "high",
+        "domain": "Approval",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_surface_facts.controls[kind=approval_policy]",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund: stripe.create_refund lacks a declared approval policy"
+        ],
+        "review_items": []
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "high",
+        "domain": "Confirmation",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_surface_facts.controls[kind=confirmation_policy]",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-POLICY-CONFIRMATION-MISSING on stripe.create_refund: stripe.create_refund lacks a declared confirmation policy",
+          "SHIP-POLICY-CONFIRMATION-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks a declared confirmation policy"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+            "fingerprint": "fp_a62ca2fd9a68a1d1",
+            "id": "fp_a62ca2fd9a68a1d1",
+            "severity": "high",
+            "title": "stripe.create_refund lacks a declared confirmation policy"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+            "fingerprint": "fp_8e08a4fe6b0917f6",
+            "id": "fp_8e08a4fe6b0917f6",
+            "severity": "high",
+            "title": "gmail.send_customer_email lacks a declared confirmation policy"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+            "fingerprint": "fp_dac8011e14c53777",
+            "id": "fp_dac8011e14c53777",
+            "severity": "critical",
+            "title": "stripe.create_refund lacks idempotency evidence"
+          }
+        ],
+        "confidence": "mixed",
+        "domain": "Idempotency",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_surface_facts.controls[kind=idempotency_evidence]",
+          "action_surface_facts.actions[].safeguards.idempotency",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on stripe.create_refund: stripe.create_refund lacks idempotency evidence",
+          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks idempotency evidence"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+            "fingerprint": "fp_0f8aaa912d589cf0",
+            "id": "fp_0f8aaa912d589cf0",
+            "severity": "high",
+            "title": "gmail.send_customer_email lacks idempotency evidence"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+            "fingerprint": "fp_f092940f62fbb012",
+            "id": "fp_f092940f62fbb012",
+            "severity": "critical",
+            "title": "stripe.create_refund lacks a declared approval policy"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+            "fingerprint": "fp_dac8011e14c53777",
+            "id": "fp_dac8011e14c53777",
+            "severity": "critical",
+            "title": "stripe.create_refund lacks idempotency evidence"
+          }
+        ],
+        "confidence": "mixed",
+        "domain": "Side effects",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "tool_inventory[].risk_tags",
+          "action_surface_facts.actions[].effect",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update_ticket: zendesk.update_ticket accepts broad free-form action input",
+          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input",
+          "SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund: stripe.create_refund lacks a declared approval policy",
+          "SHIP-POLICY-CONFIRMATION-MISSING on stripe.create_refund: stripe.create_refund lacks a declared confirmation policy",
+          "SHIP-POLICY-CONFIRMATION-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks a declared confirmation policy",
+          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on stripe.create_refund: stripe.create_refund lacks idempotency evidence",
+          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks idempotency evidence"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+            "fingerprint": "fp_ff2f028953d1c220",
+            "id": "fp_ff2f028953d1c220",
+            "severity": "high",
+            "title": "zendesk.update_ticket accepts broad free-form action input"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+            "fingerprint": "fp_acd63b899d49aa1c",
+            "id": "fp_acd63b899d49aa1c",
+            "severity": "high",
+            "title": "gmail.send_customer_email accepts broad free-form action input"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+            "fingerprint": "fp_a62ca2fd9a68a1d1",
+            "id": "fp_a62ca2fd9a68a1d1",
+            "severity": "high",
+            "title": "stripe.create_refund lacks a declared confirmation policy"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+            "fingerprint": "fp_8e08a4fe6b0917f6",
+            "id": "fp_8e08a4fe6b0917f6",
+            "severity": "high",
+            "title": "gmail.send_customer_email lacks a declared confirmation policy"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+            "fingerprint": "fp_0f8aaa912d589cf0",
+            "id": "fp_0f8aaa912d589cf0",
+            "severity": "high",
+            "title": "gmail.send_customer_email lacks idempotency evidence"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "unknown",
+        "domain": "Memory isolation",
+        "evidence_present": "not_declared",
+        "evidence_source": [],
+        "missing_controls": [],
+        "review_items": []
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "unknown",
+        "domain": "Human-in-the-loop evidence",
+        "evidence_present": "not_declared",
+        "evidence_source": [],
+        "missing_controls": [],
+        "review_items": []
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "medium",
+        "domain": "Prompt/scope alignment",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "declared_intentions",
+          "misalignments",
+          "capability_facts",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create_refund: stripe.create_refund appears to overlap with a prohibited action",
+          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send_customer_email: gmail.send_customer_email appears to overlap with a prohibited action"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+            "fingerprint": "fp_12985c36a06026de",
+            "id": "fp_12985c36a06026de",
+            "severity": "high",
+            "title": "stripe.create_refund appears to overlap with a prohibited action"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+            "fingerprint": "fp_e090c62e390e70ab",
+            "id": "fp_e090c62e390e70ab",
+            "severity": "high",
+            "title": "gmail.send_customer_email appears to overlap with a prohibited action"
+          }
+        ]
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "unknown",
+        "domain": "Retry/timeout",
+        "evidence_present": "not_declared",
+        "evidence_source": [],
+        "missing_controls": [],
+        "review_items": []
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "unknown",
+        "domain": "Baseline debt",
+        "evidence_present": "informational",
+        "evidence_source": [],
+        "missing_controls": [],
+        "review_items": []
+      },
+      {
+        "blocking_findings": [],
+        "confidence": "medium",
+        "domain": "Action-surface policy",
+        "evidence_present": "covered",
+        "evidence_source": [
+          "action_surface_facts.actions"
+        ],
+        "missing_controls": [],
+        "review_items": []
+      }
+    ]
+  },
   "generated_at": "2026-01-01T00:00:00+00:00",
   "high_risk_surface": {
     "high_risk_count": 3,
@@ -429,7 +844,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.5",
+  "packet_schema_version": "0.6",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",

@@ -40,6 +40,22 @@ VerdictLabel = Literal[
 ]
 SectionStatus = Literal["covered", "partial", "not_declared", "missing", "informational"]
 HitlProvenanceMode = Literal["fresh_scan", "rebuilt_from_findings", "unavailable"]
+EvidenceMatrixConfidence = Literal["high", "medium", "low", "mixed", "unknown"]
+EvidenceMatrixDomain = Literal[
+    "Inventory",
+    "Schema",
+    "Auth",
+    "Approval",
+    "Confirmation",
+    "Idempotency",
+    "Side effects",
+    "Memory isolation",
+    "Human-in-the-loop evidence",
+    "Prompt/scope alignment",
+    "Retry/timeout",
+    "Baseline debt",
+    "Action-surface policy",
+]
 
 
 class ReleaseDecisionSection(BaseModel):
@@ -57,6 +73,34 @@ class ReleaseDecisionSection(BaseModel):
     evidence_coverage: EvidenceCoverageDecision
     baseline_delta: BaselineDelta
     fail_policy: FailPolicy
+
+
+class EvidenceMatrixRow(BaseModel):
+    """One compact row in the packet-only evidence matrix.
+
+    The row is a derived review aid only. ``blocking_findings`` and
+    ``review_items`` are subsets copied from ``release_decision``; the
+    matrix never reclassifies findings or contributes to gate behavior.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: EvidenceMatrixDomain
+    evidence_present: SectionStatus
+    evidence_source: list[str] = Field(default_factory=list)
+    confidence: EvidenceMatrixConfidence = "unknown"
+    missing_controls: list[str] = Field(default_factory=list)
+    blocking_findings: list[ReleaseDecisionItem] = Field(default_factory=list)
+    review_items: list[ReleaseDecisionItem] = Field(default_factory=list)
+
+
+class EvidenceMatrixSection(BaseModel):
+    """Compact packet-only review matrix derived from public report JSON."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[EvidenceMatrixRow] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 class CapabilityIntentRow(BaseModel):
@@ -278,7 +322,7 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    packet_schema_version: Literal["0.5"] = "0.5"
+    packet_schema_version: Literal["0.6"] = "0.6"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)
@@ -286,6 +330,7 @@ class EvidencePacket(BaseModel):
     environment: dict[str, Any] = Field(default_factory=dict)
 
     release_decision: ReleaseDecisionSection
+    evidence_matrix: EvidenceMatrixSection = Field(default_factory=EvidenceMatrixSection)
     capability_intent: CapabilityIntentDiff
     high_risk_surface: HighRiskSurfaceSection
     tool_surface_diff: ToolSurfaceDiffSection = Field(
@@ -317,6 +362,10 @@ __all__ = [
     "CapabilityIntentRow",
     "DynamicScenarioRequirement",
     "DynamicScenariosSection",
+    "EvidenceMatrixConfidence",
+    "EvidenceMatrixDomain",
+    "EvidenceMatrixRow",
+    "EvidenceMatrixSection",
     "EvidencePacket",
     "HighRiskSurfaceSection",
     "HighRiskToolEntry",
