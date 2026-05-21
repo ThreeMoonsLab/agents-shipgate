@@ -36,6 +36,7 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF,
     PACKET_NON_PROOF_HEADLINE,
 )
+from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
 
 SAMPLE_CONFIG = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_DIR = Path("samples/support_refund_agent/expected")
@@ -65,7 +66,7 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.5"
+    assert packet.packet_schema_version == "0.6"
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):
@@ -85,6 +86,7 @@ def test_packet_has_reviewer_sections(tmp_path):
     payload = serialize_packet_json(packet)
     for section in (
         "release_decision",
+        "evidence_matrix",
         "capability_intent",
         "high_risk_surface",
         "tool_surface_diff",
@@ -100,6 +102,147 @@ def test_packet_has_reviewer_sections(tmp_path):
         assert section in payload, f"missing section: {section}"
     assert payload["tool_surface_diff"]["status"] == "not_declared"
     assert payload["action_surface_diff"]["status"] == "not_declared"
+    assert len(payload["evidence_matrix"]["rows"]) == 13
+
+
+def test_evidence_matrix_covers_expected_domains_and_renders(tmp_path):
+    out, packet = _scan_with_packet(tmp_path)
+    domains = [row.domain for row in packet.evidence_matrix.rows]
+    assert domains == [
+        "Inventory",
+        "Schema",
+        "Auth",
+        "Approval",
+        "Confirmation",
+        "Idempotency",
+        "Side effects",
+        "Memory isolation",
+        "Human-in-the-loop evidence",
+        "Prompt/scope alignment",
+        "Retry/timeout",
+        "Baseline debt",
+        "Action-surface policy",
+    ]
+    approval = next(row for row in packet.evidence_matrix.rows if row.domain == "Approval")
+    assert any("SHIP-POLICY-APPROVAL-MISSING" in item for item in approval.missing_controls)
+    assert any(item.check_id == "SHIP-POLICY-APPROVAL-MISSING" for item in approval.blocking_findings)
+
+    md = (out / "packet.md").read_text(encoding="utf-8")
+    html = (out / "packet.html").read_text(encoding="utf-8")
+    assert "## §1A Evidence matrix — compact review summary" in md
+    assert "| Domain | Evidence present | Evidence source | Confidence |" in md
+    assert "§1A Evidence matrix — compact review summary" in html
+
+
+def test_evidence_matrix_uses_release_decision_only_for_blocking_and_review():
+    payload = {
+        "release_decision": {
+            "blockers": [],
+            "review_items": [
+                {
+                    "id": "review-1",
+                    "fingerprint": "fp_review",
+                    "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+                    "severity": "high",
+                    "title": "Confirmation missing",
+                    "baseline_status": None,
+                    "blocks_release": False,
+                }
+            ],
+            "baseline_delta": {"enabled": False},
+        },
+        "findings": [
+            {
+                "id": "active-critical",
+                "fingerprint": "fp_active",
+                "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+                "severity": "critical",
+                "category": "policy",
+                "title": "Approval missing",
+                "tool_name": "refund",
+                "confidence": "high",
+                "suppressed": False,
+                "baseline_status": None,
+                "blocks_release": False,
+            },
+            {
+                "id": "suppressed",
+                "fingerprint": "fp_suppressed",
+                "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
+                "severity": "high",
+                "category": "policy",
+                "title": "Suppressed confirmation",
+                "confidence": "high",
+                "suppressed": True,
+            },
+        ],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    approval = next(row for row in matrix.rows if row.domain == "Approval")
+    confirmation = next(row for row in matrix.rows if row.domain == "Confirmation")
+
+    assert approval.blocking_findings == []
+    assert any("SHIP-POLICY-APPROVAL-MISSING" in item for item in approval.missing_controls)
+    assert confirmation.missing_controls == []
+    assert [item.check_id for item in confirmation.review_items] == [
+        "SHIP-POLICY-CONFIRMATION-MISSING"
+    ]
+
+
+def test_evidence_matrix_confidence_aggregation_and_baseline_debt():
+    payload = {
+        "baseline": {"path": ".agents-shipgate/baseline.json", "matched_count": 1},
+        "release_decision": {
+            "blockers": [],
+            "review_items": [
+                {
+                    "id": "matched-1",
+                    "fingerprint": "fp_matched",
+                    "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+                    "severity": "high",
+                    "title": "Scope debt",
+                    "baseline_status": "matched",
+                    "blocks_release": False,
+                }
+            ],
+            "baseline_delta": {"enabled": True, "matched_count": 1},
+        },
+        "findings": [
+            {
+                "id": "f1",
+                "fingerprint": "fp1",
+                "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+                "severity": "high",
+                "category": "auth",
+                "title": "Scope missing",
+                "confidence": "high",
+                "suppressed": False,
+                "baseline_status": "matched",
+            },
+            {
+                "id": "f2",
+                "fingerprint": "fp2",
+                "check_id": "SHIP-AUTH-TOOL-BROAD-SCOPE",
+                "severity": "high",
+                "category": "auth",
+                "title": "Broad scope",
+                "confidence": "medium",
+                "suppressed": False,
+                "baseline_status": None,
+            },
+        ],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    auth = next(row for row in matrix.rows if row.domain == "Auth")
+    baseline = next(row for row in matrix.rows if row.domain == "Baseline debt")
+
+    assert auth.confidence == "mixed"
+    assert baseline.evidence_source == ["baseline", "release_decision.baseline_delta", "findings[]"]
+    assert [item.check_id for item in baseline.review_items] == [
+        "SHIP-AUTH-SCOPE-COVERAGE-MISSING"
+    ]
 
 
 def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
@@ -427,7 +570,8 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.5"
+    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.evidence_matrix.notes
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
     assert upgraded.human_in_the_loop.runtime_control_disclaimer == (
@@ -449,7 +593,8 @@ def test_load_packet_json_upgrades_v01_to_v05(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.5"
+    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.evidence_matrix.notes
     assert upgraded.tool_surface_diff.status == "not_declared"
     assert upgraded.tool_surface_diff.enabled is False
     assert upgraded.action_surface_diff.status == "not_declared"
@@ -469,9 +614,23 @@ def test_load_packet_json_upgrades_v04_action_surface_section(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.5"
+    assert upgraded.packet_schema_version == "0.6"
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
+    assert upgraded.evidence_matrix.notes
+
+
+def test_load_packet_json_upgrades_v05_evidence_matrix(tmp_path):
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = "0.5"
+    payload.pop("evidence_matrix")
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.6"
+    assert len(upgraded.evidence_matrix.rows) == 13
+    assert any("older packet schema" in note for note in upgraded.evidence_matrix.notes)
 
 
 def test_evidence_packet_cli_accepts_report_json(tmp_path):
@@ -529,6 +688,26 @@ def test_evidence_packet_from_report_marks_degradation_in_json(tmp_path):
     # degradation does not affect §1).
     assert payload["release_decision"]["decision"] == "blocked"
     assert payload["release_decision"]["verdict"] == "BLOCKED"
+
+
+def test_evidence_packet_from_report_preserves_evidence_matrix(tmp_path):
+    out, fresh_packet = _scan_with_packet(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "evidence-packet",
+            "--from",
+            str(out / "report.json"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["evidence_matrix"] == serialize_packet_json(fresh_packet)[
+        "evidence_matrix"
+    ]
 
 
 def test_evidence_packet_from_report_rebuilds_hitl_gap_provenance(tmp_path):
@@ -680,7 +859,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.5"
+    assert reloaded.packet_schema_version == "0.6"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
@@ -811,7 +990,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.5"
+    assert payload["packet_schema_version"] == "0.6"
     assert payload["run_id"] == packet.run_id
 
 

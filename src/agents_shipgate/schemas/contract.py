@@ -45,6 +45,7 @@ MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "summary.human_review_recommended",
     "action_surface_diff",
     "codex_plugin_surface",
+    "packet.evidence_matrix.rows",
     "packet.capability_intent.divergence_findings",
     "packet.approval_coverage.gap_findings",
     "packet.idempotency_risk.gap_findings",

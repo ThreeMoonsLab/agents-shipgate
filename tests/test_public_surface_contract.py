@@ -57,7 +57,7 @@ LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
-LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2|3|4)\.json")
+LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2|3|4|5)\.json")
 PACKET_ANCHOR_PATTERN = re.compile(r"#release-evidence-packet-v(\d+)")
 SUMMARY_STATUS_PATTERN = re.compile(
     r"summary\.status\b|summary\.\{[^}]*status[^}]*\}"

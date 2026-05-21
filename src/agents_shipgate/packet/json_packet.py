@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.privacy import sanitize_packet_payload
+from agents_shipgate.packet.evidence_matrix import unavailable_evidence_matrix
 from agents_shipgate.schemas.packet import EvidencePacket
 
 
@@ -48,15 +49,12 @@ def write_packet_json(packet: EvidencePacket, path: Path) -> None:
 def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     """Validate ``payload`` and return an ``EvidencePacket``.
 
-    ``payload`` may be a parsed dict or a raw JSON string/bytes. v0.1
-    payloads are upgraded with the default v0.2 tool-surface diff
-    section, then v0.1/v0.2 payloads are upgraded with the default
-    v0.3 HITL provenance fields. v0.3 payloads are renumbered to v0.4
-    (pure additive enum extension — `insufficient_evidence` cannot
-    appear in a v0.3-emitted packet). v0.1-v0.4 payloads are upgraded
-    with the default v0.5 action-surface diff section. Unsupported versions raise
-    ``PacketSchemaError`` so callers can downgrade to a clean error
-    rather than a noisy validation traceback.
+    ``payload`` may be a parsed dict or a raw JSON string/bytes. Older
+    payloads are upgraded additively through the current packet shape:
+    v0.2 tool-surface diff, v0.3 HITL provenance fields, v0.5
+    action-surface diff, and v0.6 evidence matrix. Unsupported versions
+    raise ``PacketSchemaError`` so callers can downgrade to a clean
+    error rather than a noisy validation traceback.
     """
 
     if isinstance(payload, (str, bytes)):
@@ -74,7 +72,7 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.5",
+            "packet_schema_version": "0.6",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -86,20 +84,27 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         }
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
+        _upgrade_evidence_matrix_v06(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.5"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
+        _upgrade_evidence_matrix_v06(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.5"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
         _upgrade_action_surface_v05(payload_dict)
+        _upgrade_evidence_matrix_v06(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.5"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
         _upgrade_action_surface_v05(payload_dict)
-    elif version != "0.5":
+        _upgrade_evidence_matrix_v06(payload_dict)
+    elif version == "0.5":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
+        _upgrade_evidence_matrix_v06(payload_dict)
+    elif version != "0.6":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
-            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', or '0.5'"
+            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', or '0.6'"
         )
 
     try:
@@ -129,4 +134,11 @@ def _upgrade_action_surface_v05(payload: dict[str, Any]) -> None:
             "blocking_reasons": [],
             "notes": ["No action-surface diff was recorded."],
         },
+    )
+
+
+def _upgrade_evidence_matrix_v06(payload: dict[str, Any]) -> None:
+    payload.setdefault(
+        "evidence_matrix",
+        unavailable_evidence_matrix().model_dump(mode="json"),
     )

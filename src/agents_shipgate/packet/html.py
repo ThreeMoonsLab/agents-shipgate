@@ -24,6 +24,7 @@ from agents_shipgate.schemas.packet import (
     ApprovalCoverageSection,
     CapabilityIntentDiff,
     DynamicScenariosSection,
+    EvidenceMatrixSection,
     EvidencePacket,
     HighRiskSurfaceSection,
     HumanInTheLoopEvidence,
@@ -100,6 +101,7 @@ def render_packet_html(packet: EvidencePacket) -> str:
     parts.append("<h1>Release Evidence Packet</h1>")
     parts.append(_render_header(packet))
     parts.append(_render_release_decision(packet.release_decision))
+    parts.append(_render_evidence_matrix(packet.evidence_matrix))
     parts.append(_render_capability_intent(packet.capability_intent))
     parts.append(_render_high_risk_surface(packet.high_risk_surface))
     parts.append(_render_tool_surface_diff(packet.tool_surface_diff))
@@ -194,6 +196,52 @@ def _render_release_decision(section: ReleaseDecisionSection) -> str:
             )
         parts.append("</ul>")
     return "".join(parts)
+
+
+def _render_evidence_matrix(section: EvidenceMatrixSection) -> str:
+    parts = ["<h2>§1A Evidence matrix — compact review summary</h2>"]
+    if section.notes:
+        parts.append("<ul>")
+        for note in section.notes:
+            parts.append(f"<li>{escape(note)}</li>")
+        parts.append("</ul>")
+    parts.append(
+        "<table><thead><tr><th>Domain</th><th>Evidence present</th>"
+        "<th>Evidence source</th><th>Confidence</th><th>Missing controls</th>"
+        "<th>Blocking findings</th><th>Review items</th></tr></thead><tbody>"
+    )
+    for row in section.rows:
+        parts.append(
+            f"<tr><td>{escape(row.domain)}</td>"
+            f"<td>{escape(row.evidence_present)}</td>"
+            f"<td>{escape(_compact_text(row.evidence_source))}</td>"
+            f"<td>{escape(row.confidence)}</td>"
+            f"<td>{escape(_compact_text(row.missing_controls))}</td>"
+            f"<td>{escape(_compact_decision_items(row.blocking_findings))}</td>"
+            f"<td>{escape(_compact_decision_items(row.review_items))}</td></tr>"
+        )
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _compact_text(values: list[str], *, limit: int = 2) -> str:
+    if not values:
+        return "—"
+    shown = values[:limit]
+    suffix = f"; +{len(values) - limit} more" if len(values) > limit else ""
+    return "; ".join(shown) + suffix
+
+
+def _compact_decision_items(values: list, *, limit: int = 2) -> str:
+    if not values:
+        return "—"
+    labels = []
+    for item in values[:limit]:
+        status = getattr(item, "baseline_status", None)
+        status_suffix = f" [{status}]" if status else ""
+        labels.append(f"{item.check_id} ({item.severity}){status_suffix}")
+    suffix = f"; +{len(values) - limit} more" if len(values) > limit else ""
+    return "; ".join(labels) + suffix
 
 
 def _render_capability_intent(section: CapabilityIntentDiff) -> str:

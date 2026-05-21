@@ -374,7 +374,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json) | `0.5` |
+| Packet schema (Release Evidence Packet) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -406,9 +406,9 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.5)
+### Release Evidence Packet (v0.6)
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections derived from the in-memory scan; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v05).
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections plus a compact evidence matrix derived from public `report.json`; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
@@ -425,7 +425,8 @@ agents-shipgate evidence-packet --from agents-shipgate-reports/report.json --for
 Rules of the packet contract (do not break in 0.x):
 - The packet is **derived from JSON** (the in-memory scan) and is a **local artifact only** — no hosted/SaaS view.
 - §10 ("What this packet did NOT prove") **always** lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance — regardless of run state.
-- All reviewer sections are **always present** in `packet.json`, including `tool_surface_diff`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
+- All reviewer sections are **always present** in `packet.json`, including `evidence_matrix`, `tool_surface_diff`, and `action_surface_diff`. Sections that have no evidence render with `status: "not_declared"` (or `"informational"`) and refer the reviewer to §10.
+- §1A (`evidence_matrix`) is a compact packet-only review aid. It never contributes to `release_decision`, CI exit behavior, severity, suppression, baseline matching, or `agent_summary`; blocker/review-item cells are copied from `release_decision`.
 - §8 (`human_in_the_loop`) always carries `runtime_control_disclaimer`. When local validation artifacts are available, `source_provenance[]` traces approval traces, override logs, high-risk exclusions, promotion criteria, and manifest requirements.
 - §1 verdict (`PASSED` / `REVIEW REQUIRED` / `INSUFFICIENT EVIDENCE` / `BLOCKED`) derives from `release_decision.decision` only (with `INSUFFICIENT EVIDENCE` mirroring the v0.14 `insufficient_evidence` decision value). CI behavior (`fail_policy`) is rendered separately as metadata, not as the verdict source.
 - The current manifest schema does **not** model `agent.memory`. §7 always renders "not declared, see §10" until a future schema bump adds the field.

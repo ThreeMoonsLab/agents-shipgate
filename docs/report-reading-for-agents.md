@@ -86,7 +86,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.5`; full schema at [`docs/packet-schema.v0.5.json`](packet-schema.v0.5.json).
+The packet schema is `0.6`; full schema at [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json).
 
 ---
 
@@ -168,7 +168,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
 | Report | `0.18` | `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.18.json`](report-schema.v0.18.json) |
-| Packet | `0.5` | `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.5.json`](packet-schema.v0.5.json) |
+| Packet | `0.6` | `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.6.json`](packet-schema.v0.6.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `1` | — | `agents-shipgate contract --json` |
 

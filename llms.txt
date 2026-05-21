@@ -59,7 +59,7 @@
 - JSON report: `agents-shipgate-reports/report.json`.
 - JSON report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.18.json
 - Release Evidence Packet (Markdown / JSON / HTML, optional PDF): `agents-shipgate-reports/packet.{md,json,html}`.
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
+- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` in `report.json` (baseline-aware; v0.8+; `insufficient_evidence` added v0.14; consumers should treat unknown future values as `review_required`).
@@ -98,7 +98,7 @@
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.18.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
-- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.5.json
+- Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 
 ## Category vocabulary

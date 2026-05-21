@@ -187,7 +187,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.5"
+    assert packet_payload["packet_schema_version"] == "0.6"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
 
@@ -228,14 +228,14 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         contract_version="1",
         cli_version="0.0.0",
         report_schema_version="0.17",
-        packet_schema_version="0.5",
+        packet_schema_version="0.6",
         gating_signal="release_decision.decision",
         manual_review_signals=[],
     ).model_dump(mode="json") == {
         "contract_version": "1",
         "cli_version": "0.0.0",
         "report_schema_version": "0.17",
-        "packet_schema_version": "0.5",
+        "packet_schema_version": "0.6",
         "gating_signal": "release_decision.decision",
         "manual_review_signals": [],
     }
