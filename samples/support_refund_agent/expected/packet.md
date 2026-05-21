@@ -47,7 +47,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ## §1A Evidence matrix — compact review summary
 
-- Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release\_decision.
+- Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release\_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens.
 
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
@@ -63,7 +63,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | Prompt/scope alignment | partial | declared\_intentions; misalignments; \+2 more | medium | SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create\_refund: stripe.create\_refund appears to overlap with a prohibited action; SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send\_customer\_email: gmail.send\_customer\_email appears to overlap with a prohibited action | — | SHIP-SCOPE-PROHIBITED-TOOL-PRESENT \(high\); SHIP-SCOPE-PROHIBITED-TOOL-PRESENT \(high\) |
 | Retry/timeout | not\_declared | — | unknown | — | — | — |
 | Baseline debt | informational | — | unknown | — | — | — |
-| Action-surface policy | covered | action\_surface\_facts.actions | high | — | — | — |
+| Action-surface policy | covered | action\_surface\_facts.actions | medium | — | — | — |
 
 ## §2 Capability ↔ Intent diff — missing
 

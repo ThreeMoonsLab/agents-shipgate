@@ -239,9 +239,126 @@ def test_evidence_matrix_confidence_aggregation_and_baseline_debt():
     baseline = next(row for row in matrix.rows if row.domain == "Baseline debt")
 
     assert auth.confidence == "mixed"
-    assert baseline.evidence_source == ["baseline", "release_decision.baseline_delta", "findings[]"]
+    assert baseline.evidence_source == [
+        "baseline",
+        "release_decision.baseline_delta",
+        "findings[]",
+    ]
     assert [item.check_id for item in baseline.review_items] == [
         "SHIP-AUTH-SCOPE-COVERAGE-MISSING"
+    ]
+
+
+def test_evidence_matrix_source_only_rows_use_medium_confidence():
+    payload = {
+        "release_decision": {"blockers": [], "review_items": []},
+        "action_surface_facts": {
+            "actions": [{"name": "refund", "effect": "write", "safeguards": {}}]
+        },
+        "findings": [],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    action_surface = next(
+        row for row in matrix.rows if row.domain == "Action-surface policy"
+    )
+
+    assert action_surface.evidence_present == "covered"
+    assert action_surface.evidence_source == ["action_surface_facts.actions"]
+    assert action_surface.confidence == "medium"
+
+
+def test_evidence_matrix_confidence_mixed_stays_domain_local():
+    payload = {
+        "release_decision": {"blockers": [], "review_items": []},
+        "findings": [
+            {
+                "id": "auth-high",
+                "fingerprint": "fp_auth_high",
+                "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+                "severity": "high",
+                "category": "auth",
+                "title": "Scope missing",
+                "confidence": "high",
+                "suppressed": False,
+            },
+            {
+                "id": "auth-medium",
+                "fingerprint": "fp_auth_medium",
+                "check_id": "SHIP-AUTH-TOOL-BROAD-SCOPE",
+                "severity": "high",
+                "category": "auth",
+                "title": "Broad scope",
+                "confidence": "medium",
+                "suppressed": False,
+            },
+            {
+                "id": "retry-low",
+                "fingerprint": "fp_retry_low",
+                "check_id": "SHIP-API-TIMEOUT-MISSING",
+                "severity": "medium",
+                "category": "api",
+                "title": "Timeout missing",
+                "confidence": "low",
+                "suppressed": False,
+            },
+        ],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    auth = next(row for row in matrix.rows if row.domain == "Auth")
+    retry = next(row for row in matrix.rows if row.domain == "Retry/timeout")
+    approval = next(row for row in matrix.rows if row.domain == "Approval")
+
+    assert auth.confidence == "mixed"
+    assert retry.confidence == "low"
+    assert approval.confidence == "unknown"
+
+
+def test_evidence_matrix_action_surface_uses_blocks_release_finding():
+    payload = {
+        "release_decision": {
+            "blockers": [
+                {
+                    "id": "blocker-1",
+                    "fingerprint": "fp_blocker",
+                    "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+                    "severity": "critical",
+                    "title": "Approval missing",
+                    "baseline_status": None,
+                    "blocks_release": True,
+                }
+            ],
+            "review_items": [],
+        },
+        "findings": [
+            {
+                "id": "finding-1",
+                "fingerprint": "fp_blocker",
+                "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+                "severity": "critical",
+                "category": "policy",
+                "title": "Approval missing",
+                "tool_name": "refund",
+                "confidence": "high",
+                "suppressed": False,
+                "blocks_release": True,
+            }
+        ],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    action_surface = next(
+        row for row in matrix.rows if row.domain == "Action-surface policy"
+    )
+
+    assert "findings[].blocks_release" in action_surface.evidence_source
+    assert any(
+        "SHIP-POLICY-APPROVAL-MISSING" in item
+        for item in action_surface.missing_controls
+    )
+    assert [item.check_id for item in action_surface.blocking_findings] == [
+        "SHIP-POLICY-APPROVAL-MISSING"
     ]
 
 

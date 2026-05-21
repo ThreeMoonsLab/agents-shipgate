@@ -486,6 +486,7 @@ Diff remains explanatory only.
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
 - `evidence_matrix.rows[]` is a compact, packet-only review summary derived from public `report.json` fields. It never contributes to `release_decision`, CI exit behavior, severity, suppression, baseline matching, or `agent_summary`; its blocker and review-item references are copied from `release_decision`.
+- The 13 `evidence_matrix.rows[].domain` identities are stable within `0.x`. Adding source paths or check mappings is additive; removing a row, renaming a domain, or dropping an existing check/source mapping requires a packet schema bump.
 - `human_in_the_loop.runtime_control_disclaimer` is always present and applies to covered and gap states: local HITL evidence is not runtime-enforcement proof.
 - `human_in_the_loop.source_provenance[]` is deterministic, local-only provenance for validation evidence when available. Packets rebuilt from `report.json` may set `provenance_mode: "unavailable"` when no finding-level provenance survived.
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.

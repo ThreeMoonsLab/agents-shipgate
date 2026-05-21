@@ -295,7 +295,7 @@
   },
   "evidence_matrix": {
     "notes": [
-      "Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release_decision."
+      "Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens."
     ],
     "rows": [
       {
@@ -697,7 +697,7 @@
       },
       {
         "blocking_findings": [],
-        "confidence": "high",
+        "confidence": "medium",
         "domain": "Action-surface policy",
         "evidence_present": "covered",
         "evidence_source": [

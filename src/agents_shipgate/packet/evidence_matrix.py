@@ -8,6 +8,7 @@ CI consumers see, and it copies blocker/review-item references from
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -21,10 +22,14 @@ from agents_shipgate.schemas.packet import (
 )
 from agents_shipgate.schemas.report import ReleaseDecisionItem
 
+_LOGGER = logging.getLogger(__name__)
+
 _MATRIX_NOTE = (
     "Evidence Matrix Light is derived from public report.json only. "
     "Release decisions, CI exit behavior, and baseline semantics remain "
-    "owned by release_decision."
+    "owned by release_decision. Domain rows intentionally overlap; a "
+    "single finding can appear in multiple rows when it is relevant to "
+    "each review lens."
 )
 _UNAVAILABLE_NOTE = (
     "Evidence matrix unavailable: this packet was loaded from an older "
@@ -55,6 +60,8 @@ _DOMAIN_ORDER: tuple[EvidenceMatrixDomain, ...] = (
     "Action-surface policy",
 )
 
+# Domain sets intentionally overlap: a single finding can populate
+# multiple matrix rows when it is relevant to more than one review lens.
 _INVENTORY_CHECKS = {
     "SHIP-INVENTORY-NOT-ENUMERABLE",
     "SHIP-INVENTORY-WILDCARD-TOOLS",
@@ -282,6 +289,8 @@ def _idempotency_sources(report: dict[str, Any], findings: list[dict[str, Any]])
     sources = _control_sources(report, "idempotency_evidence")
     if any(
         isinstance(action.get("safeguards"), dict)
+        # Source presence means the idempotency field was declared,
+        # including explicit false; gaps still come from findings[].
         and action["safeguards"].get("idempotency") is not None
         for action in _nested_list(report, "action_surface_facts", "actions")
     ):
@@ -403,7 +412,7 @@ def _confidence_for_row(
         return "mixed"
     if len(values) == 1:
         return values.pop()  # type: ignore[return-value]
-    return "high" if sources else "unknown"
+    return "medium" if sources else "unknown"
 
 
 def _control_summary(finding: dict[str, Any]) -> str:
@@ -425,22 +434,40 @@ def _release_items(
     for item in items:
         try:
             out.append(ReleaseDecisionItem.model_validate(item))
-        except ValueError:
+        except ValueError as exc:
+            _LOGGER.debug("Skipping malformed release_decision.%s item: %s", key, exc)
             continue
     return out
 
 
 def _domains_for_release_item(item: ReleaseDecisionItem) -> set[EvidenceMatrixDomain]:
-    data = item.model_dump(mode="json")
-    domains = _domains_for_finding(data)
-    if item.baseline_status == "matched":
-        domains.add("Baseline debt")
-    return domains
+    return _domains_for_check_id(
+        check_id=item.check_id,
+        baseline_status=item.baseline_status,
+        blocks_release=item.blocks_release,
+    )
 
 
 def _domains_for_finding(finding: dict[str, Any]) -> set[EvidenceMatrixDomain]:
     check_id = str(finding.get("check_id") or "")
     category = str(finding.get("category") or "")
+    baseline_status = finding.get("baseline_status")
+    blocks_release = finding.get("blocks_release") is True
+    return _domains_for_check_id(
+        check_id=check_id,
+        category=category,
+        baseline_status=baseline_status if isinstance(baseline_status, str) else None,
+        blocks_release=blocks_release,
+    )
+
+
+def _domains_for_check_id(
+    *,
+    check_id: str,
+    category: str = "",
+    baseline_status: str | None = None,
+    blocks_release: bool = False,
+) -> set[EvidenceMatrixDomain]:
     domains: set[EvidenceMatrixDomain] = set()
 
     if check_id in _INVENTORY_CHECKS or category == "inventory":
@@ -465,9 +492,13 @@ def _domains_for_finding(finding: dict[str, Any]) -> set[EvidenceMatrixDomain]:
         domains.add("Retry/timeout")
     if check_id in _BASELINE_CHECKS or category == "baseline":
         domains.add("Baseline debt")
-    if check_id.startswith("SHIP-ACTION-") or category == "action_surface":
+    if (
+        check_id.startswith("SHIP-ACTION-")
+        or category == "action_surface"
+        or blocks_release
+    ):
         domains.add("Action-surface policy")
-    if finding.get("baseline_status") == "matched":
+    if baseline_status == "matched":
         domains.add("Baseline debt")
     return domains
 

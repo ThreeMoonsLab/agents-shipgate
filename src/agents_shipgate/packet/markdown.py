@@ -35,6 +35,7 @@ from agents_shipgate.schemas.packet import (
     SectionStatus,
     ToolSurfaceDiffSection,
 )
+from agents_shipgate.schemas.report import ReleaseDecisionItem
 
 
 def _escape(value: object) -> str:
@@ -200,7 +201,11 @@ def _compact_text(values: list[str], *, limit: int = 2) -> str:
     return "; ".join(shown) + suffix
 
 
-def _compact_decision_items(values: list, *, limit: int = 2) -> str:
+def _compact_decision_items(
+    values: list[ReleaseDecisionItem],
+    *,
+    limit: int = 2,
+) -> str:
     if not values:
         return "—"
     labels = []
