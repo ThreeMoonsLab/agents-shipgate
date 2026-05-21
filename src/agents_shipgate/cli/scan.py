@@ -11,7 +11,8 @@ from agents_shipgate.checks.baseline_integrity import (
 )
 from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.ci.github_summary import write_github_step_summary
-from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.config.loader import load_manifest, load_manifest_with_positions
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -78,6 +79,7 @@ from agents_shipgate.report.action_surface_diff import (
     attach_action_surface_finding_summary,
     build_action_surface_facts,
     compute_action_surface_diff,
+    enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
 from agents_shipgate.report.capability_diff import apply_capability_diff
@@ -90,6 +92,7 @@ from agents_shipgate.report.tool_surface_diff import (
     build_tool_surface_facts,
     compute_tool_surface_diff,
     disabled_tool_surface_diff,
+    enrich_tool_surface_diff_with_source,
     load_tool_surface_diff_reference,
     reference_from_baseline,
 )
@@ -140,7 +143,8 @@ def run_scan(
     if deep_import:
         raise ConfigError("Deep import is intentionally deferred and is not supported.")
 
-    manifest = load_manifest(config_path).model_copy(deep=True)
+    raw_manifest, manifest_positions = load_manifest_with_positions(config_path)
+    manifest = raw_manifest.model_copy(deep=True)
     if ci_mode:
         manifest.ci.mode = ci_mode
     if fail_on is not None:
@@ -186,6 +190,13 @@ def run_scan(
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
     warnings.extend(duplicate_warnings)
     warnings.extend(_artifact_warnings(artifact_bag))
+    # Unresolved CHANGE_ME placeholders in the manifest mean the run is
+    # operating on stub data. Surface them as source warnings so the
+    # existing ``source_warning_count > 0`` branch in
+    # release_decision.evidence_coverage routes the gate to
+    # ``review_required`` and the packet §10 "Not proven" section
+    # mentions the placeholder verbatim.
+    warnings.extend(_manifest_placeholder_warnings(config_path))
     policy_packs = load_policy_packs(
         manifest=manifest,
         base_dir=base_dir,
@@ -255,6 +266,15 @@ def run_scan(
     if diff_reference_error:
         action_surface_diff.enabled = False
         action_surface_diff.notes = [diff_reference_error]
+    # v0.19 reviewer-grade provenance: the INTERNAL action-surface
+    # diff stays semantic — ``evaluate_action_surface_policies`` below
+    # serializes ``ActionSurfaceChange.model_dump()`` into finding
+    # ``evidence`` payloads, and ``finding_fingerprint`` hashes
+    # ``evidence``. Mutating ``reason`` here would leak ``path:line``
+    # into the identity hash and a tool moving from line 10 to line 11
+    # would churn the finding fingerprint, breaking baseline matches.
+    # The PUBLIC action-surface diff (rendered into report.json /
+    # packet) is enriched separately below from ``public_tools``.
     context = ScanContext(
         manifest=manifest,
         agent=agent,
@@ -262,6 +282,7 @@ def run_scan(
         config_path=config_path.resolve(),
         framework_artifacts=artifact_bag,
         action_surface_facts=action_surface_facts,
+        manifest_positions=manifest_positions,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
@@ -517,6 +538,13 @@ def run_scan(
             stats=privacy_stats,
             path="action_surface_diff.notes",
         )
+    # v0.19 reviewer-grade provenance: enrich the PUBLIC action-surface
+    # diff rows from ``public_tools`` (already sanitized) so the
+    # rendered ``report.json`` and packet §3B carry tool source
+    # citations on every reason field.
+    enrich_action_surface_diff_with_source(
+        public_action_surface_diff, _tool_source_index(public_tools)
+    )
 
     baseline_summary = None
     if baseline_file and baseline_display_path:
@@ -619,6 +647,13 @@ def run_scan(
             public_findings,
             reference=public_diff_reference,
         )
+    # v0.19 reviewer-grade provenance: enrich tool-surface diff
+    # controls (and any other reason-bearing rows) with the public
+    # tool path:line citation so the rendered report.json and packet
+    # §3A carry source info on every change-row reason.
+    enrich_tool_surface_diff_with_source(
+        public_tool_surface_diff, _tool_source_index(public_tools)
+    )
     privacy_audit = build_privacy_audit(
         privacy_stats,
         output_surfaces=output_surfaces,
@@ -914,6 +949,24 @@ def _load_sources(
     return per_source_loaded + per_scan_loaded, bag
 
 
+def _tool_source_index(
+    tools: list[Tool],
+) -> dict[str, tuple[str | None, int | None]]:
+    """Build a tool-name → ``(source_path, source_start_line)`` map for
+    surface-diff enrichment.
+
+    Used by ``enrich_action_surface_diff_with_source`` and
+    ``enrich_tool_surface_diff_with_source`` to append
+    ``(source: path:line)`` to change-row ``reason`` strings, and by
+    the packet builder to suffix §3A / §3B highlights. Empty when the
+    tool list is empty so callers can rely on a boolean test.
+    """
+    return {
+        tool.name: (tool.source_path, tool.source_start_line)
+        for tool in tools
+    }
+
+
 def _artifact_warnings(artifact_bag: ArtifactBag) -> list[str]:
     warnings: list[str] = []
     for artifact in artifact_bag.raw().values():
@@ -921,6 +974,32 @@ def _artifact_warnings(artifact_bag: ArtifactBag) -> list[str]:
         if isinstance(artifact_warnings, list):
             warnings.extend(str(warning) for warning in artifact_warnings)
     return warnings
+
+
+def _manifest_placeholder_warnings(config_path: Path) -> list[str]:
+    """Return source-warning strings for each ``CHANGE_ME`` placeholder
+    surviving in the manifest text.
+
+    Doctor already surfaces these as ``SHIP-DIAG-CHANGE-ME-PLACEHOLDERS``
+    diagnostics; the same fact also needs to flow into the scan so the
+    existing ``source_warning_count > 0 → review_required`` branch in
+    release_decision.evidence_coverage trips. Read failures (missing
+    file, non-UTF8 content) yield no warnings — the manifest loader runs
+    immediately before and will have already raised a structured error
+    in that case.
+    """
+    try:
+        manifest_text = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    placeholders = collect_placeholders(manifest_text)
+    name = config_path.name
+    return [
+        f"{name}:{entry['line']} — CHANGE_ME placeholder at "
+        f"{entry.get('path', '<root>')!r}; replace before treating this "
+        "report as evidence."
+        for entry in placeholders
+    ]
 
 
 def _absorb(
@@ -1360,6 +1439,14 @@ def _run_id(
                         "start_column": True,
                         "pointer": True,
                     },
+                    # v0.19 reviewer-grade provenance: the secondary
+                    # manifest pointer ``policy_evidence_source`` is
+                    # excluded in its entirety. The whole field is
+                    # additive (older scans never emitted it) and
+                    # YAML line drift on the manifest must not churn
+                    # run_id — same rationale as the v0.11 exclusion
+                    # above.
+                    "policy_evidence_source": True,
                 },
                 exclude_none=False,
             )

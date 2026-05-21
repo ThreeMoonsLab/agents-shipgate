@@ -12,9 +12,10 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.18` — [`docs/report-schema.v0.18.json`](report-schema.v0.18.json)
+- Current report schema: `0.19` — [`docs/report-schema.v0.19.json`](report-schema.v0.19.json)
 - Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
-- Frozen-reference report schemas: [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
 ## Read these first for release gating
 
@@ -96,12 +97,23 @@ Provenance generally follows the rule's own trigger (e.g., a rule that checks fo
 
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
 Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
-adds `evidence_matrix`, a compact packet-only review aid derived from public
-`report.json` fields. The matrix never contributes to `release_decision`, CI
-exit behavior, severity, suppression, baseline matching, or `agent_summary`;
-its blocker and review-item cells are copied from `release_decision`. The
-`release_decision.verdict` label includes `INSUFFICIENT EVIDENCE` when the
-report decision is insufficient evidence.
+adds two independent additive extensions:
+
+- `evidence_matrix` (PR #104) — a compact packet-only review aid
+  derived from public `report.json` fields. The matrix never contributes
+  to `release_decision`, CI exit behavior, severity, suppression,
+  baseline matching, or `agent_summary`; its blocker and review-item
+  cells are copied from `release_decision`.
+- `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source`
+  (PR #103) — packet §1 / §2 re-renders carry the same dual-source
+  provenance that `Finding.source` / `Finding.policy_evidence_source`
+  expose in the report.
+
+It preserves every v0.5 field
+(`human_in_the_loop.runtime_control_disclaimer`,
+`human_in_the_loop.source_provenance[]`, `action_surface_diff`). The
+`release_decision.verdict` label includes `INSUFFICIENT EVIDENCE` when
+the report decision is insufficient evidence.
 
 ## Don't use for new gating
 
@@ -130,7 +142,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.18.json`](report-schema.v0.18.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.19.json`](report-schema.v0.19.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.

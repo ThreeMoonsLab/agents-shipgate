@@ -52,7 +52,10 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     ``payload`` may be a parsed dict or a raw JSON string/bytes. Older
     payloads are upgraded additively through the current packet shape:
     v0.2 tool-surface diff, v0.3 HITL provenance fields, v0.5
-    action-surface diff, and v0.6 evidence matrix. Unsupported versions
+    action-surface diff, v0.6 evidence matrix (PR #104), and v0.6
+    ``ReleaseDecisionItem.{source, policy_evidence_source}`` (PR #103,
+    no field synthesis needed because v0.5-emitted packets never
+    carried the optional fields). Unsupported versions
     raise ``PacketSchemaError`` so callers can downgrade to a clean
     error rather than a noisy validation traceback.
     """

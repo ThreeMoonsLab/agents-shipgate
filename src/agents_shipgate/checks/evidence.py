@@ -104,6 +104,9 @@ def _approval_trace_findings(context: ScanContext) -> list[Finding]:
                     f"Add local approval trace evidence for {tool_name}, fix the "
                     "declared source, or change the validation review posture."
                 ),
+                policy_evidence_pointer=(
+                    "/validation/required_evidence/approval_trace_required"
+                ),
             )
         )
     return findings
@@ -164,6 +167,9 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
                 ),
                 context=context,
                 provenance_kind="static_declaration",
+                policy_evidence_pointer=(
+                    "/validation/required_evidence/override_reason_required"
+                ),
             )
         ]
 
@@ -204,6 +210,9 @@ def _override_reason_findings(context: ScanContext) -> list[Finding]:
             ),
             context=context,
             provenance_kind="static_declaration",
+            policy_evidence_pointer=(
+                "/validation/required_evidence/override_reason_required"
+            ),
         )
     ]
 
@@ -274,6 +283,10 @@ def _high_risk_exclusion_findings(context: ScanContext) -> list[Finding]:
                 ),
                 context=context,
                 provenance_kind="static_declaration",
+                policy_evidence_pointer=(
+                    "/validation/required_evidence/"
+                    "high_risk_auto_approval_exclusion_required"
+                ),
             )
         )
     return findings
@@ -361,6 +374,7 @@ def _promotion_criteria_finding(
         ),
         context=context,
         provenance_kind="static_declaration",
+        policy_evidence_pointer="/validation/target_review_posture",
     )
 
 
@@ -416,6 +430,7 @@ def _evidence_finding_for_tool(
     title: str,
     evidence: dict[str, object],
     recommendation: str,
+    policy_evidence_pointer: str | None = None,
 ) -> Finding:
     if tool is not None:
         return tool_finding(
@@ -429,6 +444,7 @@ def _evidence_finding_for_tool(
             recommendation=recommendation,
             context=context,
             provenance_kind="static_declaration",
+            policy_evidence_pointer=policy_evidence_pointer,
         )
     return agent_finding(
         check_id=check_id,
@@ -440,6 +456,7 @@ def _evidence_finding_for_tool(
         recommendation=recommendation,
         context=context,
         provenance_kind="static_declaration",
+        policy_evidence_pointer=policy_evidence_pointer,
     )
 
 

@@ -94,7 +94,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.18, current). Always parse this for programmatic use.
+  (schema v0.19, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
@@ -115,10 +115,15 @@ dynamic scenarios, and a
 behavior, model correctness, and adversarial resistance verbatim). See
 [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
 Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
-adds `evidence_matrix`, a compact packet-only review aid derived from public
-`report.json` fields. The matrix never contributes to `release_decision`, CI
-exit behavior, severity, suppression, baseline matching, or `agent_summary`;
-its blocker and review-item cells are copied from `release_decision`.
+adds two additive extensions: `evidence_matrix`, a compact packet-only
+review aid derived from public `report.json` fields (PR #104, never
+contributes to `release_decision`, CI exit behavior, severity,
+suppression, baseline matching, or `agent_summary`; blocker and
+review-item cells are copied from `release_decision`); and
+`ReleaseDecisionItem.{source, policy_evidence_source}` (PR #103) so
+packet §1 / §2 carry the same reviewer-grade dual-source provenance
+pointers `Finding.source` / `Finding.policy_evidence_source` expose in
+the report.
 Skip emission with `--no-packet`; re-render later with
 `agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json`.
 

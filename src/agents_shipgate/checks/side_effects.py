@@ -45,6 +45,7 @@ def run(context: ScanContext):
                 recommendation=f"Add an idempotency key, idempotent annotation, or declared idempotency policy for {tool.name}.",
                 context=context,
                 provenance_kind="static_declaration",
+                policy_evidence_pointer="/policies/require_idempotency_for_tools",
             )
         )
     return findings

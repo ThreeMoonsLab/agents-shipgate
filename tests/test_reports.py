@@ -32,6 +32,7 @@ REPORT_SCHEMA_V15 = Path("docs/report-schema.v0.15.json")
 REPORT_SCHEMA_V16 = Path("docs/report-schema.v0.16.json")
 REPORT_SCHEMA_V17 = Path("docs/report-schema.v0.17.json")
 REPORT_SCHEMA_V18 = Path("docs/report-schema.v0.18.json")
+REPORT_SCHEMA_V19 = Path("docs/report-schema.v0.19.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
@@ -401,26 +402,49 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
         == payload["release_decision"]["fail_policy"]
     )
     assert payload["release_consequence"]["blocker_misalignment_count"] >= 1
-    assert payload["release_decision"]["blockers"] == [
-        {
-            "id": "fp_f092940f62fbb012",
-            "fingerprint": "fp_f092940f62fbb012",
-            "check_id": "SHIP-POLICY-APPROVAL-MISSING",
-            "severity": "critical",
-            "title": "stripe.create_refund lacks a declared approval policy",
-            "baseline_status": None,
-            "blocks_release": False,
-        },
-        {
-            "id": "fp_dac8011e14c53777",
-            "fingerprint": "fp_dac8011e14c53777",
-            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-            "severity": "critical",
-            "title": "stripe.create_refund lacks idempotency evidence",
-            "baseline_status": None,
-            "blocks_release": False,
-        },
-    ]
+    blockers = payload["release_decision"]["blockers"]
+    assert len(blockers) == 2
+    # Identity, classification, and release-blocking shape are pinned.
+    identity_fields = (
+        "id",
+        "fingerprint",
+        "check_id",
+        "severity",
+        "title",
+        "baseline_status",
+        "blocks_release",
+    )
+    assert tuple(blockers[0][k] for k in identity_fields) == (
+        "fp_f092940f62fbb012",
+        "fp_f092940f62fbb012",
+        "SHIP-POLICY-APPROVAL-MISSING",
+        "critical",
+        "stripe.create_refund lacks a declared approval policy",
+        None,
+        False,
+    )
+    assert tuple(blockers[1][k] for k in identity_fields) == (
+        "fp_dac8011e14c53777",
+        "fp_dac8011e14c53777",
+        "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "critical",
+        "stripe.create_refund lacks idempotency evidence",
+        None,
+        False,
+    )
+    # v0.19 reviewer-grade provenance: each blocker carries the dual
+    # source pointers from the originating Finding (tool source + the
+    # missing-mitigation manifest pointer). The exact line numbers
+    # depend on the sample manifest layout, so the test pins only
+    # presence and pointer identity.
+    approval_evidence = blockers[0]["policy_evidence_source"]
+    assert approval_evidence is not None
+    assert approval_evidence["pointer"] == "/policies/require_approval_for_tools"
+    assert approval_evidence["path"] == "shipgate.yaml"
+    idempotency_evidence = blockers[1]["policy_evidence_source"]
+    assert idempotency_evidence is not None
+    assert idempotency_evidence["pointer"] == "/policies/require_idempotency_for_tools"
+    assert idempotency_evidence["path"] == "shipgate.yaml"
 
 
 def test_release_consequence_counts_distinct_release_decision_findings(tmp_path):
@@ -521,9 +545,11 @@ def test_json_schema_is_published():
 
 
 def test_json_report_validates_against_current_schema(tmp_path):
-    """Current schema (v0.18) adds privacy_audit on top of the v0.17
-    release decision and policy audit fields. Emitted reports must
-    validate against it."""
+    """Current schema (v0.19) adds reviewer-grade dual-source provenance
+    (``Finding.policy_evidence_source`` and
+    ``ReleaseDecisionItem.{source, policy_evidence_source}``) on top of
+    v0.18's privacy audit and the v0.17 release decision and policy
+    audit fields. Emitted reports must validate against it."""
     from agents_shipgate.report.json_report import report_json_payload
 
     report, _ = run_scan(
@@ -532,7 +558,7 @@ def test_json_report_validates_against_current_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V18.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V19.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -1010,7 +1036,7 @@ def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V18.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_V19.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

@@ -15,6 +15,7 @@ from agents_shipgate.report.action_surface_diff import (
     _dedupe_findings,
     build_action_surface_facts,
     compute_action_surface_diff,
+    enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -24,6 +25,7 @@ from agents_shipgate.schemas.surfaces import (
     ActionEvidenceFact,
     ActionFact,
     ActionSafeguardsFact,
+    ActionSurfaceChange,
     ActionSurfaceDiff,
     ActionSurfaceFacts,
     ActionSurfaceHashes,
@@ -328,6 +330,195 @@ def test_action_surface_external_side_effect_alias_matches_external_communicatio
         and finding.blocks_release
         for finding in findings
     )
+
+
+def test_enrich_action_surface_diff_populates_structured_source_fields():
+    """v0.19 reviewer-grade provenance: every change row gains
+    structured ``source_path`` / ``source_start_line`` fields when the
+    underlying tool source is known. Without these, action-surface
+    change rows in report.json carried no clue where the underlying
+    tool was defined and reviewers had to grep tool_inventory.
+
+    The fields are deliberately structured (not a ``(source: ...)``
+    suffix in ``reason``) because ``ActionSurfaceChange.model_dump``
+    lands in policy-finding ``evidence`` payloads and finding
+    fingerprints hash ``evidence`` — text in ``reason`` would leak
+    line numbers into baseline identity. The reason field stays
+    byte-stable; the structured fields ride on the public diff only.
+    """
+    base = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:stripe.create_refund",
+                agent_id="agent",
+                tool_id="tool:stripe.create_refund",
+                tool_name="stripe.create_refund",
+                provider="custom",
+                source_type="openapi",
+                operation="create_refund",
+                effect="financial_write",
+                input_schema_hash="0" * 64,
+                approval_policy=ActionApprovalFact(required=True),
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:stripe.create_refund",
+                agent_id="agent",
+                tool_id="tool:stripe.create_refund",
+                tool_name="stripe.create_refund",
+                provider="custom",
+                source_type="openapi",
+                operation="create_refund",
+                effect="financial_write",
+                input_schema_hash="0" * 64,
+                # Approval removed → trigger APPROVAL_REMOVED row.
+                approval_policy=ActionApprovalFact(required=False),
+                hashes=ActionSurfaceHashes(
+                    identity_hash="1" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="1" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    diff = compute_action_surface_diff(current, base)
+    pre_reason = next(
+        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
+    ).reason
+    enrich_action_surface_diff_with_source(
+        diff,
+        {"stripe.create_refund": ("api.yaml", 97)},
+    )
+    assert diff.modified
+    approval_removed = next(
+        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
+    )
+    assert approval_removed.source_path == "api.yaml"
+    assert approval_removed.source_start_line == 97
+    # Reason stays byte-stable so finding fingerprints don't churn.
+    assert approval_removed.reason == pre_reason
+
+
+def test_action_policy_finding_evidence_excludes_v019_source_fields():
+    """v0.19 reviewer-grade provenance: ``ActionSurfaceChange`` carries
+    ``source_path`` / ``source_start_line`` fields but
+    ``evaluate_action_surface_policies`` MUST NOT include them in the
+    ``evidence`` payload it dumps into action policy findings, or every
+    existing action-surface finding fingerprint would churn relative
+    to pre-v0.19 baselines (even when the new fields are ``None``,
+    their mere presence as keys shifts the canonicalised hash).
+
+    Regression for review #5: ``change.model_dump(mode='json')``
+    silently included ``source_path: None`` / ``source_start_line: None``
+    keys; finding_fingerprint hashed them and the same legacy change
+    payload produced two different fingerprints. The fix excludes
+    those keys at the dump site so the evidence stays byte-equal to
+    legacy. The diff row itself still carries the structured fields
+    for renderers.
+    """
+    from agents_shipgate.report.action_surface_diff import _change_evidence
+
+    change = ActionSurfaceChange(
+        type="APPROVAL_REMOVED",
+        action_id="agent:t",
+        agent_id="agent",
+        tool_name="t",
+        operation="op",
+        severity="critical",
+        reason="Action approval policy was removed.",
+        before={"required": True},
+        after={"required": False},
+    )
+    # Pre-enrichment dump — same as a pre-v0.19 payload.
+    pre = _change_evidence(change)
+    # Enrich to simulate the public diff carrying source fields.
+    change.source_path = "api.yaml"
+    change.source_start_line = 97
+    # Post-enrichment dump must still match — source fields excluded.
+    post = _change_evidence(change)
+    assert pre == post, "evidence dump must drop source_path/source_start_line"
+    assert "source_path" not in post
+    assert "source_start_line" not in post
+    # Reason and other fields are preserved verbatim.
+    assert post["reason"] == "Action approval policy was removed."
+
+
+def test_enrich_action_surface_diff_does_not_mutate_reason():
+    """Regression: an earlier draft suffixed ``reason`` with
+    ``(source: path:line)``. That leaks line numbers into the
+    ``ActionSurfaceChange.model_dump()`` payload that ``evidence``
+    carries in ``evaluate_action_surface_policies`` findings, and
+    ``finding_fingerprint`` hashes ``evidence``. Keep the reason
+    byte-stable so baseline fingerprints don't churn when a tool
+    moves in its source file."""
+    base = ActionSurfaceFacts()
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:t",
+                agent_id="agent",
+                tool_id="tool:t",
+                tool_name="t",
+                provider="custom",
+                source_type="openapi",
+                operation="op",
+                effect="read",
+                input_schema_hash="0" * 64,
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    diff = compute_action_surface_diff(current, base)
+    original = [row.reason for row in diff.added]
+    enrich_action_surface_diff_with_source(diff, {"t": ("api.yaml", 42)})
+    assert [row.reason for row in diff.added] == original
+
+
+def test_enrich_action_surface_diff_skipped_when_index_empty():
+    """No-op when the index is None / empty so callers don't need to
+    branch on the absence of structured source data."""
+    base = ActionSurfaceFacts()
+    current = ActionSurfaceFacts(
+        actions=[
+            ActionFact(
+                action_id="agent:t",
+                agent_id="agent",
+                tool_id="tool:t",
+                tool_name="t",
+                provider="custom",
+                source_type="openapi",
+                operation="op",
+                effect="read",
+                input_schema_hash="0" * 64,
+                hashes=ActionSurfaceHashes(
+                    identity_hash="0" * 64,
+                    schema_hash="0" * 64,
+                    policy_hash="0" * 64,
+                    risk_hash="0" * 64,
+                ),
+            )
+        ]
+    )
+    diff = compute_action_surface_diff(current, base)
+    original_reasons = [row.reason for row in diff.added]
+    enrich_action_surface_diff_with_source(diff, None)
+    enrich_action_surface_diff_with_source(diff, {})
+    assert [row.reason for row in diff.added] == original_reasons
 
 
 def test_action_surface_diff_reports_added_and_removed_actions():

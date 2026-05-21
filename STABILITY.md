@@ -481,7 +481,7 @@ Diff remains explanatory only.
 
 ### Release Evidence Packet (v0.6)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json). Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json). v0.6 adds the top-level `evidence_matrix` section (PR #104) and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance (PR #103). v0.5 stays as the frozen reference at [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json); pre-v0.6 packets validate against it. Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.

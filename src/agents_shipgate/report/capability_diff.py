@@ -389,6 +389,15 @@ def _capability_fact(tool: Tool, related_findings: list[Finding]) -> CapabilityF
     tags = risk_tags(tool, min_confidence="medium")
     capability = "wildcard_tool_surface" if tool.annotations.get("wildcard_tools") is True else _capability(tags)
     related_refs = sorted(_finding_ref(finding) for finding in related_findings)
+    # ``source_ref`` is a stable contract per STABILITY.md and
+    # existing OpenAPI refs can already contain JSON-pointer fragments
+    # (e.g. ``api.yaml#/paths/~1pets/get``). Appending ``#L{line}``
+    # would yield ambiguous strings like ``api.yaml#/paths/...#L42``.
+    # The reviewer-grade line citation lives on the enriched
+    # ``tool_inventory`` rows (``source_path`` / ``source_start_line``)
+    # and on each finding's structured ``source.path`` /
+    # ``source.start_line`` — both unambiguous. ``CapabilityFact.source_ref``
+    # stays byte-stable.
     return CapabilityFact(
         id=_hash_id(
             "cap",

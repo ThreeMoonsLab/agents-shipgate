@@ -203,6 +203,21 @@ def annotate_remediation(
                 suggested_patch_kind,
             ) = _derive_from_patches(finding.patches)
 
+        # Reviewer-grade escalation: when the catalog flags this check
+        # as requiring human review regardless of the per-patch state
+        # (approval/confirmation/idempotency, broad-scope,
+        # prohibited-action, runtime-trace, HITL evidence), force
+        # safe-closed values BEFORE assigning. Setting them here keeps
+        # `finding.autofix_safe`, `finding.requires_human_review`, and
+        # `finding.agent_action` (derived below) in agreement: the
+        # existing `auto_apply` early-return in `derive_agent_action`
+        # tests `finding.autofix_safe`, so flipping it to False naturally
+        # routes the verdict to `propose_patch_for_review` whenever
+        # patches are present, and to `escalate_to_human` otherwise.
+        if meta is not None and meta.requires_human_review_regardless_of_patch:
+            autofix_safe = False
+            requires_human_review = True
+
         finding.autofix_safe = autofix_safe
         finding.requires_human_review = requires_human_review
         finding.suggested_patch_kind = suggested_patch_kind
@@ -770,11 +785,20 @@ def recommended_actions(findings: list[Finding]) -> list[str]:
 
 
 def tool_inventory(tools: list[Tool]) -> list[dict[str, object]]:
+    # v0.19 reviewer-grade provenance: ``source_path`` / ``source_start_line``
+    # are additive optional keys per row. Post-scan renderers
+    # (scenario YAML, downstream consumers reading ``report.json``)
+    # use this lookup to cite ``path:line`` for tools touched by a
+    # finding without re-parsing the artifact. Older consumers ignore
+    # the new keys; new consumers can require them for high-risk tools.
     return [
         {
             "name": tool.name,
             "source_type": tool.source_type,
             "source_ref": tool.source_ref,
+            "source_path": tool.source_path,
+            "source_start_line": tool.source_start_line,
+            "source_pointer": tool.source_pointer,
             "risk_tags": risk_tags(tool, min_confidence="medium"),
             "risk_tag_confidence": _risk_tag_confidence(tool, min_confidence="medium"),
             "auth_scopes": tool.auth.scopes,

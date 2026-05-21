@@ -19,10 +19,24 @@ from agents_shipgate.core.domain import (
     Agent,
     Tool,
 )
+from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
 T = TypeVar("T")
+
+
+def _empty_position_index() -> PositionIndex:
+    """Default factory for ``ScanContext.manifest_positions``.
+
+    The position index is best-effort: tests that construct a
+    ``ScanContext`` directly (without going through ``run_scan``) and
+    plugin contexts that don't have a manifest text on disk both want
+    the unsupported sentinel so ``positions.lookup(...)`` returns
+    ``None`` and ``agent_finding`` / ``tool_finding`` fall back to the
+    legacy filename-only manifest provenance.
+    """
+    return PositionIndex(supported=False)
 
 
 @dataclass
@@ -33,6 +47,14 @@ class ScanContext:
     config_path: Path
     framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
     action_surface_facts: ActionSurfaceFacts = field(default_factory=ActionSurfaceFacts)
+    # v0.19 reviewer-grade provenance: JSON-pointer → ``(line, col)``
+    # index built from the manifest YAML so agent-level and
+    # tool-level high-risk emitters can attach ``shipgate.yaml:N``
+    # provenance for the missing-mitigation pointer. Defaults to the
+    # unsupported sentinel — direct construction in tests and older
+    # callers that don't thread the index keep working with
+    # ``positions.lookup(...) == None``.
+    manifest_positions: PositionIndex = field(default_factory=_empty_position_index)
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

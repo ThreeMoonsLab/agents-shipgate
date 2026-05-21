@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.18",
-  "run_id": "agents_shipgate_427f402f2536c974",
+  "report_schema_version": "0.19",
+  "run_id": "agents_shipgate_e6307029b0ddfba5",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
@@ -340,8 +340,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpgyipk15k/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpgyipk15k/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -350,6 +350,9 @@
       "name": "lookup_case",
       "source_type": "langchain_function",
       "source_ref": "agent.py",
+      "source_path": null,
+      "source_start_line": null,
+      "source_pointer": null,
       "risk_tags": [
         "read_only"
       ],
@@ -364,6 +367,9 @@
       "name": "summarize_case",
       "source_type": "langchain_structured_tool",
       "source_ref": "agent.py",
+      "source_path": null,
+      "source_start_line": null,
+      "source_pointer": null,
       "risk_tags": [],
       "risk_tag_confidence": {},
       "auth_scopes": [],

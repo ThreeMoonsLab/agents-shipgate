@@ -344,6 +344,10 @@ def _excluded_rationale_for(
 
 
 def _to_item(finding: Finding) -> ReleaseDecisionItem:
+    # v0.19 reviewer-grade provenance: mirror the dual-source pointers
+    # so packet §1 and re-renderers (which consume ReleaseDecisionItem,
+    # not the full Finding) can cite both the tool location and the
+    # manifest evidence pointer without a side lookup.
     return ReleaseDecisionItem(
         id=finding.id,
         fingerprint=finding.fingerprint,
@@ -352,6 +356,8 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
         title=finding.title,
         baseline_status=finding.baseline_status,
         blocks_release=finding.blocks_release,
+        source=finding.source,
+        policy_evidence_source=finding.policy_evidence_source,
     )
 
 

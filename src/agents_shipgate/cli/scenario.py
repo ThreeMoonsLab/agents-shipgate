@@ -56,6 +56,12 @@ class ScenarioRow:
     tool: str | None
     adversarial_goal: str
     expected_control: str
+    # v0.19 reviewer-grade provenance: serialized form of the
+    # originating finding's structured source fields. Carried per-row
+    # so the YAML payload reviewer sees ``source: {tool: {path, line,
+    # pointer}, policy_evidence: {path, line, pointer}}`` without
+    # re-loading the JSON report.
+    source_block: dict[str, Any] | None = None
 
 
 @scenario_app.command("suggest")
@@ -262,26 +268,82 @@ def _row(
             tool_name=tool_name,
         ),
         expected_control=scenario.expected_control,
+        source_block=_source_block(finding),
     )
+
+
+def _source_block(finding: Finding) -> dict[str, Any] | None:
+    """Serialize the originating finding's structured source pointers
+    into the per-row scenario YAML.
+
+    Returns ``None`` when neither pointer carries usable data so the
+    YAML payload stays terse for findings without provenance. Dedupes
+    when the secondary pointer is byte-equal to the primary (e.g.
+    agent-level findings whose primary source IS the manifest
+    pointer) so the YAML never carries two identical ``{path, line,
+    pointer}`` mappings.
+    """
+    tool_block = _pointer_block(finding.source)
+    policy_block = _pointer_block(finding.policy_evidence_source)
+    if policy_block is not None and policy_block == tool_block:
+        policy_block = None
+    if tool_block is None and policy_block is None:
+        return None
+    block: dict[str, Any] = {}
+    if tool_block is not None:
+        block["tool"] = tool_block
+    if policy_block is not None:
+        block["policy_evidence"] = policy_block
+    return block
+
+
+def _pointer_block(source: Any) -> dict[str, Any] | None:
+    if source is None:
+        return None
+    path = getattr(source, "path", None)
+    line = getattr(source, "start_line", None)
+    pointer = getattr(source, "pointer", None)
+    legacy = getattr(source, "location", None) or getattr(source, "ref", None)
+    if path is None and pointer is None and legacy is None:
+        return None
+    block: dict[str, Any] = {}
+    if path is not None:
+        block["path"] = path
+    if line is not None:
+        block["line"] = line
+    if pointer is not None:
+        block["pointer"] = pointer
+    if path is None and pointer is None and legacy is not None:
+        # Legacy provenance carries the ref string only — surface it
+        # under ``ref`` so the YAML still tells the reviewer something.
+        block["ref"] = legacy
+    return block or None
 
 
 def _rows_to_payload(rows: list[ScenarioRow]) -> list[dict[str, Any]]:
     row_ids = _row_ids(rows)
     payload: list[dict[str, Any]] = []
     for row, row_id in zip(rows, row_ids, strict=True):
-        payload.append(
-            {
-                "id": row_id,
-                "scenario_type": row.scenario_type,
-                "derived_from": row.derived_from,
-                "finding_id": row.finding_id,
-                "source_scenario_id": row.source_scenario_id,
-                "source_misalignment_id": row.misalignment_id,
-                "tool": row.tool,
-                "adversarial_goal": row.adversarial_goal,
-                "expected_control": row.expected_control,
-            }
-        )
+        entry: dict[str, Any] = {
+            "id": row_id,
+            "scenario_type": row.scenario_type,
+            "derived_from": row.derived_from,
+            "finding_id": row.finding_id,
+            "source_scenario_id": row.source_scenario_id,
+            "source_misalignment_id": row.misalignment_id,
+            "tool": row.tool,
+            "adversarial_goal": row.adversarial_goal,
+            "expected_control": row.expected_control,
+        }
+        # v0.19 reviewer-grade provenance: when the row's originating
+        # finding carries structured source pointers, emit them as a
+        # nested ``source`` mapping so the YAML reviewer can jump to
+        # both the tool location and the manifest evidence pointer
+        # without re-loading report.json.
+        source_block = row.source_block
+        if source_block:
+            entry["source"] = source_block
+        payload.append(entry)
     return payload
 
 

@@ -112,6 +112,47 @@ def build_action_surface_facts(
     return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
 
 
+def enrich_action_surface_diff_with_source(
+    diff: ActionSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]] | None,
+) -> ActionSurfaceDiff:
+    """Populate ``ActionSurfaceChange.source_path`` /
+    ``source_start_line`` on each change row when the tool's
+    structured source is known.
+
+    Mutates the diff in place and returns it. ``tool_source_index``
+    maps ``tool_name → (source_path, source_start_line)``; callers
+    pass the index from the live ``Tool`` list (or from the post-scan
+    ``tool_inventory`` rows). Without an index, the diff is returned
+    untouched.
+
+    The enrichment lands on structured fields rather than mutating
+    ``reason``: ``ActionSurfaceChange.model_dump()`` is serialized
+    into policy-finding ``evidence`` payloads in
+    ``evaluate_action_surface_policies`` and ``finding_fingerprint``
+    hashes ``evidence``. Baking line numbers into ``reason`` would
+    therefore churn the finding fingerprint every time a tool moved
+    in its source file, breaking baseline matches. Structured
+    ``source_path``/``source_start_line`` carry the same reviewer
+    information without entering the identity hash (downstream
+    renderers read them explicitly).
+
+    For safety, this function is only called on the PUBLIC diff
+    (``cli/scan.py``); the internal diff stays semantic so policy
+    findings can be evaluated against unchanged evidence.
+    """
+    if not tool_source_index:
+        return diff
+    for row in (*diff.added, *diff.removed, *diff.modified):
+        entry = tool_source_index.get(row.tool_name or "")
+        if entry is None:
+            continue
+        path, line = entry
+        row.source_path = path
+        row.source_start_line = line
+    return diff
+
+
 def compute_action_surface_diff(
     current: ActionSurfaceFacts,
     base: ActionSurfaceFacts | None,
@@ -798,6 +839,28 @@ def _change(
     )
 
 
+def _change_evidence(change: ActionSurfaceChange) -> dict[str, Any]:
+    """Serialize a change row into the ``evidence.change`` slot used by
+    action-surface policy findings.
+
+    Excludes the v0.19 reviewer-grade ``source_path`` and
+    ``source_start_line`` fields. ``evaluate_action_surface_policies``
+    feeds this dump into ``Finding.evidence``, and
+    ``finding_fingerprint`` hashes canonicalized ``evidence`` — so
+    even when the structured source pointers are unset (``None``)
+    their mere presence as keys would shift the hash relative to
+    pre-v0.19 reports. Stripping them at the dump site keeps the
+    fingerprint byte-equal to legacy and preserves baseline identity
+    across the upgrade. The structured fields are still emitted on
+    the diff row itself (and consumed by renderers); only the
+    finding-evidence projection drops them.
+    """
+    return change.model_dump(
+        mode="json",
+        exclude={"source_path", "source_start_line"},
+    )
+
+
 def _summary(
     added: list[ActionSurfaceChange],
     removed: list[ActionSurfaceChange],
@@ -851,7 +914,7 @@ def _builtin_policy_findings(
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"change": change.model_dump(mode="json")},
+                    evidence={"change": _change_evidence(change)},
                     recommendation=(
                         "Replace action_surface.actions[].scopes for "
                         f"{action.tool_name} with operation-specific scopes; "
@@ -868,7 +931,7 @@ def _builtin_policy_findings(
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"change": change.model_dump(mode="json")},
+                    evidence={"change": _change_evidence(change)},
                     recommendation=(
                         f"Review action_surface.actions[].effect for {action.tool_name}; "
                         f"restore {change.before} or document approval/evidence for "
@@ -885,7 +948,7 @@ def _builtin_policy_findings(
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
-                    evidence={"change": change.model_dump(mode="json")},
+                    evidence={"change": _change_evidence(change)},
                     recommendation=(
                         "Restore action_surface.actions[].approval.required: true "
                         f"for {action.tool_name}, or document the reviewed exception "
@@ -902,7 +965,7 @@ def _builtin_policy_findings(
                     severity=change.severity,
                     action=action,
                     agent_id=agent_id,
-                    evidence={"change": change.model_dump(mode="json")},
+                    evidence={"change": _change_evidence(change)},
                     recommendation=(
                         "Restore action_surface.actions[].safeguards."
                         f"{change.removed[0] if change.removed else '<removed>'}: true "

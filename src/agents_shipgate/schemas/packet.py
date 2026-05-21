@@ -322,6 +322,20 @@ class EvidencePacket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # v0.6 (additive over v0.5, two independent extensions landing in
+    # the same minor bump):
+    #   - PR #104 adds the top-level ``evidence_matrix`` section.
+    #   - PR #103 (this branch) adds the optional ``source`` and
+    #     ``policy_evidence_source`` pointers to ``ReleaseDecisionItem``
+    #     (imported from the report schema) for reviewer-grade
+    #     dual-source provenance.
+    # Both additions are backwards-compatible: ``evidence_matrix``
+    # defaults to an empty section, ``ReleaseDecisionItem`` source
+    # fields default to ``None``. Consumers that validate against the
+    # frozen v0.5 schema (``additionalProperties: false`` on the
+    # ``EvidencePacket`` and ``ReleaseDecisionItem`` defs) can either
+    # pin v0.5 packets or upgrade to v0.6 — STABILITY.md's "frozen
+    # schema by version" contract is preserved.
     packet_schema_version: Literal["0.6"] = "0.6"
     generated_at: str | None = None
     run_id: str

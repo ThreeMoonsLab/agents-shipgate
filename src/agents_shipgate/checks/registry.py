@@ -94,6 +94,51 @@ _REMEDIATION_OVERRIDES: dict[str, dict[str, object]] = {
     "SHIP-AUTH-SCOPE-COVERAGE-MISSING": {
         "suggested_patch_kind": "append_pointer",
     },
+    # Reviewer-grade escalation: these check IDs cover the high-risk
+    # categories (approval/confirmation, idempotency, broad-scope,
+    # prohibited-action, runtime-trace, HITL evidence) where even a
+    # high-confidence non-manual patch must not auto-apply without
+    # explicit human review. `annotate_remediation` reads the flag and
+    # forces `autofix_safe=False, requires_human_review=True` regardless
+    # of patch-derived state, so `agent_action` lands at
+    # `propose_patch_for_review` and surface release-decision counters
+    # remain consistent.
+    "SHIP-POLICY-APPROVAL-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-POLICY-CONFIRMATION-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-SIDEFX-IDEMPOTENCY-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-AUTH-MANIFEST-BROAD-SCOPE": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-AUTH-TOOL-BROAD-SCOPE": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-API-TRACE-APPROVAL-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-API-TRACE-CONFIRMATION-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
+    "SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING": {
+        "requires_human_review_regardless_of_patch": True,
+    },
 }
 
 

@@ -82,6 +82,62 @@ def build_tool_surface_facts(
     )
 
 
+def enrich_tool_surface_diff_with_source(
+    diff: ToolSurfaceDiff,
+    tool_source_index: dict[str, tuple[str | None, int | None]] | None,
+) -> ToolSurfaceDiff:
+    """Populate ``source_path`` / ``source_start_line`` on every
+    tool-surface change row that references a tool whose structured
+    source is known.
+
+    Covers four row families:
+
+    - ``tools[]`` (``ToolSurfaceToolChange``) — keyed on ``name``.
+    - ``high_risk_effects[]`` (``ToolSurfaceHighRiskEffectChange``) —
+      keyed on ``tool``.
+    - ``controls[]`` (``ToolSurfaceControlChange``) — keyed on
+      ``tool``. ``reason`` text is preserved verbatim; the source
+      pointer lives on dedicated fields like the other row types.
+    - ``metadata_changes[]`` (``ToolSurfaceMetadataChange``) — keyed
+      on ``tool``.
+
+    Without an index the diff is returned untouched.
+
+    Structured fields rather than a ``(source: path:line)`` suffix in
+    free-text columns keep the JSON contract machine-readable and
+    prevent any future code path that fingerprints the rows from
+    treating line numbers as part of identity. Renderers read the
+    structured fields explicitly.
+    """
+    if not tool_source_index:
+        return diff
+    for tool_change in diff.tools:
+        _attach_source(tool_change, tool_source_index.get(tool_change.name))
+    for effect in diff.high_risk_effects:
+        _attach_source(effect, tool_source_index.get(effect.tool))
+    for control in diff.controls:
+        _attach_source(control, tool_source_index.get(control.tool))
+    for metadata in diff.metadata_changes:
+        _attach_source(metadata, tool_source_index.get(metadata.tool))
+    return diff
+
+
+def _attach_source(
+    row: object,
+    entry: tuple[str | None, int | None] | None,
+) -> None:
+    if entry is None:
+        return
+    path, line = entry
+    # ``ToolSurfaceControlChange`` exists since v0.10 with no source
+    # fields; the v0.19 additions ride on ``setattr`` so existing
+    # ``extra="forbid"`` schemas don't reject the write.
+    if hasattr(row, "source_path"):
+        row.source_path = path
+    if hasattr(row, "source_start_line"):
+        row.source_start_line = line
+
+
 def compute_tool_surface_diff(
     current: ToolSurfaceFacts,
     base: ToolSurfaceFacts | None,
