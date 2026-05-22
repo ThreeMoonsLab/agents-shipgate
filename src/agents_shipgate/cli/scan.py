@@ -377,13 +377,30 @@ def _load_inputs(
     # ``monkeypatch.setitem(REGISTRY._adapters, …)`` still work.
     scan_registry = REGISTRY.clone()
     loaded_adapters: list[dict[str, Any]] = []
-    discover_third_party_adapters(
+    discovery_records = discover_third_party_adapters(
         scan_registry,
         plugins_enabled=plugins_enabled,
         loaded_adapters=loaded_adapters,
     )
+    # v0.20 (PR #111 review follow-up #2): map of source_type → valid
+    # LoadedAdapter record. Used by ``_load_sources`` to route
+    # third-party adapter ``load()`` calls through
+    # ``run_validated_adapter`` so runtime exceptions land in
+    # ``loaded_adapters[].runtime_errors`` instead of crashing the
+    # scan. Invalid records (validation_status != "valid") are
+    # excluded: they never registered on ``scan_registry`` and so the
+    # dispatcher will never reach them.
+    third_party_records: dict[str, Any] = {
+        record.adapter.source_type: record
+        for record in discovery_records
+        if record.adapter is not None
+    }
     loaded_sources, artifact_bag = _load_sources(
-        manifest, base_dir, verbose=verbose, registry=scan_registry
+        manifest,
+        base_dir,
+        verbose=verbose,
+        registry=scan_registry,
+        third_party_records=third_party_records,
     )
     logger.debug(
         "loaded sources",
@@ -1246,7 +1263,25 @@ def run_scan(
 
 
 
-def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, object]:
+def inspect_sources(
+    *,
+    config_path: Path,
+    verbose: bool = False,
+    plugins_enabled: bool | None = None,
+) -> dict[str, object]:
+    """``doctor``'s manifest-introspection entry point.
+
+    v0.20 (PR #111 review fix follow-up #3): mirrors ``_load_inputs``'s
+    per-scan registry clone + adapter discovery so ``doctor`` can
+    inspect manifests that reference third-party source types. Before
+    this fix, the global ``REGISTRY`` was builtin-only (by design,
+    after the per-scan-registry refactor), so a manifest with
+    ``tool_sources[].type: demo_source`` scanned fine but ``doctor``
+    raised ``ConfigError: No adapter registered``.
+    """
+
+    from agents_shipgate.inputs.protocol import discover_third_party_adapters
+
     manifest = load_manifest(config_path)
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
@@ -1264,7 +1299,30 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
                 ]
             }
         )
-    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    # v0.20 (PR #111 review follow-up #3): build a per-scan registry
+    # for ``doctor`` so it sees the same adapter set as ``scan``. The
+    # global ``REGISTRY`` is builtin-only by design after the
+    # per-scan-clone refactor; without this discovery step,
+    # third-party source types would be unresolvable here.
+    scan_registry = REGISTRY.clone()
+    loaded_adapters: list[dict[str, Any]] = []
+    discovery_records = discover_third_party_adapters(
+        scan_registry,
+        plugins_enabled=plugins_enabled,
+        loaded_adapters=loaded_adapters,
+    )
+    third_party_records: dict[str, Any] = {
+        record.adapter.source_type: record
+        for record in discovery_records
+        if record.adapter is not None
+    }
+    loaded_sources, artifact_bag = _load_sources(
+        manifest,
+        base_dir,
+        verbose=verbose,
+        registry=scan_registry,
+        third_party_records=third_party_records,
+    )
     adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
     langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
     crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
@@ -1312,6 +1370,11 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             else None
         ),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
+        # v0.20 (PR #111 review follow-up #3): surface third-party
+        # adapter discovery results in the doctor payload so the
+        # operator can confirm which extensions were loaded (or why
+        # they were skipped) without running a full scan.
+        "loaded_adapters": loaded_adapters,
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
         "unresolved_sources": unresolved_sources,
@@ -1399,6 +1462,7 @@ def _load_sources(
     *,
     verbose: bool,
     registry: Any = None,
+    third_party_records: dict[str, Any] | None = None,
 ) -> tuple[list[LoadedToolSource], ArtifactBag]:
     """Dispatch every adapter through the supplied ``registry``.
 
@@ -1430,9 +1494,22 @@ def _load_sources(
     ``_load_inputs`` (notably the legacy tests in
     ``tests/test_adapter_registry.py``). New code should always pass
     a per-scan registry.
+
+    v0.20 (PR #111 review fix follow-up #2): ``third_party_records``
+    maps each validated third-party ``source_type`` to its
+    ``LoadedAdapter`` record (from ``discover_third_party_adapters``).
+    When set, the dispatcher routes those adapters through
+    ``run_validated_adapter`` so any exception during their
+    ``load()`` call is captured into
+    ``loaded_adapters[].runtime_errors`` and the scan continues in
+    lenient mode (or trips ``--strict-plugins`` exit 4 in strict
+    mode). Built-in adapters keep the direct call shape — a built-in
+    raising means the scanner itself is broken and must abort loudly.
     """
     if registry is None:
         registry = REGISTRY
+    if third_party_records is None:
+        third_party_records = {}
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
@@ -1447,9 +1524,20 @@ def _load_sources(
         adapter = registry.require(source.type)
         if adapter.scope != "per_source":
             continue
+        third_party_record = third_party_records.get(source.type)
         result = _invoke_per_source_adapter(
-            adapter, source, base_dir, manifest, verbose=verbose
+            adapter,
+            source,
+            base_dir,
+            manifest,
+            verbose=verbose,
+            third_party_record=third_party_record,
         )
+        if result is None:
+            # Third-party adapter raised at runtime; the wrapper
+            # captured the failure into runtime_errors and we skip
+            # absorbing the (None) result.
+            continue
         _absorb(result, source.type, per_source_loaded, bag, adapter)
 
     # Pass 2 — every per-scan adapter fires once, in registry order.
@@ -1458,7 +1546,22 @@ def _load_sources(
     # configured) and manifest-only adapters (openai_api,
     # anthropic_api, n8n).
     for adapter in registry.per_scan_adapters():
-        result = adapter.load(None, base_dir, manifest)
+        third_party_record = third_party_records.get(adapter.source_type)
+        if third_party_record is not None:
+            from agents_shipgate.inputs.adapter_validation import (
+                run_validated_adapter,
+            )
+
+            result = run_validated_adapter(
+                third_party_record,
+                source=None,
+                base_dir=base_dir,
+                manifest=manifest,
+            )
+            if result is None:
+                continue
+        else:
+            result = adapter.load(None, base_dir, manifest)
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 
     return per_source_loaded + per_scan_loaded, bag
@@ -1552,7 +1655,35 @@ def _invoke_per_source_adapter(
     manifest: AgentsShipgateManifest,
     *,
     verbose: bool,
-) -> LoadedAdapterResult:
+    third_party_record: Any = None,
+) -> LoadedAdapterResult | None:
+    """Invoke a per_source adapter and return its result.
+
+    For **built-in** adapters: catch ``InputParseError`` only when the
+    source is marked ``optional`` (returning a warning-only stub);
+    any other exception propagates. A built-in raising means the
+    scanner is broken and must abort loudly.
+
+    For **third-party** adapters (``third_party_record`` is the
+    matching ``LoadedAdapter``): route through
+    ``run_validated_adapter``, which captures ALL exceptions into the
+    record's ``runtime_errors`` list and returns ``None``. Returning
+    ``None`` signals the caller to skip ``_absorb`` for this source —
+    the scan continues in lenient mode and ``--strict-plugins`` sees
+    the runtime error on exit.
+    """
+
+    if third_party_record is not None:
+        from agents_shipgate.inputs.adapter_validation import (
+            run_validated_adapter,
+        )
+
+        return run_validated_adapter(
+            third_party_record,
+            source=source,
+            base_dir=base_dir,
+            manifest=manifest,
+        )
     try:
         return adapter.load(source, base_dir, manifest)
     except InputParseError:
