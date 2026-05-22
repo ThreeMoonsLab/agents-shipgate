@@ -45,8 +45,12 @@ from agents_shipgate.cli.discovery.agent_instructions.managed_block import (
     upsert,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
-    CODEX_SKILL_PRIOR_RENDER_SHA256,
-    CURSOR_PRIOR_RENDER_SHA256,
+    codex_skill as codex_skill_renderer,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    cursor as cursor_renderer,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_md,
     render_codex_skill_bundle_text,
@@ -379,7 +383,7 @@ def _apply_cursor(path: Path, workspace: Path) -> TargetOutcome:
             status="unchanged",
             message=f"{path} already up to date.",
         )
-    if existing_sha in CURSOR_PRIOR_RENDER_SHA256:
+    if existing_sha in cursor_renderer.PRIOR_RENDER_SHA256:
         path.write_bytes(rendered_bytes)
         return TargetOutcome(
             name="cursor",
@@ -439,7 +443,7 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
         if current == content:
             continue
         current_sha = hashlib.sha256(current.encode("utf-8")).hexdigest()
-        if current_sha in CODEX_SKILL_PRIOR_RENDER_SHA256.get(rel, ()):
+        if current_sha in codex_skill_renderer.PRIOR_RENDER_SHA256.get(rel, ()):
             prior.append(rel)
             continue
         return TargetOutcome(

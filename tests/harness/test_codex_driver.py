@@ -145,6 +145,44 @@ def test_codex_driver_records_reported_usd_cost(tmp_path: Path) -> None:
     assert result.degraded is False
 
 
+def test_codex_driver_sums_incremental_usd_cost_events(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    raw_dir = inputs.artifacts_dir / "raw"
+    stdout = "\n".join(
+        [
+            json.dumps({"type": "turn.completed", "usage": {"cost_usd": 0.125}}),
+            json.dumps({"type": "turn.completed", "usage": {"cost_usd": 0.375}}),
+        ]
+    )
+
+    def runner(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    with TranscriptWriter(raw_dir) as writer:
+        result = CodexDriver(runner=runner).run(inputs, writer)
+
+    assert result.cost_usd_estimate == 0.5
+
+
+def test_codex_driver_uses_largest_cumulative_usd_cost_event(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    raw_dir = inputs.artifacts_dir / "raw"
+    stdout = "\n".join(
+        [
+            json.dumps({"type": "turn.completed", "usage": {"total_cost_usd": 0.125}}),
+            json.dumps({"type": "turn.completed", "usage": {"total_cost_usd": 0.375}}),
+        ]
+    )
+
+    def runner(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    with TranscriptWriter(raw_dir) as writer:
+        result = CodexDriver(runner=runner).run(inputs, writer)
+
+    assert result.cost_usd_estimate == 0.375
+
+
 def test_codex_driver_marks_budget_unknown_when_usage_has_no_cost(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
     inputs.budget_usd = 5.0

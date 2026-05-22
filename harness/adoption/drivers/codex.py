@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,20 @@ from harness.adoption.drivers.base import DriverInputs, RunResult
 from harness.adoption.observer.transcript import TranscriptWriter
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+_INCREMENTAL_COST_KEYS = ("cost_usd", "turn_cost_usd", "incremental_cost_usd")
+_CUMULATIVE_COST_KEYS = (
+    "total_cost_usd",
+    "cumulative_cost_usd",
+    "cost_usd_estimate",
+    "estimated_cost_usd",
+)
+
+
+@dataclass(frozen=True)
+class _CostObservation:
+    usd: float
+    cumulative: bool
 
 
 class CodexDriver:
@@ -96,11 +111,12 @@ class CodexDriver:
             if usage:
                 tokens_in += usage.get("input_tokens", 0)
                 tokens_out += usage.get("output_tokens", 0)
-            event_cost = _cost_usd_from_event(event)
+            event_cost = _cost_usd_observation(event)
             if event_cost is not None:
-                # Codex reports per-turn usage today; if future event streams
-                # include multiple cumulative cost events, keep the largest.
-                cost_usd_estimate = max(cost_usd_estimate, event_cost)
+                if event_cost.cumulative:
+                    cost_usd_estimate = max(cost_usd_estimate, event_cost.usd)
+                else:
+                    cost_usd_estimate += event_cost.usd
                 saw_cost_usd = True
             event_error = _record_event(event, writer, summary_chunks)
             if event_error and error is None:
@@ -196,28 +212,33 @@ def _usage_from_event(event: dict[str, Any]) -> dict[str, int] | None:
     }
 
 
-def _cost_usd_from_event(event: dict[str, Any]) -> float | None:
+def _cost_usd_observation(event: dict[str, Any]) -> _CostObservation | None:
     containers: list[dict[str, Any]] = [event]
     usage = event.get("usage")
     if isinstance(usage, dict):
         containers.append(usage)
 
     for container in containers:
-        for key in (
-            "cost_usd_estimate",
-            "estimated_cost_usd",
-            "cost_usd",
-            "total_cost_usd",
-        ):
-            raw = container.get(key)
-            if raw is None:
-                continue
-            try:
-                cost = float(raw)
-            except (TypeError, ValueError):
-                continue
-            if cost >= 0:
-                return cost
+        cost = _first_non_negative_cost(container, _CUMULATIVE_COST_KEYS)
+        if cost is not None:
+            return _CostObservation(cost, cumulative=True)
+        cost = _first_non_negative_cost(container, _INCREMENTAL_COST_KEYS)
+        if cost is not None:
+            return _CostObservation(cost, cumulative=False)
+    return None
+
+
+def _first_non_negative_cost(container: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        raw = container.get(key)
+        if raw is None:
+            continue
+        try:
+            cost = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if cost >= 0:
+            return cost
     return None
 
 

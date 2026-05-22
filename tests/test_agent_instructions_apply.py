@@ -172,20 +172,6 @@ def test_codex_skill_reports_migrate_and_repair_when_prior_file_and_missing_file
         "PRIOR_RENDER_SHA256",
         {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
     )
-    from agents_shipgate.cli.discovery.agent_instructions import renderers as _r
-
-    monkeypatch.setattr(
-        _r,
-        "CODEX_SKILL_PRIOR_RENDER_SHA256",
-        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
-    )
-    from agents_shipgate.cli.discovery.agent_instructions import apply as apply_module
-
-    monkeypatch.setattr(
-        apply_module,
-        "CODEX_SKILL_PRIOR_RENDER_SHA256",
-        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
-    )
 
     skill.write_text(prior_text, encoding="utf-8")
     missing.unlink()
@@ -304,11 +290,6 @@ def test_cursor_migrated_when_file_matches_prior_render(
     prior_text = "stub-prior-render\n"
     prior_sha = hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
     monkeypatch.setattr(cursor_module, "PRIOR_RENDER_SHA256", (prior_sha,))
-    # Reload the symbol that apply imported at module load.
-    from agents_shipgate.cli.discovery.agent_instructions import renderers as _r
-    monkeypatch.setattr(_r, "CURSOR_PRIOR_RENDER_SHA256", (prior_sha,))
-    from agents_shipgate.cli.discovery.agent_instructions import apply as apply_module
-    monkeypatch.setattr(apply_module, "CURSOR_PRIOR_RENDER_SHA256", (prior_sha,))
 
     target = tmp_path / ".cursor/rules/agents-shipgate.mdc"
     target.parent.mkdir(parents=True)
