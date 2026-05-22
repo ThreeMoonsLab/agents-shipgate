@@ -160,12 +160,28 @@ class _ResolvedManifest:
 
 @dataclass(frozen=True)
 class _LoadedInputs:
-    """Phase 2 output: source loading + artifact extraction + warnings."""
+    """Phase 2 output: source loading + artifact extraction + warnings.
+
+    Warning buckets are kept separate so Phase 3 (``_build_tools_and_agent``)
+    can interleave ``duplicate_warnings`` from
+    ``_flatten_and_deduplicate_tools`` between ``source_only_warnings`` and
+    ``artifact_warnings``, preserving the pre-decomp deterministic order:
+
+        source → duplicate → artifact → placeholder → policy_pack → dedup
+
+    Collapsing them into a single ``warnings`` list here (the P3 bug that
+    this split fixes) would push duplicate warnings to the end, changing
+    ``report.source_warnings`` order for fixtures with both duplicate-tool
+    names and artifact/policy-pack warnings.
+    """
 
     loaded_sources: list[LoadedToolSource]
     artifact_bag: ArtifactBag
     policy_packs: Any  # LoadedPolicyPacks
-    warnings: list[str]  # accumulated source warnings before dedup
+    source_only_warnings: list[str]   # per-source warnings, no dedup yet
+    artifact_warnings_list: list[str]      # from _artifact_warnings(artifact_bag)
+    placeholder_warnings: list[str]   # from _manifest_placeholder_warnings
+    policy_pack_warnings: list[str]   # from policy_packs.warnings
     adk: GoogleAdkArtifacts | None
     langchain: LangChainArtifacts | None
     crewai: CrewAiArtifacts | None
@@ -343,28 +359,34 @@ def _load_inputs(
             ],
         },
     )
-    warnings: list[str] = [
+    # Keep warning buckets separate so Phase 3 can re-assemble them in the
+    # pre-decomp order: source → duplicate → artifact → placeholder →
+    # policy_pack → dedup. See _LoadedInputs docstring for the P3 rationale.
+    source_only_warnings: list[str] = [
         warning for loaded in loaded_sources for warning in loaded.warnings
     ]
-    warnings.extend(_artifact_warnings(artifact_bag))
+    artifact_warnings_list: list[str] = _artifact_warnings(artifact_bag)
     # Unresolved CHANGE_ME placeholders in the manifest mean the run is
     # operating on stub data. Surface them as source warnings so the
     # existing ``source_warning_count > 0`` branch in
     # release_decision.evidence_coverage routes the gate to
     # ``review_required`` and the packet §10 "Not proven" section
     # mentions the placeholder verbatim.
-    warnings.extend(_manifest_placeholder_warnings(config_path))
+    placeholder_warnings: list[str] = _manifest_placeholder_warnings(config_path)
     policy_packs = load_policy_packs(
         manifest=manifest,
         base_dir=base_dir,
         cli_policy_packs=policy_pack_paths,
     )
-    warnings.extend(policy_packs.warnings)
+    policy_pack_warnings: list[str] = list(policy_packs.warnings)
     return _LoadedInputs(
         loaded_sources=loaded_sources,
         artifact_bag=artifact_bag,
         policy_packs=policy_packs,
-        warnings=warnings,
+        source_only_warnings=source_only_warnings,
+        artifact_warnings_list=artifact_warnings_list,
+        placeholder_warnings=placeholder_warnings,
+        policy_pack_warnings=policy_pack_warnings,
         adk=artifact_bag.get("google_adk", GoogleAdkArtifacts),
         langchain=artifact_bag.get("langchain", LangChainArtifacts),
         crewai=artifact_bag.get("crewai", CrewAiArtifacts),
@@ -387,8 +409,17 @@ def _build_tools_and_agent(
     warnings from ``_flatten_and_deduplicate_tools``).
     """
     tools, duplicate_warnings = _flatten_and_deduplicate_tools(inputs.loaded_sources)
-    warnings = list(inputs.warnings)
+    # Assemble in pre-decomp order: source → duplicate → artifact →
+    # placeholder → policy_pack. Duplicate warnings MUST come immediately
+    # after per-source warnings (before artifact / placeholder / policy_pack)
+    # so ``report.source_warnings`` is byte-identical to pre-v0.19 output.
+    # (P3 fix: _LoadedInputs now carries separate buckets instead of a
+    # pre-assembled list so this interleaving is possible.)
+    warnings: list[str] = list(inputs.source_only_warnings)
     warnings.extend(duplicate_warnings)
+    warnings.extend(inputs.artifact_warnings_list)
+    warnings.extend(inputs.placeholder_warnings)
+    warnings.extend(inputs.policy_pack_warnings)
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
