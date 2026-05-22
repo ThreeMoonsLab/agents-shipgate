@@ -106,15 +106,18 @@ ci/release_decision.build          {blocked, insufficient_evidence,
                                     review_required, passed} +
                                    contribution_rules[] audit
                                      ↓
+core/privacy piecemeal redaction    sanitize_model + redact_data on every
+                                   public field; stats accumulate
+                                     ↓
 build_action_surface_facts +       five reviewer-lens fact + diff blocks
-build_tool_surface_facts +         (see §"Reviewer surfaces" below)
-apply_capability_diff
+build_tool_surface_facts           (from sanitized public data)
+                                     ↓
+build_privacy_audit                stats → privacy_audit
                                      ↓
 core/findings.build_report         assemble ReadinessReport; populate
                                    agent_summary + policy_audit + privacy_audit
                                      ↓
-core/privacy piecemeal redaction    sanitize_model + redact_data on every public
-                                   field; stats → build_privacy_audit
+apply_capability_diff              mutate report from public tools
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
