@@ -1035,6 +1035,9 @@ tool_sources:
         ci_mode="advisory",
     )
 
+    # The scanner must not have executed agent.py (which would write imported.txt).
+    assert not (project / "imported.txt").exists()
+
 
 def test_source_warnings_ordering_duplicate_before_policy_pack(tmp_path):
     """Regression test for P3 (v0.19 decomp): duplicate-tool warnings must
@@ -1143,5 +1146,3 @@ checks:
         f"policy-pack warning (index {pp_idx}) in report.source_warnings. "
         f"Full list: {warnings}"
     )
-
-    assert not (project / "imported.txt").exists()
