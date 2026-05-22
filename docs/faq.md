@@ -94,7 +94,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.19, current). Always parse this for programmatic use.
+  (schema v0.20, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with

@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **v0.20 — top-level `reviewer_summary` block.** Adds a deterministic
+  projection of the reviewer lens surfaces (`tool_surface_diff`,
+  capability/intent diff, `action_surface_diff`, evidence matrix) and
+  audit envelopes (`policy_audit`, `privacy_audit`, baseline integrity
+  findings). Parallels v0.12's `agent_summary` for the reviewer side:
+  `agent_summary` answers "what should an agent do next?" and
+  `reviewer_summary` answers "what should a reviewer look at first?".
+  - Schema: bumped `report_schema_version` 0.19 → 0.20. The new block
+    is required + non-nullable on the wire (Pydantic-Optional only for
+    legacy test helpers). v0.19 schema is preserved at
+    `docs/report-schema.v0.19.json`.
+  - Fields: `verdict` (mirrors `release_decision.decision`), `headline`
+    (≤200 chars, PR-comment-friendly), per-lens activity counts
+    (`tool_surface_changes`, `capability_misalignments`,
+    `action_surface_changes`, `evidence_matrix_gaps`), per-audit
+    counts (`severity_overrides_applied`,
+    `severity_overrides_tier_crossed`, `privacy_redactions`,
+    `baseline_integrity_issues`), and `first_recommended_surface`
+    (deterministic pointer or `null` on a clean scan).
+  - `first_recommended_surface` priority: blocked → release_decision,
+    insufficient_evidence → release_decision, then action_surface_diff
+    > baseline_integrity > tier-crossed policy_audit >
+    capability_intent_diff > tool_surface_diff > privacy_audit >
+    evidence_matrix > null. Encoded in `_pick_first_recommended_surface`
+    and pinned by `test_reviewer_summary.py`.
+  - Projection invariants: pure (no I/O, no LLM calls), deterministic
+    (same inputs → byte-identical output, asserted by
+    `test_build_reviewer_summary_is_deterministic`), cannot disagree
+    with the underlying lens/audit data.
+  - STABILITY.md + docs/agent-contract-current.md: new bullets +
+    enum-additivity rule mirroring `agent_summary.verdict`.
+
 - **v0.18 / PR #1 trust-hardening: `dynamic_default` contract in
   `CheckMetadata`.** Formalizes the M1 dynamic-severity contract closed
   in v0.17.

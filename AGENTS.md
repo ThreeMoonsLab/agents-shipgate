@@ -257,7 +257,7 @@ Other stable top-level fields:
 - `policy_audit.severity_overrides_applied[]` (v0.17+, top-of-report audit envelope listing every manifest-driven severity override with `{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}`)
 - `privacy_audit` (v0.18+, top-level audit proving default redaction ran before public artifacts were written; `redacted_paths[]` contains counts and structural paths only, never raw values or raw hashes)
 
-The full schema is at [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) (current; emitted reports carry `report_schema_version: "0.19"`). v0.19 adds `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. Older reports validate against [`docs/report-schema.v0.18.json`](docs/report-schema.v0.18.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) (current; emitted reports carry `report_schema_version: "0.20"`). v0.19 adds `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. Older reports validate against [`docs/report-schema.v0.18.json`](docs/report-schema.v0.18.json) (frozen reference). What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -323,7 +323,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) (current).
+[`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -361,7 +361,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) | `0.19` |
+| Report schema (current) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.19` |
 | Report schema (v0.18 frozen reference) | [`docs/report-schema.v0.18.json`](docs/report-schema.v0.18.json) | `0.18` |
 | Report schema (v0.17 frozen reference) | [`docs/report-schema.v0.17.json`](docs/report-schema.v0.17.json) | `0.17` |
 | Report schema (v0.16 frozen reference) | [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) | `0.16` |

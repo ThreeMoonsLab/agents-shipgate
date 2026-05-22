@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.19",
+  "report_schema_version": "0.20",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -2880,8 +2880,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpuyfzaj3r/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmpuyfzaj3r/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3070,5 +3070,23 @@
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
       "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted."
     ]
+  },
+  "reviewer_summary": {
+    "verdict": "blocked",
+    "headline": "Release blocked: no reviewer signals (lenses + audits all clean). Start at release_decision.",
+    "tool_surface_changes": 0,
+    "capability_misalignments": 0,
+    "action_surface_changes": 0,
+    "evidence_matrix_gaps": 0,
+    "severity_overrides_applied": 0,
+    "severity_overrides_tier_crossed": 0,
+    "privacy_redactions": 0,
+    "baseline_integrity_issues": 0,
+    "first_recommended_surface": {
+      "kind": "release_decision",
+      "name": "release_decision",
+      "path": "report.release_decision",
+      "why": "Release is blocked; read release_decision.blockers[] for the gating findings."
+    }
   }
 }

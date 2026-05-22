@@ -21,10 +21,11 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.19.json`](report-schema.v0.19.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.19"`, adding `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's privacy audit)
+- [`report-schema.v0.20.json`](report-schema.v0.20.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.20"`, adding the top-level `reviewer_summary` block — a deterministic projection of reviewer lens + audit surfaces parallel to v0.12's `agent_summary` — on top of v0.19's dual-source provenance and v0.18's privacy audit)
 - [`privacy.md`](privacy.md) and [`report-sensitive-fields.json`](report-sensitive-fields.json) — redaction behavior and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.19.json`](report-schema.v0.19.json) — frozen v0.19 reference schema; pre-v0.20 reports validate against this
 - [`report-schema.v0.18.json`](report-schema.v0.18.json) — frozen v0.18 reference schema; pre-v0.19 reports validate against this
 - [`report-schema.v0.17.json`](report-schema.v0.17.json) — frozen v0.17 reference schema; pre-v0.18 reports validate against this
 - [`report-schema.v0.16.json`](report-schema.v0.16.json) — frozen v0.16 reference schema; pre-v0.17 reports validate against this

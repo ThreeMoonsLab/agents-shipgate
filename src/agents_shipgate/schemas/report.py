@@ -393,6 +393,106 @@ class AgentSummary(BaseModel):
     first_recommended_action: AgentSummaryAction | None = None
 
 
+ReviewerSurfaceKind = Literal[
+    "release_decision",
+    "lens",
+    "audit",
+    "evidence_matrix",
+]
+
+
+ReviewerSurfaceName = Literal[
+    # Lenses (4 in-report; evidence_matrix lives in packet but is
+    # projectable from the report payload via build_evidence_matrix).
+    "tool_surface_diff",
+    "capability_intent_diff",
+    "action_surface_diff",
+    "evidence_matrix",
+    # Audit envelopes (3).
+    "policy_audit",
+    "privacy_audit",
+    "baseline_integrity",
+    # Top-level verdict surface.
+    "release_decision",
+]
+
+
+class ReviewerSurfacePointer(BaseModel):
+    """A single recommended reviewer entry point.
+
+    Mirrors the ``next_actions[]`` shape (kind/path/why) used by other
+    contract surfaces so the same renderer pattern works here. ``kind``
+    classifies the surface family (``release_decision`` /``lens`` /
+    ``audit`` /``evidence_matrix``); ``name`` is the canonical
+    machine-readable identifier; ``path`` is a dotted JSON path the
+    reviewer can use to navigate. ``why`` is one sentence of reviewer
+    rationale, suitable for a PR comment lead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ReviewerSurfaceKind
+    name: ReviewerSurfaceName
+    path: str
+    why: str
+
+
+class ReviewerSummary(BaseModel):
+    """Top-level summary block shaped for one-fetch reviewer consumption.
+
+    Deterministic projection of the reviewer lens surfaces
+    (``tool_surface_diff``, capability/intent diff, ``action_surface_diff``,
+    evidence matrix) and the audit envelopes (``policy_audit``,
+    ``privacy_audit``, baseline integrity findings). A reviewer who wants
+    headline activity counts and a recommended starting surface can read
+    this block instead of opening every lens / audit envelope.
+
+    Parallels ``AgentSummary`` but for the audit/lens dimensions:
+    ``AgentSummary`` answers "what should an agent do next?" and
+    ``ReviewerSummary`` answers "what should a reviewer look at first?".
+
+    All fields are derived; this block cannot disagree with the
+    underlying lens/audit data.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Mirror the release verdict for at-a-glance context. Same enum as
+    # ``AgentSummary.verdict`` so a downstream consumer can switch on
+    # either block without re-deriving.
+    verdict: Literal[
+        "blocked",
+        "review_required",
+        "insufficient_evidence",
+        "passed",
+    ]
+    headline: str
+
+    # Per-lens activity counts. Each is the cheapest "did this lens
+    # fire?" count we can project without re-deriving release logic.
+    # Zero means the lens produced no reviewer-actionable signal on
+    # this scan.
+    tool_surface_changes: int = 0
+    capability_misalignments: int = 0
+    action_surface_changes: int = 0
+    evidence_matrix_gaps: int = 0
+
+    # Per-audit envelope counts. ``severity_overrides_tier_crossed``
+    # is the subset of ``severity_overrides_applied`` whose application
+    # crossed a severity tier boundary (the audit row's ``tier_crossed``
+    # flag) — surfaced separately because it is the highest-attention
+    # subset for a reviewer.
+    severity_overrides_applied: int = 0
+    severity_overrides_tier_crossed: int = 0
+    privacy_redactions: int = 0
+    baseline_integrity_issues: int = 0
+
+    # Deterministic recommended starting surface for the reviewer. None
+    # only when the scan is fully clean (verdict=passed + every count
+    # above is zero).
+    first_recommended_surface: ReviewerSurfacePointer | None = None
+
+
 class SeverityOverrideAuditEntry(BaseModel):
     """One row in ``ReadinessReport.policy_audit.severity_overrides_applied``.
 
@@ -482,7 +582,7 @@ class ReadinessReport(BaseModel):
     # (manifest YAML path + line) for high-risk findings whose
     # triggering evidence also lives in the manifest. Old consumers
     # ignore the new fields.
-    report_schema_version: str = "0.19"
+    report_schema_version: str = "0.20"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -541,3 +641,14 @@ class ReadinessReport(BaseModel):
     # envelope after the default-on redaction pass has sanitized public
     # outputs. Optional at Python level for older fixtures.
     privacy_audit: PrivacyAudit | None = None
+    # v0.20: top-level reviewer summary. Deterministic projection of
+    # the reviewer lens surfaces (tool_surface_diff, capability/intent
+    # diff, action_surface_diff, evidence matrix) and audit envelopes
+    # (policy_audit, privacy_audit, baseline integrity findings). A
+    # reviewer who wants headline activity counts and a recommended
+    # starting surface reads this block instead of opening every lens
+    # and audit envelope. Parallels ``agent_summary`` (v0.12) but for
+    # the audit/lens dimensions. Optional at Python level so older
+    # test helpers can construct minimal reports; build_report() always
+    # populates it for emitted scans.
+    reviewer_summary: ReviewerSummary | None = None

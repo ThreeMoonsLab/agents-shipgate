@@ -45,6 +45,7 @@
     {"surface": "report", "path": "agent_summary", "classification": "free_text"},
     {"surface": "report", "path": "policy_audit", "classification": "free_text"},
     {"surface": "report", "path": "privacy_audit", "classification": "public_control_metadata"},
+    {"surface": "report", "path": "reviewer_summary", "classification": "public_control_metadata"},
     {"surface": "report", "path": "findings[].evidence", "classification": "free_text"},
     {"surface": "report", "path": "findings[].title", "classification": "free_text"},
     {"surface": "report", "path": "findings[].source", "classification": "path_metadata"},

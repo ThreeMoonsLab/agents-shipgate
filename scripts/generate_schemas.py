@@ -237,6 +237,11 @@ def build_report_schema() -> tuple[Path, str]:
             # we mark it required + non-nullable on the wire.
             "policy_audit",
             "privacy_audit",
+            # v0.20: reviewer_summary parallels agent_summary for the
+            # audit/lens dimensions. Optional in Python for back-compat
+            # with test helpers; emitted scans always populate it via
+            # build_report() → build_reviewer_summary().
+            "reviewer_summary",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -270,6 +275,12 @@ def build_report_schema() -> tuple[Path, str]:
     # v0.18: same tightening for privacy_audit. Emitted scans always
     # carry the default-on privacy envelope after public output redaction.
     properties["privacy_audit"] = {"$ref": "#/$defs/PrivacyAudit"}
+    # v0.20: same tightening for reviewer_summary. Parallel to v0.12
+    # agent_summary — Python-Optional for test helpers, required +
+    # non-nullable on the wire so consumers can read
+    # ``reviewer_summary.first_recommended_surface`` without a null
+    # check on the block itself.
+    properties["reviewer_summary"] = {"$ref": "#/$defs/ReviewerSummary"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
@@ -372,6 +383,42 @@ def build_report_schema() -> tuple[Path, str]:
             [
                 "kind",
                 "command",
+                "why",
+            ]
+        )
+    # v0.20: tighten the ReviewerSummary block. Pydantic auto-required
+    # only includes `verdict` and `headline` (the two fields without
+    # defaults); every other field is populated by
+    # ``build_reviewer_summary`` on every emitted report, so all of
+    # them belong in the required list. ``first_recommended_surface``
+    # is required as a key (always present) but nullable as a value
+    # (``None`` on a fully clean scan).
+    if "ReviewerSummary" in defs:
+        defs["ReviewerSummary"]["required"] = sorted(
+            [
+                "verdict",
+                "headline",
+                "tool_surface_changes",
+                "capability_misalignments",
+                "action_surface_changes",
+                "evidence_matrix_gaps",
+                "severity_overrides_applied",
+                "severity_overrides_tier_crossed",
+                "privacy_redactions",
+                "baseline_integrity_issues",
+                "first_recommended_surface",
+            ]
+        )
+    # v0.20: ReviewerSurfacePointer must require every field whenever
+    # it appears (i.e. when first_recommended_surface is non-null).
+    # ``kind`` / ``name`` are Literal-typed enums so the schema will
+    # also enforce the closed value set.
+    if "ReviewerSurfacePointer" in defs:
+        defs["ReviewerSurfacePointer"]["required"] = sorted(
+            [
+                "kind",
+                "name",
+                "path",
                 "why",
             ]
         )

@@ -119,7 +119,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.19"
+    assert report_payload["report_schema_version"] == "0.20"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -155,6 +155,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_summary",
         "policy_audit",
         "privacy_audit",
+        "reviewer_summary",
     ]
 
     packet = EvidencePacket(
