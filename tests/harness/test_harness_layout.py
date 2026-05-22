@@ -20,12 +20,26 @@ update the other two in the same commit.
 """
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import sys
 
 import pytest
 
 from harness import HARNESS_DIR, HarnessSpec, discover_harnesses
+
+# ANSI CSI escape sequence (color, formatting, cursor moves). Rich/Typer
+# emit these even when stdout is captured by ``subprocess.run`` if the
+# runner sets TERM/COLORTERM, which GitHub Actions does. The
+# ``NO_COLOR=1`` env override below suppresses MOST of them, but Click
+# still inserts a few for ``Usage:`` line styling. Strip them all before
+# substring assertions so the test is robust to terminal settings.
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_CSI.sub("", text)
 
 # Families that MUST be present. Updated when a new family lands. The
 # whole point of this guard is to catch an accidental removal — e.g.
@@ -133,15 +147,22 @@ def _run_dispatcher(*args: str) -> subprocess.CompletedProcess[str]:
     Uses the same Python the test is running under and captures
     stdout/stderr/exit. Pin ``cwd`` to the repo root so the
     dispatcher's ``sys.path`` bootstrap behaves identically to a
-    developer's manual invocation.
+    developer's manual invocation. ``NO_COLOR=1`` + ``TERM=dumb`` ask
+    Rich/Click to skip color codes; the ``_strip_ansi`` helper above
+    catches anything that slips through (GitHub Actions still injects
+    Rich's bold-yellow ``Usage:`` styling in some Click versions).
     """
     repo_root = HARNESS_DIR.parent
+    env = os.environ.copy()
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
     return subprocess.run(
         [sys.executable, "-m", "harness", *args],
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -217,32 +238,49 @@ def test_dispatcher_unknown_name_exits_two_with_helpful_error() -> None:
 
 def test_dispatcher_forwards_to_adoption_help() -> None:
     """``python -m harness adoption --help`` must produce help text
-    indistinguishable (modulo TTY width) from ``python -m
-    harness.adoption --help``. This is the load-bearing user
-    expectation — if the prog-name diverges, the dispatcher has
+    indistinguishable (modulo TTY width and color codes) from
+    ``python -m harness.adoption --help``. This is the load-bearing
+    user expectation — if the prog-name diverges, the dispatcher has
     leaked a sys.argv mutation into the child.
+
+    Color codes are stripped before the substring assertion so the
+    test passes both in a developer's terminal (where Rich/Click can
+    inject ANSI styling) and in CI (where ``NO_COLOR=1`` + ``TERM=dumb``
+    in :func:`_run_dispatcher` should already suppress most of them).
+    Defense-in-depth: env + strip, so a future Rich version that
+    ignores ``NO_COLOR`` for some styling category doesn't re-break the
+    test.
     """
     dispatched = _run_dispatcher("adoption", "--help")
     assert dispatched.returncode == 0, dispatched.stderr
     repo_root = HARNESS_DIR.parent
+    env = os.environ.copy()
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
     direct = subprocess.run(
         [sys.executable, "-m", "harness.adoption", "--help"],
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert direct.returncode == 0, direct.stderr
     # Both invocations must show the same prog-name in usage.
-    # Sample a stable substring to avoid TTY-width line wrapping.
+    # Sample a stable substring to avoid TTY-width line wrapping;
+    # strip ANSI in case the terminal/CI emits styling.
     expected = "python -m harness.adoption"
-    assert expected in dispatched.stdout, (
+    dispatched_plain = _strip_ansi(dispatched.stdout)
+    direct_plain = _strip_ansi(direct.stdout)
+    assert expected in dispatched_plain, (
         f"dispatched help does not show {expected!r}; got:\n"
-        f"{dispatched.stdout[:500]}"
+        f"{dispatched_plain[:500]}\n---raw---\n"
+        f"{dispatched.stdout[:500]!r}"
     )
-    assert expected in direct.stdout, (
+    assert expected in direct_plain, (
         f"direct help does not show {expected!r}; got:\n"
-        f"{direct.stdout[:500]}"
+        f"{direct_plain[:500]}\n---raw---\n"
+        f"{direct.stdout[:500]!r}"
     )
 
 
