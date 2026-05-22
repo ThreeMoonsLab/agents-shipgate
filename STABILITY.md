@@ -171,15 +171,15 @@ Two contract rules pin the design (v0.18):
 - Plugins cannot declare `dynamic_default=True` — the plugin
   validation pipeline rejects them with status
   `dynamic_default_not_supported`. Plugins have no path to wire into
-  `cli/scan.py`'s aggregator and so would never receive the
-  manifest-effective default needed for tier-crossing comparison.
+  `core/dynamic_defaults.py`'s aggregator and so would never receive
+  the manifest-effective default needed for tier-crossing comparison.
 
 Adding a new built-in dynamic-severity check requires (1) setting
 `dynamic_default=True` in `CHECK_METADATA` (forces the floor), and
 (2) adding an aggregator overlay branch in
-`cli/scan.py:_dynamic_check_defaults`. The seed loop in step 1 of
-that aggregator auto-includes every `dynamic_default=True` catalog
-entry, so the resolver's internal-consistency guard cannot
+`core/dynamic_defaults.py:dynamic_check_defaults`. The seed loop in
+step 1 of that aggregator auto-includes every `dynamic_default=True`
+catalog entry, so the resolver's internal-consistency guard cannot
 false-positive on user input that overrides a swing check without
 declaring the corresponding manifest section.
 
