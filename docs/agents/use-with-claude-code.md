@@ -71,6 +71,6 @@ For the stable CLI / JSON contract the skill relies on, see [`STABILITY.md`](../
 
 The slash command and skill format are Claude Code-specific. For other coding agents:
 
-- [`use-with-codex.md`](use-with-codex.md) — drop the canonical `AGENTS.md` snippet in for Codex.
+- [`use-with-codex.md`](use-with-codex.md) — install the canonical `AGENTS.md` snippet and repo-scoped Codex skill.
 - [`use-with-cursor.md`](use-with-cursor.md) — drop the auto-attach `.cursor/rules/agents-shipgate.mdc` rule in for Cursor.
 - For Aider (or any other agent without a dedicated guide): paste the body of the relevant `prompts/*.md` file directly. See [`prompts/README.md`](../../prompts/README.md).

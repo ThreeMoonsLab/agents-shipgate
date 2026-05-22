@@ -153,7 +153,10 @@ def test_write_all_targets_on_fresh_workspace(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     ai = payload["agent_instructions"]
-    assert {t["status"] for t in ai["targets"]} == {"created_with_block"}
+    assert {t["status"] for t in ai["targets"]} == {
+        "created_with_block",
+        "created_file_tree",
+    }
     # Files exist.
     for name in TARGETS:
         path = workspace / SPECS[name].relative_path
@@ -184,8 +187,9 @@ def test_write_idempotent_rerun_is_noop(tmp_path: Path) -> None:
     )
     assert first.exit_code == 0, first.output
     snapshot = {
-        rel: (workspace / rel).read_bytes()
-        for rel in (SPECS[name].relative_path for name in TARGETS)
+        p.relative_to(workspace): p.read_bytes()
+        for p in workspace.rglob("*")
+        if p.is_file()
     }
     second = runner.invoke(
         app,
@@ -206,8 +210,9 @@ def test_write_idempotent_rerun_is_noop(tmp_path: Path) -> None:
     assert payload["manifest_status"] == "skipped_existing"
     assert {t["status"] for t in payload["agent_instructions"]["targets"]} == {"unchanged"}
     after = {
-        rel: (workspace / rel).read_bytes()
-        for rel in (SPECS[name].relative_path for name in TARGETS)
+        p.relative_to(workspace): p.read_bytes()
+        for p in workspace.rglob("*")
+        if p.is_file()
     }
     # Byte-equal across the run — the canonical "safe to run repeatedly" proof.
     assert snapshot == after

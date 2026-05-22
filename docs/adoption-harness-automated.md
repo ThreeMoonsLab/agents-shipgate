@@ -20,8 +20,8 @@ For every `(archetype, variant, prompt, agent)` cell in
    so the agent sees a doctor-clean manifest.
 3. Invoke the agent
    ([`harness/adoption/drivers/`](../harness/adoption/drivers)). Claude Code
-   runs via the Claude Agent SDK; Codex CLI is a v2 stub; Cursor uses a
-   static rule-content lint.
+   runs via the Claude Agent SDK; Codex runs through `codex exec --json`;
+   Cursor uses a static rule-content lint.
 4. Capture transcript, commands, file ops, final diff, and a final
    summary into `.agents-private/adoption-sprint/<run-id>/<cell>/raw/`.
 5. Redact through
@@ -56,6 +56,22 @@ For live Claude Code runs:
 ```bash
 export ANTHROPIC_API_KEY=...
 ```
+
+For live Codex runs, install and authenticate the local Codex CLI, then run the
+opt-in Codex matrix:
+
+```bash
+python -m harness.adoption run \
+  --matrix=benchmark/matrix-codex.yaml \
+  --agent=codex \
+  --budget-usd=5
+```
+
+The Codex driver writes `codex exec --json` events into the same transcript,
+command, and file-op streams used by the Claude driver. The current local
+driver records token counts when Codex emits usage but reports
+`cost_usd_estimate=0.0` because Codex may run through a ChatGPT plan rather
+than per-token API billing.
 
 Optionally create a `.env.harness` with secrets the redactor should treat
 as literals to redact (already in `.gitignore`).
@@ -157,8 +173,8 @@ and written to `exit_criteria.json` in the run directory:
 
 ## Phasing
 
-* **v1 (this PR):** Claude Code driver + Cursor static lint + 24-cell
-  matrix + smoke tests + docs + CSV schema v0.2. No Codex. No nightly cron.
-* **v2:** Codex CLI driver; n=3 re-sampling on uncertain cells; expand to
-  6 variants.
+* **v1:** Claude Code driver + Cursor static lint + 24-cell
+  matrix + smoke tests + docs + CSV schema v0.2.
+* **v2:** Codex CLI driver + repo-scoped Codex skill variant; n=3
+  re-sampling on uncertain cells; expand to 6 variants.
 * **v3:** Cursor manual-entry behavioural mode.

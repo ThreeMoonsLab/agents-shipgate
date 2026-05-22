@@ -13,6 +13,8 @@ from pathlib import Path
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_md,
+    render_codex_skill_bundle_text,
+    render_codex_skill_files,
     render_cursor_file,
     render_pr_template,
 )
@@ -22,6 +24,7 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
 
 ALL_RENDERERS = {
     "agents-md": render_agents_md,
+    "codex-skill": render_codex_skill_bundle_text,
     "claude-md": render_claude_md,
     "cursor": render_cursor_file,
     "pr-template": render_pr_template,
@@ -77,6 +80,45 @@ def test_target_repo_cursor_snippet_matches_renderer() -> None:
     start = section.index("```md\n") + len("```md\n")
     end = section.index("\n```", start)
     assert section[start:end] + "\n" == render_cursor_file()
+
+
+def test_codex_skill_source_matches_renderer() -> None:
+    """The checked-in repo-scoped Codex skill and init renderer must not drift."""
+    for rel, content in render_codex_skill_files().items():
+        assert (REPO_ROOT / rel).read_text(encoding="utf-8") == content
+
+
+def test_codex_skill_benchmark_variant_matches_renderer() -> None:
+    """The Codex adoption-harness overlay must use the same skill files."""
+    variant = REPO_ROOT / "benchmark/setup-variants/25-codex-skill"
+    template_names = {
+        ".agents/skills/agents-shipgate/SKILL.md": "SKILL.md.template",
+        ".agents/skills/agents-shipgate/references/recipes.md": "recipes.md.template",
+        ".agents/skills/agents-shipgate/references/report-reading.md": (
+            "report-reading.md.template"
+        ),
+        ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
+            "advisory-pr-comment.yml.template"
+        ),
+        ".agents/skills/agents-shipgate/agents/openai.yaml": "openai.yaml.template",
+    }
+    for rel, template_name in template_names.items():
+        assert (variant / template_name).read_text(encoding="utf-8") == (
+            render_codex_skill_files()[rel]
+        )
+
+
+def test_codex_skill_has_required_surfaces() -> None:
+    files = render_codex_skill_files()
+    assert ".agents/skills/agents-shipgate/SKILL.md" in files
+    assert ".agents/skills/agents-shipgate/references/recipes.md" in files
+    assert ".agents/skills/agents-shipgate/references/report-reading.md" in files
+    assert ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml" in files
+    assert ".agents/skills/agents-shipgate/agents/openai.yaml" in files
+    skill = files[".agents/skills/agents-shipgate/SKILL.md"]
+    assert "release_decision.decision" in skill
+    assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
+    assert "Do not auto-assert approval" in skill
 
 
 def test_pr_template_uses_conditional_wording() -> None:

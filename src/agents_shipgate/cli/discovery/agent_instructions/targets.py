@@ -4,7 +4,7 @@ The selector accepts:
 
 - ``all``  — every registered target.
 - ``none`` — no targets (rare; mirrors ``--minimal`` as an explicit opt-out).
-- A comma-separated list of target names, e.g. ``agents-md,cursor``.
+- A comma-separated list of target names, e.g. ``agents-md,codex-skill,cursor``.
 
 Unknown names raise :class:`InvalidSelector`. The CLI converts that into a
 ``config_error`` agent-mode error JSON line + a ``next_action`` pointing at
@@ -21,9 +21,16 @@ from dataclasses import dataclass
 BLOCK_VERSION: int = 1
 
 # Order is the order targets are applied and printed. AGENTS.md first because
-# it's the agent-facing entry point; CLAUDE.md mirrors it for Claude users;
-# Cursor is a separate IDE rule file; PR template is reviewer-facing.
-TARGETS: tuple[str, ...] = ("agents-md", "claude-md", "cursor", "pr-template")
+# it's the agent-facing entry point; the Codex skill is a repo-scoped executable
+# adoption surface; CLAUDE.md mirrors the block for Claude users; Cursor is a
+# separate IDE rule file; PR template is reviewer-facing.
+TARGETS: tuple[str, ...] = (
+    "agents-md",
+    "codex-skill",
+    "claude-md",
+    "cursor",
+    "pr-template",
+)
 
 
 class InvalidSelector(ValueError):
@@ -35,11 +42,18 @@ class TargetSpec:
     name: str
     relative_path: str  # default; PR template may resolve a different casing
     is_full_file: bool  # True for cursor (we own the whole file), False for managed-block targets
+    is_file_tree: bool = False  # True for repo-scoped skill bundles
 
 
 SPECS: dict[str, TargetSpec] = {
     "agents-md": TargetSpec(name="agents-md", relative_path="AGENTS.md", is_full_file=False),
     "claude-md": TargetSpec(name="claude-md", relative_path="CLAUDE.md", is_full_file=False),
+    "codex-skill": TargetSpec(
+        name="codex-skill",
+        relative_path=".agents/skills/agents-shipgate",
+        is_full_file=False,
+        is_file_tree=True,
+    ),
     "cursor": TargetSpec(
         name="cursor",
         relative_path=".cursor/rules/agents-shipgate.mdc",

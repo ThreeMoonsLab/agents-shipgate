@@ -218,6 +218,7 @@ ACTION_PIN_FILES = (
     "prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml",
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml",
 )
 
 

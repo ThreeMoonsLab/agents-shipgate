@@ -73,9 +73,11 @@ def register(app: typer.Typer) -> None:
                 "--agent-instructions=none to opt out. "
                 "Without --write, snippets are printed to stdout (or returned in "
                 "--json). With --write, snippets are written to AGENTS.md, "
-                "CLAUDE.md, .cursor/rules/agents-shipgate.mdc, and the PR template "
+                ".agents/skills/agents-shipgate/, CLAUDE.md, "
+                ".cursor/rules/agents-shipgate.mdc, and the PR template "
                 "via managed `<!-- agents-shipgate:start -->` markers (idempotent "
-                "and safe to rerun). Strict CI and baselines remain opt-in human "
+                "where host files are shared, full-file/skill-bundle safe-update "
+                "checks elsewhere). Strict CI and baselines remain opt-in human "
                 "decisions; this flag only emits advisory guidance."
             ),
         ),
@@ -113,7 +115,8 @@ def register(app: typer.Typer) -> None:
                             why=str(exc),
                             expects=(
                                 "Snippets render for every supported target "
-                                "(AGENTS.md, CLAUDE.md, Cursor rule, PR template)."
+                                "(AGENTS.md, Codex skill, CLAUDE.md, Cursor rule, "
+                                "PR template)."
                             ),
                         ).model_dump(mode="json")
                     ],

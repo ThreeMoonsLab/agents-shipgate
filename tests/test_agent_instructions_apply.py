@@ -28,6 +28,7 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
+    render_codex_skill_files,
     render_cursor_file,
 )
 
@@ -103,10 +104,11 @@ def test_apply_dry_run_does_not_touch_filesystem(tmp_path: Path) -> None:
 def test_apply_write_fresh_workspace_creates_all_targets(tmp_path: Path) -> None:
     result = apply_agent_instructions(tmp_path, list(TARGETS), write=True)
     assert result.exit_code == 0
-    assert {t.status for t in result.targets} == {"created_with_block"}
+    assert {t.status for t in result.targets} == {"created_with_block", "created_file_tree"}
     # Files exist where expected.
     assert (tmp_path / "AGENTS.md").exists()
     assert (tmp_path / "CLAUDE.md").exists()
+    assert (tmp_path / ".agents/skills/agents-shipgate/SKILL.md").exists()
     assert (tmp_path / ".cursor/rules/agents-shipgate.mdc").exists()
     assert (tmp_path / PR_TEMPLATE_LOWER).exists()
     # AGENTS.md preamble + block.
@@ -125,6 +127,46 @@ def test_apply_write_idempotent_repeat(tmp_path: Path) -> None:
     assert {t.status for t in second.targets} == {"unchanged"}
     after = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert snapshot == after
+
+
+def test_codex_skill_current_files_match_renderer() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    for rel, content in render_codex_skill_files().items():
+        assert (repo_root / rel).read_text(encoding="utf-8") == content
+
+
+def test_codex_skill_skipped_when_user_modified(tmp_path: Path) -> None:
+    apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    skill = tmp_path / ".agents/skills/agents-shipgate/SKILL.md"
+    skill.write_text("# user custom skill\n", encoding="utf-8")
+    result = apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_user_modified"
+    assert result.exit_code == 2
+    assert skill.read_text(encoding="utf-8") == "# user custom skill\n"
+
+
+def test_codex_skill_repairs_missing_file(tmp_path: Path) -> None:
+    apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    missing = tmp_path / ".agents/skills/agents-shipgate/references/recipes.md"
+    missing.unlink()
+    result = apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "updated"
+    assert missing.exists()
+
+
+def test_apply_refuses_symlinked_parent_directory_for_codex_skill(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / ".agents").symlink_to(outside)
+    result = apply_agent_instructions(workspace, ["codex-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    assert list(outside.iterdir()) == []
 
 
 # --- AGENTS.md edge cases --------------------------------------------------

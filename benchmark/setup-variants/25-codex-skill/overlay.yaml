@@ -1,0 +1,11 @@
+files:
+  - source: SKILL.md.template
+    destination: .agents/skills/agents-shipgate/SKILL.md
+  - source: recipes.md.template
+    destination: .agents/skills/agents-shipgate/references/recipes.md
+  - source: report-reading.md.template
+    destination: .agents/skills/agents-shipgate/references/report-reading.md
+  - source: advisory-pr-comment.yml.template
+    destination: .agents/skills/agents-shipgate/assets/advisory-pr-comment.yml
+  - source: openai.yaml.template
+    destination: .agents/skills/agents-shipgate/agents/openai.yaml
