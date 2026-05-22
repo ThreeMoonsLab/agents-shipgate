@@ -73,6 +73,16 @@ DIAG_DYNAMIC_TOOLSETS_ONLY = "SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY"
 DIAG_MISSING_SOURCE_FILE = "SHIP-DIAG-MISSING-SOURCE-FILE"
 DIAG_CHANGE_ME_PLACEHOLDERS = "SHIP-DIAG-CHANGE-ME-PLACEHOLDERS"
 DIAG_NO_PRODUCTION_PERMISSIONS = "SHIP-DIAG-NO-PRODUCTION-PERMISSIONS"
+# v0.20 (PR #111 review follow-up): manifest references a
+# ``tool_sources[].type`` that resolves to no registered adapter. Two
+# common causes: (a) plugin discovery is disabled (env unset or
+# ``--no-plugins``) and the source type belongs to a third-party
+# adapter; (b) a typo of a built-in name. The diagnostic next_actions
+# route the agent to the right remediation depending on which case it
+# is — installing the third-party package, enabling plugin discovery,
+# or fixing the typo — instead of the legacy "edit shipgate.yaml"
+# advice that ``diagnose_invalid_manifest`` would otherwise emit.
+DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE = "SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE"
 
 ALL_DIAGNOSTIC_IDS: tuple[str, ...] = (
     DIAG_MISSING_MANIFEST,
@@ -87,4 +97,5 @@ ALL_DIAGNOSTIC_IDS: tuple[str, ...] = (
     DIAG_MISSING_SOURCE_FILE,
     DIAG_CHANGE_ME_PLACEHOLDERS,
     DIAG_NO_PRODUCTION_PERMISSIONS,
+    DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
 )

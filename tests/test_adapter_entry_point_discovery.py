@@ -13,6 +13,7 @@ resulting ``loaded_adapters[]`` row. Plus end-to-end tests covering:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -44,6 +45,27 @@ from agents_shipgate.schemas.manifest import (
 )
 
 CLEAN_FIXTURE = Path("samples/clean_read_only_agent/shipgate.yaml")
+
+
+def _extract_agent_mode_error(output: str) -> dict | None:
+    """Pull the agent-mode JSON error line out of mixed stdout/stderr.
+
+    Agent-mode emits one JSON object per error to stderr. The
+    Typer ``CliRunner`` merges streams, so we scan line-by-line for
+    a JSON object whose top-level ``error`` field is set.
+    """
+
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+    return None
 
 
 # --- entry-point synthesis -------------------------------------------------
@@ -1159,6 +1181,143 @@ tool_sources:
         f"unexpected warnings for clean third-party load: "
         f"{payload['warnings']!r}"
     )
+
+
+def test_unknown_adapter_source_type_routes_to_install_enable_diagnostic(
+    monkeypatch, tmp_path
+):
+    """**Regression for PR #111 review follow-up P2 #5.** A manifest
+    referencing an unknown ``tool_sources[].type`` must route the
+    agent to install / enable / fix-typo next_actions, NOT the legacy
+    "edit shipgate.yaml" advice from
+    ``diagnose_invalid_manifest``.
+
+    Pre-fix: ``AdapterRegistry.require`` raised ``ConfigError`` with
+    the contributor-facing message "Add the adapter to
+    _register_builtin_adapters()", and ``_diagnose_config_error``
+    fell through to ``diagnose_invalid_manifest`` → emit
+    SHIP-DIAG-INVALID-MANIFEST → next_action "edit shipgate.yaml".
+    Wrong for the v0.20 public extension flow.
+
+    Post-fix: ``_maybe_diagnose_unknown_adapter`` pattern-matches the
+    require() error prefix and emits
+    SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE with three next_actions
+    (enable plugins, install adapter, fix typo).
+    """
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    # Plugins disabled: should route to the "enable + install + typo"
+    # next_action set.
+    monkeypatch.delenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", raising=False)
+    # Agent-mode JSON output is gated by env var, not a CLI flag.
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text('{"tools": []}', encoding="utf-8")
+    manifest_path = workspace / "shipgate.yaml"
+    manifest_path.write_text(
+        """version: "0.1"
+project:
+  name: unknown-adapter-demo
+agent:
+  name: demo
+  declared_purpose: ["test unknown adapter routing"]
+environment:
+  target: local
+tool_sources:
+  - id: src
+    type: not_a_real_adapter_type
+    path: tools.json
+""",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            str(manifest_path),
+            "--out",
+            str(tmp_path / "out"),
+            "--ci-mode",
+            "advisory",
+        ],
+    )
+    # Exit 2 = ConfigError, as before.
+    assert result.exit_code == 2, (
+        f"expected ConfigError exit 2, got {result.exit_code}; "
+        f"output={result.output!r}"
+    )
+    output = result.output
+    # The agent-mode JSON's ``next_action`` (legacy single-string) and
+    # ``next_actions[0]`` (structured rank-1) must point at the
+    # third-party adapter remediation path, NOT the legacy
+    # "edit shipgate.yaml" advice that ``diagnose_invalid_manifest``
+    # produces. Specifically: a command-kind action that enables
+    # plugin discovery is the right rank-1 when plugins are disabled.
+    payload = _extract_agent_mode_error(output)
+    assert payload is not None, (
+        "agent-mode error JSON must be emitted; raw output:\n" + output
+    )
+    assert payload["error"] == "config_error"
+    assert "not_a_real_adapter_type" in payload["message"], (
+        "error message must echo the offending source_type"
+    )
+    assert "AGENTS_SHIPGATE_ENABLE_PLUGINS" in payload["message"], (
+        "error message must mention enabling plugin discovery"
+    )
+    rank1 = payload["next_actions"][0]
+    assert rank1["kind"] == "command", (
+        f"rank-1 next_action must be a command (enable plugins), "
+        f"not 'edit shipgate.yaml'; got kind={rank1['kind']!r}, "
+        f"command={rank1.get('command')!r}"
+    )
+    assert (
+        "AGENTS_SHIPGATE_ENABLE_PLUGINS=1" in rank1["command"]
+    ), (
+        "rank-1 next_action.command must enable plugin discovery; "
+        f"got {rank1.get('command')!r}"
+    )
+    # And the rationale clearly mentions the third-party adapter path,
+    # not "edit YAML".
+    assert "third-party adapter discovery" in rank1["why"], (
+        f"rank-1 next_action.why must explain the third-party "
+        f"discovery path; got {rank1.get('why')!r}"
+    )
+
+
+def test_require_error_message_is_user_facing(monkeypatch):
+    """**Regression for PR #111 review follow-up P2 #5.** The raw
+    ``ConfigError`` message from ``AdapterRegistry.require`` must be
+    actionable for a user — not the previous "add to
+    ``_register_builtin_adapters``" contributor-facing text.
+    """
+
+    from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.inputs.protocol import REGISTRY
+
+    monkeypatch.delenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", raising=False)
+    REGISTRY._ensure_populated()
+
+    with pytest.raises(ConfigError) as excinfo:
+        REGISTRY.require("not_a_real_adapter_type")
+
+    message = str(excinfo.value)
+    assert "not_a_real_adapter_type" in message
+    # Must NOT mention the contributor-facing helper anymore.
+    assert "_register_builtin_adapters" not in message, (
+        "require() error must be user-facing in v0.20; the "
+        "_register_builtin_adapters hint is contributor-only"
+    )
+    # Must mention the three real remediation paths.
+    assert "AGENTS_SHIPGATE_ENABLE_PLUGINS" in message
+    assert "typo" in message.lower()
 
 
 def test_markdown_report_renders_loaded_adapters_section(

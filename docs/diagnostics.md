@@ -79,6 +79,7 @@ diagnostics where no command should run.
 | `SHIP-DIAG-MISSING-SOURCE-FILE`     | block    | A required `tool_sources[].path` does not resolve under the manifest directory. (`doctor` no longer raises `InputParseError(3)` for this — see below.) |
 | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS`  | warn     | Manifest text still contains `CHANGE_ME` markers.                                                                                                |
 | `SHIP-DIAG-NO-PRODUCTION-PERMISSIONS` | warn   | `environment.target: production` AND no permissions / scopes / policies declared.                                                                 |
+| `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` | block | Manifest references a `tool_sources[].type` that no registered adapter handles. Rank-1 action depends on plugin state: enable plugin discovery (`AGENTS_SHIPGATE_ENABLE_PLUGINS=1`) and install the third-party adapter package, or fix a typo. v0.20+. |
 
 ## Negative-control precedence
 

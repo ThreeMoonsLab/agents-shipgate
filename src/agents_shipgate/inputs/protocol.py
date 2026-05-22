@@ -194,10 +194,38 @@ class AdapterRegistry:
         if adapter is None:
             from agents_shipgate.core.errors import ConfigError
 
+            # v0.20 (PR #111 review follow-up #5): the original error
+            # message ("Add the adapter to _register_builtin_adapters")
+            # was contributor-facing and obsolete after the
+            # ``tool_sources[].type: str`` relaxation. Users hitting
+            # this in production have three real remediation paths;
+            # surface them in the message so ``str(exc)`` is
+            # actionable on its own. The agent-mode next_actions
+            # built by ``diagnose_unknown_adapter_source_type`` cover
+            # the same paths in structured form.
+            plugins_enabled = _adapter_plugins_enabled(None)
+            if plugins_enabled:
+                remediation = (
+                    "Either (a) install the third-party adapter "
+                    "package that registers this source_type, or "
+                    "(b) fix a typo of a built-in name "
+                    "(`agents-shipgate list-checks --json` exposes "
+                    "the catalog and `agents-shipgate doctor --json` "
+                    "lists discovered adapters)."
+                )
+            else:
+                remediation = (
+                    "Either (a) enable third-party adapter discovery "
+                    "by setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` "
+                    "(or removing `--no-plugins`) and ensure the "
+                    "adapter package is installed, or (b) fix a typo "
+                    "of a built-in name (built-ins are: mcp, openapi, "
+                    "openai_agents_sdk, google_adk, langchain, crewai, "
+                    "codex_plugin)."
+                )
             raise ConfigError(
-                f"No adapter registered for source type {source_type!r}. "
-                "Add the adapter to "
-                "agents_shipgate.inputs.protocol._register_builtin_adapters()."
+                f"No adapter registered for source type "
+                f"{source_type!r}. {remediation}"
             )
         return adapter
 
