@@ -45,15 +45,21 @@ def test_40_shipgate_yaml_renders_clean_for_every_archetype(tmp_path: Path) -> N
 
 
 def test_every_archetype_uses_a_valid_tool_source_type() -> None:
-    """Each archetype's ``ToolSource.type`` must be in the v0.1 manifest enum.
+    """Each archetype's ``ToolSource.type`` must be a known built-in
+    source type (third-party extensions are intentionally NOT used in
+    canonical archetypes — the harness ships a fixed set).
 
-    Catches regressions like the original ``openai_api`` typo for
-    clean-read-only that would otherwise only surface when an operator runs
+    v0.20 PR #111 review fix: ``ToolSourceConfig.type`` relaxed from
+    Literal to ``str`` to support third-party adapters; this test now
+    pins the archetype set against the explicit
+    ``BUILTIN_TOOL_SOURCE_TYPES`` constant. Catches regressions like
+    the original ``openai_api`` typo for clean-read-only that would
+    otherwise only surface when an operator runs
     ``agents-shipgate doctor`` on a rendered 40-shipgate-yaml manifest.
     """
-    from agents_shipgate.schemas.manifest import ToolSourceConfig
+    from agents_shipgate.schemas.manifest import BUILTIN_TOOL_SOURCE_TYPES
 
-    allowed = set(ToolSourceConfig.model_fields["type"].annotation.__args__)
+    allowed = set(BUILTIN_TOOL_SOURCE_TYPES)
     for archetype, ctx in ctx_mod.ARCHETYPE_CONTEXTS.items():
         for ts in ctx.tool_sources:
             assert ts.type in allowed, (

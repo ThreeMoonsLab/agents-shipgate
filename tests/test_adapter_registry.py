@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Literal, get_args
+from typing import ClassVar, Literal
 
 import pytest
 
@@ -92,13 +92,20 @@ def test_stub_adapter_satisfies_protocol():
 
 
 def test_adapters_registered_for_every_tool_source_type():
-    """Every value in ``ToolSourceConfig.type``'s Literal must have a
-    matching adapter in ``REGISTRY``. Catches drift if a new source
-    type lands without registration."""
+    """Every built-in source type allowed in ``tool_sources[].type``
+    must have a matching adapter in ``REGISTRY``. Catches drift if a
+    new source type lands without registration.
 
-    source_types = get_args(ToolSourceConfig.model_fields["type"].annotation)
-    assert source_types, "expected ToolSourceConfig.type to be a Literal"
-    for source_type in source_types:
+    v0.20 PR #111 review fix: ``ToolSourceConfig.type`` is now ``str``
+    (relaxed from Literal so third-party adapters can register custom
+    types). The curated set of built-ins lives in
+    ``BUILTIN_TOOL_SOURCE_TYPES`` — this test iterates that.
+    """
+
+    from agents_shipgate.schemas.manifest import BUILTIN_TOOL_SOURCE_TYPES
+
+    assert BUILTIN_TOOL_SOURCE_TYPES, "expected at least one built-in source type"
+    for source_type in BUILTIN_TOOL_SOURCE_TYPES:
         assert source_type in REGISTRY, (
             f"no adapter registered for tool source type {source_type!r}"
         )

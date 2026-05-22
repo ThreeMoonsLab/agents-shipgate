@@ -152,6 +152,38 @@ class AdapterRegistry:
             )
         self._adapters[adapter.source_type] = adapter
 
+    def clone(self) -> AdapterRegistry:
+        """v0.20 (PR #111 review follow-up): return a shallow-copy
+        registry snapshot for use as a *per-scan* adapter registry.
+
+        The clone shares no mutable state with the original — its
+        ``_adapters`` dict is a fresh copy. Subsequent ``register()`` /
+        third-party additions on the clone do NOT propagate to the
+        global ``REGISTRY``. Closes two P1 review findings:
+
+        - ``--no-plugins`` on a later in-process scan now actually
+          disables third-party adapters discovered by an earlier scan
+          (which previously persisted in the global registry).
+        - Collision detection on the second scan sees only the
+          builtins (clone-time state), not adapters carried over from
+          scan one, so a stable third-party adapter no longer
+          mis-reports as ``source_type_collision``.
+
+        Tests that monkeypatch ``REGISTRY._adapters`` before
+        ``_load_inputs`` runs are preserved: the clone captures the
+        global's state at that moment, including monkeypatch
+        modifications.
+        """
+
+        clone = AdapterRegistry(autopopulate=False)
+        # Lazy-populate ourselves first so the clone inherits the
+        # canonical builtin set even when this is the global REGISTRY's
+        # first read.
+        self._ensure_populated()
+        clone._adapters = dict(self._adapters)
+        clone._populated = True
+        return clone
+
     def get(self, source_type: str) -> ToolSourceAdapter | None:
         self._ensure_populated()
         return self._adapters.get(source_type)
@@ -258,6 +290,21 @@ def discover_third_party_adapters(
     """Walk ``entry_points('agents_shipgate.adapters')``, validate each
     third-party adapter, and register the valid ones onto ``registry``.
 
+    **Per-scan registry contract (v0.20 review fix).** ``registry``
+    MUST be a per-scan instance (typically ``REGISTRY.clone()`` from
+    ``_load_inputs``), NOT the global ``REGISTRY`` itself. Mutating
+    the global broke two trust invariants:
+
+    1. ``--no-plugins`` on a later scan didn't disable adapters
+       registered by an earlier scan, because the dispatcher still
+       resolved them through the global registry.
+    2. Collision detection on the second scan misclassified
+       previously-registered third-party adapters as
+       ``source_type_collision`` against themselves.
+
+    Callers pass a clone so each scan starts from a known-good
+    builtins-only snapshot.
+
     Returns the list of ``LoadedAdapter`` records (both valid and
     invalid). When ``loaded_adapters`` is provided, the per-row
     ``info`` dicts are appended to it for downstream
@@ -268,14 +315,6 @@ def discover_third_party_adapters(
     ``plugins_enabled`` is not explicitly ``True``. ``--no-plugins``
     on the CLI translates to ``plugins_enabled=False`` and forces this
     off even when the env var is set.
-
-    Calling this twice with the same ``registry`` is safe: collision
-    detection runs against the registry's current state, and
-    already-registered third-party adapters are rejected with
-    ``source_type_collision``. A test that monkeypatches
-    ``entry_points`` should also reset the registry between runs (use
-    a fresh ``AdapterRegistry(autopopulate=False)`` or
-    ``monkeypatch.setattr`` for full isolation).
     """
 
     from agents_shipgate.inputs.adapter_validation import (

@@ -312,8 +312,22 @@ def _protocol_error(adapter: Any) -> str | None:
     except (TypeError, ValueError):
         # Builtins / C extensions; accept — runtime wrapper will catch.
         return None
-    # ToolSourceAdapter.load takes (source, base_dir, manifest). The
-    # bound method drops ``self``, leaving 3 positional parameters.
+    # ToolSourceAdapter.load is invoked as
+    # ``adapter.load(source, base_dir, manifest)`` — three positional
+    # arguments, never any keyword arguments. The validator must accept
+    # any signature compatible with that exact call shape and reject
+    # everything else. Three failure modes the original v0.20 (PR #111
+    # review fix P2 #4) implementation missed:
+    #
+    # - Too FEW positional slots, e.g. ``load(self, source)`` — the
+    #   bound method has only 1 positional slot; the dispatcher's
+    #   3-arg call would crash with ``TypeError: too many positional
+    #   arguments``.
+    # - Required keyword-only parameters, e.g.
+    #   ``load(self, source, base_dir, manifest, *, must_set)`` — the
+    #   dispatcher never passes kwargs; the call would crash with
+    #   ``TypeError: missing 1 required keyword-only argument``.
+    # - Too MANY required positional params (preserved from v0.20).
     positional = [
         p
         for p in sig.parameters.values()
@@ -324,24 +338,54 @@ def _protocol_error(adapter: Any) -> str | None:
             inspect.Parameter.VAR_POSITIONAL,
         )
     ]
+    if not positional:
+        return (
+            "adapter.load must accept positional arguments "
+            "(source, base_dir, manifest)"
+        )
     required = [
         p
         for p in positional
         if p.kind != inspect.Parameter.VAR_POSITIONAL
         and p.default is inspect.Parameter.empty
     ]
-    # The wrapper calls adapter.load(source, base_dir, manifest) — three
-    # positional arguments. Accept up to 3 required positional slots;
-    # extra optional slots are fine.
     if len(required) > 3:
         return (
             "adapter.load must accept at most 3 required positional "
             f"parameters (source, base_dir, manifest); got {len(required)}"
         )
-    if not positional:
+    # Count how many positional slots can absorb arguments. Required +
+    # optional contribute one each; ``*args`` absorbs any remaining.
+    accepting_slots = sum(
+        1
+        for p in positional
+        if p.kind != inspect.Parameter.VAR_POSITIONAL
+    )
+    has_var_positional = any(
+        p.kind == inspect.Parameter.VAR_POSITIONAL for p in positional
+    )
+    if accepting_slots < 3 and not has_var_positional:
         return (
-            "adapter.load must accept positional arguments "
-            "(source, base_dir, manifest)"
+            "adapter.load must accept at least 3 positional arguments "
+            f"(source, base_dir, manifest); got {accepting_slots} "
+            "positional slot(s) and no *args"
+        )
+    # Required keyword-only parameters are not satisfiable by the
+    # ``plugin(source, base_dir, manifest)`` call shape. Optional
+    # kw-only (with defaults) and ``**kwargs`` are fine. Mirrors the
+    # plugin-validation signature gate.
+    required_kw_only = [
+        p
+        for p in sig.parameters.values()
+        if p.kind == inspect.Parameter.KEYWORD_ONLY
+        and p.default is inspect.Parameter.empty
+    ]
+    if required_kw_only:
+        names = ", ".join(p.name for p in required_kw_only)
+        return (
+            "adapter.load has required keyword-only parameter(s) "
+            f"({names}); the dispatcher calls adapter.load(source, "
+            "base_dir, manifest) with no keyword arguments"
         )
     return None
 

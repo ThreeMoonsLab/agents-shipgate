@@ -366,13 +366,25 @@ def _load_inputs(
     """
     from agents_shipgate.inputs.protocol import discover_third_party_adapters
 
+    # v0.20 (PR #111 review fix P1 #1+#2): build a per-scan registry
+    # clone so third-party discovery NEVER mutates the global
+    # ``REGISTRY``. Without this, a later ``--no-plugins`` scan would
+    # still see adapters registered by an earlier scan, and the
+    # collision check on scan-two would misclassify stable third-
+    # party adapters as ``source_type_collision`` (the global already
+    # has them from scan-one). The clone captures any monkeypatch
+    # state at this exact moment, so existing tests that
+    # ``monkeypatch.setitem(REGISTRY._adapters, …)`` still work.
+    scan_registry = REGISTRY.clone()
     loaded_adapters: list[dict[str, Any]] = []
     discover_third_party_adapters(
-        REGISTRY,
+        scan_registry,
         plugins_enabled=plugins_enabled,
         loaded_adapters=loaded_adapters,
     )
-    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    loaded_sources, artifact_bag = _load_sources(
+        manifest, base_dir, verbose=verbose, registry=scan_registry
+    )
     logger.debug(
         "loaded sources",
         extra={
@@ -1386,8 +1398,9 @@ def _load_sources(
     base_dir: Path,
     *,
     verbose: bool,
+    registry: Any = None,
 ) -> tuple[list[LoadedToolSource], ArtifactBag]:
-    """Dispatch every adapter through ``REGISTRY``.
+    """Dispatch every adapter through the supplied ``registry``.
 
     Returns ``(loaded_sources, artifact_bag)``. ``artifact_bag`` is a
     typed ``ArtifactBag`` with per-scan adapter artifacts keyed by
@@ -1397,7 +1410,7 @@ def _load_sources(
     Ordering is deterministic and matches the legacy run_scan order:
 
       1. per-source loaders in tool_sources declared order
-      2. per-scan adapters in REGISTRY iteration order:
+      2. per-scan adapters in registry iteration order:
          google_adk → langchain → crewai → n8n → openai_api
          → anthropic_api → codex_plugin → validation
 
@@ -1409,19 +1422,29 @@ def _load_sources(
     Per-scan source types appearing in tool_sources are ignored by
     pass 1 — they would be redundant; framework loaders already iterate
     every matching entry internally via the manifest.
+
+    v0.20 (PR #111 review fix): ``registry`` is the per-scan registry
+    built by ``_load_inputs`` (``REGISTRY.clone()`` plus any
+    third-party adapters validated in this scan). Defaults to the
+    module-global ``REGISTRY`` only for callers that bypass
+    ``_load_inputs`` (notably the legacy tests in
+    ``tests/test_adapter_registry.py``). New code should always pass
+    a per-scan registry.
     """
+    if registry is None:
+        registry = REGISTRY
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
 
     # Pass 1 — per-source adapters only, in tool_sources declared
     # order. Per-scan source types (langchain, crewai, etc.) are
-    # skipped here; pass 2 invokes them in canonical REGISTRY order
+    # skipped here; pass 2 invokes them in canonical registry order
     # regardless of where they appear in tool_sources. This protects
     # the dedup tie-break in _flatten_and_deduplicate_tools from
     # changing based on user-facing tool_sources ordering.
     for source in manifest.tool_sources:
-        adapter = REGISTRY.require(source.type)
+        adapter = registry.require(source.type)
         if adapter.scope != "per_source":
             continue
         result = _invoke_per_source_adapter(
@@ -1429,12 +1452,12 @@ def _load_sources(
         )
         _absorb(result, source.type, per_source_loaded, bag, adapter)
 
-    # Pass 2 — every per-scan adapter fires once, in REGISTRY order.
+    # Pass 2 — every per-scan adapter fires once, in registry order.
     # Covers framework adapters (always check their manifest section
     # internally and may emit zero LoadedToolSource entries when not
     # configured) and manifest-only adapters (openai_api,
     # anthropic_api, n8n).
-    for adapter in REGISTRY.per_scan_adapters():
+    for adapter in registry.per_scan_adapters():
         result = adapter.load(None, base_dir, manifest)
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 

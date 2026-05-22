@@ -92,20 +92,17 @@ def _patch_adapter_entries(monkeypatch, entries: list[Any]) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry_after_test(monkeypatch):
-    """Snapshot REGISTRY._adapters before each test so any third-party
-    additions made during the test are cleaned up afterwards.
-
-    Without this fixture, a third-party adapter registered in one test
-    would leak into subsequent tests and cause source_type_collision
-    false-positives.
+def _populate_registry(monkeypatch):
+    """v0.20 PR #111 review fix: discovery no longer mutates the
+    global ``REGISTRY``. The autouse fixture only triggers lazy
+    population so subsequent tests see a stable builtin set; no
+    cleanup is needed because ``_load_inputs`` operates on a per-scan
+    ``REGISTRY.clone()`` and third-party additions land there, never
+    on the global.
     """
 
     REGISTRY._ensure_populated()
-    builtin_snapshot = dict(REGISTRY._adapters)
     yield
-    REGISTRY._adapters.clear()
-    REGISTRY._adapters.update(builtin_snapshot)
 
 
 # --- valid adapter shapes (positive controls) ------------------------------
@@ -153,8 +150,14 @@ def test_valid_third_party_adapter_lands_in_loaded_adapters(monkeypatch, tmp_pat
     assert record["runtime_errors"] == []
     assert record["distribution"] == "test-adapter-dist"
     assert record["version"] == "1.2.3"
-    # REGISTRY mutation visible from the test (cleaned by autouse fixture).
-    assert "third_party_demo" in REGISTRY._adapters
+    # v0.20 PR #111 review fix: the per-scan registry holds the
+    # third-party adapter for the duration of this scan, but the
+    # global REGISTRY stays builtin-only across the process. A later
+    # ``--no-plugins`` scan sees a clean slate.
+    assert "third_party_demo" not in REGISTRY._adapters, (
+        "global REGISTRY must stay builtin-only — discovery should "
+        "mutate a per-scan clone, not the global"
+    )
 
 
 def test_adapter_instance_value_is_accepted(monkeypatch, tmp_path):
@@ -413,6 +416,335 @@ def test_no_plugins_flag_overrides_env(monkeypatch, tmp_path):
     )
     assert report.loaded_adapters == []
     assert "third_party_demo" not in REGISTRY._adapters
+
+
+# --- review-fix regression tests (PR #111 P1 #1, P1 #2, P1 #3) ------------
+
+
+class _RecordingAdapter:
+    """A per_scan third-party adapter that records every load() call,
+    so tests can prove the adapter ran (or didn't) across multiple
+    scans within the same process.
+    """
+
+    source_type: ClassVar[str] = "recording_demo"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+    artifact_class: ClassVar[type | None] = None
+
+    invocations: ClassVar[int] = 0
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.invocations = 0
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        type(self).invocations += 1
+        return LoadedAdapterResult()
+
+
+def test_no_plugins_disables_third_party_after_prior_enabled_scan(
+    monkeypatch, tmp_path
+):
+    """**Regression for PR #111 P1 #1.** A second in-process scan
+    with ``plugins_enabled=False`` must NOT execute a third-party
+    adapter discovered by the first scan.
+
+    Pre-fix: the first scan registered the adapter into the global
+    ``REGISTRY``. The second scan skipped discovery but the
+    dispatcher still resolved the adapter from the polluted
+    global. We assert both behaviors are now correct:
+
+    - second-scan ``loaded_adapters == []`` (already worked pre-fix)
+    - second-scan adapter ``invocations`` count does NOT increase
+      (the actual regression — pre-fix this WAS incremented)
+    """
+
+    _RecordingAdapter.reset()
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _RecordingAdapter)])
+
+    # Scan 1: plugins enabled → adapter discovered, registered (per-scan),
+    # and invoked once via pass-2 per_scan loop.
+    report1, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path / "scan1",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert len(report1.loaded_adapters) == 1
+    assert report1.loaded_adapters[0]["validation_status"] == VALID
+    assert _RecordingAdapter.invocations == 1
+
+    # Scan 2: same process, plugins disabled. Discovery is a no-op
+    # AND the dispatcher must not see the adapter from scan 1.
+    report2, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path / "scan2",
+        formats=["json"],
+        ci_mode="advisory",
+        plugins_enabled=False,
+    )
+    assert report2.loaded_adapters == [], (
+        "scan 2 with plugins_enabled=False must report an empty "
+        "loaded_adapters[]"
+    )
+    assert _RecordingAdapter.invocations == 1, (
+        "scan 2 must NOT execute the third-party adapter registered "
+        "by scan 1; global REGISTRY pollution would have re-run it"
+    )
+    assert "recording_demo" not in REGISTRY._adapters
+
+
+def test_second_scan_does_not_misclassify_third_party_as_collision(
+    monkeypatch, tmp_path
+):
+    """**Regression for PR #111 P1 #2.** A stable third-party adapter
+    discovered across two consecutive scans must produce
+    ``validation_status == "valid"`` on BOTH scans, not collide with
+    its own registration from scan one.
+
+    Pre-fix: scan 2's collision set was ``REGISTRY._adapters.keys()``
+    which already contained the scan-1 adapter, so scan 2 reported
+    ``source_type_collision`` while the dispatcher still executed the
+    stale registered adapter. Both report truthfulness and
+    ``--strict-plugins`` were broken.
+    """
+
+    _RecordingAdapter.reset()
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _RecordingAdapter)])
+
+    report1, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path / "scan1",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    report2, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path / "scan2",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert report1.loaded_adapters[0]["validation_status"] == VALID
+    assert report2.loaded_adapters[0]["validation_status"] == VALID, (
+        "second scan must classify the same adapter as valid, not "
+        "as source_type_collision against itself"
+    )
+    assert _RecordingAdapter.invocations == 2, (
+        "adapter should have run exactly once per scan"
+    )
+
+
+class _PerSourceThirdPartyAdapter:
+    """A per_source third-party adapter — proves manifests can
+    reference custom source types after PR #111 P1 #3.
+    """
+
+    source_type: ClassVar[str] = "demo_source"
+    scope: ClassVar[Literal["per_source", "per_scan"]] = "per_source"
+    artifact_class: ClassVar[type | None] = None
+
+    invocations: ClassVar[int] = 0
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.invocations = 0
+
+    def load(
+        self,
+        source: ToolSourceConfig | None,
+        base_dir: Path,
+        manifest: AgentsShipgateManifest,
+    ) -> LoadedAdapterResult:
+        type(self).invocations += 1
+        # Minimal valid LoadedAdapterResult; the per_source contract
+        # returns at least one LoadedToolSource so the dispatcher can
+        # absorb it without error.
+        from agents_shipgate.core.domain import LoadedToolSource
+
+        return LoadedAdapterResult(
+            tool_sources=[
+                LoadedToolSource(
+                    source_id=source.id if source else "demo",
+                    source_type="demo_source",
+                    tools=[],
+                    warnings=[],
+                )
+            ],
+        )
+
+
+def test_per_source_third_party_adapter_referenced_from_manifest(
+    monkeypatch, tmp_path
+):
+    """**Regression for PR #111 P1 #3.** A manifest referencing a
+    third-party per_source adapter via ``tool_sources[].type`` must
+    load successfully. Pre-fix ``ToolSourceConfig.type`` was a closed
+    ``Literal`` of built-in source types, so manifest validation
+    rejected the custom type before discovery ran.
+    """
+
+    _PerSourceThirdPartyAdapter.reset()
+
+    # Build a minimal manifest referencing the third-party source type.
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text('{"tools": []}', encoding="utf-8")
+    manifest_path = workspace / "shipgate.yaml"
+    manifest_path.write_text(
+        """version: "0.1"
+project:
+  name: third-party-demo
+agent:
+  name: demo
+  declared_purpose: ["test third-party per_source adapter"]
+environment:
+  target: local
+tool_sources:
+  - id: demo
+    type: demo_source
+    path: tools.json
+""",
+        encoding="utf-8",
+    )
+
+    _patch_adapter_entries(
+        monkeypatch, [_entry_point(lambda: _PerSourceThirdPartyAdapter)]
+    )
+
+    report, exit_code = run_scan(
+        config_path=manifest_path,
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert exit_code == 0, (
+        f"scan should succeed with a third-party per_source adapter; "
+        f"got exit={exit_code}"
+    )
+    assert _PerSourceThirdPartyAdapter.invocations == 1
+    assert len(report.loaded_adapters) == 1
+    assert report.loaded_adapters[0]["validation_status"] == VALID
+    assert report.loaded_adapters[0]["source_type"] == "demo_source"
+
+
+# --- review-fix: tighter signature validation (PR #111 P2 #4) -------------
+
+
+def test_gate_bad_protocol_load_too_few_positional(monkeypatch, tmp_path):
+    """**Regression for PR #111 P2 #4.** A ``load`` method that
+    accepts fewer than 3 positional arguments must fail at the gate,
+    not crash the dispatcher at runtime.
+    """
+
+    class _OnlyOnePositional:
+        source_type: ClassVar[str] = "too_few_args"
+        scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+        artifact_class: ClassVar[type | None] = None
+
+        def load(self, source):  # type: ignore[override]
+            return LoadedAdapterResult()
+
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _OnlyOnePositional)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_adapters[0]
+    assert record["validation_status"] == BAD_PROTOCOL
+    assert any(
+        "at least 3 positional" in err for err in record["validation_errors"]
+    ), record["validation_errors"]
+
+
+def test_gate_bad_protocol_load_required_keyword_only(monkeypatch, tmp_path):
+    """**Regression for PR #111 P2 #4.** Required keyword-only
+    parameters must fail at the gate. The dispatcher calls
+    ``load(source, base_dir, manifest)`` with no kwargs.
+    """
+
+    class _RequiredKwOnly:
+        source_type: ClassVar[str] = "kw_only_required"
+        scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+        artifact_class: ClassVar[type | None] = None
+
+        def load(self, source, base_dir, manifest, *, must_set):  # type: ignore[override]
+            return LoadedAdapterResult()
+
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _RequiredKwOnly)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_adapters[0]
+    assert record["validation_status"] == BAD_PROTOCOL
+    assert any(
+        "keyword-only" in err and "must_set" in err
+        for err in record["validation_errors"]
+    ), record["validation_errors"]
+
+
+def test_gate_bad_protocol_accepts_var_positional(monkeypatch, tmp_path):
+    """An adapter using ``*args`` to absorb the three positional
+    arguments is valid (it CAN bind 3 args, even though no required
+    positional slots are declared).
+    """
+
+    class _VarPositional:
+        source_type: ClassVar[str] = "var_args_demo"
+        scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+        artifact_class: ClassVar[type | None] = None
+
+        def load(self, *args):  # type: ignore[override]
+            return LoadedAdapterResult()
+
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _VarPositional)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_adapters[0]
+    assert record["validation_status"] == VALID, record["validation_errors"]
+
+
+def test_gate_bad_protocol_accepts_optional_keyword_only(monkeypatch, tmp_path):
+    """Optional keyword-only parameters (with defaults) don't break
+    the dispatcher's call shape; the gate accepts them.
+    """
+
+    class _OptionalKwOnly:
+        source_type: ClassVar[str] = "optional_kw_demo"
+        scope: ClassVar[Literal["per_source", "per_scan"]] = "per_scan"
+        artifact_class: ClassVar[type | None] = None
+
+        def load(self, source, base_dir, manifest, *, opt=None):  # type: ignore[override]
+            return LoadedAdapterResult()
+
+    _patch_adapter_entries(monkeypatch, [_entry_point(lambda: _OptionalKwOnly)])
+
+    report, _ = run_scan(
+        config_path=CLEAN_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    record = report.loaded_adapters[0]
+    assert record["validation_status"] == VALID, record["validation_errors"]
 
 
 # --- isolated unit tests on the validator (no scan needed) ----------------
