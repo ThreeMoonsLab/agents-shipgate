@@ -52,8 +52,10 @@ src/agents_shipgate/
                        v0.6 `evidence_matrix` reviewer-lens projection.
 
 harness/                (Not packaged.) Cold-agent adoption harness
-                       (P0.2). 100-point rubric across 8 repo
-                       archetypes; static replay, no LLM calls.
+                       (P0.2). 100-point rubric across 8 benchmark
+                       repos. `smoke` subcommand is static replay (no
+                       LLM calls); `run` may invoke live drivers under
+                       a `--budget-usd` cap.
 ```
 
 ## Pipeline
@@ -309,7 +311,7 @@ Four rules govern the packet contract:
 3. **Explicit non-proofs.** §10 lists, on every emitted packet, the
    four things the packet does not prove: prompt robustness, runtime
    behavior, model correctness, adversarial resistance.
-4. **Reviewer-readable.** All ten sections are always present.
+4. **Reviewer-readable.** All 13 sections are always present.
    §1A (the v0.6 **evidence matrix**, 13 reviewer-domain rows) gives a
    compact coverage view across Inventory, Schema, Auth, Approval,
    Confirmation, Idempotency, Side effects, Memory isolation, HITL,
