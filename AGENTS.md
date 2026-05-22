@@ -361,7 +361,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.19` |
+| Report schema (current) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.20` |
+| Report schema (v0.19 frozen reference) | [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) | `0.19` |
 | Report schema (v0.18 frozen reference) | [`docs/report-schema.v0.18.json`](docs/report-schema.v0.18.json) | `0.18` |
 | Report schema (v0.17 frozen reference) | [`docs/report-schema.v0.17.json`](docs/report-schema.v0.17.json) | `0.17` |
 | Report schema (v0.16 frozen reference) | [`docs/report-schema.v0.16.json`](docs/report-schema.v0.16.json) | `0.16` |

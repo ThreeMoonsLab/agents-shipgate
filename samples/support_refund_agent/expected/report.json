@@ -3073,9 +3073,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: no reviewer signals (lenses + audits all clean). Start at release_decision.",
+    "headline": "Release blocked: 18 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 0,
+    "capability_misalignments": 18,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,

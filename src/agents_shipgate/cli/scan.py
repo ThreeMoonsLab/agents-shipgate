@@ -45,6 +45,7 @@ from agents_shipgate.core.findings import (
     apply_suppressions,
     assign_finding_ids,
     build_report,
+    build_reviewer_summary,
     dedupe_findings,
     finding_fingerprint,
     tool_inventory,
@@ -713,6 +714,14 @@ def run_scan(
         privacy_audit=privacy_audit,
     )
     apply_capability_diff(report, public_tools)
+    # v0.20: reviewer_summary is built HERE — after apply_capability_diff
+    # has populated misalignments / release_consequence / suggested_scenarios.
+    # Building it inside build_report() would project from incomplete state
+    # (capability_misalignments would always be 0). Pure projection, no I/O.
+    report.reviewer_summary = build_reviewer_summary(
+        findings=public_findings,
+        report=report,
+    )
     public_report_payload = report_json_payload(report)
     _write_reports(report, generated_paths, manifest.output.formats)
     if packet_cfg.enabled and packet_format_set:

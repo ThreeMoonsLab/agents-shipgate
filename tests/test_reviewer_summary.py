@@ -512,6 +512,139 @@ def test_pointer_priority_privacy_outranks_evidence_matrix():
     assert summary.first_recommended_surface.name == "privacy_audit"
 
 
+def test_pointer_falls_through_to_policy_audit_for_non_tier_crossed_overrides():
+    """PR #107 P2 regression: a same-tier severity override (the only
+    reviewer signal in the scan) must NOT produce a null
+    ``first_recommended_surface``. Without the low-priority fallthrough
+    in ``_pick_first_recommended_surface``, the headline would say
+    "1 audit event" but the pointer would be ``null`` — contradicting
+    the contract that ``null`` means a fully clean scan.
+
+    Routes to ``policy_audit`` with a ``why`` text that signals lower
+    priority than the tier-crossed case (no acknowledgement was
+    required; the override is the user's stated intent).
+    """
+    report = _empty_report()
+    report.policy_audit = PolicyAudit(
+        severity_overrides_applied=[_override(tier_crossed=False)]
+    )
+    summary = build_reviewer_summary(findings=[], report=report)
+    assert summary.severity_overrides_applied == 1
+    assert summary.severity_overrides_tier_crossed == 0
+    assert summary.first_recommended_surface is not None, (
+        "Non-tier-crossed override produced a null pointer despite a "
+        "non-zero audit_total — contradicts the schema contract that "
+        "null only means a fully clean scan."
+    )
+    assert summary.first_recommended_surface.name == "policy_audit"
+    # The "why" should distinguish this from the tier-crossed case so a
+    # reviewer reading the pointer knows the override is lower-attention.
+    assert "same-tier" in summary.first_recommended_surface.why.lower() or (
+        "upgrade" in summary.first_recommended_surface.why.lower()
+    )
+
+
+def test_pointer_falls_through_for_upgrades_too():
+    """An upgrade (direction=upgrade) is also a same-tier-or-cross
+    override that the new fallthrough should cover. Asserts the
+    pointer is non-null and routes to policy_audit."""
+    report = _empty_report()
+    report.policy_audit = PolicyAudit(
+        severity_overrides_applied=[
+            _override(tier_crossed=False, direction="upgrade"),
+        ]
+    )
+    summary = build_reviewer_summary(findings=[], report=report)
+    assert summary.first_recommended_surface is not None
+    assert summary.first_recommended_surface.name == "policy_audit"
+
+
+def test_pointer_is_null_only_when_every_signal_is_zero():
+    """The schema contract says ``first_recommended_surface`` is null
+    only on a fully clean scan (verdict=passed AND every count zero).
+    Regression test for PR #107 P2: with ANY non-zero signal the
+    pointer MUST be non-null, including the post-fallthrough cases."""
+    # Empty report = all-zero counters + passed verdict → null
+    summary = build_reviewer_summary(findings=[], report=_empty_report())
+    assert summary.first_recommended_surface is None
+    # Any single non-zero signal flips the pointer to non-null
+    for setup in [
+        # same-tier override (the PR #107 P2 case)
+        lambda r: setattr(
+            r,
+            "policy_audit",
+            PolicyAudit(severity_overrides_applied=[_override(tier_crossed=False)]),
+        ),
+        # privacy redaction
+        lambda r: setattr(
+            r,
+            "privacy_audit",
+            PrivacyAudit(
+                enabled=True,
+                rules_version="0.1",
+                sensitive_field_inventory_version="0.1",
+                redacted_occurrence_count=1,
+            ),
+        ),
+    ]:
+        report = _empty_report()
+        setup(report)
+        summary = build_reviewer_summary(findings=[], report=report)
+        assert summary.first_recommended_surface is not None, (
+            f"Single non-zero signal produced a null pointer: "
+            f"reviewer_summary={summary.model_dump()}"
+        )
+
+
+# --- PR #107 P1 regression: build order vs apply_capability_diff -----------
+
+
+def test_reviewer_summary_reflects_misalignments_added_after_construction():
+    """PR #107 P1 regression: ``misalignments`` are populated by
+    ``apply_capability_diff(report, tools)`` AFTER ``build_report``
+    returns. The scan pipeline must call ``build_reviewer_summary``
+    AFTER ``apply_capability_diff`` so the projection sees the final
+    state.
+
+    If a future refactor moves the projection back into
+    ``build_report`` it would project from an empty
+    ``report.misalignments`` and emit ``capability_misalignments: 0``
+    even on reports with dozens of misalignments — the exact bug
+    PR #107 P1 caught (``simple_openai_api_agent`` emitted
+    ``misalignments: 23`` but ``reviewer_summary.capability_misalignments: 0``).
+    This test mimics the scan-pipeline order: build a report with empty
+    misalignments, then APPEND misalignments (simulating
+    ``apply_capability_diff``), then call ``build_reviewer_summary`` and
+    assert the count reflects the post-construction state.
+    """
+    report = _empty_report()
+    # Sanity: empty report has zero misalignments and a null pointer
+    summary_pre = build_reviewer_summary(findings=[], report=report)
+    assert summary_pre.capability_misalignments == 0
+    assert summary_pre.first_recommended_surface is None
+
+    # Simulate apply_capability_diff(report, tools) populating misalignments
+    report.misalignments = [
+        Misalignment(
+            id=f"m{i}",
+            kind="policy_gap",
+            severity="high",
+            policy_requirement="x",
+            gap="y",
+            release_implication="z",
+        )
+        for i in range(23)
+    ]
+
+    summary_post = build_reviewer_summary(findings=[], report=report)
+    assert summary_post.capability_misalignments == 23, (
+        "build_reviewer_summary did not pick up misalignments added "
+        "after construction — the projection is staleness-prone."
+    )
+    assert summary_post.first_recommended_surface is not None
+    assert summary_post.first_recommended_surface.name == "capability_intent_diff"
+
+
 # --- Determinism -------------------------------------------------------------
 
 

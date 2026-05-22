@@ -902,6 +902,7 @@ def _pick_first_recommended_surface(
     action_surface_changes: int,
     baseline_integrity_issues: int,
     severity_overrides_tier_crossed: int,
+    severity_overrides_applied: int,
     capability_misalignments: int,
     tool_surface_changes: int,
     privacy_redactions: int,
@@ -926,6 +927,14 @@ def _pick_first_recommended_surface(
       6. Tool surface changes — registry-level PR diff.
       7. Privacy redactions — output sanitation events.
       8. Evidence matrix gaps — coverage holes for review.
+      9. Non-tier-crossed severity overrides — same-tier downgrades
+         and upgrades. Lower priority than the tier-crossed case
+         because they don't cross a release-critical boundary, but
+         still a reviewer signal that warrants a glance. Without
+         this fallthrough, ``severity_overrides_applied > 0`` would
+         produce a non-zero headline but a ``null`` pointer —
+         contradicting the contract that ``null`` means a fully
+         clean scan.
 
     Each branch picks the most informative ``path`` and a single
     sentence ``why`` suitable for a PR comment lead.
@@ -1038,6 +1047,26 @@ def _pick_first_recommended_surface(
             ),
         )
 
+    # Low-priority fallthrough: same-tier severity overrides and
+    # upgrades. Without this branch, a manifest with a single
+    # medium → low override would produce a non-zero
+    # ``severity_overrides_applied`` counter AND a non-zero
+    # ``audit_total`` in the headline, but a ``null`` pointer —
+    # contradicting the contract that ``null`` means a fully clean
+    # scan. The tier-crossed case above handles the higher-attention
+    # subset; this branch covers the rest.
+    if severity_overrides_applied > 0:
+        return ReviewerSurfacePointer(
+            kind="audit",
+            name="policy_audit",
+            path="report.policy_audit.severity_overrides_applied",
+            why=(
+                "Severity overrides are applied (same-tier or upgrade); "
+                "review the policy_audit entries to confirm the overrides "
+                "match reviewer intent."
+            ),
+        )
+
     return None
 
 
@@ -1090,6 +1119,7 @@ def build_reviewer_summary(
         action_surface_changes=action_surface_changes,
         baseline_integrity_issues=baseline_integrity_issues,
         severity_overrides_tier_crossed=severity_overrides_tier_crossed,
+        severity_overrides_applied=severity_overrides_applied,
         capability_misalignments=capability_misalignments,
         tool_surface_changes=tool_surface_changes,
         privacy_redactions=privacy_redactions,
@@ -1300,14 +1330,16 @@ def build_report(
         release_decision=report.release_decision,
         json_report_path=generated_reports.get("json"),
     )
-    # v0.20: reviewer_summary is the parallel projection for the
-    # audit/lens dimensions. Built after agent_summary so the entire
-    # report state (including lenses, audits, and findings) is settled.
-    # No I/O, no LLM — pure projection from existing report fields.
-    report.reviewer_summary = build_reviewer_summary(
-        findings=findings,
-        report=report,
-    )
+    # v0.20 NOTE: ``report.reviewer_summary`` is NOT built here. It
+    # depends on ``report.misalignments`` which ``apply_capability_diff``
+    # populates AFTER ``build_report`` returns (see cli/scan.py). Building
+    # it here would project from incomplete state — ``capability_misalignments``
+    # would always be 0 even on reports that later carry dozens of
+    # misalignments. The scan pipeline calls ``build_reviewer_summary``
+    # post-capability-diff so the projection sees the final report state.
+    # Test fixtures that need a populated ``reviewer_summary`` should
+    # also call ``build_reviewer_summary`` after they finish assembling
+    # the report.
     return report
 
 

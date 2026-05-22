@@ -2486,15 +2486,20 @@
   },
   "reviewer_summary": {
     "verdict": "review_required",
-    "headline": "Review required: no reviewer signals (lenses + audits all clean).",
+    "headline": "Review required: 23 lens changes. Start at capability_intent_diff.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 0,
+    "capability_misalignments": 23,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
-    "first_recommended_surface": null
+    "first_recommended_surface": {
+      "kind": "lens",
+      "name": "capability_intent_diff",
+      "path": "report.misalignments",
+      "why": "The capability/intent diff surfaced misalignments between declared agent purpose and observed tool surface; read misalignments[] for the specifics."
+    }
   }
 }
