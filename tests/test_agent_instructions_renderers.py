@@ -12,8 +12,11 @@ import re
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256,
     CODEX_SKILL_PRIOR_RENDER_SHA256,
     render_agents_md,
+    render_claude_code_skill_bundle_text,
+    render_claude_code_skill_files,
     render_claude_md,
     render_codex_skill_bundle_text,
     render_codex_skill_files,
@@ -28,11 +31,44 @@ from harness.adoption import overlay as overlay_mod
 ALL_RENDERERS = {
     "agents-md": render_agents_md,
     "codex-skill": render_codex_skill_bundle_text,
+    "claude-code-skill": render_claude_code_skill_bundle_text,
     "claude-md": render_claude_md,
     "cursor": render_cursor_file,
     "pr-template": render_pr_template,
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
+EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
+    ".claude/skills/agents-shipgate/SKILL.md": (
+        "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9"
+    ),
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
+        "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
+    ),
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
+        "8fab0595326b127fb1678828fd9b15c63cbe98f0229aad5bb87d47030e4b9ca6"
+    ),
+    ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
+        "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
+    ),
+    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": (
+        "90d36fbe91668fdc64e5e73727ec8285ee62c584d695b866261ef569fea07074"
+    ),
+    ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": (
+        "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
+    ),
+    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
+        "bb97c3fbd3b52d5755f6960878f350d484837849c3e536d99aab3fab3e353405"
+    ),
+    ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
+        "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
+    ),
+    ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": (
+        "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
+    ),
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
+        "c3756c86f52cf00a594b3fe38179b66e0f07dc8c52b98b9e76f4a15939901c77"
+    ),
+}
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
         "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a"
@@ -132,6 +168,54 @@ def test_codex_skill_render_hashes_change_intentionally() -> None:
         assert actual[rel] not in prior_hashes
 
 
+def test_claude_code_skill_source_matches_renderer() -> None:
+    """The checked-in repo-scoped Claude Code skill and init renderer must not drift."""
+    for rel, content in render_claude_code_skill_files().items():
+        source_rel = rel.removeprefix(".claude/")
+        source_path = REPO_ROOT / source_rel
+        if source_rel.endswith("advisory-pr-comment.yml"):
+            continue
+        assert source_path.read_text(encoding="utf-8") == content
+
+
+def test_claude_code_skill_render_hashes_change_intentionally() -> None:
+    """Content changes require updating this snapshot.
+
+    After the first shipped Claude Code skill release, move the old hash for
+    any changed file into CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256 before
+    updating this map.
+    """
+    actual = {
+        rel: hashlib.sha256(content.encode("utf-8")).hexdigest()
+        for rel, content in render_claude_code_skill_files().items()
+    }
+    assert actual == EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256
+    assert set(CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256).issubset(actual)
+    for rel, prior_hashes in CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256.items():
+        assert actual[rel] not in prior_hashes
+
+
+def test_claude_code_skill_has_required_surfaces() -> None:
+    files = render_claude_code_skill_files()
+    assert ".claude/skills/agents-shipgate/SKILL.md" in files
+    for prompt_name in (
+        "add-shipgate-to-repo",
+        "decide-shipgate-relevance",
+        "explain-finding-to-user",
+        "fix-top-finding",
+        "recommend-fixes",
+        "stabilize-strict-mode",
+        "triage-false-positive",
+        "upgrade-shipgate-version",
+    ):
+        assert f".claude/skills/agents-shipgate/prompts/{prompt_name}.md" in files
+    assert ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml" in files
+    skill = files[".claude/skills/agents-shipgate/SKILL.md"]
+    assert "release_decision.decision" in skill
+    assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
+    assert "Do not claim a finding is fixed" in skill
+
+
 def test_codex_skill_has_required_surfaces() -> None:
     files = render_codex_skill_files()
     assert ".agents/skills/agents-shipgate/SKILL.md" in files
@@ -171,10 +255,17 @@ def test_claude_md_is_self_contained_no_dangling_link() -> None:
 def test_strict_mode_token_only_in_ci_pointer_paragraph() -> None:
     """Rule 3: ``ci_mode: strict`` (or `strict mode`/`strict CI`) must only
     appear inside the shared CI-pointer paragraph and only in the
-    "promotion is a human decision" framing."""
+    "promotion is a human decision" framing.
+
+    File-tree skill bundles (codex-skill, claude-code-skill) are excluded:
+    they contain task-specific recipe prompts (e.g. stabilize-strict-mode.md)
+    whose purpose is to describe the strict-mode workflow."""
     assert "ci_mode: strict" in CI_POINTER_PARAGRAPH
     pattern = re.compile(r"ci_mode:\s*strict|strict\s+mode|strict\s+CI", re.IGNORECASE)
+    excluded = {"codex-skill", "claude-code-skill"}
     for name, fn in ALL_RENDERERS.items():
+        if name in excluded:
+            continue
         rendered = fn()
         # Strip the CI_POINTER_PARAGRAPH out and assert no match in remainder.
         without_pointer = rendered.replace(CI_POINTER_PARAGRAPH, "")

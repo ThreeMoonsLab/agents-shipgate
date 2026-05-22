@@ -4,7 +4,7 @@ The selector accepts:
 
 - ``all``  — every registered target.
 - ``none`` — no targets (rare; mirrors ``--minimal`` as an explicit opt-out).
-- A comma-separated list of target names, e.g. ``agents-md,codex-skill,cursor``.
+- A comma-separated list of target names, e.g. ``agents-md,codex-skill,claude-code-skill,cursor``.
 
 Unknown names raise :class:`InvalidSelector`. The CLI converts that into a
 ``config_error`` agent-mode error JSON line + a ``next_action`` pointing at
@@ -27,6 +27,7 @@ BLOCK_VERSION: int = 1
 TARGETS: tuple[str, ...] = (
     "agents-md",
     "codex-skill",
+    "claude-code-skill",
     "claude-md",
     "cursor",
     "pr-template",
@@ -51,6 +52,12 @@ SPECS: dict[str, TargetSpec] = {
     "codex-skill": TargetSpec(
         name="codex-skill",
         relative_path=".agents/skills/agents-shipgate",
+        is_full_file=False,
+        is_file_tree=True,
+    ),
+    "claude-code-skill": TargetSpec(
+        name="claude-code-skill",
+        relative_path=".claude/skills/agents-shipgate",
         is_full_file=False,
         is_file_tree=True,
     ),

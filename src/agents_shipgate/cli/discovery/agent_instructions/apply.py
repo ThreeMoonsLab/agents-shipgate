@@ -24,8 +24,9 @@ Status enum:
   outside the workspace.
 - ``skipped_directory_template`` — the directory form
   ``.github/PULL_REQUEST_TEMPLATE/`` exists; v1 only handles the file form.
-- ``created_file_tree`` — created the repo-scoped Codex skill bundle.
-- ``migrated_and_repaired`` — rewrote prior-version Codex skill files and
+- ``created_file_tree`` — created a repo-scoped skill bundle (Codex or
+  Claude Code).
+- ``migrated_and_repaired`` — rewrote prior-version skill files and
   recreated at least one missing file in the same pass.
 
 Every ``skipped_*`` status contributes 2 to the exit code (matching the
@@ -36,13 +37,16 @@ contribute 0.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.agent_instructions.managed_block import (
     UpsertStatus,
     upsert,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    claude_code_skill as claude_code_skill_renderer,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     codex_skill as codex_skill_renderer,
@@ -52,6 +56,8 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
+    render_claude_code_skill_bundle_text,
+    render_claude_code_skill_files,
     render_claude_md,
     render_codex_skill_bundle_text,
     render_codex_skill_files,
@@ -173,6 +179,8 @@ def _rendered_inner(name: str) -> str:
         return render_claude_md()
     if name == "codex-skill":
         return render_codex_skill_bundle_text()
+    if name == "claude-code-skill":
+        return render_claude_code_skill_bundle_text()
     if name == "pr-template":
         return render_pr_template()
     if name == "cursor":
@@ -197,10 +205,7 @@ def render_targets(workspace: Path, requested: Iterable[str]) -> list[TargetOutc
                 status="would_render",
                 rendered=_rendered_inner(name),
                 files=(
-                    [
-                        {"path": str(workspace / rel), "content": content}
-                        for rel, content in render_codex_skill_files().items()
-                    ]
+                    _file_payload(workspace, _FILE_TREE_RENDERERS[name]())
                     if spec.is_file_tree
                     else None
                 ),
@@ -402,8 +407,25 @@ def _apply_cursor(path: Path, workspace: Path) -> TargetOutcome:
     )
 
 
-def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
-    rendered_files = render_codex_skill_files()
+_FILE_TREE_RENDERERS: dict[str, Callable[[], dict[str, str]]] = {
+    "codex-skill": render_codex_skill_files,
+    "claude-code-skill": render_claude_code_skill_files,
+}
+
+_FILE_TREE_MODULES = {
+    "codex-skill": codex_skill_renderer,
+    "claude-code-skill": claude_code_skill_renderer,
+}
+
+
+def _apply_file_tree(
+    name: str,
+    path: Path,
+    workspace: Path,
+    render_fn: Callable[[], dict[str, str]],
+    prior_sha: dict[str, tuple[str, ...]],
+) -> TargetOutcome:
+    rendered_files = render_fn()
     target_paths = {rel: workspace / rel for rel in rendered_files}
     files = _file_payload(workspace, rendered_files)
 
@@ -411,7 +433,7 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
         symlink = _first_symlink_in_chain(target, workspace)
         if symlink is not None:
             return TargetOutcome(
-                name="codex-skill",
+                name=name,
                 path=str(path),
                 status="skipped_symlink",
                 files=files,
@@ -424,7 +446,7 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
 
     existing: list[str] = []
     missing: list[str] = []
-    prior: list[str] = []
+    prior_version: list[str] = []
     for rel, content in rendered_files.items():
         target = target_paths[rel]
         if not target.exists():
@@ -433,7 +455,7 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
         existing.append(rel)
         if not target.is_file():
             return TargetOutcome(
-                name="codex-skill",
+                name=name,
                 path=str(path),
                 status="skipped_user_modified",
                 files=files,
@@ -443,16 +465,16 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
         if current == content:
             continue
         current_sha = hashlib.sha256(current.encode("utf-8")).hexdigest()
-        if current_sha in codex_skill_renderer.PRIOR_RENDER_SHA256.get(rel, ()):
-            prior.append(rel)
+        if current_sha in prior_sha.get(rel, ()):
+            prior_version.append(rel)
             continue
         return TargetOutcome(
-            name="codex-skill",
+            name=name,
             path=str(path),
             status="skipped_user_modified",
             files=files,
             message=(
-                f"{target} does not match a shipped Agents Shipgate Codex skill file; "
+                f"{target} does not match a shipped Agents Shipgate {name} file; "
                 "refusing to overwrite user edits. Edit the file manually or remove "
                 "the skill directory before re-running."
             ),
@@ -465,21 +487,21 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
 
     if not existing:
         status = "created_file_tree"
-        message = f"Wrote Codex skill bundle to {path}"
-    elif prior and missing:
+        message = f"Wrote {name} skill bundle to {path}"
+    elif prior_version and missing:
         status = "migrated_and_repaired"
-        message = f"Updated Codex skill bundle and repaired missing file(s) at {path}"
-    elif prior:
+        message = f"Updated {name} skill bundle and repaired missing file(s) at {path}"
+    elif prior_version:
         status = "migrated"
-        message = f"Updated Codex skill bundle at {path}"
+        message = f"Updated {name} skill bundle at {path}"
     elif missing:
         status = "updated"
-        message = f"Repaired missing Codex skill file(s) under {path}"
+        message = f"Repaired missing {name} skill file(s) under {path}"
     else:
         status = "unchanged"
-        message = f"Codex skill bundle already current at {path}"
+        message = f"{name} skill bundle already current at {path}"
     return TargetOutcome(
-        name="codex-skill",
+        name=name,
         path=str(path),
         status=status,
         files=files,
@@ -551,7 +573,13 @@ def apply_agent_instructions(
             path = workspace / spec.relative_path
 
         if spec.is_file_tree:
-            outcomes.append(_apply_codex_skill(path, workspace))
+            outcomes.append(
+                _apply_file_tree(
+                    name, path, workspace,
+                    _FILE_TREE_RENDERERS[name],
+                    _FILE_TREE_MODULES[name].PRIOR_RENDER_SHA256,
+                )
+            )
         elif name == "cursor":
             outcomes.append(_apply_cursor(path, workspace))
         else:
