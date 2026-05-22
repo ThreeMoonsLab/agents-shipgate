@@ -122,8 +122,18 @@ report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
                                    the evidence_matrix lens
                                      ↓
-cli/scan.py:run_scan               entry-point orchestrator (1.6k lines;
-                                   decompose target — see ROADMAP)
+cli/scan.py:run_scan               entry-point orchestrator. Composed of
+                                   nine sequential phase helpers
+                                   (_prepare_scan → _load_inputs →
+                                   _build_tools_and_agent →
+                                   _load_diff_references →
+                                   _run_checks_and_decide →
+                                   _plan_outputs → _sanitize_for_output
+                                   → _build_final_report →
+                                   _write_outputs). Public signature,
+                                   exit-code contract, and _run_id hash
+                                   inputs are stable across the
+                                   decomposition (PR #106).
 ```
 
 ## Schemas layer (v0.11+)
@@ -368,8 +378,8 @@ the full checklist.
    acknowledgement). For checks whose emitted severity depends on
    user-declared manifest values (e.g. action-surface policies),
    declare `dynamic_default=True` AND add an overlay branch in
-   `cli/scan.py:_dynamic_check_defaults` — the model validator
-   requires the floor; the contract test
+   `core/dynamic_defaults.py:dynamic_check_defaults` — the model
+   validator requires the floor; the contract test
    `test_dynamic_default_aggregator_overlay_fires` requires the
    overlay. See [`STABILITY.md` § dynamic-severity check classes](../STABILITY.md#severity-override-floor).
 3. Add a test in `tests/`.
