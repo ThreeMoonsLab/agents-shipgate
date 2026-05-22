@@ -174,13 +174,15 @@ Three additional release-blocking signal sources exist outside the
 lens taxonomy and route through the same `blocks_release` flag:
 
 - **Policy-pack rules** (`inputs/policy_packs.py`) emit findings with
-  `blocks_release=rule.block` — user-declared YAML rules with
-  `block: true` (the default) block the release.
+  `blocks_release=rule.block` — user-declared YAML rules must
+  explicitly set `block: true` to block the release (`block` defaults
+  to `false`; see `schemas/policy_pack.py`).
 - **Baseline integrity** (`checks/baseline_integrity.py`) sets
   `blocks_release=True` on `SHIP-BASELINE-INTEGRITY-MISMATCH`
-  findings when the scan's `--baseline-integrity-mode strict` (the
-  scan-time mismatch path). The advisory mode and `baseline verify`
-  strict mode use exit code 6 instead.
+  findings when `baseline.integrity_mode: strict` is declared in the
+  manifest (the scan-time mismatch path). The standalone
+  `baseline verify --strict` command uses a CLI flag and exits with
+  code 6 instead of setting `blocks_release`.
 - **Action-surface policies** declared in `manifest.action_surface.policies[]`
   emit `SHIP-ACTION-POLICY-VIOLATION` at the user-declared severity
   with `blocks_release` set by the lens.
@@ -372,9 +374,10 @@ the full checklist.
 ## Adoption harness (developer-only)
 
 `harness/adoption/` (not packaged in the wheel) drives realistic
-cold-agent flows across 8 repo archetypes (OpenAI Agents SDK, MCP,
-OpenAPI, LangChain, Google ADK, CrewAI, n8n, Codex plugin, plus a
-"no tools" negative control). Success measured against a 100-point
+cold-agent flows across 8 benchmark repos (OpenAI Agents SDK, MCP,
+OpenAPI, LangChain, Google ADK, CrewAI, n8n, and a clean read-only
+repo) plus a `non-agent-negative-control` harness context (9 entries
+total). Success measured against a 100-point
 rubric in [`agent-adoption-harness.md`](agent-adoption-harness.md):
 correctly deciding relevance, installing the CLI, writing a valid
 `shipgate.yaml`, reading `release_decision.decision`, wiring CI,
