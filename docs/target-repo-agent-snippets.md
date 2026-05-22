@@ -6,11 +6,11 @@ to agents reading the Agents Shipgate source repo.
 
 > The CLI plants these snippets for you. Run
 > `agents-shipgate init --write --agent-instructions=all` (or pass a subset
-> like `--agent-instructions=agents-md,codex-skill,cursor`) to emit them into
-> the target repo. Shared host files use managed `<!-- agents-shipgate:start -->`
-> blocks; full-file and skill-bundle targets use safe-update checks. Idempotent
-> — safe to rerun. The raw content below is the canonical reference and the
-> source the renderers in
+> like `--agent-instructions=agents-md,codex-skill,claude-code-skill,cursor`)
+> to emit them into the target repo. Shared host files use managed
+> `<!-- agents-shipgate:start -->` blocks; full-file and skill-bundle targets
+> use safe-update checks. Idempotent — safe to rerun. The raw content below is
+> the canonical reference and the source the renderers in
 > `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lift from.
 
 ## When To Run
@@ -88,6 +88,29 @@ The skill can be invoked explicitly with `$agents-shipgate` and may be used
 implicitly by Codex when the task matches its frontmatter. It carries a compact
 `SKILL.md`, on-demand references for recipes and report reading, and an
 advisory GitHub Action template.
+
+## Claude Code Skill
+
+For Claude Code, generate the repo-scoped skill into
+`.claude/skills/agents-shipgate/`:
+
+```bash
+agents-shipgate init --workspace . --write --agent-instructions=claude-code-skill
+```
+
+Pair it with the `AGENTS.md` block and the `CLAUDE.md` managed-block for the
+strongest trigger surface:
+
+```bash
+agents-shipgate init --workspace . --write \
+  --agent-instructions=agents-md,claude-md,claude-code-skill
+```
+
+The skill is invoked by typing `/agents-shipgate` in Claude Code, or auto-loaded
+when the session is in a repo that matches its frontmatter. It bundles `SKILL.md`,
+eight recipe prompts (bootstrap, relevance decision, finding fixes, strict-mode
+promotion, false-positive triage, version upgrades, finding explanation), and an
+advisory GitHub Action template under `ci-recipes/`.
 
 ## `CLAUDE.md`
 

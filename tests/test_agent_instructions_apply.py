@@ -24,6 +24,9 @@ from agents_shipgate.cli.discovery.agent_instructions.apply import (
     PR_TEMPLATE_UPPER,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    claude_code_skill as claude_code_skill_module,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     codex_skill as codex_skill_module,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
@@ -31,6 +34,7 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
+    render_claude_code_skill_files,
     render_codex_skill_files,
     render_cursor_file,
 )
@@ -192,6 +196,71 @@ def test_apply_refuses_symlinked_parent_directory_for_codex_skill(tmp_path: Path
     workspace.mkdir()
     (workspace / ".agents").symlink_to(outside)
     result = apply_agent_instructions(workspace, ["codex-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_symlink"
+    assert result.exit_code == 2
+    assert list(outside.iterdir()) == []
+
+
+# --- Claude Code skill edge cases ------------------------------------------
+
+
+def test_claude_code_skill_skipped_when_user_modified(tmp_path: Path) -> None:
+    apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+    skill = tmp_path / ".claude/skills/agents-shipgate/SKILL.md"
+    skill.write_text("# user custom skill\n", encoding="utf-8")
+    result = apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "skipped_user_modified"
+    assert result.exit_code == 2
+    assert skill.read_text(encoding="utf-8") == "# user custom skill\n"
+
+
+def test_claude_code_skill_repairs_missing_file(tmp_path: Path) -> None:
+    apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+    missing = tmp_path / ".claude/skills/agents-shipgate/prompts/fix-top-finding.md"
+    missing.unlink()
+    result = apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+    [outcome] = result.targets
+    assert outcome.status == "updated"
+    assert missing.exists()
+
+
+def test_claude_code_skill_reports_migrate_and_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+    skill = tmp_path / ".claude/skills/agents-shipgate/SKILL.md"
+    missing = tmp_path / ".claude/skills/agents-shipgate/prompts/fix-top-finding.md"
+    prior_text = "# prior shipped skill\n"
+    prior_sha = hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
+    monkeypatch.setattr(
+        claude_code_skill_module,
+        "PRIOR_RENDER_SHA256",
+        {".claude/skills/agents-shipgate/SKILL.md": (prior_sha,)},
+    )
+
+    skill.write_text(prior_text, encoding="utf-8")
+    missing.unlink()
+    result = apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "migrated_and_repaired"
+    assert skill.read_text(encoding="utf-8") == render_claude_code_skill_files()[
+        ".claude/skills/agents-shipgate/SKILL.md"
+    ]
+    assert missing.exists()
+
+
+def test_apply_refuses_symlinked_parent_directory_for_claude_code_skill(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / ".claude").symlink_to(outside)
+    result = apply_agent_instructions(workspace, ["claude-code-skill"], write=True)
     [outcome] = result.targets
     assert outcome.status == "skipped_symlink"
     assert result.exit_code == 2

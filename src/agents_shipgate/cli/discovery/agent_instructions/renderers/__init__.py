@@ -14,6 +14,15 @@ from __future__ import annotations
 from agents_shipgate.cli.discovery.agent_instructions.renderers.agents_md import (
     render_block as render_agents_md,
 )
+from agents_shipgate.cli.discovery.agent_instructions.renderers.claude_code_skill import (
+    PRIOR_RENDER_SHA256 as CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers.claude_code_skill import (
+    render_bundle_text as render_claude_code_skill_bundle_text,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers.claude_code_skill import (
+    render_files as render_claude_code_skill_files,
+)
 from agents_shipgate.cli.discovery.agent_instructions.renderers.claude_md import (
     render_block as render_claude_md,
 )
@@ -37,9 +46,12 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers.pr_template impo
 )
 
 __all__ = [
+    "CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256",
     "CODEX_SKILL_PRIOR_RENDER_SHA256",
     "CURSOR_PRIOR_RENDER_SHA256",
     "render_agents_md",
+    "render_claude_code_skill_bundle_text",
+    "render_claude_code_skill_files",
     "render_claude_md",
     "render_codex_skill_bundle_text",
     "render_codex_skill_files",
