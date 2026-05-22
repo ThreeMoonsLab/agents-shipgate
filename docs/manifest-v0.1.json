@@ -1502,15 +1502,6 @@
           "title": "Trust"
         },
         "type": {
-          "enum": [
-            "mcp",
-            "openapi",
-            "openai_agents_sdk",
-            "google_adk",
-            "langchain",
-            "crewai",
-            "codex_plugin"
-          ],
           "title": "Type",
           "type": "string"
         }

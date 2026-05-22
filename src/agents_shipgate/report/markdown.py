@@ -104,6 +104,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_source_warnings(lines, report)
     _append_loaded_policy_packs(lines, report)
     _append_loaded_plugins(lines, report)
+    _append_loaded_adapters(lines, report)
     _append_tool_surface(lines, report)
     _append_action_surface_diff(lines, report)
     _append_tool_surface_diff(lines, report)
@@ -458,6 +459,44 @@ def _append_loaded_policy_packs(lines: list[str], report: ReadinessReport) -> No
             f"- {_safe_markdown_text(pack.name)}{_safe_markdown_text(version)} "
             f"({_safe_markdown_text(pack.id)}): {pack.rule_count} rules"
         )
+    lines.append("")
+
+
+def _append_loaded_adapters(lines: list[str], report: ReadinessReport) -> None:
+    """v0.20 (PR #111 review follow-up #4): render third-party adapter
+    provenance in the human-readable report.
+
+    Before this section landed, ``load_failed`` and other invalid
+    adapters appeared in ``report.json`` only — the default human
+    report was blind to skipped third-party extensions. Show the
+    validation status prominently so the reviewer sees what was
+    skipped (and why) without opening the JSON.
+    """
+
+    adapters = getattr(report, "loaded_adapters", None) or []
+    if not adapters:
+        return
+    lines.extend(["## Loaded Adapters", ""])
+    for adapter in adapters:
+        distribution = adapter.get("distribution") or "unknown distribution"
+        version = adapter.get("version")
+        source_type = adapter.get("source_type") or "unknown source_type"
+        status = adapter.get("validation_status") or "unknown"
+        suffix = f" {version}" if version else ""
+        head = (
+            f"- {_safe_markdown_text(distribution)}"
+            f"{_safe_markdown_text(suffix)}: "
+            f"{_safe_markdown_text(source_type)} — "
+            f"`{_safe_markdown_text(status)}`"
+        )
+        lines.append(head)
+        # Surface every validation_error / runtime_error on its own
+        # indented bullet so a reviewer scanning the report cannot
+        # miss an adapter that failed to load or crashed at runtime.
+        for err in adapter.get("validation_errors") or []:
+            lines.append(f"  - validation_error: {_safe_markdown_text(err)}")
+        for err in adapter.get("runtime_errors") or []:
+            lines.append(f"  - runtime_error: {_safe_markdown_text(err)}")
     lines.append("")
 
 

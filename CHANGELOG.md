@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- **v0.20 — third-party adapter entry-point discovery (E4 from round-3 review).**
+  Opens the same extension surface for adapters (input loaders) that M5
+  already opened for check plugins. Discovery is gated by the existing
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` env var and `--no-plugins` CLI flag.
+  - New entry-point group: `agents_shipgate.adapters`. A third-party
+    package declares an adapter class (or instance) in its
+    `pyproject.toml` under
+    `[project.entry-points."agents_shipgate.adapters"]`; the class must
+    satisfy the `ToolSourceAdapter` Protocol — `source_type` ClassVar,
+    `scope` ClassVar (`per_source` or `per_scan`), `artifact_class`
+    ClassVar, and a `load(source, base_dir, manifest)` method.
+  - New module `src/agents_shipgate/inputs/adapter_validation.py` with
+    four load-time gates: `load_failed`, `bad_protocol`, `bad_scope`,
+    and **`source_type_collision`** — the load-bearing trust rule
+    rejecting any third-party adapter whose `source_type` shadows a
+    built-in or another already-registered third-party adapter.
+  - New top-level `discover_third_party_adapters(registry, *,
+    plugins_enabled, loaded_adapters)` in `inputs/protocol.py` walks
+    `entry_points("agents_shipgate.adapters")`, validates each entry,
+    and registers the valid ones onto the supplied registry. Both
+    valid and invalid records surface in
+    `report.loaded_adapters[]` so reviewers can see what was skipped.
+  - New report field `loaded_adapters: list[dict[str, Any]]` parallel
+    to `loaded_plugins[]`. Items carry `name`, `value`, `distribution`,
+    `version`, `source_type`, `validation_status`,
+    `validation_errors[]`, `runtime_errors[]`. Required + present on
+    every emitted scan (empty list when `--no-plugins` or no
+    third-party adapters are installed). The schema generator marks
+    each item's eight fields as required.
+  - `--strict-plugins` (v0.17+) extended to cover adapter failures.
+    Any non-`valid` `loaded_adapters[]` row OR non-empty
+    `loaded_adapters[].runtime_errors` now elevates the scan to exit
+    code 4 alongside the existing plugin failures.
+  - `--no-plugins` flag help text updated to mention third-party
+    adapter discovery is also disabled.
+  - `run_validated_adapter` (in `adapter_validation.py`) provides a
+    runtime safety wrapper for callers that want to capture
+    exceptions into `loaded_adapters[].runtime_errors` instead of
+    propagating them. The dispatcher's existing `_absorb` artifact-
+    class check already fires `TypeError` for artifact smuggling;
+    runtime wrapping is opt-in for future adapter-execution paths.
+  - 21 new tests in `tests/test_adapter_entry_point_discovery.py`:
+    each of the four gates + valid-class + valid-instance + env-var
+    gating + `--no-plugins` overrides + collision-with-each-builtin
+    parametrize + collision-between-third-parties + `--strict-plugins`
+    end-to-end + runtime safety net (exception capture, wrong return
+    type, artifact smuggling).
+  - STABILITY.md gains a new "Third-party adapter discovery (v0.20+)"
+    subsection under "Trust-model invariants" documenting the four
+    gates + the `source_type_collision` load-bearing rule.
+
 - **v0.20 — top-level `reviewer_summary` block.** Adds a deterministic
   projection of the reviewer lens surfaces (`tool_surface_diff`,
   capability/intent diff, `action_surface_diff`, evidence matrix) and

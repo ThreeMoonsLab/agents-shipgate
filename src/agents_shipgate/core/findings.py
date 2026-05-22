@@ -1294,6 +1294,7 @@ def build_report(
     new_findings_only: bool = False,
     loaded_policy_packs: list[LoadedPolicyPack] | None = None,
     loaded_plugins: list[dict[str, object]] | None = None,
+    loaded_adapters: list[dict[str, object]] | None = None,
     source_warnings: list[str] | None = None,
     api_surface: dict[str, object] | None = None,
     anthropic_surface: dict[str, object] | None = None,
@@ -1330,6 +1331,7 @@ def build_report(
         generated_reports=generated_reports,
         loaded_policy_packs=loaded_policy_packs or [],
         loaded_plugins=loaded_plugins or [],
+        loaded_adapters=loaded_adapters or [],
         tool_inventory=tool_inventory(tools),
         source_warnings=source_warnings or [],
         # v0.17 (M1): policy audit envelope. Always present on emitted

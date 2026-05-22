@@ -150,6 +150,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "generated_reports",
         "loaded_policy_packs",
         "loaded_plugins",
+        "loaded_adapters",
         "tool_inventory",
         "source_warnings",
         "agent_summary",

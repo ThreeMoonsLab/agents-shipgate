@@ -44,12 +44,31 @@ def _apply_strict_plugins(
 
     if not strict_plugins:
         return exit_code
-    messages = strict_failure_messages(report.loaded_plugins)
+    # v0.20: --strict-plugins covers BOTH check-plugin failures AND
+    # third-party adapter failures. Both surface through the same
+    # extension entry-point trust model (M5 for checks, v0.20 for
+    # adapters) and a CI step that opts into strictness wants to fail
+    # on either. Adapter messages carry an ``adapter`` prefix in the
+    # human-readable line; plugin messages carry a ``plugin`` prefix.
+    from agents_shipgate.inputs.adapter_validation import (
+        strict_adapter_failure_messages,
+    )
+
+    plugin_messages = strict_failure_messages(report.loaded_plugins)
+    adapter_messages = strict_adapter_failure_messages(
+        getattr(report, "loaded_adapters", []) or []
+    )
+    messages = plugin_messages + adapter_messages
     if not messages:
         return exit_code
     prefix = f"{label}: " if label else ""
+    issue_kind = (
+        "plugin/adapter issue(s)"
+        if plugin_messages and adapter_messages
+        else ("adapter issue(s)" if adapter_messages else "plugin issue(s)")
+    )
     typer.echo(
-        f"{prefix}--strict-plugins: {len(messages)} plugin issue(s) detected; "
+        f"{prefix}--strict-plugins: {len(messages)} {issue_kind} detected; "
         "scan failed under strict-plugins policy.",
         err=True,
     )
@@ -175,21 +194,38 @@ def _candidate_manifest_paths(
 
 
 def _diagnose_config_error(
-    *, config: str, workspace: Path | None, exc: ConfigError
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
 ) -> list:
     """Pick the right diagnostic for a ``ConfigError``.
 
-    ``ConfigError`` covers two distinct failure shapes:
+    ``ConfigError`` covers three distinct failure shapes:
+
     - the manifest file does not exist (``MISSING-MANIFEST``)
-    - one or more candidate manifest files exist but the loader rejected
-      them — invalid YAML, schema validation failure, unsupported
-      version (``INVALID-MANIFEST``)
+    - one or more candidate manifest files exist but the loader
+      rejected them — invalid YAML, schema validation failure,
+      unsupported version (``INVALID-MANIFEST``)
+    - the manifest is well-formed and references a
+      ``tool_sources[].type`` that resolves to no registered adapter
+      (``UNKNOWN-ADAPTER-SOURCE-TYPE``, v0.20 PR #111 review
+      follow-up #5)
 
     Disambiguate by walking every candidate path the CLI invocation
     points at (direct ``-c <file>``, ``--workspace`` discovery, or a
     glob pattern). If any candidate is a real file, the loader is
-    choking on it — emit ``INVALID-MANIFEST`` for that file.
+    choking on it — but first check whether the error is an
+    unknown-adapter error (which means the manifest itself is fine
+    and the right rank-1 action is to install/enable the adapter,
+    not edit the YAML).
     """
+    unknown_adapter_diag = _maybe_diagnose_unknown_adapter(
+        config=config, workspace=workspace, exc=exc, plugins_enabled=plugins_enabled
+    )
+    if unknown_adapter_diag is not None:
+        return unknown_adapter_diag
     for candidate in _candidate_manifest_paths(
         config=config, workspace=workspace
     ):
@@ -197,6 +233,67 @@ def _diagnose_config_error(
             return diagnose_invalid_manifest(candidate, message=str(exc))
     return diagnose_missing_manifest(
         _missing_manifest_workspace(config=config, workspace=workspace)
+    )
+
+
+def _maybe_diagnose_unknown_adapter(
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
+) -> list | None:
+    """v0.20 (PR #111 review follow-up #5): detect the
+    ``AdapterRegistry.require`` unknown-source-type error and route
+    it to ``DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE`` with install / enable
+    / typo next_actions, instead of the legacy ``INVALID-MANIFEST``
+    "edit shipgate.yaml" path.
+
+    Returns ``None`` if the error is anything else, so the caller
+    falls through to the existing manifest-missing / manifest-invalid
+    diagnostics.
+
+    Pattern-matches on the ``"No adapter registered for source type "``
+    prefix produced by ``AdapterRegistry.require``. Brittle if the
+    error text changes — there's a contract test asserting the prefix
+    stays stable.
+    """
+
+    import re
+
+    message = str(exc)
+    match = re.match(
+        r"No adapter registered for source type '([^']+)'\.", message
+    )
+    if match is None:
+        return None
+    source_type = match.group(1)
+    # Use the same plugins-enabled logic the dispatcher does so the
+    # diagnostic's next_action set matches the failure mode.
+    from agents_shipgate.inputs.protocol import _adapter_plugins_enabled
+
+    discovery_enabled = _adapter_plugins_enabled(plugins_enabled)
+    # Locate a candidate manifest path to thread into the diagnostic's
+    # `edit` action; fall back to the user-supplied config string if
+    # nothing exists on disk (defensive — discovery shouldn't fire if
+    # the manifest were missing).
+    candidate_path = Path(config)
+    for candidate in _candidate_manifest_paths(
+        config=config, workspace=workspace
+    ):
+        if candidate.is_file():
+            candidate_path = candidate
+            break
+
+    from agents_shipgate.cli.diagnostics import (
+        diagnose_unknown_adapter_source_type,
+    )
+
+    return diagnose_unknown_adapter_source_type(
+        candidate_path,
+        source_type=source_type,
+        plugins_enabled=discovery_enabled,
+        message=message,
     )
 
 

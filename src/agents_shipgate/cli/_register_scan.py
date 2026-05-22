@@ -88,15 +88,21 @@ def register(app: typer.Typer) -> None:
         no_plugins: bool = typer.Option(
             False,
             "--no-plugins",
-            help="Do not load third-party check plugins even when AGENTS_SHIPGATE_ENABLE_PLUGINS is set.",
+            help=(
+                "Do not load third-party check plugins OR third-party adapters "
+                "(v0.20+: agents_shipgate.adapters entry-point group), even "
+                "when AGENTS_SHIPGATE_ENABLE_PLUGINS is set."
+            ),
         ),
         strict_plugins: bool = typer.Option(
             False,
             "--strict-plugins",
             help=(
-                "Exit non-zero (code 4) if any loaded plugin failed validation or "
-                "produced runtime errors. Default lenient mode records the failure "
-                "in report.loaded_plugins but proceeds with the scan."
+                "Exit non-zero (code 4) if any loaded plugin OR third-party "
+                "adapter (v0.20+) failed validation or produced runtime "
+                "errors. Default lenient mode records the failure in "
+                "report.loaded_plugins / report.loaded_adapters but proceeds "
+                "with the scan."
             ),
         ),
         suggest_patches: bool = typer.Option(
@@ -208,7 +214,10 @@ def register(app: typer.Typer) -> None:
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)
             diagnostics = _diagnose_config_error(
-                config=config, workspace=workspace, exc=exc
+                config=config,
+                workspace=workspace,
+                exc=exc,
+                plugins_enabled=False if no_plugins else None,
             )
             flattened = top_next_actions(diagnostics)
             _emit_agent_mode_error(

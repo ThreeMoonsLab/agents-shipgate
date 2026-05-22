@@ -83,8 +83,18 @@ tool_sources:
 """,
         encoding="utf-8",
     )
+    # v0.20 PR #111 review fix P1 #3: ``ToolSourceConfig.type`` is open
+    # ``str`` so third-party adapters can declare custom source types.
+    # ``load_manifest`` no longer rejects ``type: n8N`` (a typo of the
+    # built-in ``n8n``); the dispatcher's ``REGISTRY.require`` raises
+    # ConfigError when the unknown type fails to resolve at scan time
+    # instead. The exit-2 contract is unchanged.
     with pytest.raises(ConfigError):
-        load_manifest(project / "invalid-case.yaml")
+        run_scan(
+            config_path=project / "invalid-case.yaml",
+            output_dir=tmp_path / "invalid-case-out",
+            ci_mode="advisory",
+        )
 
 
 def test_n8n_malformed_optional_placement_is_rejected(tmp_path):

@@ -34,6 +34,7 @@ from agents_shipgate.schemas.diagnostics import (
     DIAG_NO_PRODUCTION_PERMISSIONS,
     DIAG_NON_AGENT_LIBRARY,
     DIAG_PURE_PROMPT_EXPERIMENT,
+    DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
     DIAG_ZERO_TOOLS,
     Diagnostic,
     NextAction,
@@ -90,6 +91,130 @@ def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
                     expects="shipgate.yaml is created at the workspace root.",
                 ),
             ],
+        )
+    ]
+
+
+def diagnose_unknown_adapter_source_type(
+    manifest_path: Path,
+    *,
+    source_type: str,
+    plugins_enabled: bool,
+    message: str,
+) -> list[Diagnostic]:
+    """v0.20 (PR #111 review follow-up #5): ``shipgate.yaml`` references
+    a ``tool_sources[].type`` value that no registered adapter handles.
+
+    Distinct from ``SHIP-DIAG-INVALID-MANIFEST``: the manifest passes
+    Pydantic validation (``type`` is open ``str`` for third-party
+    adapter support) but the dispatcher can't resolve the source type.
+    The right rank-1 action depends on whether plugin discovery is
+    currently enabled:
+
+    - **plugins disabled**: install the third-party adapter package
+      AND enable discovery via ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1``
+      (or remove ``--no-plugins``).
+    - **plugins enabled**: install the adapter package, or fix a typo
+      against a built-in name.
+
+    The "edit shipgate.yaml" path that ``diagnose_invalid_manifest``
+    emits would be misleading here — the manifest itself is valid;
+    the user just needs to install/enable the matching adapter.
+    """
+
+    if plugins_enabled:
+        next_actions = [
+            NextAction(
+                kind="command",
+                command="pip install <third-party-adapter-package>",
+                why=(
+                    f"Install the third-party package that ships an "
+                    f"adapter for {source_type!r} via the "
+                    f"`agents_shipgate.adapters` entry-point group. "
+                    f"Re-run the scan to confirm it appears in "
+                    f"`report.loaded_adapters[]` with "
+                    f"`validation_status=\"valid\"`."
+                ),
+                expects=(
+                    f"`agents-shipgate doctor -c {_quote_path(manifest_path)} "
+                    f"--json` lists {source_type!r} under sources[] "
+                    f"with no warning."
+                ),
+            ),
+            NextAction(
+                kind="edit",
+                path=str(manifest_path),
+                why=(
+                    f"If {source_type!r} is a typo, fix it. Built-in "
+                    "source types: mcp, openapi, openai_agents_sdk, "
+                    "google_adk, langchain, crewai, codex_plugin."
+                ),
+                expects=(
+                    "Manifest references only built-in source types or "
+                    "source types registered by installed third-party "
+                    "adapter packages."
+                ),
+            ),
+        ]
+    else:
+        next_actions = [
+            NextAction(
+                kind="command",
+                command=(
+                    "AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate "
+                    f"scan -c {_quote_path(manifest_path)}"
+                ),
+                why=(
+                    "Enable third-party adapter discovery and re-run "
+                    "the scan. If the adapter package is also "
+                    "installed, this resolves the source_type."
+                ),
+                expects=(
+                    f"Scan completes; `report.loaded_adapters[]` "
+                    f"contains an entry for {source_type!r} with "
+                    f"`validation_status=\"valid\"`."
+                ),
+            ),
+            NextAction(
+                kind="command",
+                command="pip install <third-party-adapter-package>",
+                why=(
+                    f"If discovery is already enabled and "
+                    f"{source_type!r} still doesn't resolve, the "
+                    "adapter package isn't installed. Install it, "
+                    "then re-run."
+                ),
+                expects=(
+                    f"`pip show <package>` succeeds; `agents-shipgate "
+                    f"doctor -c {_quote_path(manifest_path)} --json` "
+                    f"lists {source_type!r} under sources[]."
+                ),
+            ),
+            NextAction(
+                kind="edit",
+                path=str(manifest_path),
+                why=(
+                    f"If {source_type!r} is a typo, fix it. Built-in "
+                    "source types: mcp, openapi, openai_agents_sdk, "
+                    "google_adk, langchain, crewai, codex_plugin."
+                ),
+                expects=(
+                    "Manifest references only built-in source types or "
+                    "source types registered by installed third-party "
+                    "adapter packages."
+                ),
+            ),
+        ]
+
+    return [
+        Diagnostic(
+            id=DIAG_UNKNOWN_ADAPTER_SOURCE_TYPE,
+            title=(
+                f"Unknown adapter source_type {source_type!r} "
+                "(install/enable the adapter, or fix a typo)"
+            ),
+            severity="block",
+            next_actions=next_actions,
         )
     ]
 

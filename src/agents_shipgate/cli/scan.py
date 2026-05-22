@@ -183,6 +183,12 @@ class _LoadedInputs:
     artifact_warnings_list: list[str]      # from _artifact_warnings(artifact_bag)
     placeholder_warnings: list[str]   # from _manifest_placeholder_warnings
     policy_pack_warnings: list[str]   # from policy_packs.warnings
+    # v0.20: third-party adapter provenance from
+    # ``discover_third_party_adapters``. Both valid and invalid records
+    # appear here; ``loaded_adapters[].validation_status == "valid"``
+    # distinguishes them. Empty list when --no-plugins is set or no
+    # third-party adapters are installed.
+    loaded_adapters: list[dict[str, Any]]
     adk: GoogleAdkArtifacts | None
     langchain: LangChainArtifacts | None
     crewai: CrewAiArtifacts | None
@@ -273,6 +279,7 @@ class _SanitizedSurfaces:
     policy_audit: PolicyAudit
     loaded_policy_packs: list[Any]
     loaded_plugins: Any
+    loaded_adapters: Any  # v0.20: list[dict[str, Any]]; sanitized via redact_data
     diff_reference: ToolSurfaceDiffReference | None
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any
@@ -343,13 +350,59 @@ def _load_inputs(
     config_path: Path,
     policy_pack_paths: list[Path] | None,
     verbose: bool,
+    plugins_enabled: bool | None = None,
 ) -> _LoadedInputs:
     """Phase 2: dispatch every adapter through ``REGISTRY``, extract
     typed artifacts from the ``ArtifactBag``, aggregate source warnings
     (including CHANGE_ME placeholder warnings from the manifest text),
     load policy packs.
+
+    v0.20: also discovers third-party adapters from the
+    ``agents_shipgate.adapters`` entry-point group BEFORE
+    ``_load_sources`` runs, so the dispatcher resolves any
+    user-installed plugin source_types alongside built-ins. Discovery
+    is gated by ``plugins_enabled`` (mirroring the plugin-check flow
+    in ``checks/registry.py``).
     """
-    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    from agents_shipgate.inputs.protocol import discover_third_party_adapters
+
+    # v0.20 (PR #111 review fix P1 #1+#2): build a per-scan registry
+    # clone so third-party discovery NEVER mutates the global
+    # ``REGISTRY``. Without this, a later ``--no-plugins`` scan would
+    # still see adapters registered by an earlier scan, and the
+    # collision check on scan-two would misclassify stable third-
+    # party adapters as ``source_type_collision`` (the global already
+    # has them from scan-one). The clone captures any monkeypatch
+    # state at this exact moment, so existing tests that
+    # ``monkeypatch.setitem(REGISTRY._adapters, …)`` still work.
+    scan_registry = REGISTRY.clone()
+    loaded_adapters: list[dict[str, Any]] = []
+    discovery_records = discover_third_party_adapters(
+        scan_registry,
+        plugins_enabled=plugins_enabled,
+        loaded_adapters=loaded_adapters,
+    )
+    # v0.20 (PR #111 review follow-up #2): map of source_type → valid
+    # LoadedAdapter record. Used by ``_load_sources`` to route
+    # third-party adapter ``load()`` calls through
+    # ``run_validated_adapter`` so runtime exceptions land in
+    # ``loaded_adapters[].runtime_errors`` instead of crashing the
+    # scan. Invalid records (validation_status != "valid") are
+    # excluded: they never registered on ``scan_registry`` and so the
+    # dispatcher will never reach them.
+    third_party_records: dict[str, Any] = {
+        record.adapter.source_type: record
+        for record in discovery_records
+        if record.adapter is not None
+    }
+    loaded_sources, artifact_bag = _load_sources(
+        manifest,
+        base_dir,
+        verbose=verbose,
+        registry=scan_registry,
+        third_party_records=third_party_records,
+        plugins_enabled=plugins_enabled,
+    )
     logger.debug(
         "loaded sources",
         extra={
@@ -388,6 +441,7 @@ def _load_inputs(
         artifact_warnings_list=artifact_warnings_list,
         placeholder_warnings=placeholder_warnings,
         policy_pack_warnings=policy_pack_warnings,
+        loaded_adapters=loaded_adapters,
         adk=artifact_bag.get("google_adk", GoogleAdkArtifacts),
         langchain=artifact_bag.get("langchain", LangChainArtifacts),
         crewai=artifact_bag.get("crewai", CrewAiArtifacts),
@@ -791,6 +845,16 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="loaded_plugins[]",
     )
+    # v0.20: third-party adapter provenance. Same redaction shape as
+    # loaded_plugins[] — entry-point ``value`` strings and distribution
+    # metadata are first-party and don't carry secrets, but the audit
+    # envelope flows through redact_data for forward-compat with future
+    # adapter-emitted fields.
+    public_loaded_adapters = redact_data(
+        inputs.loaded_adapters,
+        stats=privacy_stats,
+        path="loaded_adapters[]",
+    )
 
     public_diff_reference = _sanitize_diff_reference(
         diffs.diff_reference,
@@ -970,6 +1034,7 @@ def _sanitize_for_output(
         policy_audit=public_policy_audit,
         loaded_policy_packs=public_loaded_policy_packs,
         loaded_plugins=public_loaded_plugins,
+        loaded_adapters=public_loaded_adapters,
         diff_reference=public_diff_reference,
         action_surface_facts=public_action_surface_facts,
         action_surface_diff=public_action_surface_diff,
@@ -1021,6 +1086,7 @@ def _build_final_report(
         new_findings_only=sanitized.baseline_summary is not None,
         loaded_policy_packs=sanitized.loaded_policy_packs,
         loaded_plugins=sanitized.loaded_plugins,
+        loaded_adapters=sanitized.loaded_adapters,
         source_warnings=sanitized.source_warnings,
         api_surface=sanitized.api_surface,
         anthropic_surface=sanitized.anthropic_surface,
@@ -1141,6 +1207,7 @@ def run_scan(
         config_path=config_path,
         policy_pack_paths=policy_pack_paths,
         verbose=verbose,
+        plugins_enabled=plugins_enabled,
     )
     tools_and_agent = _build_tools_and_agent(
         manifest=resolved.manifest,
@@ -1197,7 +1264,25 @@ def run_scan(
 
 
 
-def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, object]:
+def inspect_sources(
+    *,
+    config_path: Path,
+    verbose: bool = False,
+    plugins_enabled: bool | None = None,
+) -> dict[str, object]:
+    """``doctor``'s manifest-introspection entry point.
+
+    v0.20 (PR #111 review fix follow-up #3): mirrors ``_load_inputs``'s
+    per-scan registry clone + adapter discovery so ``doctor`` can
+    inspect manifests that reference third-party source types. Before
+    this fix, the global ``REGISTRY`` was builtin-only (by design,
+    after the per-scan-registry refactor), so a manifest with
+    ``tool_sources[].type: demo_source`` scanned fine but ``doctor``
+    raised ``ConfigError: No adapter registered``.
+    """
+
+    from agents_shipgate.inputs.protocol import discover_third_party_adapters
+
     manifest = load_manifest(config_path)
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
@@ -1215,7 +1300,31 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
                 ]
             }
         )
-    loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
+    # v0.20 (PR #111 review follow-up #3): build a per-scan registry
+    # for ``doctor`` so it sees the same adapter set as ``scan``. The
+    # global ``REGISTRY`` is builtin-only by design after the
+    # per-scan-clone refactor; without this discovery step,
+    # third-party source types would be unresolvable here.
+    scan_registry = REGISTRY.clone()
+    loaded_adapters: list[dict[str, Any]] = []
+    discovery_records = discover_third_party_adapters(
+        scan_registry,
+        plugins_enabled=plugins_enabled,
+        loaded_adapters=loaded_adapters,
+    )
+    third_party_records: dict[str, Any] = {
+        record.adapter.source_type: record
+        for record in discovery_records
+        if record.adapter is not None
+    }
+    loaded_sources, artifact_bag = _load_sources(
+        manifest,
+        base_dir,
+        verbose=verbose,
+        registry=scan_registry,
+        third_party_records=third_party_records,
+        plugins_enabled=plugins_enabled,
+    )
     adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
     langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
     crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
@@ -1263,6 +1372,11 @@ def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, ob
             else None
         ),
         "policy_packs": [pack.model_dump(mode="json") for pack in policy_packs.loaded],
+        # v0.20 (PR #111 review follow-up #3): surface third-party
+        # adapter discovery results in the doctor payload so the
+        # operator can confirm which extensions were loaded (or why
+        # they were skipped) without running a full scan.
+        "loaded_adapters": loaded_adapters,
         "baseline": _default_baseline_status(base_dir),
         "warnings": warnings,
         "unresolved_sources": unresolved_sources,
@@ -1349,8 +1463,11 @@ def _load_sources(
     base_dir: Path,
     *,
     verbose: bool,
+    registry: Any = None,
+    third_party_records: dict[str, Any] | None = None,
+    plugins_enabled: bool | None = None,
 ) -> tuple[list[LoadedToolSource], ArtifactBag]:
-    """Dispatch every adapter through ``REGISTRY``.
+    """Dispatch every adapter through the supplied ``registry``.
 
     Returns ``(loaded_sources, artifact_bag)``. ``artifact_bag`` is a
     typed ``ArtifactBag`` with per-scan adapter artifacts keyed by
@@ -1360,7 +1477,7 @@ def _load_sources(
     Ordering is deterministic and matches the legacy run_scan order:
 
       1. per-source loaders in tool_sources declared order
-      2. per-scan adapters in REGISTRY iteration order:
+      2. per-scan adapters in registry iteration order:
          google_adk → langchain → crewai → n8n → openai_api
          → anthropic_api → codex_plugin → validation
 
@@ -1372,33 +1489,87 @@ def _load_sources(
     Per-scan source types appearing in tool_sources are ignored by
     pass 1 — they would be redundant; framework loaders already iterate
     every matching entry internally via the manifest.
+
+    v0.20 (PR #111 review fix): ``registry`` is the per-scan registry
+    built by ``_load_inputs`` (``REGISTRY.clone()`` plus any
+    third-party adapters validated in this scan). Defaults to the
+    module-global ``REGISTRY`` only for callers that bypass
+    ``_load_inputs`` (notably the legacy tests in
+    ``tests/test_adapter_registry.py``). New code should always pass
+    a per-scan registry.
+
+    v0.20 (PR #111 review fix follow-up #2): ``third_party_records``
+    maps each validated third-party ``source_type`` to its
+    ``LoadedAdapter`` record (from ``discover_third_party_adapters``).
+    When set, the dispatcher routes those adapters through
+    ``run_validated_adapter`` so any exception during their
+    ``load()`` call is captured into
+    ``loaded_adapters[].runtime_errors`` and the scan continues in
+    lenient mode (or trips ``--strict-plugins`` exit 4 in strict
+    mode). Built-in adapters keep the direct call shape — a built-in
+    raising means the scanner itself is broken and must abort loudly.
+
+    ``plugins_enabled`` is forwarded into ``AdapterRegistry.require`` so
+    unknown third-party source-type errors reflect explicit CLI
+    overrides such as ``--no-plugins`` instead of only inspecting the
+    environment.
     """
+    if registry is None:
+        registry = REGISTRY
+    if third_party_records is None:
+        third_party_records = {}
     per_source_loaded: list[LoadedToolSource] = []
     per_scan_loaded: list[LoadedToolSource] = []
     bag = ArtifactBag()
 
     # Pass 1 — per-source adapters only, in tool_sources declared
     # order. Per-scan source types (langchain, crewai, etc.) are
-    # skipped here; pass 2 invokes them in canonical REGISTRY order
+    # skipped here; pass 2 invokes them in canonical registry order
     # regardless of where they appear in tool_sources. This protects
     # the dedup tie-break in _flatten_and_deduplicate_tools from
     # changing based on user-facing tool_sources ordering.
     for source in manifest.tool_sources:
-        adapter = REGISTRY.require(source.type)
+        adapter = registry.require(source.type, plugins_enabled=plugins_enabled)
         if adapter.scope != "per_source":
             continue
+        third_party_record = third_party_records.get(source.type)
         result = _invoke_per_source_adapter(
-            adapter, source, base_dir, manifest, verbose=verbose
+            adapter,
+            source,
+            base_dir,
+            manifest,
+            verbose=verbose,
+            third_party_record=third_party_record,
         )
+        if result is None:
+            # Third-party adapter raised at runtime; the wrapper
+            # captured the failure into runtime_errors and we skip
+            # absorbing the (None) result.
+            continue
         _absorb(result, source.type, per_source_loaded, bag, adapter)
 
-    # Pass 2 — every per-scan adapter fires once, in REGISTRY order.
+    # Pass 2 — every per-scan adapter fires once, in registry order.
     # Covers framework adapters (always check their manifest section
     # internally and may emit zero LoadedToolSource entries when not
     # configured) and manifest-only adapters (openai_api,
     # anthropic_api, n8n).
-    for adapter in REGISTRY.per_scan_adapters():
-        result = adapter.load(None, base_dir, manifest)
+    for adapter in registry.per_scan_adapters():
+        third_party_record = third_party_records.get(adapter.source_type)
+        if third_party_record is not None:
+            from agents_shipgate.inputs.adapter_validation import (
+                run_validated_adapter,
+            )
+
+            result = run_validated_adapter(
+                third_party_record,
+                source=None,
+                base_dir=base_dir,
+                manifest=manifest,
+            )
+            if result is None:
+                continue
+        else:
+            result = adapter.load(None, base_dir, manifest)
         _absorb(result, adapter.source_type, per_scan_loaded, bag, adapter)
 
     return per_source_loaded + per_scan_loaded, bag
@@ -1492,7 +1663,35 @@ def _invoke_per_source_adapter(
     manifest: AgentsShipgateManifest,
     *,
     verbose: bool,
-) -> LoadedAdapterResult:
+    third_party_record: Any = None,
+) -> LoadedAdapterResult | None:
+    """Invoke a per_source adapter and return its result.
+
+    For **built-in** adapters: catch ``InputParseError`` only when the
+    source is marked ``optional`` (returning a warning-only stub);
+    any other exception propagates. A built-in raising means the
+    scanner is broken and must abort loudly.
+
+    For **third-party** adapters (``third_party_record`` is the
+    matching ``LoadedAdapter``): route through
+    ``run_validated_adapter``, which captures ALL exceptions into the
+    record's ``runtime_errors`` list and returns ``None``. Returning
+    ``None`` signals the caller to skip ``_absorb`` for this source —
+    the scan continues in lenient mode and ``--strict-plugins`` sees
+    the runtime error on exit.
+    """
+
+    if third_party_record is not None:
+        from agents_shipgate.inputs.adapter_validation import (
+            run_validated_adapter,
+        )
+
+        return run_validated_adapter(
+            third_party_record,
+            source=source,
+            base_dir=base_dir,
+            manifest=manifest,
+        )
     try:
         return adapter.load(source, base_dir, manifest)
     except InputParseError:

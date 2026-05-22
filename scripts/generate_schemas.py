@@ -221,6 +221,13 @@ def build_report_schema() -> tuple[Path, str]:
             "generated_reports",
             "loaded_policy_packs",
             "loaded_plugins",
+            # v0.20: third-party adapter provenance (parallels
+            # loaded_plugins[]). Optional in Python via
+            # ``Field(default_factory=list)`` for test-helper minimal
+            # reports; emitted scans always populate it (empty list
+            # when --no-plugins is set or no third-party adapters are
+            # installed). Required + non-nullable on the wire.
+            "loaded_adapters",
             "tool_inventory",
             "source_warnings",
             # v0.12: agent_summary is the deterministic top-level
@@ -811,6 +818,29 @@ def build_report_schema() -> tuple[Path, str]:
                     "distribution",
                     "version",
                     "check_id",
+                    "validation_status",
+                    "validation_errors",
+                    "runtime_errors",
+                ]
+            ),
+        }
+    # v0.20: adapter validation provenance — parallel shape to
+    # loaded_plugins[] but the ID key is ``source_type`` (the dispatcher
+    # key) rather than ``check_id``. ``validation_status`` is one of
+    # ``valid | load_failed | bad_protocol | bad_scope |
+    # source_type_collision``; the two error lists are always present
+    # (empty for clean adapters).
+    if "loaded_adapters" in properties and properties["loaded_adapters"].get("type") == "array":
+        properties["loaded_adapters"]["items"] = {
+            "type": "object",
+            "additionalProperties": True,
+            "required": sorted(
+                [
+                    "name",
+                    "value",
+                    "distribution",
+                    "version",
+                    "source_type",
                     "validation_status",
                     "validation_errors",
                     "runtime_errors",

@@ -4251,6 +4251,24 @@
       "title": "Generated Reports",
       "type": "object"
     },
+    "loaded_adapters": {
+      "items": {
+        "additionalProperties": true,
+        "required": [
+          "distribution",
+          "name",
+          "runtime_errors",
+          "source_type",
+          "validation_errors",
+          "validation_status",
+          "value",
+          "version"
+        ],
+        "type": "object"
+      },
+      "title": "Loaded Adapters",
+      "type": "array"
+    },
     "loaded_plugins": {
       "items": {
         "additionalProperties": true,
@@ -4386,6 +4404,7 @@
     "findings",
     "frameworks",
     "generated_reports",
+    "loaded_adapters",
     "loaded_plugins",
     "loaded_policy_packs",
     "misalignments",
