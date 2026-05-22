@@ -215,13 +215,14 @@ def resolve_severity_overrides(
         # v0.18 (PR #1): internal-consistency guard. A catalog check
         # carrying ``dynamic_default=True`` MUST have a corresponding
         # entry in ``extra_known_check_defaults``. The aggregator in
-        # ``cli/scan.py:_dynamic_check_defaults`` seeds every such
-        # catalog check unconditionally (its step 1), so this guard
-        # fires ONLY when the catalog and aggregator are out of sync —
-        # never on user input. RuntimeError (not ConfigError) because
-        # the contract test ``test_dynamic_default_aggregator_completeness``
-        # catches it pre-merge; ``assert`` is unsafe because it's
-        # stripped under ``python -O``.
+        # ``core/dynamic_defaults.py:dynamic_check_defaults`` seeds
+        # every such catalog check unconditionally (its step 1), so
+        # this guard fires ONLY when the catalog and aggregator are
+        # out of sync — never on user input. RuntimeError (not
+        # ConfigError) because the contract test
+        # ``test_dynamic_default_aggregator_completeness`` catches it
+        # pre-merge; ``assert`` is unsafe because it's stripped under
+        # ``python -O``.
         if (
             target_metadata.dynamic_default
             and check_id not in extra_defaults
@@ -229,8 +230,8 @@ def resolve_severity_overrides(
             raise RuntimeError(
                 f"internal: dynamic-default check {check_id!r} missing "
                 f"from extra_known_check_defaults; the aggregator in "
-                f"cli/scan.py:_dynamic_check_defaults must seed every "
-                f"catalog check with dynamic_default=True."
+                f"core/dynamic_defaults.py:dynamic_check_defaults must "
+                f"seed every catalog check with dynamic_default=True."
             )
 
         applied_severity = entry.severity

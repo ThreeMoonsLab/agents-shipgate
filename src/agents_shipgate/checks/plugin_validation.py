@@ -13,12 +13,13 @@ that lands in ``loaded_plugins[].validation_errors``:
    keys are accepted via the ``CheckMetadata`` alias.
 4. **dynamic_default_not_supported** — v0.18: the raw metadata dict
    declares ``dynamic_default=True``. Plugins cannot wire into the
-   ``cli/scan.py:_dynamic_check_defaults`` aggregator, so a swing
-   check would never receive a manifest-effective default — silently
-   bypassable. This gate runs BEFORE ``_coerce_metadata`` so a plugin
-   declaring ``dynamic_default=True`` without ``floor_severity`` lands
-   here under a precise status instead of being mis-classified as
-   ``bad_floor`` by the ``CheckMetadata`` model validator.
+   ``core/dynamic_defaults.py:dynamic_check_defaults`` aggregator, so
+   a swing check would never receive a manifest-effective default —
+   silently bypassable. This gate runs BEFORE ``_coerce_metadata`` so
+   a plugin declaring ``dynamic_default=True`` without
+   ``floor_severity`` lands here under a precise status instead of
+   being mis-classified as ``bad_floor`` by the ``CheckMetadata``
+   model validator.
 5. **id_collision** — the plugin's check ID shadows a built-in (or one of
    its legacy aliases), or is already registered by an earlier plugin
    in the same scan.
@@ -69,8 +70,8 @@ BAD_METADATA = "bad_metadata"
 ID_COLLISION = "id_collision"
 BAD_FLOOR = "bad_floor"
 # v0.18 (PR #1): plugin declared dynamic_default=True. Plugins cannot
-# wire into cli/scan.py's _dynamic_check_defaults aggregator and so
-# can never receive the manifest-effective default needed for
+# wire into core/dynamic_defaults.py's dynamic_check_defaults aggregator
+# and so can never receive the manifest-effective default needed for
 # tier-crossing comparison. See module docstring for placement
 # rationale (must run before _coerce_metadata).
 DYNAMIC_DEFAULT_NOT_SUPPORTED = "dynamic_default_not_supported"
@@ -143,10 +144,10 @@ def validate_entry_point(
             info,
             DYNAMIC_DEFAULT_NOT_SUPPORTED,
             "plugin metadata declared dynamic_default=True; plugins "
-            "cannot wire into cli/scan.py's _dynamic_check_defaults "
-            "aggregator. Emit findings at the desired severity "
-            "directly; the floor contract still applies via "
-            "CheckMetadata.floor_severity.",
+            "cannot wire into core/dynamic_defaults.py's "
+            "dynamic_check_defaults aggregator. Emit findings at the "
+            "desired severity directly; the floor contract still "
+            "applies via CheckMetadata.floor_severity.",
         )
 
     try:

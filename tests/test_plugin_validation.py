@@ -347,9 +347,10 @@ def test_gate_floor_higher_than_default_is_rejected(monkeypatch, tmp_path):
 
 def test_plugin_with_dynamic_default_is_rejected(monkeypatch, tmp_path):
     """A plugin declaring ``dynamic_default=True`` cannot wire into
-    ``cli/scan.py:_dynamic_check_defaults``, so it can never receive
-    the manifest-effective default needed for tier-crossing comparison.
-    The gate rejects with ``dynamic_default_not_supported``.
+    ``core/dynamic_defaults.py:dynamic_check_defaults``, so it can
+    never receive the manifest-effective default needed for
+    tier-crossing comparison. The gate rejects with
+    ``dynamic_default_not_supported``.
     """
     def plugin(context):
         return []
@@ -373,8 +374,8 @@ def test_plugin_with_dynamic_default_is_rejected(monkeypatch, tmp_path):
     record = report.loaded_plugins[0]
     assert record["validation_status"] == DYNAMIC_DEFAULT_NOT_SUPPORTED
     assert any(
-        "cli/scan.py" in err for err in record["validation_errors"]
-    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
+        "core/dynamic_defaults.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention core/dynamic_defaults.py, got: {record['validation_errors']}"
 
 
 def test_plugin_dynamic_default_without_floor_lands_in_dynamic_status(monkeypatch, tmp_path):
@@ -543,8 +544,8 @@ def test_plugin_with_dynamic_default_as_checkmetadata_instance_is_rejected(
         f"instance form, got {record['validation_status']!r}"
     )
     assert any(
-        "cli/scan.py" in err for err in record["validation_errors"]
-    ), f"expected error to mention cli/scan.py, got: {record['validation_errors']}"
+        "core/dynamic_defaults.py" in err for err in record["validation_errors"]
+    ), f"expected error to mention core/dynamic_defaults.py, got: {record['validation_errors']}"
 
 
 # --- Runtime validation -----------------------------------------------------
