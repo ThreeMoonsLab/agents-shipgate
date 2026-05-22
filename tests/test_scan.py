@@ -1035,4 +1035,114 @@ tool_sources:
         ci_mode="advisory",
     )
 
+    # The scanner must not have executed agent.py (which would write imported.txt).
     assert not (project / "imported.txt").exists()
+
+
+def test_source_warnings_ordering_duplicate_before_policy_pack(tmp_path):
+    """Regression test for P3 (v0.19 decomp): duplicate-tool warnings must
+    appear *before* policy-pack and artifact warnings in
+    ``report.source_warnings``.
+
+    Pre-decomp ``run_scan`` assembled warnings in the order:
+        source → duplicate → artifact → placeholder → policy_pack → dedup
+
+    The initial decomp accidentally moved duplicate warnings to the end
+    (source → artifact → placeholder → policy_pack → duplicate). That changed
+    ``report.source_warnings`` for any fixture with both a duplicate-tool name
+    and a policy-pack or artifact warning — a STABILITY regression.
+
+    This test reproduces the exact ordering property: given one duplicate-tool
+    warning and one optional-missing-policy-pack warning, the duplicate warning
+    must have a lower index in ``report.source_warnings``.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+
+    # Two tool sources with the same operationId → triggers duplicate_warning
+    (project / "openapi.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Primary API
+  version: "1.0"
+paths:
+  /lookup:
+    get:
+      operationId: shared.lookup
+      summary: Look up a shared record.
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (project / "mcp.json").write_text(
+        """
+{
+  "tools": [
+    {
+      "name": "shared.lookup",
+      "description": "Look up a shared record from MCP.",
+      "annotations": {"readOnlyHint": true}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    # Optional missing policy pack → triggers policy_pack_warning
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: ordering-test
+agent:
+  name: ordering-agent
+  declared_purpose:
+    - test warning ordering
+environment:
+  target: local
+tool_sources:
+  - id: api
+    type: openapi
+    path: openapi.yaml
+  - id: mcp
+    type: mcp
+    path: mcp.json
+checks:
+  policy_packs:
+    - path: missing-pack.yaml
+      optional: true
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    warnings = report.source_warnings
+    dup_idx = next(
+        (i for i, w in enumerate(warnings) if "Duplicate tool name 'shared.lookup'" in w),
+        None,
+    )
+    pp_idx = next(
+        (i for i, w in enumerate(warnings) if "missing-pack.yaml" in w and "failed to load" in w),
+        None,
+    )
+
+    assert dup_idx is not None, (
+        f"Expected a duplicate-tool warning in source_warnings; got: {warnings}"
+    )
+    assert pp_idx is not None, (
+        f"Expected an optional-policy-pack warning in source_warnings; got: {warnings}"
+    )
+    assert dup_idx < pp_idx, (
+        f"Duplicate-tool warning (index {dup_idx}) must appear before "
+        f"policy-pack warning (index {pp_idx}) in report.source_warnings. "
+        f"Full list: {warnings}"
+    )

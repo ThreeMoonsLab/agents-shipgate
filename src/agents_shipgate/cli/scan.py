@@ -4,7 +4,9 @@ import hashlib
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from agents_shipgate.checks.baseline_integrity import (
     build_findings as build_integrity_findings,
@@ -121,28 +123,189 @@ PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
 logger = logging.getLogger(__name__)
 
 
-def run_scan(
+# -----------------------------------------------------------------------------
+# Phase-result dataclasses (v0.19 R-3 architecture review item E3).
+#
+# ``run_scan`` was a single 619-line function that mixed nine sequential
+# concerns: manifest preparation, input loading, tool/agent building, diff
+# loading, check execution + severity resolution, output planning, privacy
+# sanitization, report building, and file writing. Decomposing into named
+# phase helpers — each with an explicit input/output dataclass — makes the
+# pipeline visible at the call site and lets the most fragile phase
+# (sanitization) be reasoned about in isolation.
+#
+# Hard contracts preserved (verified by tests/test_scan.py +
+# tests/test_patches_model.py + tests/test_source_provenance.py):
+#
+# - Public ``run_scan`` signature unchanged.
+# - ``_run_id`` inputs byte-identical to pre-decomp; the order of
+#   operations inside each phase is preserved.
+# - Sanitization (Phase 7) runs BEFORE any file is written. Every
+#   write-path receives only ``public_*`` values from the
+#   ``_SanitizedSurfaces`` bundle, never the raw values.
+# - Existing helpers exported for direct test access (``_load_sources``,
+#   ``_flatten_and_deduplicate_tools``, ``_run_id``,
+#   ``_build_agent``) keep their signatures.
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ResolvedManifest:
+    """Phase 1 output: manifest after CLI overrides applied."""
+
+    manifest: AgentsShipgateManifest
+    manifest_positions: Any
+    base_dir: Path
+
+
+@dataclass(frozen=True)
+class _LoadedInputs:
+    """Phase 2 output: source loading + artifact extraction + warnings.
+
+    Warning buckets are kept separate so Phase 3 (``_build_tools_and_agent``)
+    can interleave ``duplicate_warnings`` from
+    ``_flatten_and_deduplicate_tools`` between ``source_only_warnings`` and
+    ``artifact_warnings``, preserving the pre-decomp deterministic order:
+
+        source → duplicate → artifact → placeholder → policy_pack → dedup
+
+    Collapsing them into a single ``warnings`` list here (the P3 bug that
+    this split fixes) would push duplicate warnings to the end, changing
+    ``report.source_warnings`` order for fixtures with both duplicate-tool
+    names and artifact/policy-pack warnings.
+    """
+
+    loaded_sources: list[LoadedToolSource]
+    artifact_bag: ArtifactBag
+    policy_packs: Any  # LoadedPolicyPacks
+    source_only_warnings: list[str]   # per-source warnings, no dedup yet
+    artifact_warnings_list: list[str]      # from _artifact_warnings(artifact_bag)
+    placeholder_warnings: list[str]   # from _manifest_placeholder_warnings
+    policy_pack_warnings: list[str]   # from policy_packs.warnings
+    adk: GoogleAdkArtifacts | None
+    langchain: LangChainArtifacts | None
+    crewai: CrewAiArtifacts | None
+    n8n: N8nArtifacts | None
+    api: OpenAIApiArtifacts | None
+    anthropic: AnthropicArtifacts | None
+    codex_plugin: CodexPluginArtifacts | None
+    validation: ValidationArtifacts | None
+
+
+@dataclass(frozen=True)
+class _ToolsAndAgent:
+    """Phase 3 output: flattened/deduped/enriched tools + Agent + final warnings."""
+
+    tools: list[Tool]
+    agent: Agent
+    warnings: list[str]  # deduplicated source warnings
+
+
+@dataclass(frozen=True)
+class _DiffReferences:
+    """Phase 4 output: optional baseline + diff_from references."""
+
+    baseline_file: Any  # BaselineFile | None
+    baseline_display_path: str | None
+    diff_reference: ToolSurfaceDiffReference | None
+    diff_reference_error: str | None
+
+
+@dataclass(frozen=True)
+class _ChecksDecision:
+    """Phase 5 output: action surface + checks + severity + remediation."""
+
+    action_surface_facts: ActionSurfaceFacts
+    action_surface_diff: Any  # ActionSurfaceDiff (internal/semantic)
+    findings: list[Any]  # list[Finding]
+    legacy_fingerprints: list[str]
+    override_resolution: Any  # SeverityOverrideResolution
+    loaded_plugins: list[dict[str, str | None]]
+    context: ScanContext
+
+
+@dataclass(frozen=True)
+class _OutputPlan:
+    """Phase 6 output: file paths + packet format set + privacy stats.
+
+    ``privacy_stats`` is intentionally mutable — the sanitization phase
+    accumulates redaction counts into it. The dataclass is ``frozen`` only
+    in the sense that the field bindings don't change; the contained
+    ``RedactionStats`` mutates in place.
+    """
+
+    out_dir: Path
+    generated_paths: dict[str, Path]
+    packet_format_set: set[str]
+    output_surfaces: list[str]
+    privacy_stats: RedactionStats
+    generated_report_refs: Any
+
+
+@dataclass
+class _SanitizedSurfaces:
+    """Phase 7 output: every ``public_*`` value flowing into report/packet.
+
+    Not frozen — the baseline-integrity branch appends to ``findings``
+    in place and refreshes derivative fields. After Phase 7 returns,
+    every value here has been passed through ``redact_data`` /
+    ``sanitize_*`` exactly once. Phase 8+ (``build_report`` /
+    ``build_packet`` / ``_write_*``) MUST NOT re-redact and MUST NOT
+    touch any raw (non-``public_*``) value.
+    """
+
+    manifest: AgentsShipgateManifest
+    manifest_dir: str
+    project: Any
+    environment: Any
+    agent: Agent
+    tools: list[Tool]
+    findings: list[Any]
+    source_warnings: list[str]
+    api_artifacts: OpenAIApiArtifacts | None
+    anthropic_artifacts: AnthropicArtifacts | None
+    validation_artifacts: ValidationArtifacts | None
+    api_surface: Any
+    anthropic_surface: Any
+    frameworks_surface: Any
+    codex_plugin_surface: CodexPluginSurface | None
+    policy_audit: PolicyAudit
+    loaded_policy_packs: list[Any]
+    loaded_plugins: Any
+    diff_reference: ToolSurfaceDiffReference | None
+    action_surface_facts: ActionSurfaceFacts
+    action_surface_diff: Any
+    tool_surface_facts: Any
+    tool_surface_diff: Any
+    baseline_summary: Any
+    privacy_audit: Any
+
+
+# -----------------------------------------------------------------------------
+# Phase helpers. Each takes explicit kwargs and returns a phase-result
+# dataclass. Order of operations inside each helper matches the pre-decomp
+# code one-for-one so ``_run_id`` and finding fingerprints stay
+# byte-identical.
+# -----------------------------------------------------------------------------
+
+
+def _prepare_scan(
     *,
     config_path: Path,
-    output_dir: Path | None = None,
-    formats: list[str] | None = None,
-    ci_mode: str | None = None,
-    fail_on: list[str] | None = None,
-    baseline_path: Path | None = None,
-    diff_from_path: Path | None = None,
-    baseline_mode: str = "new-findings",
-    deep_import: bool = False,
-    policy_pack_paths: list[Path] | None = None,
-    plugins_enabled: bool | None = None,
-    verbose: bool = False,
-    suggest_patches: bool = False,
-    packet_enabled: bool | None = None,
-    packet_formats: list[str] | None = None,
-    packet_generated_at: str | None = None,
-) -> tuple[ReadinessReport, int]:
-    if deep_import:
-        raise ConfigError("Deep import is intentionally deferred and is not supported.")
+    ci_mode: str | None,
+    fail_on: list[str] | None,
+    output_dir: Path | None,
+    formats: list[str] | None,
+    packet_enabled: bool | None,
+    packet_formats: list[str] | None,
+    baseline_mode: str,
+) -> _ResolvedManifest:
+    """Phase 1: load manifest with positions; apply CLI overrides.
 
+    CLI overrides take precedence over manifest values. Raises
+    ``ConfigError`` (exit 2) for invalid packet formats or unsupported
+    baseline modes — both fail before any source loading happens.
+    """
     raw_manifest, manifest_positions = load_manifest_with_positions(config_path)
     manifest = raw_manifest.model_copy(deep=True)
     if ci_mode:
@@ -165,17 +328,27 @@ def run_scan(
         manifest.output.packet.formats = packet_formats
     if baseline_mode != "new-findings":
         raise ConfigError("--baseline-mode supports only new-findings")
+    return _ResolvedManifest(
+        manifest=manifest,
+        manifest_positions=manifest_positions,
+        base_dir=config_path.resolve().parent,
+    )
 
-    base_dir = config_path.resolve().parent
+
+def _load_inputs(
+    *,
+    manifest: AgentsShipgateManifest,
+    base_dir: Path,
+    config_path: Path,
+    policy_pack_paths: list[Path] | None,
+    verbose: bool,
+) -> _LoadedInputs:
+    """Phase 2: dispatch every adapter through ``REGISTRY``, extract
+    typed artifacts from the ``ArtifactBag``, aggregate source warnings
+    (including CHANGE_ME placeholder warnings from the manifest text),
+    load policy packs.
+    """
     loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
-    adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
-    langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
-    crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
-    n8n_artifacts = artifact_bag.get("n8n", N8nArtifacts)
-    api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
-    anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
-    codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    validation_artifacts = artifact_bag.get("validation", ValidationArtifacts)
     logger.debug(
         "loaded sources",
         extra={
@@ -186,23 +359,67 @@ def run_scan(
             ],
         },
     )
-    tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
-    warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
-    warnings.extend(duplicate_warnings)
-    warnings.extend(_artifact_warnings(artifact_bag))
+    # Keep warning buckets separate so Phase 3 can re-assemble them in the
+    # pre-decomp order: source → duplicate → artifact → placeholder →
+    # policy_pack → dedup. See _LoadedInputs docstring for the P3 rationale.
+    source_only_warnings: list[str] = [
+        warning for loaded in loaded_sources for warning in loaded.warnings
+    ]
+    artifact_warnings_list: list[str] = _artifact_warnings(artifact_bag)
     # Unresolved CHANGE_ME placeholders in the manifest mean the run is
     # operating on stub data. Surface them as source warnings so the
     # existing ``source_warning_count > 0`` branch in
     # release_decision.evidence_coverage routes the gate to
     # ``review_required`` and the packet §10 "Not proven" section
     # mentions the placeholder verbatim.
-    warnings.extend(_manifest_placeholder_warnings(config_path))
+    placeholder_warnings: list[str] = _manifest_placeholder_warnings(config_path)
     policy_packs = load_policy_packs(
         manifest=manifest,
         base_dir=base_dir,
         cli_policy_packs=policy_pack_paths,
     )
-    warnings.extend(policy_packs.warnings)
+    policy_pack_warnings: list[str] = list(policy_packs.warnings)
+    return _LoadedInputs(
+        loaded_sources=loaded_sources,
+        artifact_bag=artifact_bag,
+        policy_packs=policy_packs,
+        source_only_warnings=source_only_warnings,
+        artifact_warnings_list=artifact_warnings_list,
+        placeholder_warnings=placeholder_warnings,
+        policy_pack_warnings=policy_pack_warnings,
+        adk=artifact_bag.get("google_adk", GoogleAdkArtifacts),
+        langchain=artifact_bag.get("langchain", LangChainArtifacts),
+        crewai=artifact_bag.get("crewai", CrewAiArtifacts),
+        n8n=artifact_bag.get("n8n", N8nArtifacts),
+        api=artifact_bag.get("openai_api", OpenAIApiArtifacts),
+        anthropic=artifact_bag.get("anthropic_api", AnthropicArtifacts),
+        codex_plugin=artifact_bag.get("codex_plugin", CodexPluginArtifacts),
+        validation=artifact_bag.get("validation", ValidationArtifacts),
+    )
+
+
+def _build_tools_and_agent(
+    *,
+    manifest: AgentsShipgateManifest,
+    inputs: _LoadedInputs,
+) -> _ToolsAndAgent:
+    """Phase 3: flatten/dedup tools with source priority, enrich with
+    manifest-derived risk hints, build the ``Agent`` object, finalize
+    the source-warnings list (dedup after appending the duplicate-tool
+    warnings from ``_flatten_and_deduplicate_tools``).
+    """
+    tools, duplicate_warnings = _flatten_and_deduplicate_tools(inputs.loaded_sources)
+    # Assemble in pre-decomp order: source → duplicate → artifact →
+    # placeholder → policy_pack. Duplicate warnings MUST come immediately
+    # after per-source warnings (before artifact / placeholder / policy_pack)
+    # so ``report.source_warnings`` is byte-identical to pre-v0.19 output.
+    # (P3 fix: _LoadedInputs now carries separate buckets instead of a
+    # pre-assembled list so this interleaving is possible.)
+    warnings: list[str] = list(inputs.source_only_warnings)
+    warnings.extend(duplicate_warnings)
+    warnings.extend(inputs.artifact_warnings_list)
+    warnings.extend(inputs.placeholder_warnings)
+    warnings.extend(inputs.policy_pack_warnings)
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
@@ -214,11 +431,7 @@ def run_scan(
                 {
                     "name": tool.name,
                     "risk_hints": [
-                        {
-                            "tag": hint.tag,
-                            "confidence": hint.confidence,
-                            "source": hint.source,
-                        }
+                        {"tag": hint.tag, "confidence": hint.confidence, "source": hint.source}
                         for hint in tool.risk_hints
                     ],
                 }
@@ -227,17 +440,29 @@ def run_scan(
         },
     )
     agent = _build_agent(
-        manifest,
-        tools,
-        api_artifacts,
-        anthropic_artifacts,
-        adk_artifacts,
+        manifest, tools, inputs.api, inputs.anthropic, inputs.adk
     )
+    return _ToolsAndAgent(tools=tools, agent=agent, warnings=warnings)
+
+
+def _load_diff_references(
+    *,
+    baseline_path: Path | None,
+    diff_from_path: Path | None,
+    base_dir: Path,
+) -> _DiffReferences:
+    """Phase 4: load optional baseline JSON + tool-surface diff reference.
+
+    ``--diff-from`` wins over baseline-derived reference when both are
+    supplied. ``InputParseError`` from either path is caught and returned
+    as a string so the downstream diff is rendered as ``enabled=False``
+    with a reviewer-visible note rather than aborting the scan.
+    """
     baseline_file = load_baseline(baseline_path) if baseline_path else None
     baseline_display_path = (
         _relative_display_path(baseline_path, base_dir) if baseline_path else None
     )
-    diff_reference = None
+    diff_reference: ToolSurfaceDiffReference | None = None
     diff_reference_error: str | None = None
     try:
         if diff_from_path:
@@ -252,35 +477,57 @@ def run_scan(
             )
     except InputParseError as exc:
         diff_reference_error = str(exc)
+    return _DiffReferences(
+        baseline_file=baseline_file,
+        baseline_display_path=baseline_display_path,
+        diff_reference=diff_reference,
+        diff_reference_error=diff_reference_error,
+    )
+
+
+def _run_checks_and_decide(
+    *,
+    manifest: AgentsShipgateManifest,
+    manifest_positions: Any,
+    config_path: Path,
+    tools_and_agent: _ToolsAndAgent,
+    inputs: _LoadedInputs,
+    diffs: _DiffReferences,
+    plugins_enabled: bool | None,
+    suggest_patches: bool,
+) -> _ChecksDecision:
+    """Phase 5: build internal action-surface facts, run all checks
+    (built-in + plugin + policy-pack + action-surface policies),
+    resolve severity overrides via the dynamic-default aggregator,
+    apply suppressions + optional patches, annotate remediation
+    metadata, snapshot ``legacy_fingerprints`` for pre-v0.18 baseline
+    compatibility.
+
+    The INTERNAL ``action_surface_diff`` returned here is semantic
+    only — provenance enrichment happens later on the PUBLIC diff
+    derived from sanitized tools. Mutating ``reason`` here would leak
+    ``path:line`` into ``Finding.evidence``, churning fingerprints.
+    """
     action_surface_facts = build_action_surface_facts(
         manifest,
-        agent_id=agent.id,
-        tools=tools,
+        agent_id=tools_and_agent.agent.id,
+        tools=tools_and_agent.tools,
     )
-    action_reference = action_reference_from_scan_reference(diff_reference)
+    action_reference = action_reference_from_scan_reference(diffs.diff_reference)
     action_surface_diff = compute_action_surface_diff(
         action_surface_facts,
         action_reference.facts if action_reference else None,
         reference=action_reference,
     )
-    if diff_reference_error:
+    if diffs.diff_reference_error:
         action_surface_diff.enabled = False
-        action_surface_diff.notes = [diff_reference_error]
-    # v0.19 reviewer-grade provenance: the INTERNAL action-surface
-    # diff stays semantic — ``evaluate_action_surface_policies`` below
-    # serializes ``ActionSurfaceChange.model_dump()`` into finding
-    # ``evidence`` payloads, and ``finding_fingerprint`` hashes
-    # ``evidence``. Mutating ``reason`` here would leak ``path:line``
-    # into the identity hash and a tool moving from line 10 to line 11
-    # would churn the finding fingerprint, breaking baseline matches.
-    # The PUBLIC action-surface diff (rendered into report.json /
-    # packet) is enriched separately below from ``public_tools``.
+        action_surface_diff.notes = [diffs.diff_reference_error]
     context = ScanContext(
         manifest=manifest,
-        agent=agent,
-        tools=tools,
+        agent=tools_and_agent.agent,
+        tools=tools_and_agent.tools,
         config_path=config_path.resolve(),
-        framework_artifacts=artifact_bag,
+        framework_artifacts=inputs.artifact_bag,
         action_surface_facts=action_surface_facts,
         manifest_positions=manifest_positions,
     )
@@ -289,51 +536,28 @@ def run_scan(
         context,
         plugins_enabled=plugins_enabled,
         loaded_plugins=loaded_plugins,
-        extra_known_check_ids={resolved.rule.id for resolved in policy_packs.rules},
+        extra_known_check_ids={
+            resolved.rule.id for resolved in inputs.policy_packs.rules
+        },
     )
-    findings.extend(run_policy_pack_rules(context, policy_packs))
+    findings.extend(run_policy_pack_rules(context, inputs.policy_packs))
     findings.extend(
         evaluate_action_surface_policies(
             manifest,
             action_surface_facts,
             action_surface_diff,
-            agent_id=agent.id,
-            tools=tools,
+            agent_id=tools_and_agent.agent.id,
+            tools=tools_and_agent.tools,
         )
     )
     findings = dedupe_findings(findings)
-    # v0.17 (M1): resolve overrides up front. The resolver enforces
-    # ``floor_severity``, validates tier-crossing acknowledgements, and
-    # rejects expired acks/overrides — all raise ConfigError (exit 2) so
-    # the mutation pass below operates only on a manifest that has
-    # passed policy validation. The audit envelope is carried through to
-    # ``build_report`` so reviewers see overrides at the top of the
-    # report instead of buried in per-finding evidence.
-    #
-    # ``extra_known_check_defaults`` is the resolver's escape hatch for
-    # check IDs whose effective emitted severity is NOT the static
-    # catalog default. Two contributors today:
-    #
-    # 1. Policy-pack rule IDs — outside the catalog entirely.
-    # 2. Action-surface policies (``manifest.action_surface.policies[]``)
-    #    emit ``SHIP-ACTION-POLICY-VIOLATION`` findings at the
-    #    user-declared ``policy.severity``. Without this signal the
-    #    resolver would compare a manifest-declared `critical` policy
-    #    against the catalog's static `high` and silently bypass the
-    #    critical → high tier-crossing gate. We aggregate the
-    #    *strongest* declared severity across all matching policies.
-    #
-    # For check IDs in both inputs (e.g. SHIP-ACTION-POLICY-VIOLATION
-    # exists in the catalog), the resolver takes max(catalog default,
-    # supplied default) — see ``severity_overrides.py`` doc.
-    #
-    # v0.18 (PR #1): the aggregation lives in ``dynamic_check_defaults``
-    # which seeds every catalog check carrying ``dynamic_default=True``
-    # (the contract test pins this) and overlays manifest-effective
-    # values for the action_surface and policy-pack cases.
+    # v0.17 (M1) + v0.18 (PR #1): centralized aggregator covers every
+    # catalog check with ``dynamic_default=True``. See
+    # ``core/dynamic_defaults.py`` and ``severity_overrides.py`` for the
+    # tier-crossing / floor-enforcement contract.
     catalog = check_catalog(plugins_enabled=plugins_enabled)
     effective_dynamic_defaults = dynamic_check_defaults(
-        manifest, policy_packs, catalog=catalog
+        manifest, inputs.policy_packs, catalog=catalog
     )
     override_resolution = resolve_severity_overrides(
         overrides=manifest.severity_override_entries(),
@@ -353,8 +577,7 @@ def run_scan(
     # v0.7: annotate every finding (regardless of --suggest-patches) with
     # the four remediation fields. When patches are present they're
     # derived from those; otherwise the per-check CheckMetadata seeds
-    # the values. Built with the scan's actual plugin setting so
-    # serialization never re-loads plugins.
+    # the values.
     annotate_remediation(
         findings,
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
@@ -369,7 +592,27 @@ def run_scan(
             ),
         },
     )
+    return _ChecksDecision(
+        action_surface_facts=action_surface_facts,
+        action_surface_diff=action_surface_diff,
+        findings=findings,
+        legacy_fingerprints=legacy_fingerprints,
+        override_resolution=override_resolution,
+        loaded_plugins=loaded_plugins,
+        context=context,
+    )
 
+
+def _plan_outputs(
+    *,
+    manifest: AgentsShipgateManifest,
+    base_dir: Path,
+) -> _OutputPlan:
+    """Phase 6: resolve output dir + planned file paths + packet format
+    set (filtering PDF if weasyprint is missing). Initialize the
+    ``RedactionStats`` accumulator and the already-redacted
+    ``generated_reports`` map needed by ``build_report`` downstream.
+    """
     out_dir = (base_dir / manifest.output.directory).resolve()
     packet_cfg = manifest.output.packet
     packet_format_set, packet_pdf_skipped = _resolve_packet_format_set(packet_cfg)
@@ -392,7 +635,6 @@ def run_scan(
         packet_enabled=packet_cfg.enabled,
         packet_formats=packet_format_set,
     )
-
     privacy_stats = RedactionStats()
     generated_report_refs = redact_data(
         {
@@ -405,12 +647,45 @@ def run_scan(
     output_surfaces = list(generated_paths)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         output_surfaces.append("github_step_summary")
+    return _OutputPlan(
+        out_dir=out_dir,
+        generated_paths=generated_paths,
+        packet_format_set=packet_format_set,
+        output_surfaces=output_surfaces,
+        privacy_stats=privacy_stats,
+        generated_report_refs=generated_report_refs,
+    )
+
+
+def _sanitize_for_output(
+    *,
+    manifest: AgentsShipgateManifest,
+    config_path: Path,
+    baseline_path: Path | None,
+    inputs: _LoadedInputs,
+    tools_and_agent: _ToolsAndAgent,
+    diffs: _DiffReferences,
+    decision: _ChecksDecision,
+    plan: _OutputPlan,
+    plugins_enabled: bool | None,
+) -> _SanitizedSurfaces:
+    """Phase 7: privacy redaction of every value that flows into a
+    report or packet — STABILITY contract: runs BEFORE any file is
+    written. Also: assign public finding IDs (redacted-evidence
+    fingerprints), apply baseline (with legacy-fingerprint
+    compatibility), run baseline-integrity checks, build public
+    tool/action surface facts + diffs (enriched with provenance from
+    the *public* tool source index, never from the raw one), build the
+    final privacy audit envelope.
+
+    Returns a single ``_SanitizedSurfaces`` bundle. Nothing in later
+    phases re-redacts, and ``build_report`` / ``build_packet`` see only
+    these values.
+    """
+    privacy_stats = plan.privacy_stats
 
     public_manifest = sanitize_model(
-        manifest,
-        AgentsShipgateManifest,
-        stats=privacy_stats,
-        path="manifest",
+        manifest, AgentsShipgateManifest, stats=privacy_stats, path="manifest"
     )
     public_manifest_dir = redact_data(
         str(config_path.resolve().parent),
@@ -419,36 +694,36 @@ def run_scan(
     )
     public_api_artifacts = (
         sanitize_model(
-            api_artifacts,
+            inputs.api,
             OpenAIApiArtifacts,
             stats=privacy_stats,
             path="api_artifacts",
         )
-        if api_artifacts
+        if inputs.api
         else None
     )
     public_anthropic_artifacts = (
         sanitize_model(
-            anthropic_artifacts,
+            inputs.anthropic,
             AnthropicArtifacts,
             stats=privacy_stats,
             path="anthropic_artifacts",
         )
-        if anthropic_artifacts
+        if inputs.anthropic
         else None
     )
     public_validation_artifacts = (
         sanitize_model(
-            validation_artifacts,
+            inputs.validation,
             ValidationArtifacts,
             stats=privacy_stats,
             path="validation_artifacts",
         )
-        if validation_artifacts
+        if inputs.validation
         else None
     )
-    public_tools = sanitize_tools(tools, stats=privacy_stats)
-    public_findings = sanitize_findings(findings, stats=privacy_stats)
+    public_tools = sanitize_tools(tools_and_agent.tools, stats=privacy_stats)
+    public_findings = sanitize_findings(decision.findings, stats=privacy_stats)
     assign_finding_ids(public_findings)
 
     public_project = redact_data(
@@ -456,14 +731,16 @@ def run_scan(
         stats=privacy_stats,
         path="project",
     )
-    public_agent = sanitize_model(agent, Agent, stats=privacy_stats, path="agent")
+    public_agent = sanitize_model(
+        tools_and_agent.agent, Agent, stats=privacy_stats, path="agent"
+    )
     public_environment = redact_data(
         public_manifest.environment.model_dump(exclude_none=True),
         stats=privacy_stats,
         path="environment",
     )
     public_source_warnings = redact_data(
-        warnings,
+        tools_and_agent.warnings,
         stats=privacy_stats,
         path="source_warnings[]",
     )
@@ -481,20 +758,20 @@ def run_scan(
     )
     public_frameworks_surface = redact_data(
         _frameworks_surface(
-            adk_artifacts,
-            langchain_artifacts,
-            crewai_artifacts,
-            n8n_artifacts,
+            inputs.adk,
+            inputs.langchain,
+            inputs.crewai,
+            inputs.n8n,
         ),
         stats=privacy_stats,
         path="frameworks",
     )
     public_codex_plugin_surface = _sanitize_codex_plugin_surface(
-        codex_plugin_artifacts.surface_summary() if codex_plugin_artifacts else None,
+        inputs.codex_plugin.surface_summary() if inputs.codex_plugin else None,
         stats=privacy_stats,
     )
     public_policy_audit = sanitize_model(
-        override_resolution.audit,
+        decision.override_resolution.audit,
         PolicyAudit,
         stats=privacy_stats,
         path="policy_audit",
@@ -506,20 +783,20 @@ def run_scan(
             stats=privacy_stats,
             path="loaded_policy_packs[]",
         )
-        for pack in policy_packs.loaded
+        for pack in inputs.policy_packs.loaded
     ]
     public_loaded_plugins = redact_data(
-        loaded_plugins,
+        decision.loaded_plugins,
         stats=privacy_stats,
         path="loaded_plugins[]",
     )
 
     public_diff_reference = _sanitize_diff_reference(
-        diff_reference,
+        diffs.diff_reference,
         stats=privacy_stats,
     )
     public_action_surface_facts = _build_public_action_surface_facts(
-        raw_facts=action_surface_facts,
+        raw_facts=decision.action_surface_facts,
         manifest=public_manifest,
         agent_id=public_agent.id,
         tools=public_tools,
@@ -531,10 +808,10 @@ def run_scan(
         public_action_reference.facts if public_action_reference else None,
         reference=public_action_reference,
     )
-    if diff_reference_error:
+    if diffs.diff_reference_error:
         public_action_surface_diff.enabled = False
         public_action_surface_diff.notes = redact_data(
-            [diff_reference_error],
+            [diffs.diff_reference_error],
             stats=privacy_stats,
             path="action_surface_diff.notes",
         )
@@ -547,12 +824,12 @@ def run_scan(
     )
 
     baseline_summary = None
-    if baseline_file and baseline_display_path:
+    if diffs.baseline_file and diffs.baseline_display_path:
         baseline_summary = apply_baseline(
             public_findings,
-            baseline_file,
-            display_path=baseline_display_path,
-            legacy_fingerprints=legacy_fingerprints,
+            diffs.baseline_file,
+            display_path=diffs.baseline_display_path,
+            legacy_fingerprints=decision.legacy_fingerprints,
         )
         baseline_summary = sanitize_model(
             baseline_summary,
@@ -587,8 +864,8 @@ def run_scan(
                 )
             stale_issues = baseline_resolved_fingerprints(
                 public_findings,
-                baseline_file,
-                legacy_fingerprints=legacy_fingerprints,
+                diffs.baseline_file,
+                legacy_fingerprints=decision.legacy_fingerprints,
             )
             baseline_privacy_hint = None
             if stale_issues and privacy_stats.occurrence_count:
@@ -604,7 +881,7 @@ def run_scan(
                     )
             integrity_findings = build_integrity_findings(
                 static_issues + stale_issues,
-                context=context,
+                context=decision.context,
                 integrity_mode=integrity_mode,
             )
             if baseline_privacy_hint:
@@ -636,9 +913,13 @@ def run_scan(
         stats=privacy_stats,
         path="tool_surface_facts",
     )
-    if diff_reference_error:
+    if diffs.diff_reference_error:
         public_tool_surface_diff = disabled_tool_surface_diff(
-            redact_data(diff_reference_error, stats=privacy_stats, path="tool_surface_diff.notes")
+            redact_data(
+                diffs.diff_reference_error,
+                stats=privacy_stats,
+                path="tool_surface_diff.notes",
+            )
         )
     else:
         public_tool_surface_diff = compute_tool_surface_diff(
@@ -656,7 +937,7 @@ def run_scan(
     )
     privacy_audit = build_privacy_audit(
         privacy_stats,
-        output_surfaces=output_surfaces,
+        output_surfaces=plan.output_surfaces,
         notes=[
             "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
             "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted.",
@@ -664,58 +945,121 @@ def run_scan(
                 [
                     "Baseline matching accepts legacy pre-v0.18 raw secret fingerprints for compatibility; re-save reviewed baselines to migrate to redacted public fingerprints."
                 ]
-                if baseline_file and privacy_stats.occurrence_count
+                if diffs.baseline_file and privacy_stats.occurrence_count
                 else []
             ),
         ],
     )
+    return _SanitizedSurfaces(
+        manifest=public_manifest,
+        manifest_dir=public_manifest_dir,
+        project=public_project,
+        environment=public_environment,
+        agent=public_agent,
+        tools=public_tools,
+        findings=public_findings,
+        source_warnings=public_source_warnings,
+        api_artifacts=public_api_artifacts,
+        anthropic_artifacts=public_anthropic_artifacts,
+        validation_artifacts=public_validation_artifacts,
+        api_surface=public_api_surface,
+        anthropic_surface=public_anthropic_surface,
+        frameworks_surface=public_frameworks_surface,
+        codex_plugin_surface=public_codex_plugin_surface,
+        policy_audit=public_policy_audit,
+        loaded_policy_packs=public_loaded_policy_packs,
+        loaded_plugins=public_loaded_plugins,
+        diff_reference=public_diff_reference,
+        action_surface_facts=public_action_surface_facts,
+        action_surface_diff=public_action_surface_diff,
+        tool_surface_facts=public_tool_surface_facts,
+        tool_surface_diff=public_tool_surface_diff,
+        baseline_summary=baseline_summary,
+        privacy_audit=privacy_audit,
+    )
+
+
+def _build_final_report(
+    *,
+    manifest: AgentsShipgateManifest,
+    sanitized: _SanitizedSurfaces,
+    plan: _OutputPlan,
+) -> tuple[ReadinessReport, Any]:
+    """Phase 8: hash the run_id, build the ``ReadinessReport`` from the
+    fully sanitized surfaces, run capability-diff enrichment, and
+    project the JSON payload that packet building consumes.
+
+    The ``_run_id`` inputs are exactly what they were pre-decomp —
+    STABILITY contract requires byte-identical hashes for the same
+    workspace.
+    """
     report = build_report(
         run_id=_run_id(
             manifest,
-            public_tools,
-            public_findings,
-            project=public_project,
-            agent_name=public_agent.name,
-            environment=public_environment,
-            api_surface=public_api_surface,
-            anthropic_surface=public_anthropic_surface,
-            frameworks=public_frameworks_surface,
-            codex_plugin_surface=public_codex_plugin_surface,
-            action_surface_facts=public_action_surface_facts,
+            sanitized.tools,
+            sanitized.findings,
+            project=sanitized.project,
+            agent_name=sanitized.agent.name,
+            environment=sanitized.environment,
+            api_surface=sanitized.api_surface,
+            anthropic_surface=sanitized.anthropic_surface,
+            frameworks=sanitized.frameworks_surface,
+            codex_plugin_surface=sanitized.codex_plugin_surface,
+            action_surface_facts=sanitized.action_surface_facts,
         ),
-        manifest=public_manifest,
-        project=public_project,
-        manifest_dir=public_manifest_dir,
-        agent=public_agent.model_dump(exclude_none=True),
-        environment=public_environment,
-        tools=public_tools,
-        findings=public_findings,
-        generated_reports=generated_report_refs,
-        ci_mode=public_manifest.ci.mode,
-        fail_on=public_manifest.ci.fail_on,
-        new_findings_only=baseline_summary is not None,
-        loaded_policy_packs=public_loaded_policy_packs,
-        loaded_plugins=public_loaded_plugins,
-        source_warnings=public_source_warnings,
-        api_surface=public_api_surface,
-        anthropic_surface=public_anthropic_surface,
-        frameworks=public_frameworks_surface,
-        codex_plugin_surface=public_codex_plugin_surface,
-        baseline=baseline_summary,
-        tool_surface_facts=public_tool_surface_facts,
-        tool_surface_diff=public_tool_surface_diff,
-        action_surface_facts=public_action_surface_facts,
-        action_surface_diff=public_action_surface_diff,
+        manifest=sanitized.manifest,
+        project=sanitized.project,
+        manifest_dir=sanitized.manifest_dir,
+        agent=sanitized.agent.model_dump(exclude_none=True),
+        environment=sanitized.environment,
+        tools=sanitized.tools,
+        findings=sanitized.findings,
+        generated_reports=plan.generated_report_refs,
+        ci_mode=sanitized.manifest.ci.mode,
+        fail_on=sanitized.manifest.ci.fail_on,
+        new_findings_only=sanitized.baseline_summary is not None,
+        loaded_policy_packs=sanitized.loaded_policy_packs,
+        loaded_plugins=sanitized.loaded_plugins,
+        source_warnings=sanitized.source_warnings,
+        api_surface=sanitized.api_surface,
+        anthropic_surface=sanitized.anthropic_surface,
+        frameworks=sanitized.frameworks_surface,
+        codex_plugin_surface=sanitized.codex_plugin_surface,
+        baseline=sanitized.baseline_summary,
+        tool_surface_facts=sanitized.tool_surface_facts,
+        tool_surface_diff=sanitized.tool_surface_diff,
+        action_surface_facts=sanitized.action_surface_facts,
+        action_surface_diff=sanitized.action_surface_diff,
         # v0.17 (M1): top-of-report policy audit. Always emitted (may
         # be an empty envelope) so consumers can rely on the field
         # existing in v0.17 reports.
-        policy_audit=public_policy_audit,
-        privacy_audit=privacy_audit,
+        policy_audit=sanitized.policy_audit,
+        privacy_audit=sanitized.privacy_audit,
     )
-    apply_capability_diff(report, public_tools)
+    apply_capability_diff(report, sanitized.tools)
     public_report_payload = report_json_payload(report)
-    _write_reports(report, generated_paths, manifest.output.formats)
-    if packet_cfg.enabled and packet_format_set:
+    return report, public_report_payload
+
+
+def _write_outputs(
+    *,
+    report: ReadinessReport,
+    public_report_payload: Any,
+    sanitized: _SanitizedSurfaces,
+    plan: _OutputPlan,
+    manifest: AgentsShipgateManifest,
+    config_path: Path,
+    packet_generated_at: str | None,
+) -> None:
+    """Phase 9: write report (md/json/sarif) + packet (md/json/html/pdf).
+
+    Both writes consume only sanitized values; the raw manifest is
+    passed to ``build_packet`` for non-output internal use (packet
+    builder reads manifest defaults like ``output.packet.formats`` but
+    never serializes raw manifest content into the packet).
+    """
+    _write_reports(report, plan.generated_paths, manifest.output.formats)
+    if manifest.output.packet.enabled and plan.packet_format_set:
         assert report.release_decision is not None
         packet = build_packet(
             manifest=manifest,
@@ -723,23 +1067,125 @@ def run_scan(
             project=report.project,
             environment=report.environment,
             run_id=report.run_id,
-            tools=public_tools,
-            findings=public_findings,
+            tools=sanitized.tools,
+            findings=sanitized.findings,
             release_decision=report.release_decision,
-            api_artifacts=public_api_artifacts,
-            anthropic_artifacts=public_anthropic_artifacts,
-            source_warnings=public_source_warnings,
-            validation_artifacts=public_validation_artifacts,
+            api_artifacts=sanitized.api_artifacts,
+            anthropic_artifacts=sanitized.anthropic_artifacts,
+            source_warnings=sanitized.source_warnings,
+            validation_artifacts=sanitized.validation_artifacts,
             tool_surface_diff=report.tool_surface_diff,
             action_surface_diff=report.action_surface_diff,
             report_payload=public_report_payload,
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )
-        _write_packet(packet, generated_paths, packet_format_set)
+        _write_packet(packet, plan.generated_paths, plan.packet_format_set)
+
+
+# -----------------------------------------------------------------------------
+# Public entry point.
+# -----------------------------------------------------------------------------
+
+
+def run_scan(
+    *,
+    config_path: Path,
+    output_dir: Path | None = None,
+    formats: list[str] | None = None,
+    ci_mode: str | None = None,
+    fail_on: list[str] | None = None,
+    baseline_path: Path | None = None,
+    diff_from_path: Path | None = None,
+    baseline_mode: str = "new-findings",
+    deep_import: bool = False,
+    policy_pack_paths: list[Path] | None = None,
+    plugins_enabled: bool | None = None,
+    verbose: bool = False,
+    suggest_patches: bool = False,
+    packet_enabled: bool | None = None,
+    packet_formats: list[str] | None = None,
+    packet_generated_at: str | None = None,
+) -> tuple[ReadinessReport, int]:
+    """Run a full scan pipeline. Returns ``(report, exit_code)``.
+
+    Orchestrates nine sequential phases (see the phase helpers above).
+    Public signature, exit-code contract, and ``_run_id`` hash inputs
+    are stable across the v0.19 R-3 decomposition refactor.
+    """
+    if deep_import:
+        raise ConfigError("Deep import is intentionally deferred and is not supported.")
+
+    resolved = _prepare_scan(
+        config_path=config_path,
+        ci_mode=ci_mode,
+        fail_on=fail_on,
+        output_dir=output_dir,
+        formats=formats,
+        packet_enabled=packet_enabled,
+        packet_formats=packet_formats,
+        baseline_mode=baseline_mode,
+    )
+    inputs = _load_inputs(
+        manifest=resolved.manifest,
+        base_dir=resolved.base_dir,
+        config_path=config_path,
+        policy_pack_paths=policy_pack_paths,
+        verbose=verbose,
+    )
+    tools_and_agent = _build_tools_and_agent(
+        manifest=resolved.manifest,
+        inputs=inputs,
+    )
+    diffs = _load_diff_references(
+        baseline_path=baseline_path,
+        diff_from_path=diff_from_path,
+        base_dir=resolved.base_dir,
+    )
+    decision = _run_checks_and_decide(
+        manifest=resolved.manifest,
+        manifest_positions=resolved.manifest_positions,
+        config_path=config_path,
+        tools_and_agent=tools_and_agent,
+        inputs=inputs,
+        diffs=diffs,
+        plugins_enabled=plugins_enabled,
+        suggest_patches=suggest_patches,
+    )
+    plan = _plan_outputs(
+        manifest=resolved.manifest,
+        base_dir=resolved.base_dir,
+    )
+    sanitized = _sanitize_for_output(
+        manifest=resolved.manifest,
+        config_path=config_path,
+        baseline_path=baseline_path,
+        inputs=inputs,
+        tools_and_agent=tools_and_agent,
+        diffs=diffs,
+        decision=decision,
+        plan=plan,
+        plugins_enabled=plugins_enabled,
+    )
+    report, public_report_payload = _build_final_report(
+        manifest=resolved.manifest,
+        sanitized=sanitized,
+        plan=plan,
+    )
+    _write_outputs(
+        report=report,
+        public_report_payload=public_report_payload,
+        sanitized=sanitized,
+        plan=plan,
+        manifest=resolved.manifest,
+        config_path=config_path,
+        packet_generated_at=packet_generated_at,
+    )
     write_github_step_summary(report)
     assert report.release_decision is not None  # build_report always populates it
     return report, report.release_decision.fail_policy.exit_code
+
+
 
 
 def inspect_sources(*, config_path: Path, verbose: bool = False) -> dict[str, object]:
