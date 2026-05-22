@@ -34,6 +34,20 @@
   - STABILITY.md + docs/agent-contract-current.md: new bullets +
     enum-additivity rule mirroring `agent_summary.verdict`.
 
+- **Docs: refresh `docs/architecture.md` to v0.19 reality.** The doc
+  was stuck at pre-v0.6 conceptually — it described `core/models.py`
+  as the shared model home (deleted in PR #95), framed adapters as
+  free-function `load_<name>_artifacts(...)` (pre-v0.11 pattern), and
+  did not mention the `schemas/` layer, the five reviewer lenses
+  (tool surface / capability-intent / action surface / policy audit
+  / evidence matrix), the three audit envelopes (policy audit,
+  privacy audit, baseline audit log), the AST trust lint, plugin
+  validation gates, severity-override floor, baseline integrity, or
+  the privacy redaction layer. Refresh covers the v0.19 pipeline
+  end-to-end, names every module, cross-links to `STABILITY.md` for
+  each contract, and pins exit code `6` (strict `baseline verify`
+  failure). No code change.
+
 - **v0.18 / PR #1 trust-hardening: `dynamic_default` contract in
   `CheckMetadata`.** Formalizes the M1 dynamic-severity contract closed
   in v0.17.

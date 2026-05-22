@@ -106,6 +106,19 @@ or prohibited-action policy decisions. Ensure `.gitignore` contains
 `agents-shipgate-reports/` before committing.
 ```
 
+## Add the Codex adoption kit
+
+For OpenAI Codex repos, install both the native `AGENTS.md` trigger block and
+the repo-scoped Codex skill:
+
+```bash
+agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill
+```
+
+The skill lives at `.agents/skills/agents-shipgate/`, can be invoked with
+`$agents-shipgate`, and teaches Codex the bootstrap, scan, report-reading,
+advisory CI, and finding-triage workflows.
+
 ## Who this is for
 
 - **Agent builders** — review MCP, OpenAPI, and SDK tool definitions before merging changes that expand the tool surface.

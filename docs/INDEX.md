@@ -71,9 +71,9 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — what an agent may do mechanically vs. what must defer to a human reviewer
 - [`autofix-policy.md`](autofix-policy.md) — which findings are safe to apply, which need review, and how `apply-patches --confidence` filters them
 - [`diagnostics.md`](diagnostics.md) — ranked next-action diagnostics surfaced by `detect`, `doctor`, and structured-error JSON
-- [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md) — copyable `AGENTS.md`, `CLAUDE.md`, Cursor, PR template, and advisory workflow snippets for downstream repos
+- [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md) — copyable `AGENTS.md`, Codex skill, `CLAUDE.md`, Cursor, PR template, and advisory workflow snippets for downstream repos
 - [`agents/use-with-claude-code.md`](agents/use-with-claude-code.md) — install the `/shipgate` slash command and `agents-shipgate` skill in your agent project
-- [`agents/use-with-codex.md`](agents/use-with-codex.md) — drop the canonical `AGENTS.md` snippet in for OpenAI Codex
+- [`agents/use-with-codex.md`](agents/use-with-codex.md) — install the canonical `AGENTS.md` snippet and repo-scoped Codex skill
 - [`agents/use-with-cursor.md`](agents/use-with-cursor.md) — drop the auto-attach `.cursor/rules/agents-shipgate.mdc` rule in for Cursor
 - [`agent-adoption-harness.md`](agent-adoption-harness.md) — manual protocol for measuring whether coding agents discover and use Shipgate
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
