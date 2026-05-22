@@ -6,9 +6,11 @@ to agents reading the Agents Shipgate source repo.
 
 > The CLI plants these snippets for you. Run
 > `agents-shipgate init --write --agent-instructions=all` (or pass a subset
-> like `--agent-instructions=agents-md,cursor`) to emit them into managed
-> `<!-- agents-shipgate:start -->` blocks. Idempotent — safe to rerun. The raw
-> content below is the canonical reference and the source the renderers in
+> like `--agent-instructions=agents-md,codex-skill,cursor`) to emit them into
+> the target repo. Shared host files use managed `<!-- agents-shipgate:start -->`
+> blocks; full-file and skill-bundle targets use safe-update checks. Idempotent
+> — safe to rerun. The raw content below is the canonical reference and the
+> source the renderers in
 > `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lift from.
 
 ## When To Run
@@ -66,6 +68,26 @@ Before committing, ensure `.gitignore` includes:
 agents-shipgate-reports/
 ```
 ````
+
+## Codex Skill
+
+For OpenAI Codex, generate the repo-scoped skill into
+`.agents/skills/agents-shipgate/`:
+
+```bash
+agents-shipgate init --workspace . --write --agent-instructions=codex-skill
+```
+
+Pair it with the `AGENTS.md` block for the strongest trigger surface:
+
+```bash
+agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill
+```
+
+The skill can be invoked explicitly with `$agents-shipgate` and may be used
+implicitly by Codex when the task matches its frontmatter. It carries a compact
+`SKILL.md`, on-demand references for recipes and report reading, and an
+advisory GitHub Action template.
 
 ## `CLAUDE.md`
 

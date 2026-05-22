@@ -1,0 +1,7 @@
+# 25-codex-skill — install the canonical repo-scoped Codex skill bundle.
+# The content is generated from the same package renderer used by
+# `agents-shipgate init --agent-instructions=codex-skill`.
+renderers:
+  - codex-skill
+files: []
+required_placeholders: []

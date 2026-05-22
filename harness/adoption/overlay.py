@@ -6,13 +6,16 @@ Each ``benchmark/setup-variants/<variant>/`` directory carries an
 * a ``files`` list of ``{source: <template name>, destination: <path>}`` pairs
   describing what each ``.template`` file becomes inside a target workspace;
 * a ``required_placeholders`` list naming the placeholders the renderer must
-  resolve before writing.
+  resolve before writing;
+* optionally, a ``renderers`` list for generated overlays whose canonical
+  content lives in package renderers rather than duplicated benchmark templates.
 
 The renderer reads each template, substitutes ``{{PLACEHOLDER}}`` tokens from
-the per-cell context, writes the destination file, then scans every written
-file for leftover ``{{`` or ``CHANGE_ME`` literals — if any are found the cell
+the per-cell context, writes the destination file, then scans template-rendered
+files for leftover ``{{`` or ``CHANGE_ME`` literals — if any are found the cell
 fails before the driver runs, so a misconfigured overlay can never reach an
-agent.
+agent. Generated overlays are canonical package output and may contain those
+tokens in explanatory prose.
 
 The negative overlay (``60-docs-only-negative``) composes by adding a small
 docs-only diff on top of the primary variant. Overlays compose via repeated
@@ -53,6 +56,7 @@ class OverlayFile:
 class OverlaySpec:
     variant: str
     files: list[OverlayFile]
+    renderers: list[str] = field(default_factory=list)
     required_placeholders: list[str] = field(default_factory=list)
 
 
@@ -74,8 +78,14 @@ def load_overlay_spec(variant_dir: Path) -> OverlaySpec:
         )
         for entry in files_raw
     ]
+    renderers = list(raw.get("renderers") or [])
     required = list(raw.get("required_placeholders") or [])
-    return OverlaySpec(variant=variant_dir.name, files=files, required_placeholders=required)
+    return OverlaySpec(
+        variant=variant_dir.name,
+        files=files,
+        renderers=renderers,
+        required_placeholders=required,
+    )
 
 
 def apply_overlay(
@@ -98,7 +108,13 @@ def apply_overlay(
             "but they were not provided. Check ArchetypeContext."
         )
 
-    written: list[Path] = []
+    template_written: list[Path] = []
+    for renderer_name in spec.renderers:
+        for rel_path, rendered in _render_generated_files(renderer_name).items():
+            dest = workspace_root / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(rendered, encoding="utf-8")
+
     for entry in spec.files:
         src = variant_dir / entry.source
         if not src.is_file():
@@ -113,9 +129,9 @@ def apply_overlay(
             dest.write_text(existing.rstrip() + "\n\n" + rendered, encoding="utf-8")
         else:
             dest.write_text(rendered, encoding="utf-8")
-        written.append(dest)
+        template_written.append(dest)
 
-    _validate_written(spec, written)
+    _validate_written(spec, template_written)
 
 
 def apply_overlays(
@@ -142,6 +158,19 @@ def _substitute(text: str, placeholders: dict[str, str]) -> str:
         return match.group(0)
 
     return PLACEHOLDER_RE.sub(replace, text)
+
+
+def _render_generated_files(renderer_name: str) -> dict[str, str]:
+    if renderer_name == "codex-skill":
+        from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+            render_codex_skill_files,
+        )
+
+        return render_codex_skill_files()
+    raise OverlayError(
+        f"Unknown overlay renderer {renderer_name!r}. "
+        "Supported renderers: codex-skill."
+    )
 
 
 def _validate_written(spec: OverlaySpec, paths: list[Path]) -> None:

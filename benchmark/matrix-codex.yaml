@@ -1,0 +1,13 @@
+# Codex adoption-harness matrix.
+#
+# This matrix is opt-in because it runs a live local Codex CLI. It compares
+# no-hints, AGENTS.md, and repo-scoped Codex skill adoption surfaces on the
+# highest-signal archetype first.
+
+benchmark_schema_version: "0.2"
+
+cells:
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}

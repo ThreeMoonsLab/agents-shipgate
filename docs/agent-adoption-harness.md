@@ -54,6 +54,7 @@ Run at least these variants:
 
 - no Shipgate hints
 - target-repo `AGENTS.md` snippet present
+- repo-scoped Codex skill present
 - `CLAUDE.md` or Cursor rule present
 - existing `shipgate.yaml`, no workflow
 - existing advisory workflow

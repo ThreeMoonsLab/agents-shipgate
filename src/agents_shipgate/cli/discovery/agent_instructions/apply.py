@@ -18,11 +18,15 @@ Status enum:
   CLI; refused to downgrade.
 - ``skipped_ambiguous`` — multiple/mismatched markers; refused to guess.
 - ``skipped_user_modified`` — cursor MDC file content does not match any
-  shipped render; refused to overwrite.
+  shipped render, or a Codex skill file was edited by the user; refused to
+  overwrite.
 - ``skipped_symlink`` — the host path is a symlink; refused to follow it
   outside the workspace.
 - ``skipped_directory_template`` — the directory form
   ``.github/PULL_REQUEST_TEMPLATE/`` exists; v1 only handles the file form.
+- ``created_file_tree`` — created the repo-scoped Codex skill bundle.
+- ``migrated_and_repaired`` — rewrote prior-version Codex skill files and
+  recreated at least one missing file in the same pass.
 
 Every ``skipped_*`` status contributes 2 to the exit code (matching the
 ``skipped_existing_target`` precedent in :mod:`ci_workflow`); other statuses
@@ -41,9 +45,16 @@ from agents_shipgate.cli.discovery.agent_instructions.managed_block import (
     upsert,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
-    CURSOR_PRIOR_RENDER_SHA256,
+    codex_skill as codex_skill_renderer,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    cursor as cursor_renderer,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_md,
+    render_codex_skill_bundle_text,
+    render_codex_skill_files,
     render_cursor_file,
     render_pr_template,
 )
@@ -110,6 +121,7 @@ class TargetOutcome:
     block_version: int = BLOCK_VERSION
     message: str = ""
     rendered: str | None = None  # populated only on dry-run
+    files: list[dict[str, str]] | None = None  # populated for file-tree targets
 
     def to_json(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -122,6 +134,8 @@ class TargetOutcome:
             payload["message"] = self.message
         if self.rendered is not None:
             payload["rendered"] = self.rendered
+        if self.files is not None:
+            payload["files"] = list(self.files)
         return payload
 
     @property
@@ -157,6 +171,8 @@ def _rendered_inner(name: str) -> str:
         return render_agents_md()
     if name == "claude-md":
         return render_claude_md()
+    if name == "codex-skill":
+        return render_codex_skill_bundle_text()
     if name == "pr-template":
         return render_pr_template()
     if name == "cursor":
@@ -180,6 +196,14 @@ def render_targets(workspace: Path, requested: Iterable[str]) -> list[TargetOutc
                 path=str(path),
                 status="would_render",
                 rendered=_rendered_inner(name),
+                files=(
+                    [
+                        {"path": str(workspace / rel), "content": content}
+                        for rel, content in render_codex_skill_files().items()
+                    ]
+                    if spec.is_file_tree
+                    else None
+                ),
             )
         )
     return outcomes
@@ -359,7 +383,7 @@ def _apply_cursor(path: Path, workspace: Path) -> TargetOutcome:
             status="unchanged",
             message=f"{path} already up to date.",
         )
-    if existing_sha in CURSOR_PRIOR_RENDER_SHA256:
+    if existing_sha in cursor_renderer.PRIOR_RENDER_SHA256:
         path.write_bytes(rendered_bytes)
         return TargetOutcome(
             name="cursor",
@@ -376,6 +400,98 @@ def _apply_cursor(path: Path, workspace: Path) -> TargetOutcome:
             "Delete the file or revert to a shipped version before re-running."
         ),
     )
+
+
+def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
+    rendered_files = render_codex_skill_files()
+    target_paths = {rel: workspace / rel for rel in rendered_files}
+    files = _file_payload(workspace, rendered_files)
+
+    for target in target_paths.values():
+        symlink = _first_symlink_in_chain(target, workspace)
+        if symlink is not None:
+            return TargetOutcome(
+                name="codex-skill",
+                path=str(path),
+                status="skipped_symlink",
+                files=files,
+                message=(
+                    f"{symlink} is a symlink; refusing to follow it. "
+                    "Replace the symlink with a regular file or directory before "
+                    "re-running."
+                ),
+            )
+
+    existing: list[str] = []
+    missing: list[str] = []
+    prior: list[str] = []
+    for rel, content in rendered_files.items():
+        target = target_paths[rel]
+        if not target.exists():
+            missing.append(rel)
+            continue
+        existing.append(rel)
+        if not target.is_file():
+            return TargetOutcome(
+                name="codex-skill",
+                path=str(path),
+                status="skipped_user_modified",
+                files=files,
+                message=f"{target} exists but is not a regular file; refusing to overwrite.",
+            )
+        current = target.read_text(encoding="utf-8")
+        if current == content:
+            continue
+        current_sha = hashlib.sha256(current.encode("utf-8")).hexdigest()
+        if current_sha in codex_skill_renderer.PRIOR_RENDER_SHA256.get(rel, ()):
+            prior.append(rel)
+            continue
+        return TargetOutcome(
+            name="codex-skill",
+            path=str(path),
+            status="skipped_user_modified",
+            files=files,
+            message=(
+                f"{target} does not match a shipped Agents Shipgate Codex skill file; "
+                "refusing to overwrite user edits. Edit the file manually or remove "
+                "the skill directory before re-running."
+            ),
+        )
+
+    for rel, content in rendered_files.items():
+        target = target_paths[rel]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    if not existing:
+        status = "created_file_tree"
+        message = f"Wrote Codex skill bundle to {path}"
+    elif prior and missing:
+        status = "migrated_and_repaired"
+        message = f"Updated Codex skill bundle and repaired missing file(s) at {path}"
+    elif prior:
+        status = "migrated"
+        message = f"Updated Codex skill bundle at {path}"
+    elif missing:
+        status = "updated"
+        message = f"Repaired missing Codex skill file(s) under {path}"
+    else:
+        status = "unchanged"
+        message = f"Codex skill bundle already current at {path}"
+    return TargetOutcome(
+        name="codex-skill",
+        path=str(path),
+        status=status,
+        files=files,
+        message=message,
+    )
+
+
+def _file_payload(workspace: Path, files: dict[str, str]) -> list[dict[str, str]]:
+    return [
+        {"path": str(workspace / rel), "content": content}
+        for rel, content in files.items()
+    ]
 
 
 def apply_agent_instructions(
@@ -434,7 +550,9 @@ def apply_agent_instructions(
             # check ``is_symlink`` and refuse before touching the file.
             path = workspace / spec.relative_path
 
-        if name == "cursor":
+        if spec.is_file_tree:
+            outcomes.append(_apply_codex_skill(path, workspace))
+        elif name == "cursor":
             outcomes.append(_apply_cursor(path, workspace))
         else:
             outcomes.append(_apply_managed_block_target(name, path, workspace))
