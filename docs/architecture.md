@@ -2,7 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-report schema **v0.19** / packet schema **v0.6**.
+2026-05-22; auto-checked against `agents-shipgate contract --json`:
+runtime contract `1`, report schema `v0.20`, packet schema `v0.6`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -118,6 +119,9 @@ core/findings.build_report         assemble ReadinessReport; internally
                                      ↓
 apply_capability_diff              mutate report from public tools
                                      ↓
+build_reviewer_summary             populate v0.20 reviewer_summary from
+                                   final lens/audit data
+                                     ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
                                    the evidence_matrix lens
@@ -214,6 +218,10 @@ For a coding agent reading the report, the one-fetch projection is
 `agent_summary` (v0.12) for the action-driven view and
 `release_decision.contribution_rules[]` (v0.17) for the per-finding
 gate-classification audit.
+
+For reviewer triage, `reviewer_summary` (v0.20) mirrors
+`release_decision.decision` and projects lens/audit activity counts plus
+`first_recommended_surface`.
 
 ## Determinism
 
@@ -431,7 +439,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.19"`; older schemas frozen as
+  `report_schema_version: "0.20"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.6"`; older schemas frozen.

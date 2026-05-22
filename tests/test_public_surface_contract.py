@@ -186,6 +186,7 @@ PUBLIC_SURFACES = (
     "docs/faq.md",
     "examples/github-actions/README.md",
     "docs/agent-contract-current.md",
+    "docs/architecture.md",
 )
 
 # Strict superset of PUBLIC_SURFACES that adds files which carry
@@ -386,6 +387,49 @@ def test_agent_contract_current_doc_is_canonical():
         "docs/agent-contract-current.md must reference the current packet "
         f"schema (v{CURRENT_PACKET_SCHEMA_VERSION}) so coding agents know "
         "about the Release Evidence Packet."
+    )
+
+
+def test_architecture_doc_contract_stamp_matches_runtime():
+    """docs/architecture.md is easy to stale-date during schema bumps.
+    Pin its stamp to the runtime contract so CI catches future drift."""
+    text = _read("docs/architecture.md")
+    stamp = re.search(
+        r"Current as of\s+(?P<date>\d{4}-\d{2}-\d{2});\s+"
+        r"auto-checked against `agents-shipgate contract --json`:\s*"
+        r"runtime contract `(?P<contract>[^`]+)`, "
+        r"report schema `v(?P<report>\d+\.\d+)`, "
+        r"packet schema `v(?P<packet>\d+\.\d+)`\.",
+        text,
+    )
+    assert stamp, (
+        "docs/architecture.md must carry a contract stamp in the form "
+        "'Current as of YYYY-MM-DD; auto-checked against "
+        "`agents-shipgate contract --json`: runtime contract `N`, "
+        "report schema `vX.Y`, packet schema `vX.Y`.'"
+    )
+    assert stamp.group("date") == "2026-05-22", (
+        "docs/architecture.md contract-check date must stay pinned to "
+        "2026-05-22 until a deliberate architecture-doc refresh moves it."
+    )
+    assert stamp.group("contract") == CONTRACT_VERSION, (
+        f"docs/architecture.md says runtime contract "
+        f"{stamp.group('contract')!r}; runtime is {CONTRACT_VERSION!r}."
+    )
+    assert stamp.group("report") == CURRENT_REPORT_SCHEMA_VERSION, (
+        f"docs/architecture.md says report schema "
+        f"{stamp.group('report')!r}; runtime is "
+        f"{CURRENT_REPORT_SCHEMA_VERSION!r}."
+    )
+    assert stamp.group("packet") == CURRENT_PACKET_SCHEMA_VERSION, (
+        f"docs/architecture.md says packet schema "
+        f"{stamp.group('packet')!r}; runtime is "
+        f"{CURRENT_PACKET_SCHEMA_VERSION!r}."
+    )
+    assert "reviewer_summary" in text, (
+        "docs/architecture.md must mention the v0.20 reviewer_summary "
+        "surface so architecture readers see the current reviewer lens "
+        "projection."
     )
 
 
