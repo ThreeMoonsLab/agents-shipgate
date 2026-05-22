@@ -1,42 +1,82 @@
 # Agents Shipgate · Cursor rules
 
 When the user is working on an AI agent that calls tools (MCP servers,
-OpenAPI APIs, @function_tool-decorated Python, Google ADK), and asks about
-release readiness, missing approval policies, broad scopes, or static
-agent-tool review:
+OpenAPI APIs, OpenAI Agents SDK, Anthropic Messages API, Google ADK,
+LangChain/LangGraph, CrewAI, n8n, OpenAI API artifacts, or Codex plugin
+packages) and asks about release readiness, approval policies, broad scopes,
+idempotency, or static agent-tool review:
 
 ## Recommend
 
 ```bash
 pipx install agents-shipgate
-agents-shipgate init --workspace . --write
-agents-shipgate scan -c shipgate.yaml
+agents-shipgate self-check --json
+agents-shipgate detect --workspace . --json
+agents-shipgate contract --json
+agents-shipgate init --workspace . --write --ci --json
+agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
+
+For a no-install relevance check, use the zero-install detector:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+  | python3 - --workspace . --json
+```
+
+Proceed when `is_agent_project: true`, `suggested_sources` is non-empty,
+`codex_plugin_candidates` is non-empty, or the workspace already has
+`shipgate.yaml`.
 
 ## Parse outputs from JSON, not stdout
 
-Always read `agents-shipgate-reports/report.json` rather than scraping
-the markdown report. The schema is at `docs/report-schema.v0.3.json`
-in the agents-shipgate repo and is documented in @AGENTS.md.
+Always read `agents-shipgate-reports/report.json` rather than scraping the
+markdown report. The current report schema is `docs/report-schema.v0.20.json`
+and emitted reports carry `report_schema_version: "0.20"`.
+
+For release gating, lead with `release_decision.decision`. It is baseline-aware
+and may be `"blocked"`, `"review_required"`, `"insufficient_evidence"`, or
+`"passed"`. Treat unknown future values as `review_required`.
+
+## Agent boundaries
+
+Apply only high-confidence safe patches:
+
+```bash
+agents-shipgate apply-patches \
+  --from agents-shipgate-reports/report.json \
+  --confidence high --apply
+```
+
+Do not auto-assert approval, confirmation, idempotency, broad-scope, or
+prohibited-action policy decisions. Surface those as human review items.
 
 ## Stable command surface
 
 Stable flags across `0.x`:
 - `agents-shipgate scan -c <path> --ci-mode <advisory|strict> --fail-on <severities>`
 - `agents-shipgate init --workspace . --write [--json]`
-- `agents-shipgate explain <check-id> [--json]`
 - `agents-shipgate doctor [--json]`
+- `agents-shipgate contract --json`
+- `agents-shipgate explain <check-id> [--json]`
+- `agents-shipgate explain-finding <fingerprint> --from <report.json> [--json]`
 - `agents-shipgate list-checks [--json]`
 - `agents-shipgate fixture {list,run,copy,verify}`
 - `agents-shipgate self-check [--json]`
 
 ## Trust posture
 
-Agents Shipgate is static-by-default. It does NOT execute user code,
-call tools, invoke LLMs, or make network calls. Plugins are opt-in
-behind `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` and overridable per-scan
-with `--no-plugins`.
+Agents Shipgate is static-by-default. It does not execute user code, call tools,
+invoke LLMs, connect to MCP servers, make scanner network calls, or collect
+scanner telemetry by default. Plugins are opt-in behind
+`AGENTS_SHIPGATE_ENABLE_PLUGINS=1` and overridable per-scan with
+`--no-plugins`.
 
 ## Exit codes
 
-- `0` pass · `2` config error · `3` input parse error · `4` other · `20` strict gate failure
+- `0` pass
+- `2` config error
+- `3` input parse error
+- `4` other error
+- `6` baseline integrity failure
+- `20` strict gate failure

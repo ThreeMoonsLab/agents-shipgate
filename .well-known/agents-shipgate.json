@@ -9,6 +9,15 @@
     "name": "Three Moons Lab",
     "url": "https://threemoonslab.com"
   },
+  "audiences": ["agent_builders", "platform_engineers", "security_reviewers", "coding_agents"],
+  "when_to_use": [
+    "AI agent tool-surface changes",
+    "MCP or OpenAPI surface changes",
+    "SDK tool decorator changes",
+    "n8n workflow JSON changes",
+    "Codex plugin package or marketplace changes",
+    "permissions, scopes, approval, confirmation, prompt, or release-gate changes"
+  ],
   "package": {
     "pypi": "agents-shipgate",
     "github_action": "ThreeMoonsLab/agents-shipgate@v0.10.0",
@@ -41,6 +50,14 @@
   "triggers_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json",
   "errors_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/errors.json",
   "llms_full_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt",
+  "ai_search_summary_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/ai-search-summary.md",
+  "zero_install_detector_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py",
+  "agent_onramps": {
+    "target_repo_snippets": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/target-repo-agent-snippets.md",
+    "codex": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-codex.md",
+    "claude_code": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-claude-code.md",
+    "cursor": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md"
+  },
   "exit_codes": {
     "0": "pass",
     "2": "config_error",

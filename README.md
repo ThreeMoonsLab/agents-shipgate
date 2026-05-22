@@ -72,6 +72,21 @@ The public Action is listed on the
 [GitHub Action Marketplace](https://github.com/marketplace/actions/agents-shipgate).
 Use the snippet in [Use in CI](#use-in-ci) to add it to a workflow.
 
+## Not sure if Shipgate applies?
+
+Run the zero-install detector from the repo you are reviewing. It is a
+stdlib-only first touch for engineers and coding agents that need a yes/no
+relevance signal before installing anything:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+  | python3 - --workspace . --json
+```
+
+Continue to [Scan your repo](#scan-your-repo) when the output has
+`is_agent_project: true`, non-empty `suggested_sources`, non-empty
+`codex_plugin_candidates`, or the workspace already has `shipgate.yaml`.
+
 ## Sample reports
 
 Open a report first if you want to see the output shape before installing:
@@ -428,7 +443,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability by default (static-by-default; see [Trust Model](#trust-model) and [`ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)).
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, simple OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
 - The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.20"` (additive over v0.19's dual-source provenance, adding the `reviewer_summary` top-level block — a deterministic projection of reviewer lens activity and audit envelope counts plus a `first_recommended_surface` pointer) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
