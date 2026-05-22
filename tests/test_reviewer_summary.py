@@ -562,11 +562,20 @@ def test_pointer_falls_through_for_upgrades_too():
 def test_pointer_is_null_only_when_every_signal_is_zero():
     """The schema contract says ``first_recommended_surface`` is null
     only on a fully clean scan (verdict=passed AND every count zero).
-    Regression test for PR #107 P2: with ANY non-zero signal the
-    pointer MUST be non-null, including the post-fallthrough cases."""
+    Regression test for PR #107 P2 and P1(r2): with ANY non-zero signal
+    (including a non-passed verdict) the pointer MUST be non-null."""
     # Empty report = all-zero counters + passed verdict → null
     summary = build_reviewer_summary(findings=[], report=_empty_report())
     assert summary.first_recommended_surface is None
+    # review_required verdict alone (no other signals) is a non-zero
+    # signal that must produce a non-null pointer (PR #107 P1 round 2)
+    rr_report = _empty_report(
+        release_decision=_release_decision(decision="review_required")
+    )
+    summary_rr = build_reviewer_summary(findings=[], report=rr_report)
+    assert summary_rr.first_recommended_surface is not None, (
+        "review_required with all-zero counters produced a null pointer"
+    )
     # Any single non-zero signal flips the pointer to non-null
     for setup in [
         # same-tier override (the PR #107 P2 case)
@@ -594,6 +603,40 @@ def test_pointer_is_null_only_when_every_signal_is_zero():
             f"Single non-zero signal produced a null pointer: "
             f"reviewer_summary={summary.model_dump()}"
         )
+
+
+# --- PR #107 P1 (round 2) regression: review_required with source warnings ----
+
+
+def test_pointer_non_null_for_review_required_with_source_warnings():
+    """PR #107 P1 (second-round) regression: a scan driven to
+    ``review_required`` purely by source warnings (e.g., duplicate
+    MCP tool names) has zero findings and all reviewer counters at zero.
+    Without the final fallback branch in ``_pick_first_recommended_surface``,
+    such a scan emits ``decision=review_required`` but
+    ``first_recommended_surface=null`` — contradicting the contract that
+    null means ``passed + all-zero``.
+
+    Reproduce: build a report with decision=review_required and every
+    counter at zero; assert the pointer is non-null and points at
+    release_decision.
+    """
+    report = _empty_report(
+        release_decision=_release_decision(decision="review_required")
+    )
+    # Zero findings, zero tool_surface_diff, zero action_surface_diff,
+    # zero policy_audit, zero privacy_audit, zero misalignments —
+    # only the verdict itself signals "not passed".
+    summary = build_reviewer_summary(findings=[], report=report)
+    assert summary.verdict == "review_required"
+    assert summary.first_recommended_surface is not None, (
+        "review_required verdict with all-zero counters produced a null "
+        "pointer — contradicts the contract that null means passed+all-zero."
+    )
+    assert summary.first_recommended_surface.kind == "release_decision"
+    assert summary.first_recommended_surface.name == "release_decision"
+    assert summary.first_recommended_surface.path == "report.release_decision"
+    assert "release_decision.reason" in summary.first_recommended_surface.why
 
 
 # --- PR #107 P1 regression: build order vs apply_capability_diff -----------

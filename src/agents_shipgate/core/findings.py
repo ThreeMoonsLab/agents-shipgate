@@ -935,6 +935,13 @@ def _pick_first_recommended_surface(
          produce a non-zero headline but a ``null`` pointer —
          contradicting the contract that ``null`` means a fully
          clean scan.
+     10. review_required verdict with no specific lens/audit signal —
+         source warnings (e.g., duplicate tool names) or evidence
+         gaps can produce ``decision=review_required`` with all
+         reviewer counters at zero. Without this fallthrough, such
+         scans emit a non-null verdict but a ``null`` pointer —
+         contradicting the contract that ``null`` means
+         ``passed + all-zero``.
 
     Each branch picks the most informative ``path`` and a single
     sentence ``why`` suitable for a PR comment lead.
@@ -1064,6 +1071,25 @@ def _pick_first_recommended_surface(
                 "Severity overrides are applied (same-tier or upgrade); "
                 "review the policy_audit entries to confirm the overrides "
                 "match reviewer intent."
+            ),
+        )
+
+    # Final fallthrough: review_required verdict with no specific
+    # lens/audit signals. Source warnings (e.g., duplicate tool names,
+    # unresolvable imports) or an evidence gap can force
+    # decision=review_required even when findings=0 and all reviewer
+    # counters are zero. Without this branch, such scans would emit
+    # first_recommended_surface=null despite a non-passed verdict,
+    # contradicting the contract that null means passed + all-zero.
+    if verdict == "review_required":
+        return ReviewerSurfacePointer(
+            kind="release_decision",
+            name="release_decision",
+            path="report.release_decision",
+            why=(
+                "Review is required (source warnings or evidence gap "
+                "without specific lens/audit signals); read "
+                "release_decision.reason for details."
             ),
         )
 
