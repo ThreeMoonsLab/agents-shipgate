@@ -100,21 +100,20 @@ core/findings.apply_*              severity overrides, suppressions,
                                    v0.7 remediation annotation,
                                    v0.12 agent_action projection
                                      ↓
-core/baseline.apply_baseline       baseline-aware classification
-                                     ↓
-ci/release_decision.build          {blocked, insufficient_evidence,
-                                    review_required, passed} +
-                                   contribution_rules[] audit
-                                     ↓
 core/privacy piecemeal redaction    sanitize_model + redact_data on every
                                    public field; stats accumulate
                                      ↓
-build_action_surface_facts +       five reviewer-lens fact + diff blocks
-build_tool_surface_facts           (from sanitized public data)
+build_action_surface_facts +       reviewer-lens fact + diff blocks and
+core/baseline.apply_baseline +     baseline classification, all run on
+build_tool_surface_facts           sanitized public data
                                      ↓
 build_privacy_audit                stats → privacy_audit
                                      ↓
-core/findings.build_report         assemble ReadinessReport; populate
+core/findings.build_report         assemble ReadinessReport; internally
+                                   calls build_release_decision
+                                   ({blocked, insufficient_evidence,
+                                    review_required, passed} +
+                                   contribution_rules[] audit); populates
                                    agent_summary + policy_audit + privacy_audit
                                      ↓
 apply_capability_diff              mutate report from public tools
