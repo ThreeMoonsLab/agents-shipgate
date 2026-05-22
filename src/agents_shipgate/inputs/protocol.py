@@ -188,7 +188,9 @@ class AdapterRegistry:
         self._ensure_populated()
         return self._adapters.get(source_type)
 
-    def require(self, source_type: str) -> ToolSourceAdapter:
+    def require(
+        self, source_type: str, *, plugins_enabled: bool | None = None
+    ) -> ToolSourceAdapter:
         self._ensure_populated()
         adapter = self._adapters.get(source_type)
         if adapter is None:
@@ -203,8 +205,8 @@ class AdapterRegistry:
             # actionable on its own. The agent-mode next_actions
             # built by ``diagnose_unknown_adapter_source_type`` cover
             # the same paths in structured form.
-            plugins_enabled = _adapter_plugins_enabled(None)
-            if plugins_enabled:
+            discovery_enabled = _adapter_plugins_enabled(plugins_enabled)
+            if discovery_enabled:
                 remediation = (
                     "Either (a) install the third-party adapter "
                     "package that registers this source_type, or "

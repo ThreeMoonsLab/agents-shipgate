@@ -68,6 +68,30 @@ def _extract_agent_mode_error(output: str) -> dict | None:
     return None
 
 
+def _write_unknown_adapter_manifest(tmp_path: Path) -> Path:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "tools.json").write_text('{"tools": []}', encoding="utf-8")
+    manifest_path = workspace / "shipgate.yaml"
+    manifest_path.write_text(
+        """version: "0.1"
+project:
+  name: unknown-adapter-demo
+agent:
+  name: demo
+  declared_purpose: ["test unknown adapter routing"]
+environment:
+  target: local
+tool_sources:
+  - id: src
+    type: not_a_real_adapter_type
+    path: tools.json
+""",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 # --- entry-point synthesis -------------------------------------------------
 
 
@@ -1215,26 +1239,7 @@ def test_unknown_adapter_source_type_routes_to_install_enable_diagnostic(
     # Agent-mode JSON output is gated by env var, not a CLI flag.
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
 
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "tools.json").write_text('{"tools": []}', encoding="utf-8")
-    manifest_path = workspace / "shipgate.yaml"
-    manifest_path.write_text(
-        """version: "0.1"
-project:
-  name: unknown-adapter-demo
-agent:
-  name: demo
-  declared_purpose: ["test unknown adapter routing"]
-environment:
-  target: local
-tool_sources:
-  - id: src
-    type: not_a_real_adapter_type
-    path: tools.json
-""",
-        encoding="utf-8",
-    )
+    manifest_path = _write_unknown_adapter_manifest(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -1290,6 +1295,81 @@ tool_sources:
         f"rank-1 next_action.why must explain the third-party "
         f"discovery path; got {rank1.get('why')!r}"
     )
+
+
+def test_unknown_adapter_scan_no_plugins_override_routes_to_enable(
+    monkeypatch, tmp_path
+):
+    """Explicit ``--no-plugins`` must control unknown-source diagnostics
+    even when the environment enables plugin discovery.
+
+    Pre-fix: the scan correctly disabled discovery via
+    ``plugins_enabled=False``, but ``AdapterRegistry.require`` and the
+    diagnostic classifier recomputed state from the env only. With
+    ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` plus ``--no-plugins``, rank-1
+    incorrectly became ``pip install <third-party-adapter-package>``
+    instead of telling the user to re-enable discovery.
+    """
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    manifest_path = _write_unknown_adapter_manifest(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            str(manifest_path),
+            "--out",
+            str(tmp_path / "out"),
+            "--ci-mode",
+            "advisory",
+            "--no-plugins",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = _extract_agent_mode_error(result.output)
+    assert payload is not None, result.output
+    assert "AGENTS_SHIPGATE_ENABLE_PLUGINS" in payload["message"]
+    assert "removing `--no-plugins`" in payload["message"]
+    rank1 = payload["next_actions"][0]
+    assert rank1["kind"] == "command", rank1
+    assert "AGENTS_SHIPGATE_ENABLE_PLUGINS=1" in rank1["command"]
+
+
+def test_unknown_adapter_doctor_uses_install_enable_diagnostic(
+    monkeypatch, tmp_path
+):
+    """``doctor`` must use the same unknown-adapter diagnostic as scan."""
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    monkeypatch.delenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", raising=False)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    manifest_path = _write_unknown_adapter_manifest(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["doctor", "--config", str(manifest_path), "--json"],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = _extract_agent_mode_error(result.output)
+    assert payload is not None, result.output
+    rank1 = payload["next_actions"][0]
+    assert rank1["kind"] == "command", (
+        f"doctor must not route unknown third-party adapter types to "
+        f"edit shipgate.yaml; got {rank1!r}"
+    )
+    assert "AGENTS_SHIPGATE_ENABLE_PLUGINS=1" in rank1["command"]
 
 
 def test_require_error_message_is_user_facing(monkeypatch):

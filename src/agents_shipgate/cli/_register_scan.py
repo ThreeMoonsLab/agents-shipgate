@@ -214,7 +214,10 @@ def register(app: typer.Typer) -> None:
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)
             diagnostics = _diagnose_config_error(
-                config=config, workspace=workspace, exc=exc
+                config=config,
+                workspace=workspace,
+                exc=exc,
+                plugins_enabled=False if no_plugins else None,
             )
             flattened = top_next_actions(diagnostics)
             _emit_agent_mode_error(

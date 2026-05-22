@@ -9,7 +9,6 @@ from agents_shipgate.cli._helpers import _diagnose_config_error, _resolve_config
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import (
     diagnose_doctor,
-    diagnose_invalid_manifest,
     top_next_actions,
 )
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
@@ -51,23 +50,15 @@ def register(app: typer.Typer) -> None:
                 try:
                     payloads.append(inspect_sources(config_path=path, verbose=verbose))
                 except ConfigError as exc:
-                    # A specific discovered manifest failed to load. If the
-                    # file exists, route the agent to edit it directly
-                    # (INVALID-MANIFEST) — `init` refuses to overwrite, so
-                    # MISSING-MANIFEST's detect/init hint would loop. If
-                    # the file is genuinely absent (only possible in the
-                    # bare ``-c missing.yaml`` path, since discovery and
-                    # globbing only yield existing files), fall through to
-                    # the missing-manifest dispatch.
+                    # A specific discovered manifest failed to load. Route
+                    # through the same ConfigError classifier as scan so
+                    # unknown third-party adapter source types produce the
+                    # install/enable diagnostic instead of the generic
+                    # INVALID-MANIFEST "edit shipgate.yaml" recovery.
                     typer.echo(f"Config error: {exc}", err=True)
-                    if path.is_file():
-                        diagnostics = diagnose_invalid_manifest(
-                            path, message=str(exc)
-                        )
-                    else:
-                        diagnostics = _diagnose_config_error(
-                            config=str(path), workspace=None, exc=exc
-                        )
+                    diagnostics = _diagnose_config_error(
+                        config=str(path), workspace=None, exc=exc
+                    )
                     flattened = top_next_actions(diagnostics)
                     _emit_agent_mode_error(
                         "config_error",

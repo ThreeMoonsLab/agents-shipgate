@@ -401,6 +401,7 @@ def _load_inputs(
         verbose=verbose,
         registry=scan_registry,
         third_party_records=third_party_records,
+        plugins_enabled=plugins_enabled,
     )
     logger.debug(
         "loaded sources",
@@ -1322,6 +1323,7 @@ def inspect_sources(
         verbose=verbose,
         registry=scan_registry,
         third_party_records=third_party_records,
+        plugins_enabled=plugins_enabled,
     )
     adk_artifacts = artifact_bag.get("google_adk", GoogleAdkArtifacts)
     langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
@@ -1463,6 +1465,7 @@ def _load_sources(
     verbose: bool,
     registry: Any = None,
     third_party_records: dict[str, Any] | None = None,
+    plugins_enabled: bool | None = None,
 ) -> tuple[list[LoadedToolSource], ArtifactBag]:
     """Dispatch every adapter through the supplied ``registry``.
 
@@ -1505,6 +1508,11 @@ def _load_sources(
     lenient mode (or trips ``--strict-plugins`` exit 4 in strict
     mode). Built-in adapters keep the direct call shape — a built-in
     raising means the scanner itself is broken and must abort loudly.
+
+    ``plugins_enabled`` is forwarded into ``AdapterRegistry.require`` so
+    unknown third-party source-type errors reflect explicit CLI
+    overrides such as ``--no-plugins`` instead of only inspecting the
+    environment.
     """
     if registry is None:
         registry = REGISTRY
@@ -1521,7 +1529,7 @@ def _load_sources(
     # the dedup tie-break in _flatten_and_deduplicate_tools from
     # changing based on user-facing tool_sources ordering.
     for source in manifest.tool_sources:
-        adapter = registry.require(source.type)
+        adapter = registry.require(source.type, plugins_enabled=plugins_enabled)
         if adapter.scope != "per_source":
             continue
         third_party_record = third_party_records.get(source.type)

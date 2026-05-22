@@ -194,7 +194,11 @@ def _candidate_manifest_paths(
 
 
 def _diagnose_config_error(
-    *, config: str, workspace: Path | None, exc: ConfigError
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
 ) -> list:
     """Pick the right diagnostic for a ``ConfigError``.
 
@@ -218,7 +222,7 @@ def _diagnose_config_error(
     not edit the YAML).
     """
     unknown_adapter_diag = _maybe_diagnose_unknown_adapter(
-        config=config, workspace=workspace, exc=exc
+        config=config, workspace=workspace, exc=exc, plugins_enabled=plugins_enabled
     )
     if unknown_adapter_diag is not None:
         return unknown_adapter_diag
@@ -233,7 +237,11 @@ def _diagnose_config_error(
 
 
 def _maybe_diagnose_unknown_adapter(
-    *, config: str, workspace: Path | None, exc: ConfigError
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
 ) -> list | None:
     """v0.20 (PR #111 review follow-up #5): detect the
     ``AdapterRegistry.require`` unknown-source-type error and route
@@ -264,7 +272,7 @@ def _maybe_diagnose_unknown_adapter(
     # diagnostic's next_action set matches the failure mode.
     from agents_shipgate.inputs.protocol import _adapter_plugins_enabled
 
-    plugins_enabled = _adapter_plugins_enabled(None)
+    discovery_enabled = _adapter_plugins_enabled(plugins_enabled)
     # Locate a candidate manifest path to thread into the diagnostic's
     # `edit` action; fall back to the user-supplied config string if
     # nothing exists on disk (defensive — discovery shouldn't fire if
@@ -284,7 +292,7 @@ def _maybe_diagnose_unknown_adapter(
     return diagnose_unknown_adapter_source_type(
         candidate_path,
         source_type=source_type,
-        plugins_enabled=plugins_enabled,
+        plugins_enabled=discovery_enabled,
         message=message,
     )
 
