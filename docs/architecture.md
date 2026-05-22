@@ -113,7 +113,8 @@ apply_capability_diff
 core/findings.build_report         assemble ReadinessReport; populate
                                    agent_summary + policy_audit + privacy_audit
                                      ↓
-core/privacy.sanitize_report       redact secrets BEFORE any output write
+core/privacy piecemeal redaction    sanitize_model + redact_data on every public
+                                   field; stats → build_privacy_audit
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
@@ -224,10 +225,11 @@ Coverage:
   — every tool-emitting adapter produces byte-identical
   `ActionSurfaceFacts` JSON across runs.
 - **Public-surface drift** ([`tests/test_public_surface_contract.py`](../tests/test_public_surface_contract.py))
-  — 16 public surfaces (README, AGENTS.md, action.yml, llms.txt,
-  pyproject.toml, .well-known, skills, prompts) are parametrized-tested
-  for schema-version pins, naming canonicalization, positioning, and
-  gating-signal correctness.
+  — multiple parametrized surface sets: 10 `PUBLIC_SURFACES` (README,
+  AGENTS.md, llms.txt, .well-known, skills, prompts, docs/faq, etc.)
+  tested for naming canonicalization and positioning, plus a broader
+  `ACTION_PIN_FILES` superset adding CI examples and docs with
+  version-pin assertions.
 - **Property-based loader tests** (Hypothesis) in
   [`tests/test_property_loaders.py`](../tests/test_property_loaders.py)
   fuzz the input adapters with generated manifests and tool-source
@@ -270,10 +272,12 @@ for the full contract. Five axes:
    (no scan needed) — exit 6 on `SHIP-BASELINE-INTEGRITY-MISMATCH`
    in strict mode. See
    [`STABILITY.md` § Baseline Integrity](../STABILITY.md#baseline-integrity-v05).
-5. **Privacy redaction** — `core/privacy.sanitize_report` runs on
-   every emitted scan before any JSON/Markdown/SARIF/HTML/PDF/GitHub
-   step-summary write. Eight pattern families plus
-   sensitive-key forcing; output recorded in `report.privacy_audit`.
+5. **Privacy redaction** — piecemeal `core/privacy` functions
+   (`sanitize_model`, `redact_data`, `sanitize_findings`,
+   `sanitize_tools`) run on every public field before any
+   JSON/Markdown/SARIF/HTML/PDF/GitHub step-summary write. Eight
+   pattern families plus sensitive-key forcing; stats accumulated into
+   `build_privacy_audit` and recorded in `report.privacy_audit`.
    See [`STABILITY.md` § Privacy and redaction](../STABILITY.md#privacy-and-redaction).
 
 Sub-invariants the lint enforces: no `subprocess.run` on user code
@@ -386,7 +390,7 @@ correctly deciding relevance, installing the CLI, writing a valid
 respecting the autofix-boundary, and not false-positiving on
 docs-only repos.
 
-The CLI is `python -m harness.adoption`. Four subcommands:
+The CLI is `python -m harness.adoption`. Five subcommands:
 
 - **`smoke`** — mock-driver pipeline end-to-end. No live API calls.
   Used by PR CI for adoption-readiness regression.
@@ -399,6 +403,8 @@ The CLI is `python -m harness.adoption`. Four subcommands:
   `benchmark/results/<run-id>.csv`.
 - **`score`** — re-run detectors against a previous run's captured
   artifacts.
+- **`report --results-csv <path>`** — print a human-readable summary
+  of a results CSV without recomputing detectors.
 - **`sync-fixtures`** — materialize `benchmark/repos/*` from in-repo
   sources.
 
