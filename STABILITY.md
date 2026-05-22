@@ -361,7 +361,7 @@ If a contributor introduces a real need for one of the forbidden surfaces,
 update this section in the same PR. The intent is not "we tried to forbid X"
 — it is that X is *structurally absent* from the scanner's parsing path.
 
-Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`.
+Plugins are off by default. `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` enables loading; `--no-plugins` overrides at the CLI level. When loaded, every plugin is enumerated in `report.loaded_plugins`, and every third-party adapter (v0.20+) is enumerated in `report.loaded_adapters`.
 
 Plugin validation (v0.17+ / M5). Every entry point is checked against five load-time gates before it can run:
 
@@ -372,6 +372,21 @@ Plugin validation (v0.17+ / M5). Every entry point is checked against five load-
 5. **bad_floor** — `floor_severity` must not exceed `default_severity` on the same metadata block.
 
 Plugins that pass every gate run with the same trust as built-ins. Runtime validation additionally drops findings whose `Finding.check_id` does not match the plugin's declared `id`/`check_id`, drops non-`Finding` items, and captures any exception raised during the plugin call into `loaded_plugins[].runtime_errors`. The scan continues regardless; `--strict-plugins` elevates any non-`valid` plugin or non-empty `runtime_errors` to exit code 4.
+
+#### Third-party adapter discovery (v0.20+)
+
+Third-party adapters register through the `agents_shipgate.adapters` Python entry-point group and provide a class (or instance) satisfying the `ToolSourceAdapter` Protocol — a `source_type: str` ClassVar, a `scope: Literal["per_source", "per_scan"]` ClassVar, an `artifact_class: type | None` ClassVar, and a `load(source, base_dir, manifest)` method returning `LoadedAdapterResult`. Discovery is gated by the same `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` env var as plugin checks; `--no-plugins` forces it off.
+
+Every discovered entry point is checked against four load-time gates before it can register on the scan's `REGISTRY`:
+
+1. **load** — `entry_point.load()` must not raise. Captured as `validation_status="load_failed"`.
+2. **bad_protocol** — the loaded value (a class is instantiated with no args; an instance is used directly) must have all three ClassVars (`source_type` non-empty string, `scope`, `artifact_class`) and a callable `load` method accepting ≤ 3 required positional parameters. Captured as `validation_status="bad_protocol"`.
+3. **bad_scope** — `scope` must be exactly `"per_source"` or `"per_scan"`. Out-of-range values would be silently skipped by the dispatcher. Captured as `validation_status="bad_scope"`.
+4. **source_type_collision** — the adapter's `source_type` must not shadow a built-in (`mcp`, `openapi`, `langchain`, etc.) or another third-party adapter discovered earlier in the same scan. **This is the load-bearing trust rule** — without it, a malicious plugin could displace a built-in adapter and intercept every scan targeting that source type. Captured as `validation_status="source_type_collision"`.
+
+Adapters that pass every gate are registered on the live `REGISTRY` and dispatched by the same pass-1/pass-2 loop as built-ins. The dispatcher's existing `_absorb` artifact-class check fires `TypeError` if a third-party adapter declares one `artifact_class` but returns an artifact of another (the same artifact-smuggling-prevention rule built-ins are subject to). `run_validated_adapter` (in `inputs/adapter_validation.py`) additionally captures runtime exceptions and wrong-return-type failures into `loaded_adapters[].runtime_errors` for callers that wrap the invocation themselves.
+
+`--strict-plugins` (v0.17+) covers BOTH plugin and adapter failures from v0.20+ — any non-`valid` `loaded_plugins[]` row, any non-empty `loaded_plugins[].runtime_errors`, any non-`valid` `loaded_adapters[]` row, OR any non-empty `loaded_adapters[].runtime_errors` elevates the scan to exit code 4. Default behavior remains lenient — failures are recorded in the respective provenance arrays and the scan proceeds.
 
 ### Manifest Schema
 

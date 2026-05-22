@@ -44,12 +44,31 @@ def _apply_strict_plugins(
 
     if not strict_plugins:
         return exit_code
-    messages = strict_failure_messages(report.loaded_plugins)
+    # v0.20: --strict-plugins covers BOTH check-plugin failures AND
+    # third-party adapter failures. Both surface through the same
+    # extension entry-point trust model (M5 for checks, v0.20 for
+    # adapters) and a CI step that opts into strictness wants to fail
+    # on either. Adapter messages carry an ``adapter`` prefix in the
+    # human-readable line; plugin messages carry a ``plugin`` prefix.
+    from agents_shipgate.inputs.adapter_validation import (
+        strict_adapter_failure_messages,
+    )
+
+    plugin_messages = strict_failure_messages(report.loaded_plugins)
+    adapter_messages = strict_adapter_failure_messages(
+        getattr(report, "loaded_adapters", []) or []
+    )
+    messages = plugin_messages + adapter_messages
     if not messages:
         return exit_code
     prefix = f"{label}: " if label else ""
+    issue_kind = (
+        "plugin/adapter issue(s)"
+        if plugin_messages and adapter_messages
+        else ("adapter issue(s)" if adapter_messages else "plugin issue(s)")
+    )
     typer.echo(
-        f"{prefix}--strict-plugins: {len(messages)} plugin issue(s) detected; "
+        f"{prefix}--strict-plugins: {len(messages)} {issue_kind} detected; "
         "scan failed under strict-plugins policy.",
         err=True,
     )

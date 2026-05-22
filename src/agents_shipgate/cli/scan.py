@@ -183,6 +183,12 @@ class _LoadedInputs:
     artifact_warnings_list: list[str]      # from _artifact_warnings(artifact_bag)
     placeholder_warnings: list[str]   # from _manifest_placeholder_warnings
     policy_pack_warnings: list[str]   # from policy_packs.warnings
+    # v0.20: third-party adapter provenance from
+    # ``discover_third_party_adapters``. Both valid and invalid records
+    # appear here; ``loaded_adapters[].validation_status == "valid"``
+    # distinguishes them. Empty list when --no-plugins is set or no
+    # third-party adapters are installed.
+    loaded_adapters: list[dict[str, Any]]
     adk: GoogleAdkArtifacts | None
     langchain: LangChainArtifacts | None
     crewai: CrewAiArtifacts | None
@@ -273,6 +279,7 @@ class _SanitizedSurfaces:
     policy_audit: PolicyAudit
     loaded_policy_packs: list[Any]
     loaded_plugins: Any
+    loaded_adapters: Any  # v0.20: list[dict[str, Any]]; sanitized via redact_data
     diff_reference: ToolSurfaceDiffReference | None
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any
@@ -343,12 +350,28 @@ def _load_inputs(
     config_path: Path,
     policy_pack_paths: list[Path] | None,
     verbose: bool,
+    plugins_enabled: bool | None = None,
 ) -> _LoadedInputs:
     """Phase 2: dispatch every adapter through ``REGISTRY``, extract
     typed artifacts from the ``ArtifactBag``, aggregate source warnings
     (including CHANGE_ME placeholder warnings from the manifest text),
     load policy packs.
+
+    v0.20: also discovers third-party adapters from the
+    ``agents_shipgate.adapters`` entry-point group BEFORE
+    ``_load_sources`` runs, so the dispatcher resolves any
+    user-installed plugin source_types alongside built-ins. Discovery
+    is gated by ``plugins_enabled`` (mirroring the plugin-check flow
+    in ``checks/registry.py``).
     """
+    from agents_shipgate.inputs.protocol import discover_third_party_adapters
+
+    loaded_adapters: list[dict[str, Any]] = []
+    discover_third_party_adapters(
+        REGISTRY,
+        plugins_enabled=plugins_enabled,
+        loaded_adapters=loaded_adapters,
+    )
     loaded_sources, artifact_bag = _load_sources(manifest, base_dir, verbose=verbose)
     logger.debug(
         "loaded sources",
@@ -388,6 +411,7 @@ def _load_inputs(
         artifact_warnings_list=artifact_warnings_list,
         placeholder_warnings=placeholder_warnings,
         policy_pack_warnings=policy_pack_warnings,
+        loaded_adapters=loaded_adapters,
         adk=artifact_bag.get("google_adk", GoogleAdkArtifacts),
         langchain=artifact_bag.get("langchain", LangChainArtifacts),
         crewai=artifact_bag.get("crewai", CrewAiArtifacts),
@@ -791,6 +815,16 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="loaded_plugins[]",
     )
+    # v0.20: third-party adapter provenance. Same redaction shape as
+    # loaded_plugins[] — entry-point ``value`` strings and distribution
+    # metadata are first-party and don't carry secrets, but the audit
+    # envelope flows through redact_data for forward-compat with future
+    # adapter-emitted fields.
+    public_loaded_adapters = redact_data(
+        inputs.loaded_adapters,
+        stats=privacy_stats,
+        path="loaded_adapters[]",
+    )
 
     public_diff_reference = _sanitize_diff_reference(
         diffs.diff_reference,
@@ -970,6 +1004,7 @@ def _sanitize_for_output(
         policy_audit=public_policy_audit,
         loaded_policy_packs=public_loaded_policy_packs,
         loaded_plugins=public_loaded_plugins,
+        loaded_adapters=public_loaded_adapters,
         diff_reference=public_diff_reference,
         action_surface_facts=public_action_surface_facts,
         action_surface_diff=public_action_surface_diff,
@@ -1021,6 +1056,7 @@ def _build_final_report(
         new_findings_only=sanitized.baseline_summary is not None,
         loaded_policy_packs=sanitized.loaded_policy_packs,
         loaded_plugins=sanitized.loaded_plugins,
+        loaded_adapters=sanitized.loaded_adapters,
         source_warnings=sanitized.source_warnings,
         api_surface=sanitized.api_surface,
         anthropic_surface=sanitized.anthropic_surface,
@@ -1141,6 +1177,7 @@ def run_scan(
         config_path=config_path,
         policy_pack_paths=policy_pack_paths,
         verbose=verbose,
+        plugins_enabled=plugins_enabled,
     )
     tools_and_agent = _build_tools_and_agent(
         manifest=resolved.manifest,

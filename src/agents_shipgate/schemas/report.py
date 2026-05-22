@@ -624,6 +624,13 @@ class ReadinessReport(BaseModel):
     generated_reports: dict[str, str] = Field(default_factory=dict)
     loaded_policy_packs: list[LoadedPolicyPack] = Field(default_factory=list)
     loaded_plugins: list[dict[str, Any]] = Field(default_factory=list)
+    # v0.20: third-party adapter provenance. Mirrors loaded_plugins[] but
+    # for the agents_shipgate.adapters entry-point group. Always present
+    # on emitted scans (empty list when no third-party adapters discovered
+    # or when --no-plugins is set). Required + non-nullable on the wire;
+    # Python-Optional via default_factory so older test helpers
+    # constructing minimal reports keep working.
+    loaded_adapters: list[dict[str, Any]] = Field(default_factory=list)
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
     # v0.12: top-level agent summary. Deterministic projection of
