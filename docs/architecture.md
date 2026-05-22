@@ -16,8 +16,13 @@ src/agents_shipgate/
 │                      apply-patches, bootstrap, evidence-packet,
 │                      baseline {save, verify}, fixture, contract,
 │                      explain-finding, scenario suggest, self-check).
-│                      Each subcommand lives in `cli/_register_<name>.py`;
-│                      `cli/main.py` is an 89-line dispatcher.
+│                      Major subcommands live in `cli/_register_<name>.py`
+│                      (scan, init, doctor, explain, list-checks, contract,
+│                      baseline {save,verify}). Leaf commands (detect,
+│                      apply-patches, bootstrap, evidence-packet,
+│                      explain-finding, self-check) register inline in
+│                      `cli/main.py`. `fixture` and `scenario` are Typer
+│                      subapps. `cli/main.py` is an ~90-line dispatcher.
 ├── inputs/             Adapters that read user artifacts into normalized
 │                      tools. All adapters register a `ToolSourceAdapter`
 │                      class with `inputs/protocol.py:REGISTRY`. No
@@ -119,7 +124,7 @@ cli/scan.py:run_scan               entry-point orchestrator (1.6k lines;
 ## Schemas layer (v0.11+)
 
 Wire-shape Pydantic models live under `src/agents_shipgate/schemas/`
-(16 modules). `core/` holds processing logic — finding builders,
+(15 modules, see `Module map` above). `core/` holds processing logic — finding builders,
 resolver, baseline manager, privacy sanitizer, etc. The two layers
 are **AST-isolated**:
 
@@ -155,15 +160,30 @@ in `release_decision.{decision, blockers, review_items, …}`.
 | **Capability/Intent Diff** (v0.9) | Does observed capability match declared purpose? | `capability_facts[]` + `declared_intentions[]` + `misalignments[]` + `release_consequence` + `suggested_scenarios[]` | `## Capability <-> Intent Diff` |
 | **Action Surface Diff** (v0.16) | What can the agent do, under what controls? | `action_surface_facts` + `action_surface_diff` | `## Action Surface Diff` |
 | **Policy Audit** (v0.17) | Who weakened the gate, and why? | `policy_audit.severity_overrides_applied[]` | `## Policy Audit` |
-| **Evidence Matrix** (v0.6 packet) | Which release dimensions have coverage, gaps, or open review? | (packet) `evidence_matrix.rows[]` | Packet §2a (13 domain rows) |
+| **Evidence Matrix** (v0.6 packet) | Which release dimensions have coverage, gaps, or open review? | (packet) `evidence_matrix.rows[]` | Packet §1A (13 domain rows) |
 
 Tool surface = *registry* (what exists / what changed). Capability/intent
 = *governance* (does observed match declared). Action surface =
 *authorization* (what can the agent do, under what controls). Policy
 audit = *trust events on the gate itself*. Evidence matrix = *coverage
-map across the 13 readiness dimensions*. Only **Action Surface Diff**
-can set `Finding.blocks_release=True`; the other four are inputs to
-`release_decision` or explanatory only.
+map across the 13 readiness dimensions*. Among these reviewer lenses,
+only **Action Surface Diff** sets `Finding.blocks_release=True` — the
+other four are inputs to `release_decision` or explanatory only.
+
+Three additional release-blocking signal sources exist outside the
+lens taxonomy and route through the same `blocks_release` flag:
+
+- **Policy-pack rules** (`inputs/policy_packs.py`) emit findings with
+  `blocks_release=rule.block` — user-declared YAML rules with
+  `block: true` (the default) block the release.
+- **Baseline integrity** (`checks/baseline_integrity.py`) sets
+  `blocks_release=True` on `SHIP-BASELINE-INTEGRITY-MISMATCH`
+  findings when the scan's `--baseline-integrity-mode strict` (the
+  scan-time mismatch path). The advisory mode and `baseline verify`
+  strict mode use exit code 6 instead.
+- **Action-surface policies** declared in `manifest.action_surface.policies[]`
+  emit `SHIP-ACTION-POLICY-VIOLATION` at the user-declared severity
+  with `blocks_release` set by the lens.
 
 Three audit envelopes record trust events:
 
@@ -288,7 +308,7 @@ Four rules govern the packet contract:
    four things the packet does not prove: prompt robustness, runtime
    behavior, model correctness, adversarial resistance.
 4. **Reviewer-readable.** All ten sections are always present.
-   §2a (the v0.6 **evidence matrix**, 13 reviewer-domain rows) gives a
+   §1A (the v0.6 **evidence matrix**, 13 reviewer-domain rows) gives a
    compact coverage view across Inventory, Schema, Auth, Approval,
    Confirmation, Idempotency, Side effects, Memory isolation, HITL,
    Prompt/scope, Retry/timeout, Baseline debt, and Action-surface
@@ -354,16 +374,32 @@ the full checklist.
 `harness/adoption/` (not packaged in the wheel) drives realistic
 cold-agent flows across 8 repo archetypes (OpenAI Agents SDK, MCP,
 OpenAPI, LangChain, Google ADK, CrewAI, n8n, Codex plugin, plus a
-"no tools" negative control). Static replay, no LLM calls. Success
-measured against a 100-point rubric in
-[`agent-adoption-harness.md`](agent-adoption-harness.md): correctly
-deciding relevance, installing the CLI, writing a valid
+"no tools" negative control). Success measured against a 100-point
+rubric in [`agent-adoption-harness.md`](agent-adoption-harness.md):
+correctly deciding relevance, installing the CLI, writing a valid
 `shipgate.yaml`, reading `release_decision.decision`, wiring CI,
 respecting the autofix-boundary, and not false-positiving on
 docs-only repos.
 
-Run locally: `python -m harness.adoption smoke` or
-`python -m harness.adoption run --matrix archetype_slug=… prompt=…`.
+The CLI is `python -m harness.adoption`. Four subcommands:
+
+- **`smoke`** — mock-driver pipeline end-to-end. No live API calls.
+  Used by PR CI for adoption-readiness regression.
+- **`run --matrix <path.yaml> [--agent <names>] [--budget-usd <cap>]`**
+  — execute the full pipeline against the matrix file (defaults to
+  `benchmark/matrix.yaml`). May invoke real agent drivers depending on
+  matrix configuration; `--budget-usd` (default `20.0`) caps cumulative
+  cost and aborts on overrun. Per-cell scorecards land under
+  `.agents-private/adoption-sprint/` and a CSV row at
+  `benchmark/results/<run-id>.csv`.
+- **`score`** — re-run detectors against a previous run's captured
+  artifacts.
+- **`sync-fixtures`** — materialize `benchmark/repos/*` from in-repo
+  sources.
+
+For CI-safe quick checks, `python -m harness.adoption smoke` is the
+right entry. For matrix-wide runs, populate `benchmark/matrix.yaml` and
+invoke `run` directly.
 
 ## Stability contract
 
