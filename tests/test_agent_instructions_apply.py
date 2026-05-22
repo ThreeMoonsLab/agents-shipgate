@@ -24,6 +24,9 @@ from agents_shipgate.cli.discovery.agent_instructions.apply import (
     PR_TEMPLATE_UPPER,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+    codex_skill as codex_skill_module,
+)
+from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     cursor as cursor_module,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
@@ -153,6 +156,46 @@ def test_codex_skill_repairs_missing_file(tmp_path: Path) -> None:
     result = apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
     [outcome] = result.targets
     assert outcome.status == "updated"
+    assert missing.exists()
+
+
+def test_codex_skill_reports_migrate_and_repair_when_prior_file_and_missing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    skill = tmp_path / ".agents/skills/agents-shipgate/SKILL.md"
+    missing = tmp_path / ".agents/skills/agents-shipgate/references/recipes.md"
+    prior_text = "# prior shipped skill\n"
+    prior_sha = hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
+    monkeypatch.setattr(
+        codex_skill_module,
+        "PRIOR_RENDER_SHA256",
+        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
+    )
+    from agents_shipgate.cli.discovery.agent_instructions import renderers as _r
+
+    monkeypatch.setattr(
+        _r,
+        "CODEX_SKILL_PRIOR_RENDER_SHA256",
+        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
+    )
+    from agents_shipgate.cli.discovery.agent_instructions import apply as apply_module
+
+    monkeypatch.setattr(
+        apply_module,
+        "CODEX_SKILL_PRIOR_RENDER_SHA256",
+        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
+    )
+
+    skill.write_text(prior_text, encoding="utf-8")
+    missing.unlink()
+    result = apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "migrated_and_repaired"
+    assert skill.read_text(encoding="utf-8") == render_codex_skill_files()[
+        ".agents/skills/agents-shipgate/SKILL.md"
+    ]
     assert missing.exists()
 
 

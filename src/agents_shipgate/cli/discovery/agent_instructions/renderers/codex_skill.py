@@ -8,6 +8,8 @@ Snapshot tests keep the two copies in sync.
 
 from __future__ import annotations
 
+from agents_shipgate import __version__
+
 
 def render_files() -> dict[str, str]:
     """Return relative file path -> UTF-8 text for the Codex skill bundle."""
@@ -28,7 +30,14 @@ def render_bundle_text() -> str:
     return "\n".join(chunks)
 
 
+# SHA-256 hashes of every prior render, keyed by bundle-relative file path.
+# When a rendered file changes after the first shipped Codex skill release,
+# move that file's previous current-render hash into this dict so `init
+# --agent-instructions=codex-skill --write` can safely migrate v(N-1) files.
+# Leave the dict empty while there is no prior shipped Codex skill bundle.
 PRIOR_RENDER_SHA256: dict[str, tuple[str, ...]] = {}
+
+_ACTION_VERSION = __version__
 
 
 _SKILL_MD = """---
@@ -236,7 +245,7 @@ If `privacy_audit` is present, mention that default report redaction ran. If `in
 """
 
 
-_ADVISORY_CI_YML = """# Advisory PR comment.
+_ADVISORY_CI_YML = f"""# Advisory PR comment.
 # Recommended starting point: runs the scanner on every PR, posts a summary
 # comment, uploads the report as an artifact, and never fails the job.
 name: Agents Shipgate (advisory)
@@ -256,12 +265,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+      - uses: ThreeMoonsLab/agents-shipgate@v{_ACTION_VERSION}
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.10.0'
+          shipgate_version: '{_ACTION_VERSION}'
 """
 
 

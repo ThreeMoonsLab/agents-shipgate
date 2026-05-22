@@ -25,6 +25,8 @@ Status enum:
 - ``skipped_directory_template`` — the directory form
   ``.github/PULL_REQUEST_TEMPLATE/`` exists; v1 only handles the file form.
 - ``created_file_tree`` — created the repo-scoped Codex skill bundle.
+- ``migrated_and_repaired`` — rewrote prior-version Codex skill files and
+  recreated at least one missing file in the same pass.
 
 Every ``skipped_*`` status contributes 2 to the exit code (matching the
 ``skipped_existing_target`` precedent in :mod:`ci_workflow`); other statuses
@@ -460,6 +462,9 @@ def _apply_codex_skill(path: Path, workspace: Path) -> TargetOutcome:
     if not existing:
         status = "created_file_tree"
         message = f"Wrote Codex skill bundle to {path}"
+    elif prior and missing:
+        status = "migrated_and_repaired"
+        message = f"Updated Codex skill bundle and repaired missing file(s) at {path}"
     elif prior:
         status = "migrated"
         message = f"Updated Codex skill bundle at {path}"

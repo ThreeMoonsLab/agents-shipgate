@@ -15,7 +15,11 @@ The runner ([`../runner.md`](../runner.md)) tells the tester how to apply each.
 
 ## What's in this directory
 
-Each variant directory has a `README.md` (what to do for the tester) and a `*.template` file (the file to copy into the archetype). Templates have placeholders like `{{REPO_NAME}}` that the tester fills in.
+Each variant directory has a `README.md` and `overlay.yaml`. Most overlays copy
+`*.template` files into the archetype and substitute placeholders like
+`{{REPO_NAME}}`; generated overlays, such as `25-codex-skill`, read their
+canonical content from package renderers instead of keeping another template
+copy.
 
 Source for the AGENTS.md / Codex skill / CLAUDE.md / Cursor / shipgate.yaml snippets: [`docs/target-repo-agent-snippets.md`](../../docs/target-repo-agent-snippets.md).
 

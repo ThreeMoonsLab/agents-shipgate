@@ -27,11 +27,12 @@ class CodexDriver:
     name = "codex"
 
     def __init__(self, *, runner: Runner | None = None) -> None:
+        self._uses_default_runner = runner is None
         self._runner = runner or subprocess.run
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
         started = datetime.now(UTC)
-        if shutil.which("codex") is None and self._runner is subprocess.run:
+        if shutil.which("codex") is None and self._uses_default_runner:
             ended = datetime.now(UTC)
             return RunResult(
                 started_at=started,
@@ -83,6 +84,8 @@ class CodexDriver:
         summary_chunks: list[str] = []
         tokens_in = 0
         tokens_out = 0
+        cost_usd_estimate = 0.0
+        saw_cost_usd = False
         degraded = False
 
         for event in _parse_jsonl(proc.stdout):
@@ -93,6 +96,12 @@ class CodexDriver:
             if usage:
                 tokens_in += usage.get("input_tokens", 0)
                 tokens_out += usage.get("output_tokens", 0)
+            event_cost = _cost_usd_from_event(event)
+            if event_cost is not None:
+                # Codex reports per-turn usage today; if future event streams
+                # include multiple cumulative cost events, keep the largest.
+                cost_usd_estimate = max(cost_usd_estimate, event_cost)
+                saw_cost_usd = True
             event_error = _record_event(event, writer, summary_chunks)
             if event_error and error is None:
                 error = event_error
@@ -103,6 +112,17 @@ class CodexDriver:
             error = f"driver timed out after {inputs.timeout_s}s (per-cell cap)"
         elif proc.returncode != 0 and error is None:
             error = f"codex exec exited {proc.returncode}: {proc.stderr.strip()}"
+        if inputs.budget_usd is not None and (tokens_in or tokens_out) and not saw_cost_usd:
+            degraded = True
+            writer.transcript(
+                {
+                    "type": "driver_warning",
+                    "message": (
+                        "Codex emitted token usage without USD cost; harness "
+                        "--budget-usd cannot be enforced from this cell."
+                    ),
+                }
+            )
 
         if last_message.is_file():
             summary_text = last_message.read_text(encoding="utf-8").strip()
@@ -117,7 +137,7 @@ class CodexDriver:
             ended_at=ended,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
-            cost_usd_estimate=0.0,
+            cost_usd_estimate=cost_usd_estimate,
             degraded=degraded or bool(error),
             summary_text=summary_text,
             final_diff=diff,
@@ -126,6 +146,8 @@ class CodexDriver:
 
 
 def _codex_command(*, workspace: Path, last_message: Path, model: str | None) -> list[str]:
+    # Codex CLI's documented `exec` flags do not include a spend/budget flag.
+    # The harness budget can only consume cost reported back in JSON events.
     cmd = [
         "codex",
         "exec",
@@ -172,6 +194,31 @@ def _usage_from_event(event: dict[str, Any]) -> dict[str, int] | None:
         "input_tokens": int(usage.get("input_tokens") or 0),
         "output_tokens": int(usage.get("output_tokens") or 0),
     }
+
+
+def _cost_usd_from_event(event: dict[str, Any]) -> float | None:
+    containers: list[dict[str, Any]] = [event]
+    usage = event.get("usage")
+    if isinstance(usage, dict):
+        containers.append(usage)
+
+    for container in containers:
+        for key in (
+            "cost_usd_estimate",
+            "estimated_cost_usd",
+            "cost_usd",
+            "total_cost_usd",
+        ):
+            raw = container.get(key)
+            if raw is None:
+                continue
+            try:
+                cost = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if cost >= 0:
+                return cost
+    return None
 
 
 def _record_event(
@@ -224,15 +271,39 @@ def _optional_int(value: object) -> int | None:
 
 
 def _final_diff(workspace: Path) -> str:
-    subprocess.run(["git", "add", "-A"], cwd=workspace, check=False, capture_output=True)
     diff_proc = subprocess.run(
-        ["git", "diff", "--cached", "HEAD"],
+        ["git", "diff", "HEAD", "--"],
         cwd=workspace,
         capture_output=True,
         text=True,
         check=False,
     )
-    return diff_proc.stdout or ""
+    parts = [diff_proc.stdout] if diff_proc.stdout else []
+
+    untracked_proc = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=workspace,
+        capture_output=True,
+        text=False,
+        check=False,
+    )
+    for raw_path in untracked_proc.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        rel_path = raw_path.decode("utf-8", errors="surrogateescape")
+        file_diff = subprocess.run(
+            ["git", "diff", "--no-index", "--", os.devnull, rel_path],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if file_diff.stdout:
+            parts.append(file_diff.stdout)
+
+    if not parts:
+        return ""
+    return "\n".join(part.rstrip("\n") for part in parts) + "\n"
 
 
 __all__ = ["CodexDriver"]

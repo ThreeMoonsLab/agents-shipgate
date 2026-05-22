@@ -69,9 +69,10 @@ python -m harness.adoption run \
 
 The Codex driver writes `codex exec --json` events into the same transcript,
 command, and file-op streams used by the Claude driver. The current local
-driver records token counts when Codex emits usage but reports
-`cost_usd_estimate=0.0` because Codex may run through a ChatGPT plan rather
-than per-token API billing.
+driver records token counts when Codex emits usage. It records
+`cost_usd_estimate` only when Codex's JSON stream explicitly includes a USD
+cost field; otherwise the scorecard keeps `0.0` for schema compatibility, which
+means "unknown/not reported by Codex", not "known free".
 
 Optionally create a `.env.harness` with secrets the redactor should treat
 as literals to redact (already in `.gitignore`).
@@ -92,11 +93,16 @@ python -m harness.adoption run \
   --out=.agents-private/adoption-sprint
 ```
 
-`--budget-usd` hard-caps cumulative `cost_usd_estimate`. The CLI flag is
-the only knob — there is no env-var fallback, because env precedence
-could let a stale (possibly higher) value silently override a deliberately
-lower CLI cap, which is unsafe for paid runs. Operators who want an
-env-driven cap should pass the env var through the flag explicitly:
+`--budget-usd` hard-caps cumulative `cost_usd_estimate` when a driver can
+estimate spend. Claude Code enforces this mid-loop from its price table. Codex
+CLI does not expose a documented `codex exec` budget flag, so the Codex driver
+does not forward `--budget-usd`; it can only consume USD cost if Codex reports
+one in the JSON event stream, and marks the cell degraded when a budget was set
+but token usage arrived without cost. The harness CLI flag is the only knob —
+there is no env-var fallback, because env precedence could let a stale
+(possibly higher) value silently override a deliberately lower CLI cap, which
+is unsafe for paid runs. Operators who want an env-driven cap should pass the
+env var through the flag explicitly:
 
 ```bash
 python -m harness.adoption run --budget-usd "$SHIPGATE_HARNESS_BUDGET_USD"
