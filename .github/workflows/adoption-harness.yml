@@ -53,14 +53,14 @@ jobs:
             ${{ inputs.agent_filter && format('--agent={0}', inputs.agent_filter) || '' }}
       - name: Upload exit-criteria report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: exit-criteria
           path: .agents-private/adoption-sprint/*/exit_criteria.json
           if-no-files-found: warn
       - name: Upload CSV
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: results-csv
           path: benchmark/results/*.csv
