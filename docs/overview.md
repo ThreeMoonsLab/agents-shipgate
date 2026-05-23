@@ -32,9 +32,9 @@ surface before production-like permissions are granted.
 - Google ADK Python and YAML config
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
+- n8n workflow JSON and source-control stubs
 - OpenAI API artifacts
 - Codex plugin packages and marketplaces
-- n8n workflow JSON and source-control stubs
 
 ## Core references
 
