@@ -1749,7 +1749,12 @@ def test_supported_inputs_match_adapter_class_vars_bidirectionally():
     adapter_dir = REPO_ROOT / "src" / "agents_shipgate" / "inputs"
     pattern = re.compile(r'source_type:\s*ClassVar\[str\]\s*=\s*"([^"]+)"')
     adapter_ids: set[str] = set()
-    for path in adapter_dir.glob("*.py"):
+    # ``rglob`` so adapters in sub-packages (e.g. ``inputs/n8n/_adapter.py``
+    # after the v0.21 E8 decomposition) are still scanned. Skip
+    # ``__pycache__`` defensively.
+    for path in adapter_dir.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
         adapter_ids.update(
             pattern.findall(path.read_text(encoding="utf-8"))
         )

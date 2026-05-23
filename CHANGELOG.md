@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- **v0.21 — decompose `inputs/n8n.py` into `inputs/n8n/` package (E8 from
+  round-3 review).** The largest input adapter (1493 lines monolithic)
+  is now a 6-module package with per-concern boundaries; the public
+  surface (`N8nAdapter`, `load_n8n_artifacts`) is unchanged via
+  `__init__.py` re-exports. No behavior change — all 30 `tests/test_n8n.py`
+  cases pass byte-identical; M3 trust-lint passes; M5 plugin validation
+  passes; adapter-discovery contract test (PR #111) passes.
+  - `_common.py` (300 LOC) — constants (`N8N_NODE_TYPE_RE`,
+    `FROM_AI_RE`, `N8N_SOURCE_TYPES`, `BUILTIN_N8N_PREFIXES`,
+    `HTTP_METHODS`), `_NodeItem` and `_Edge` data classes, leaf string
+    / path / hash / redaction helpers, node-kind classification.
+  - `_secrets.py` (122 LOC) — secret scanning of parameters / notes /
+    `pinData` / `staticData` against the v0.19 global `SECRET_PATTERNS`
+    layer.
+  - `_auth_risk.py` (148 LOC) — credential references, `AuthInfo`
+    synthesis, risk-hint heuristics, HTTP path hint.
+  - `_tools.py` (492 LOC) — Tool extraction for the 5 flavours (ai,
+    workflow, code, http, mcp_client) + projected `mcp`, schema
+    extraction (`$fromAI(...)` macro, `inputSchema`, `outputSchema`,
+    `parameters.fields`), MCP Client Tool selection mode, tool-artifact
+    recording.
+  - `_workflows.py` (464 LOC) — workflow file loading, shape detection,
+    `_extract_workflow` orchestrator, connection-graph edges, node-record
+    builders, dynamic-surface emission.
+  - `_adapter.py` (249 LOC) — `N8nAdapter`, `load_n8n_artifacts`, and
+    auxiliary loaders (`_load_inventory_ref`, `_load_credential_stubs`,
+    `_load_structured_refs`, `_artifact_paths`, `_credential_entries`).
+  - Dependency direction is a DAG at module-load time:
+    `_common ← _secrets, _auth_risk ← _tools ← _workflows ← _adapter`.
+    `_tools` calls back into `_workflows` for record builders and
+    dynamic-surface emission via late imports inside the call sites
+    that need them — keeps the static import graph one-way.
+  - `tests/test_public_surface_contract.py::test_supported_inputs_match_adapter_class_vars_bidirectionally`
+    updated from `glob("*.py")` to `rglob("*.py")` so adapter
+    sub-packages are scanned (the contract test was written when n8n
+    was a single file).
+  - Closes round-3 evolution item E8; brings the largest input adapter
+    in line with the typical adapter file size (mcp.py 148, openapi.py
+    343, langchain.py 305). Largest sub-module now is `_tools.py` at
+    492 LOC.
+
 - **v0.20 — third-party adapter entry-point discovery (E4 from round-3 review).**
   Opens the same extension surface for adapters (input loaders) that M5
   already opened for check plugins. Discovery is gated by the existing
