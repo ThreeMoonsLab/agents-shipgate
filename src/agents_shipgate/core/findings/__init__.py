@@ -19,6 +19,7 @@ from .mutations import (
     apply_severity_overrides,
     apply_suppressions,
 )
+from .provenance import PROVENANCE_KIND_ORDER, provenance_kind_counts
 from .remediation import (
     _REMEDIATION_FALLBACK,
     _derive_from_patches,
@@ -49,6 +50,7 @@ from .summaries import (
 
 __all__ = [
     "FINGERPRINT_EXCLUDED_EVIDENCE_KEYS",
+    "PROVENANCE_KIND_ORDER",
     "SEVERITY_ORDER",
     "_REMEDIATION_FALLBACK",
     "_action_surface_changes",
@@ -79,6 +81,7 @@ __all__ = [
     "dedupe_findings",
     "derive_agent_action",
     "finding_fingerprint",
+    "provenance_kind_counts",
     "recommended_actions",
     "summarize_findings",
     "summarize_tool_surface",

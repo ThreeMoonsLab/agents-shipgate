@@ -13,6 +13,7 @@ from agents_shipgate import __version__
 from agents_shipgate.checks import registry
 from agents_shipgate.cli._helpers import _safe_output_name
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -369,6 +370,134 @@ def test_cli_explain_json_returns_full_metadata():
     assert payload["id"] == "SHIP-POLICY-APPROVAL-MISSING"
     for key in ("category", "default_severity", "description"):
         assert key in payload
+
+
+def test_cli_findings_json_filters_by_provenance_kind(tmp_path):
+    run_scan(
+        config_path=Path("samples/support_refund_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "findings",
+            "--from",
+            str(tmp_path / "report.json"),
+            "--provenance-kind",
+            "keyword_heuristic,regex_heuristic",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["filters"]["provenance_kind"] == [
+        "keyword_heuristic",
+        "regex_heuristic",
+    ]
+    assert payload["filters"]["include_suppressed"] is False
+    assert payload["summary"]["matched_findings"] > 0
+    assert "suppressed_omitted" in payload["summary"]
+    assert "suppressed_excluded" not in payload["summary"]
+    assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] > 0
+    assert {
+        finding["provenance_kind"] for finding in payload["findings"]
+    } <= {"keyword_heuristic", "regex_heuristic"}
+    for finding in payload["findings"]:
+        assert {
+            "id",
+            "fingerprint",
+            "check_id",
+            "severity",
+            "title",
+            "tool_name",
+            "confidence",
+            "provenance_kind",
+            "agent_action",
+            "suppressed",
+            "source",
+        } <= set(finding)
+
+
+def test_cli_findings_text_outputs_summary(tmp_path):
+    run_scan(
+        config_path=Path("samples/support_refund_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "findings",
+            "--from",
+            str(tmp_path / "report.json"),
+            "--provenance-kind",
+            "keyword_heuristic",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Scope: active findings only" in result.output
+    assert "Provenance counts:" in result.output
+    assert "keyword_heuristic:" in result.output
+    assert "SHIP-" in result.output
+
+
+def test_cli_findings_invalid_provenance_kind_exits_three(tmp_path):
+    run_scan(
+        config_path=Path("samples/support_refund_agent/shipgate.yaml"),
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "findings",
+            "--from",
+            str(tmp_path / "report.json"),
+            "--provenance-kind",
+            "made_up",
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "unsupported --provenance-kind value" in result.output
+
+
+def test_cli_findings_pre_v15_report_agent_mode_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    old_report = tmp_path / "report.json"
+    old_report.write_text(
+        json.dumps({"report_schema_version": "0.14", "findings": []}),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["findings", "--from", str(old_report), "--json"],
+    )
+
+    assert result.exit_code == 3
+    assert ">= 0.15" in result.output
+    json_lines = [
+        line for line in (result.output or "").splitlines() if line.startswith("{")
+    ]
+    assert json_lines
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "input_parse_error"
+    assert payload["next_actions"][0]["command"] == (
+        "agents-shipgate scan -c shipgate.yaml --format json"
+    )
 
 
 def test_cli_agent_mode_emits_structured_error_on_missing_config(tmp_path, monkeypatch):

@@ -253,7 +253,7 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
-- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for filtering heuristic-only findings)
+- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
 - `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
 - `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 - `release_decision.contribution_rules[]` (v0.17+, per-finding audit of how each finding contributed to the decision; one row per `report.findings` entry, with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`)
@@ -406,6 +406,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate findings` | `--from`, `--provenance-kind`, `--include-suppressed`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |

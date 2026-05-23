@@ -35,7 +35,11 @@ def render_bundle_text() -> str:
 # move that file's previous current-render hash into this dict so `init
 # --agent-instructions=codex-skill --write` can safely migrate v(N-1) files.
 # Leave the dict empty while there is no prior shipped Codex skill bundle.
-PRIOR_RENDER_SHA256: dict[str, tuple[str, ...]] = {}
+PRIOR_RENDER_SHA256: dict[str, tuple[str, ...]] = {
+    ".agents/skills/agents-shipgate/SKILL.md": (
+        "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a",
+    ),
+}
 
 _ACTION_VERSION = __version__
 
@@ -69,6 +73,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 - Existing manifest: run `agents-shipgate scan -c shipgate.yaml --suggest-patches --format json`.
 - First GitHub CI: copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.
 - Explain one finding: run `agents-shipgate explain-finding <fingerprint> --from agents-shipgate-reports/report.json --json`.
+- Triage heuristic findings: run `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic --json`.
 
 ## Boundaries
 

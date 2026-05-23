@@ -5,7 +5,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
-from agents_shipgate.core.findings.constants import SEVERITY_ORDER
+from agents_shipgate.core.findings import (
+    PROVENANCE_KIND_ORDER,
+    SEVERITY_ORDER,
+    provenance_kind_counts,
+)
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.schemas.report import (
     DeclaredIntention,
@@ -98,6 +102,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
         ]
     )
     _append_top_findings(lines, report.findings)
+    _append_finding_provenance(lines, report.findings)
     _append_capability_intent_diff(lines, report)
     _append_baseline(lines, report)
     _append_recommended_actions(lines, report.recommended_actions)
@@ -252,6 +257,34 @@ def _append_top_findings(lines: list[str], findings: list[Finding]) -> None:
     if any(finding.check_id in HITL_EVIDENCE_CHECKS for finding in active[:5]):
         lines.append(_safe_markdown_text(HITL_RUNTIME_CONTROL_DISCLAIMER))
         lines.append("")
+
+
+def _append_finding_provenance(lines: list[str], findings: list[Finding]) -> None:
+    counts = provenance_kind_counts(findings)
+    suppressed = sum(1 for finding in findings if finding.suppressed)
+    lines.extend(
+        [
+            "## Finding Provenance",
+            "",
+            (
+                "Reviewer triage signal only. Provenance kind does not "
+                "change severity, release decision, fingerprints, baselines, "
+                "or CI exit codes."
+            ),
+            "",
+            "| Provenance kind | Active findings |",
+            "| --- | ---: |",
+        ]
+    )
+    for kind in PROVENANCE_KIND_ORDER:
+        lines.append(f"| `{kind}` | {counts[kind]} |")
+    lines.extend(
+        [
+            "",
+            f"Suppressed findings excluded: {suppressed}",
+            "",
+        ]
+    )
 
 
 def _append_capability_intent_diff(

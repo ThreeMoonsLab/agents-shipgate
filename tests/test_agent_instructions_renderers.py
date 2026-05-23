@@ -39,7 +39,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9"
+        "7fa56f4fd9668e2136ea540986733f99bdf75c7c72a2e5c3fcb9fdeb73e143b2"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
@@ -71,7 +71,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a"
+        "920b60dcfeacb5eac55936d82f31796eb9a88bcec0e910fa56c278018c597772"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
         "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210"
