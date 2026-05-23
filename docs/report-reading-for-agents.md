@@ -66,6 +66,17 @@ Per-finding stable fields (see [`AGENTS.md`](../AGENTS.md) Task 2 for the full l
 
 Group by `severity` to summarize; cite `check_id` so the user can run `agents-shipgate explain <check_id>` for rationale.
 
+For reviewer triage by source reliability, filter on
+`findings[].provenance_kind` with the dedicated command:
+
+```bash
+agents-shipgate findings --from agents-shipgate-reports/report.json \
+  --provenance-kind keyword_heuristic,regex_heuristic --json
+```
+
+This is not a gate signal. It does not change severity, release decisions,
+fingerprints, baselines, or CI exit codes.
+
 ### Step 4 · Per-finding autofix fields (v0.7+)
 
 For every active finding, inspect:

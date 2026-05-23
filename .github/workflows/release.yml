@@ -31,10 +31,12 @@ jobs:
           python -m pip install "uv==0.11.7"
 
       - name: Lint and test
+        # v0.21 (E7): coverage threshold bumped from 75 → 85, matching
+        # CI gate so release cannot bypass the tighter floor.
         run: |
           python -m ruff check .
           python -m compileall -q src tests
-          python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=75
+          python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
       - name: Build package
         run: |

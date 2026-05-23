@@ -68,6 +68,20 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
    Evidence: tool\_scopes=\['support:kb:read'\]; manifest\_scopes=\['zendesk:tickets:read', 'zendesk:tickets:write', 'stripe:\*'\]; missing\_scopes=\['support:kb:read'\]
    Recommendation: Add the required scopes for support.search\_kb to permissions.scopes or narrow the tool's declared auth requirements.
 
+## Finding Provenance
+
+Reviewer triage signal only. Provenance kind does not change severity, release decision, fingerprints, baselines, or CI exit codes.
+
+| Provenance kind | Active findings |
+| --- | ---: |
+| `static_declaration` | 12 |
+| `ast_extraction` | 0 |
+| `keyword_heuristic` | 6 |
+| `regex_heuristic` | 0 |
+| `policy_pack` | 0 |
+
+Suppressed findings excluded: 0
+
 ## Capability <-> Intent Diff
 
 Agent intent:

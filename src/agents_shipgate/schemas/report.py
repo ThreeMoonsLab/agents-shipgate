@@ -49,7 +49,7 @@ class Finding(BaseModel):
     # pass it explicitly. Third-party plugin checks that construct
     # `Finding(...)` directly without setting this field are coerced
     # to `"static_declaration"` by `annotate_remediation` in
-    # core/findings.py so the wire schema's required + non-nullable
+    # core/findings/remediation.py so the wire schema's required + non-nullable
     # enum stays satisfied — plugins that want a more specific label
     # should set the field themselves. Required + non-nullable on the
     # wire via scripts/generate_schemas.py.
@@ -78,7 +78,7 @@ class Finding(BaseModel):
     # (per C4).
     patches: list[Patch] | None = None
     # v0.7 remediation enrichment. Populated by `annotate_remediation`
-    # in core/findings.py during build_report (regardless of
+    # in core/findings/remediation.py during build_report (regardless of
     # --suggest-patches), so any consumer reading `report.json` gets
     # remediation policy without opting into patches.
     #

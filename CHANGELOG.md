@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **v0.21 — CI coverage gate raised from 75% → 85% (E7 from round-4 review).**
+  Both `.github/workflows/ci.yml` and `.github/workflows/release.yml` now
+  pass `--cov-fail-under=85`. Aggregate coverage on `main` at the time of
+  the bump is ~88%, so the gate is +10pp tighter with ~3pp headroom for
+  day-to-day movement. The bump catches the next time a refactor lands
+  materially less-covered code without corresponding tests. No source
+  change required to land — the gate is simply closer to the actual
+  signal. Per-file coverage is not enforced; the aggregate floor only
+  rises in step with what's already proven on `main`.
+
 - **Adoption kit rendering externalized.** Codex and Claude Code
   `--agent-instructions` skill bundles now render from packaged
   `adoption-kits/` files instead of Python string constants. Downstream repos

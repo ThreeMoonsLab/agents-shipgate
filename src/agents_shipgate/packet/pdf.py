@@ -47,7 +47,7 @@ def render_packet_pdf(packet: EvidencePacket, out_path: Path) -> Path:
 def is_pdf_available() -> bool:
     """Probe whether the PDF renderer is importable on this install.
 
-    Used by ``cli/scan.py`` during the path-planning phase so
+    Used by ``cli/scan/output_planning.py`` during the path-planning phase so
     ``report.generated_reports`` only references files that will
     actually be written.
     """

@@ -24,6 +24,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.findings import provenance_kind_counts
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF,
@@ -1085,6 +1086,34 @@ def _build_not_proven(
         "Memory isolation is not modeled by the v0.1 manifest schema; "
         "no static evidence is available."
     ]
+    provenance_counts = provenance_kind_counts(
+        findings,
+        include_suppressed=False,
+    )
+    heuristic_count = (
+        provenance_counts["keyword_heuristic"]
+        + provenance_counts["regex_heuristic"]
+    )
+    if heuristic_count:
+        additional.append(
+            f"{heuristic_count} active finding(s) came from heuristic "
+            "provenance "
+            f"(keyword_heuristic={provenance_counts['keyword_heuristic']}, "
+            f"regex_heuristic={provenance_counts['regex_heuristic']}); "
+            "review the finding evidence before acting."
+        )
+    if provenance_counts["ast_extraction"]:
+        additional.append(
+            f"{provenance_counts['ast_extraction']} active finding(s) came "
+            "from AST-extracted tool surfaces; confirm against the source "
+            "code when extraction precision matters."
+        )
+    if provenance_counts["policy_pack"]:
+        additional.append(
+            f"{provenance_counts['policy_pack']} active finding(s) came "
+            "from external policy packs; review the pack rule and its "
+            "declared confidence before acting."
+        )
     return NotProvenSection(
         headline=PACKET_NON_PROOF_HEADLINE,
         unconditional=[

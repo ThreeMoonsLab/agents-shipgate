@@ -8,7 +8,7 @@ flow through ``assign_finding_ids`` and ``annotate_remediation`` before
 hitting the report.
 
 Unlike checks in ``BUILTIN_CHECKS``, this module is not invoked by
-``run_checks``. It is called directly from :mod:`agents_shipgate.cli.scan`
+``run_checks``. It is called directly from :mod:`agents_shipgate.cli.scan.sanitization`
 after ``apply_baseline`` because the integrity check needs the loaded
 baseline and audit log paths, not the tool context.
 

@@ -14,7 +14,7 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.findings import _canonicalize_for_fingerprint
+from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 from agents_shipgate.schemas.baseline import BaselineFile
