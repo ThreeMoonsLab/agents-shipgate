@@ -569,6 +569,53 @@ class PrivacyAudit(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+# v0.21: stable list of ``provenance_kind`` values that ``--no-heuristics``
+# excludes from the active finding set. Pinned as a module-level constant
+# so downstream consumers (tests, docs, the contract command) can read the
+# same source of truth. ``static_declaration`` and ``ast_extraction``
+# describe how the *finding* was produced from declared/parsed-shape data;
+# ``keyword_heuristic`` and ``regex_heuristic`` describe token/regex
+# matches that are best-effort by nature. ``policy_pack`` stays in scope
+# because the rule body is declared, even though the trigger may pattern-
+# match — operators who load a policy pack want its findings.
+NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS: tuple[str, ...] = (
+    "keyword_heuristic",
+    "regex_heuristic",
+)
+
+
+class HeuristicsFilter(BaseModel):
+    """v0.21: top-level envelope describing the ``--no-heuristics``
+    filter pass.
+
+    Emitted on every report regardless of whether the flag was set, so
+    consumers always read the same shape. When the flag is unset,
+    ``enabled=False`` and the count fields are zero — the active
+    finding set is unchanged. When the flag is set, every finding whose
+    ``provenance_kind`` is in ``excluded_provenance_kinds`` is marked
+    ``suppressed=True`` with ``suppression_reason="filtered by
+    --no-heuristics"`` BEFORE the release decision is built, so heuristic
+    findings can no longer gate release. Filtered findings stay in
+    ``findings[]`` for transparency; the audit envelope here records
+    aggregate counts.
+
+    Earns the contract weight of ``Finding.provenance_kind`` (shipped
+    v0.15) by giving it a first-class consumer. Same shape pattern as
+    ``PrivacyAudit``: an envelope that proves the filter ran and tells
+    a reviewer/agent which findings were excluded and why.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    excluded_provenance_kinds: list[str] = Field(default_factory=list)
+    filtered_finding_count: int = 0
+    # Per-provenance-kind breakdown of filtered counts so a reviewer
+    # can tell "we filtered N regex_heuristic findings and M
+    # keyword_heuristic findings" without scanning ``findings[]``.
+    filtered_by_kind: dict[str, int] = Field(default_factory=dict)
+
+
 class ReadinessReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -582,7 +629,7 @@ class ReadinessReport(BaseModel):
     # (manifest YAML path + line) for high-risk findings whose
     # triggering evidence also lives in the manifest. Old consumers
     # ignore the new fields.
-    report_schema_version: str = "0.20"
+    report_schema_version: str = "0.21"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -648,6 +695,14 @@ class ReadinessReport(BaseModel):
     # envelope after the default-on redaction pass has sanitized public
     # outputs. Optional at Python level for older fixtures.
     privacy_audit: PrivacyAudit | None = None
+    # v0.21: top-level heuristics-filter envelope. Required + non-nullable
+    # on the wire (mirrors privacy_audit shape). When enabled=False the
+    # active finding set is unchanged; when enabled=True every finding
+    # whose ``provenance_kind`` is in ``excluded_provenance_kinds`` has
+    # been marked ``suppressed=True`` before the release decision was
+    # built. Optional at the Python level for older test helpers that
+    # construct minimal reports.
+    heuristics_filter: HeuristicsFilter | None = None
     # v0.20: top-level reviewer summary. Deterministic projection of
     # the reviewer lens surfaces (tool_surface_diff, capability/intent
     # diff, action_surface_diff, evidence matrix) and audit envelopes

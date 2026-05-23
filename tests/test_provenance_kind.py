@@ -26,7 +26,7 @@ SAMPLES = [
     Path("samples/simple_crewai_agent/shipgate.yaml"),
 ]
 
-CURRENT_SCHEMA = Path("docs/report-schema.v0.20.json")
+CURRENT_SCHEMA = Path("docs/report-schema.v0.21.json")
 
 
 def test_provenance_kind_enum_values():

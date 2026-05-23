@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-05-22; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.20`, packet schema `v0.6`.
+2026-05-23; auto-checked against `agents-shipgate contract --json`:
+runtime contract `1`, report schema `v0.21`, packet schema `v0.6`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -119,6 +119,12 @@ core/findings.build_report         assemble ReadinessReport; internally
                                      ↓
 apply_capability_diff              mutate report from public tools
                                      ↓
+apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
+                                   mark heuristic-provenance findings
+                                   suppressed (filter runs after
+                                   manifest suppressions so user
+                                   intent wins on overlap)
+                                     ↓
 build_reviewer_summary             populate v0.20 reviewer_summary from
                                    final lens/audit data
                                      ↓
@@ -222,6 +228,17 @@ gate-classification audit.
 For reviewer triage, `reviewer_summary` (v0.20) mirrors
 `release_decision.decision` and projects lens/audit activity counts plus
 `first_recommended_surface`.
+
+For security/GRC reviewers who want declared-only findings,
+`agents-shipgate scan --no-heuristics` (v0.21) marks
+`keyword_heuristic` and `regex_heuristic` findings as suppressed
+before the release decision is built. Filtered findings stay in
+`findings[]` for audit but no longer gate release. The
+`report.heuristics_filter` envelope records `enabled`,
+`excluded_provenance_kinds`, `filtered_finding_count`, and a
+per-kind breakdown — the audit pass for the filter. Earns the
+contract weight of `Finding.provenance_kind` (shipped v0.15) by
+giving it a first-class CLI consumer.
 
 ## Determinism
 
@@ -439,7 +456,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.20"`; older schemas frozen as
+  `report_schema_version: "0.21"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.6"`; older schemas frozen.

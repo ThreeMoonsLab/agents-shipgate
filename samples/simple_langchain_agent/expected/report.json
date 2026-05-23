@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.20",
+  "report_schema_version": "0.21",
   "run_id": "agents_shipgate_e6307029b0ddfba5",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
@@ -345,6 +345,7 @@
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
+  "loaded_adapters": [],
   "tool_inventory": [
     {
       "name": "lookup_case",
@@ -408,6 +409,15 @@
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
       "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted."
     ]
+  },
+  "heuristics_filter": {
+    "enabled": false,
+    "excluded_provenance_kinds": [
+      "keyword_heuristic",
+      "regex_heuristic"
+    ],
+    "filtered_finding_count": 0,
+    "filtered_by_kind": {}
   },
   "reviewer_summary": {
     "verdict": "insufficient_evidence",

@@ -22,10 +22,12 @@ from agents_shipgate.schemas.manifest import (
 )
 from agents_shipgate.schemas.patches import ManualPatch
 from agents_shipgate.schemas.report import (
+    NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS,
     AgentSummary,
     AgentSummaryAction,
     BaselineSummary,
     Finding,
+    HeuristicsFilter,
     LoadedPolicyPack,
     PolicyAudit,
     PrivacyAudit,
@@ -114,6 +116,71 @@ def apply_suppressions(
             finding.suppressed = True
             finding.suppression_reason = match.reason
     return findings
+
+
+# v0.21: stable, reviewer-readable suppression reason for the
+# ``--no-heuristics`` filter. Distinguishable from manifest-driven
+# suppressions (which carry user-provided reason text) so downstream
+# tools and reviewers can filter on it without parsing free-form prose.
+NO_HEURISTICS_SUPPRESSION_REASON = "filtered by --no-heuristics"
+
+
+def apply_no_heuristics_filter(
+    findings: list[Finding],
+    *,
+    enabled: bool,
+) -> HeuristicsFilter:
+    """v0.21: filter heuristic-provenance findings out of the active set
+    when ``--no-heuristics`` is enabled.
+
+    Returns a ``HeuristicsFilter`` audit envelope describing the pass —
+    same shape regardless of ``enabled`` so consumers always read the
+    same field set. When ``enabled=False`` the envelope reports zero
+    activity and no findings are mutated.
+
+    Filter semantics (locked in v0.21):
+      * ``static_declaration`` — KEEP (manifest / MCP / OpenAPI schema)
+      * ``ast_extraction``     — KEEP (parsed shape from user Python)
+      * ``policy_pack``        — KEEP (externally loaded rule, explicit)
+      * ``keyword_heuristic``  — FILTER (token-list match)
+      * ``regex_heuristic``    — FILTER (regex match, e.g. secrets/injection)
+
+    The exact filter set lives in
+    ``schemas.report.NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS`` and is
+    pinned by ``tests/test_no_heuristics.py`` so the contract surface
+    cannot drift silently.
+
+    Findings whose ``provenance_kind`` is in the excluded set are
+    mutated in place: ``suppressed=True`` and
+    ``suppression_reason=NO_HEURISTICS_SUPPRESSION_REASON``. Manifest-
+    driven suppressions that already matched the finding are preserved
+    (the existing reason wins, since the user explicitly opted in to
+    that suppression). The filter never un-suppresses a finding.
+    """
+    excluded = set(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS)
+    envelope = HeuristicsFilter(
+        enabled=enabled,
+        excluded_provenance_kinds=list(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS),
+    )
+    if not enabled:
+        return envelope
+
+    counter: Counter[str] = Counter()
+    for finding in findings:
+        if finding.provenance_kind not in excluded:
+            continue
+        counter[finding.provenance_kind] += 1
+        if finding.suppressed:
+            # Preserve manifest-driven suppression reason verbatim — the
+            # user already opted in to that decision. The audit envelope
+            # still counts the finding so the reviewer sees the overlap.
+            continue
+        finding.suppressed = True
+        finding.suppression_reason = NO_HEURISTICS_SUPPRESSION_REASON
+
+    envelope.filtered_finding_count = sum(counter.values())
+    envelope.filtered_by_kind = dict(counter)
+    return envelope
 
 
 def apply_severity_overrides(

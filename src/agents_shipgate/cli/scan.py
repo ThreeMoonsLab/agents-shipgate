@@ -43,6 +43,7 @@ from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.findings import (
     annotate_remediation,
+    apply_no_heuristics_filter,
     apply_severity_overrides,
     apply_suppressions,
     assign_finding_ids,
@@ -229,6 +230,10 @@ class _ChecksDecision:
     override_resolution: Any  # SeverityOverrideResolution
     loaded_plugins: list[dict[str, str | None]]
     context: ScanContext
+    # v0.21: audit envelope describing the --no-heuristics filter pass.
+    # Always populated (enabled=False with zero counts when the flag is
+    # off) so the report shape is stable.
+    heuristics_filter: Any = None  # HeuristicsFilter
 
 
 @dataclass(frozen=True)
@@ -287,6 +292,12 @@ class _SanitizedSurfaces:
     tool_surface_diff: Any
     baseline_summary: Any
     privacy_audit: Any
+    # v0.21: --no-heuristics audit envelope. Always populated (with
+    # enabled=False and zero counts when the flag is off) so the
+    # downstream report shape is stable. Threaded straight from
+    # _ChecksDecision; no sanitization needed (the envelope contains
+    # only count fields and constant strings).
+    heuristics_filter: Any
 
 
 # -----------------------------------------------------------------------------
@@ -550,6 +561,7 @@ def _run_checks_and_decide(
     diffs: _DiffReferences,
     plugins_enabled: bool | None,
     suggest_patches: bool,
+    no_heuristics: bool = False,
 ) -> _ChecksDecision:
     """Phase 5: build internal action-surface facts, run all checks
     (built-in + plugin + policy-pack + action-surface policies),
@@ -622,6 +634,13 @@ def _run_checks_and_decide(
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
+    # v0.21: --no-heuristics filter runs AFTER manifest suppressions so a
+    # finding the user explicitly suppressed keeps the user's reason
+    # (manifest intent wins). The filter only flips findings that are
+    # still un-suppressed at this point.
+    heuristics_filter = apply_no_heuristics_filter(
+        findings, enabled=no_heuristics
+    )
     if suggest_patches:
         _attach_patches(
             findings,
@@ -655,6 +674,7 @@ def _run_checks_and_decide(
         override_resolution=override_resolution,
         loaded_plugins=loaded_plugins,
         context=context,
+        heuristics_filter=heuristics_filter,
     )
 
 
@@ -1042,6 +1062,7 @@ def _sanitize_for_output(
         tool_surface_diff=public_tool_surface_diff,
         baseline_summary=baseline_summary,
         privacy_audit=privacy_audit,
+        heuristics_filter=decision.heuristics_filter,
     )
 
 
@@ -1104,6 +1125,12 @@ def _build_final_report(
         privacy_audit=sanitized.privacy_audit,
     )
     apply_capability_diff(report, sanitized.tools)
+    # v0.21: --no-heuristics audit envelope attached BEFORE reviewer_summary
+    # is built so the projection can include filtered_finding_count in
+    # the reviewer headline. The envelope itself is computed in Phase 5
+    # (apply_no_heuristics_filter inside _run_checks_and_decide); we
+    # just route it onto the public report here.
+    report.heuristics_filter = sanitized.heuristics_filter
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff
     # has populated misalignments / release_consequence / suggested_scenarios.
     # Building it inside build_report() would project from incomplete state
@@ -1181,6 +1208,7 @@ def run_scan(
     packet_enabled: bool | None = None,
     packet_formats: list[str] | None = None,
     packet_generated_at: str | None = None,
+    no_heuristics: bool = False,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -1227,6 +1255,7 @@ def run_scan(
         diffs=diffs,
         plugins_enabled=plugins_enabled,
         suggest_patches=suggest_patches,
+        no_heuristics=no_heuristics,
     )
     plan = _plan_outputs(
         manifest=resolved.manifest,
