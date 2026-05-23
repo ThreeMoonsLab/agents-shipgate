@@ -43,6 +43,16 @@
     343, langchain.py 305). Largest sub-module now is `_tools.py` at
     492 LOC.
 
+- **v0.21 — CI coverage gate raised from 75% → 85% (E7 from round-4 review).**
+  Both `.github/workflows/ci.yml` and `.github/workflows/release.yml` now
+  pass `--cov-fail-under=85`. Aggregate coverage on `main` at the time of
+  the bump is ~88%, so the gate is +10pp tighter with ~3pp headroom for
+  day-to-day movement. The bump catches the next time a refactor lands
+  materially less-covered code without corresponding tests. No source
+  change required to land — the gate is simply closer to the actual
+  signal. Per-file coverage is not enforced; the aggregate floor only
+  rises in step with what's already proven on `main`.
+
 - **v0.20 — third-party adapter entry-point discovery (E4 from round-3 review).**
   Opens the same extension surface for adapters (input loaders) that M5
   already opened for check plugins. Discovery is gated by the existing
