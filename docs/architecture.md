@@ -126,7 +126,7 @@ report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
                                    the evidence_matrix lens
                                      ↓
-cli/scan.py:run_scan               entry-point orchestrator. Composed of
+cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
                                    nine sequential phase helpers
                                    (_prepare_scan → _load_inputs →
                                    _build_tools_and_agent →

@@ -5,7 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
-from agents_shipgate.core.findings import SEVERITY_ORDER
+from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.schemas.report import (
     DeclaredIntention,

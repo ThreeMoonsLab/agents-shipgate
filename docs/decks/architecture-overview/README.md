@@ -7,7 +7,7 @@ The deck is grounded in:
 - `docs/architecture.md`
 - `docs/trust-model.md`
 - `STABILITY.md`
-- `src/agents_shipgate/cli/scan.py`
+- `src/agents_shipgate/cli/scan/orchestrator.py`
 
 ## Files
 

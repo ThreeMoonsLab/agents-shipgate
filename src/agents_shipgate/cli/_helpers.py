@@ -14,9 +14,9 @@ from agents_shipgate.cli.diagnostics import (
     diagnose_missing_manifest,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
-from agents_shipgate.core.findings import SEVERITY_ORDER
+from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 
 logger = logging.getLogger(__name__)
 

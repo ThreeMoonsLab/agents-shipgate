@@ -131,7 +131,7 @@ def _operation_to_tool(
 
     # Note: `source_location` intentionally stays None for OpenAPI tools.
     # The legacy `path:line` string participates in `run_id` (see
-    # `cli/scan.py:_run_id`), and v0.10 OpenAPI tools never set it.
+    # `cli/scan/run_identity.py:_run_id`), and v0.10 OpenAPI tools never set it.
     # Reviewers get the line via the structured `source_start_line` /
     # `source_pointer` fields; SARIF prefers those over the legacy string.
     return Tool(
