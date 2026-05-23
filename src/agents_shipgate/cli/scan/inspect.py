@@ -22,9 +22,9 @@ from .source_loading import (
     _artifact_warnings,
     _flatten_and_deduplicate_tools,
     _load_sources,
-    _resolve_source_paths,
 )
-from .surface_sanitization import _frameworks_surface
+from .surface_redaction import _frameworks_surface
+from .validation import _resolve_source_paths
 
 
 def inspect_sources(

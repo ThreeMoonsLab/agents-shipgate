@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents_shipgate.schemas.report import (
     Finding,
     PolicyAudit,
@@ -83,7 +85,11 @@ def _capability_misalignment_count(report: ReadinessReport) -> int:
     return len(report.misalignments)
 
 
-def _evidence_matrix_gap_count(report: ReadinessReport) -> int:
+def _evidence_matrix_gap_count(
+    report: ReadinessReport,
+    *,
+    evidence_matrix_payload: dict[str, Any] | None = None,
+) -> int:
     """Count of evidence-matrix rows whose status is a reviewer-actionable
     gap.
 
@@ -107,13 +113,46 @@ def _evidence_matrix_gap_count(report: ReadinessReport) -> int:
         from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
     except ImportError:  # pragma: no cover - defensive
         return 0
-    payload = report.model_dump(mode="json")
+    payload = evidence_matrix_payload or _evidence_matrix_payload(report)
     section = build_evidence_matrix(payload)
     return sum(
         1
         for row in section.rows
         if getattr(row, "evidence_present", None) == "missing"
     )
+
+
+def _evidence_matrix_payload(report: ReadinessReport) -> dict[str, Any]:
+    """Build the narrow report payload needed by build_evidence_matrix.
+
+    Avoids serializing the entire ReadinessReport just to count reviewer
+    evidence gaps. Keep this in sync with packet.evidence_matrix's field reads.
+    """
+    return {
+        "findings": _json_payload(report.findings),
+        "release_decision": _json_payload(report.release_decision),
+        "tool_inventory": _json_payload(report.tool_inventory),
+        "tool_surface": _json_payload(report.tool_surface),
+        "source_warnings": _json_payload(report.source_warnings),
+        "tool_surface_facts": _json_payload(report.tool_surface_facts),
+        "api_surface": _json_payload(report.api_surface),
+        "action_surface_facts": _json_payload(report.action_surface_facts),
+        "declared_intentions": _json_payload(report.declared_intentions),
+        "misalignments": _json_payload(report.misalignments),
+        "capability_facts": _json_payload(report.capability_facts),
+        "baseline": _json_payload(report.baseline),
+        "action_surface_diff": _json_payload(report.action_surface_diff),
+    }
+
+
+def _json_payload(value):
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, list):
+        return [_json_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_payload(item) for key, item in value.items()}
+    return value
 
 
 def _severity_override_counts(
@@ -404,6 +443,7 @@ def build_reviewer_summary(
     *,
     findings: list[Finding],
     report: ReadinessReport,
+    evidence_matrix_payload: dict[str, Any] | None = None,
 ) -> ReviewerSummary:
     """Construct the top-level ``reviewer_summary`` block.
 
@@ -421,7 +461,10 @@ def build_reviewer_summary(
     tool_surface_changes = _tool_surface_changes(report)
     action_surface_changes = _action_surface_changes(report)
     capability_misalignments = _capability_misalignment_count(report)
-    evidence_matrix_gaps = _evidence_matrix_gap_count(report)
+    evidence_matrix_gaps = _evidence_matrix_gap_count(
+        report,
+        evidence_matrix_payload=evidence_matrix_payload,
+    )
     severity_overrides_applied, severity_overrides_tier_crossed = (
         _severity_override_counts(report.policy_audit)
     )

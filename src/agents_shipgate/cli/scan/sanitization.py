@@ -52,7 +52,7 @@ from .models import (
 from .patching import _check_metadata_lookup
 from .path_helpers import _resolve_audit_log_path
 from .source_loading import _tool_source_index
-from .surface_sanitization import (
+from .surface_redaction import (
     _build_public_action_surface_facts,
     _frameworks_surface,
     _sanitize_codex_plugin_surface,
@@ -205,36 +205,17 @@ def _sanitize_for_output(
         path="loaded_adapters[]",
     )
 
-    public_diff_reference = _sanitize_diff_reference(
-        diffs.diff_reference,
-        stats=privacy_stats,
-    )
-    public_action_surface_facts = _build_public_action_surface_facts(
-        raw_facts=decision.action_surface_facts,
-        manifest=public_manifest,
-        agent_id=public_agent.id,
-        tools=public_tools,
-        stats=privacy_stats,
-    )
-    public_action_reference = action_reference_from_scan_reference(public_diff_reference)
-    public_action_surface_diff = compute_action_surface_diff(
+    (
+        public_diff_reference,
         public_action_surface_facts,
-        public_action_reference.facts if public_action_reference else None,
-        reference=public_action_reference,
-    )
-    if diffs.diff_reference_error:
-        public_action_surface_diff.enabled = False
-        public_action_surface_diff.notes = redact_data(
-            [diffs.diff_reference_error],
-            stats=privacy_stats,
-            path="action_surface_diff.notes",
-        )
-    # v0.19 reviewer-grade provenance: enrich the PUBLIC action-surface
-    # diff rows from ``public_tools`` (already sanitized) so the
-    # rendered ``report.json`` and packet §3B carry tool source
-    # citations on every reason field.
-    enrich_action_surface_diff_with_source(
-        public_action_surface_diff, _tool_source_index(public_tools)
+        public_action_surface_diff,
+    ) = _public_action_surfaces(
+        public_manifest=public_manifest,
+        public_agent_id=public_agent.id,
+        public_tools=public_tools,
+        diffs=diffs,
+        decision=decision,
+        privacy_stats=privacy_stats,
     )
 
     baseline_summary = None
@@ -251,103 +232,27 @@ def _sanitize_for_output(
             stats=privacy_stats,
             path="baseline",
         )
-        # v0.5 baseline-integrity (M2). Run this after public finding
-        # fingerprints are assigned so integrity output does not depend on
-        # raw secret-bearing finding IDs.
-        integrity_mode = manifest.baseline.integrity_mode
-        if integrity_mode != "off" and baseline_path is not None:
-            audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
-            try:
-                static_issues = verify_baseline(baseline_path, audit_log_path)
-            except InputParseError as exc:
-                logger.warning(
-                    "baseline integrity verification failed",
-                    extra={
-                        "agents_shipgate_baseline_path": str(baseline_path),
-                        "agents_shipgate_error": str(exc),
-                    },
-                )
-                static_issues = []
-                warning = f"Baseline integrity check skipped: {exc}"
-                public_source_warnings.append(
-                    redact_data(
-                        warning,
-                        stats=privacy_stats,
-                        path="source_warnings[]",
-                    )
-                )
-            stale_issues = baseline_resolved_fingerprints(
-                public_findings,
-                diffs.baseline_file,
-                legacy_fingerprints=decision.legacy_fingerprints,
-            )
-            baseline_privacy_hint = None
-            if stale_issues and privacy_stats.occurrence_count:
-                baseline_privacy_hint = (
-                    "If these stale baseline entries appeared immediately after "
-                    "upgrading to report schema v0.18, review and regenerate the "
-                    "baseline. Secret-bearing public fingerprints are now computed "
-                    "from redacted evidence."
-                )
-                for issue in stale_issues:
-                    issue.evidence["v0_18_privacy_migration_hint"] = (
-                        baseline_privacy_hint
-                    )
-            integrity_findings = build_integrity_findings(
-                static_issues + stale_issues,
-                context=decision.context,
-                integrity_mode=integrity_mode,
-            )
-            if baseline_privacy_hint:
-                for finding in integrity_findings:
-                    if finding.check_id == "SHIP-BASELINE-ENTRY-STALE":
-                        finding.recommendation = (
-                            f"{finding.recommendation} {baseline_privacy_hint}"
-                        )
-            if integrity_findings:
-                public_findings.extend(
-                    sanitize_findings(integrity_findings, stats=privacy_stats)
-                )
-                assign_finding_ids(public_findings)
-                annotate_remediation(
-                    public_findings,
-                    _check_metadata_lookup(plugins_enabled=plugins_enabled),
-                )
+        _append_baseline_integrity_findings(
+            manifest=manifest,
+            baseline_path=baseline_path,
+            baseline_file=diffs.baseline_file,
+            decision=decision,
+            public_findings=public_findings,
+            public_source_warnings=public_source_warnings,
+            privacy_stats=privacy_stats,
+            plugins_enabled=plugins_enabled,
+        )
     attach_action_surface_finding_summary(public_action_surface_diff, public_findings)
 
-    public_tool_surface_facts = sanitize_model(
-        build_tool_surface_facts(
-            public_manifest,
-            public_tools,
-            public_findings,
-            public_api_artifacts,
-            public_anthropic_artifacts,
-        ),
-        ToolSurfaceFacts,
-        stats=privacy_stats,
-        path="tool_surface_facts",
-    )
-    if diffs.diff_reference_error:
-        public_tool_surface_diff = disabled_tool_surface_diff(
-            redact_data(
-                diffs.diff_reference_error,
-                stats=privacy_stats,
-                path="tool_surface_diff.notes",
-            )
-        )
-    else:
-        public_tool_surface_diff = compute_tool_surface_diff(
-            public_tool_surface_facts,
-            public_diff_reference.facts if public_diff_reference else None,
-            public_findings,
-            reference=public_diff_reference,
-        )
-    # v0.19 reviewer-grade provenance: enrich tool-surface diff
-    # controls (and any other reason-bearing rows) with the public
-    # tool path:line citation so the rendered report.json and packet
-    # §3A carry source info on every change-row reason.
-    enrich_tool_surface_diff_with_source(
-        public_tool_surface_diff, _tool_source_index(public_tools)
+    public_tool_surface_facts, public_tool_surface_diff = _public_tool_surfaces(
+        public_manifest=public_manifest,
+        public_tools=public_tools,
+        public_findings=public_findings,
+        public_api_artifacts=public_api_artifacts,
+        public_anthropic_artifacts=public_anthropic_artifacts,
+        public_diff_reference=public_diff_reference,
+        diffs=diffs,
+        privacy_stats=privacy_stats,
     )
     privacy_audit = build_privacy_audit(
         privacy_stats,
@@ -391,4 +296,176 @@ def _sanitize_for_output(
         tool_surface_diff=public_tool_surface_diff,
         baseline_summary=baseline_summary,
         privacy_audit=privacy_audit,
+    )
+
+
+def _public_action_surfaces(
+    *,
+    public_manifest: AgentsShipgateManifest,
+    public_agent_id: str,
+    public_tools: list,
+    diffs: _DiffReferences,
+    decision: _ChecksDecision,
+    privacy_stats,
+):
+    public_diff_reference = _sanitize_diff_reference(
+        diffs.diff_reference,
+        stats=privacy_stats,
+    )
+    public_action_surface_facts = _build_public_action_surface_facts(
+        raw_facts=decision.action_surface_facts,
+        manifest=public_manifest,
+        agent_id=public_agent_id,
+        tools=public_tools,
+        stats=privacy_stats,
+    )
+    public_action_reference = action_reference_from_scan_reference(public_diff_reference)
+    public_action_surface_diff = compute_action_surface_diff(
+        public_action_surface_facts,
+        public_action_reference.facts if public_action_reference else None,
+        reference=public_action_reference,
+    )
+    if diffs.diff_reference_error:
+        public_action_surface_diff.enabled = False
+        public_action_surface_diff.notes = redact_data(
+            [diffs.diff_reference_error],
+            stats=privacy_stats,
+            path="action_surface_diff.notes",
+        )
+    # v0.19 reviewer-grade provenance: enrich the PUBLIC action-surface
+    # diff rows from ``public_tools`` (already sanitized) so the
+    # rendered ``report.json`` and packet §3B carry tool source
+    # citations on every reason field.
+    enrich_action_surface_diff_with_source(
+        public_action_surface_diff, _tool_source_index(public_tools)
+    )
+    return (
+        public_diff_reference,
+        public_action_surface_facts,
+        public_action_surface_diff,
+    )
+
+
+def _public_tool_surfaces(
+    *,
+    public_manifest: AgentsShipgateManifest,
+    public_tools: list,
+    public_findings: list,
+    public_api_artifacts: OpenAIApiArtifacts | None,
+    public_anthropic_artifacts: AnthropicArtifacts | None,
+    public_diff_reference,
+    diffs: _DiffReferences,
+    privacy_stats,
+):
+    public_tool_surface_facts = sanitize_model(
+        build_tool_surface_facts(
+            public_manifest,
+            public_tools,
+            public_findings,
+            public_api_artifacts,
+            public_anthropic_artifacts,
+        ),
+        ToolSurfaceFacts,
+        stats=privacy_stats,
+        path="tool_surface_facts",
+    )
+    if diffs.diff_reference_error:
+        public_tool_surface_diff = disabled_tool_surface_diff(
+            redact_data(
+                diffs.diff_reference_error,
+                stats=privacy_stats,
+                path="tool_surface_diff.notes",
+            )
+        )
+    else:
+        public_tool_surface_diff = compute_tool_surface_diff(
+            public_tool_surface_facts,
+            public_diff_reference.facts if public_diff_reference else None,
+            public_findings,
+            reference=public_diff_reference,
+        )
+    # v0.19 reviewer-grade provenance: enrich tool-surface diff
+    # controls (and any other reason-bearing rows) with the public
+    # tool path:line citation so the rendered report.json and packet
+    # §3A carry source info on every change-row reason.
+    enrich_tool_surface_diff_with_source(
+        public_tool_surface_diff, _tool_source_index(public_tools)
+    )
+    return public_tool_surface_facts, public_tool_surface_diff
+
+
+def _append_baseline_integrity_findings(
+    *,
+    manifest: AgentsShipgateManifest,
+    baseline_path: Path | None,
+    baseline_file,
+    decision: _ChecksDecision,
+    public_findings: list,
+    public_source_warnings: list[str],
+    privacy_stats,
+    plugins_enabled: bool | None,
+) -> None:
+    """Append public baseline-integrity findings after baseline matching.
+
+    Runs after public finding fingerprints are assigned so integrity output
+    does not depend on raw secret-bearing finding IDs. Mutates
+    ``public_findings`` and ``public_source_warnings`` in place, matching the
+    original Phase 7 ordering.
+    """
+    integrity_mode = manifest.baseline.integrity_mode
+    if integrity_mode == "off" or baseline_path is None:
+        return
+
+    audit_log_path = _resolve_audit_log_path(manifest, baseline_path)
+    try:
+        static_issues = verify_baseline(baseline_path, audit_log_path)
+    except InputParseError as exc:
+        logger.warning(
+            "baseline integrity verification failed",
+            extra={
+                "agents_shipgate_baseline_path": str(baseline_path),
+                "agents_shipgate_error": str(exc),
+            },
+        )
+        static_issues = []
+        warning = f"Baseline integrity check skipped: {exc}"
+        public_source_warnings.append(
+            redact_data(
+                warning,
+                stats=privacy_stats,
+                path="source_warnings[]",
+            )
+        )
+    stale_issues = baseline_resolved_fingerprints(
+        public_findings,
+        baseline_file,
+        legacy_fingerprints=decision.legacy_fingerprints,
+    )
+    baseline_privacy_hint = None
+    if stale_issues and privacy_stats.occurrence_count:
+        baseline_privacy_hint = (
+            "If these stale baseline entries appeared immediately after "
+            "upgrading to report schema v0.18, review and regenerate the "
+            "baseline. Secret-bearing public fingerprints are now computed "
+            "from redacted evidence."
+        )
+        for issue in stale_issues:
+            issue.evidence["v0_18_privacy_migration_hint"] = baseline_privacy_hint
+    integrity_findings = build_integrity_findings(
+        static_issues + stale_issues,
+        context=decision.context,
+        integrity_mode=integrity_mode,
+    )
+    if baseline_privacy_hint:
+        for finding in integrity_findings:
+            if finding.check_id == "SHIP-BASELINE-ENTRY-STALE":
+                finding.recommendation = f"{finding.recommendation} {baseline_privacy_hint}"
+    if not integrity_findings:
+        return
+
+    public_findings.extend(sanitize_findings(integrity_findings, stats=privacy_stats))
+    assign_finding_ids(public_findings)
+    annotate_remediation(
+        public_findings,
+        _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from agents_shipgate.config.loader import load_manifest, load_manifest_with_positions
-from agents_shipgate.inputs.protocol import REGISTRY
-
 from .agent_builder import _build_agent, _first_adk_instruction_preview
 from .decision import _run_checks_and_decide
 from .diffs import _load_diff_references
@@ -42,15 +39,13 @@ from .source_loading import (
     _flatten_and_deduplicate_tools,
     _invoke_per_source_adapter,
     _load_sources,
-    _manifest_placeholder_warnings,
     _merge_duplicate_tool_metadata,
     _merge_string_values,
-    _resolve_source_paths,
     _risk_hint_key,
     _source_priority,
     _tool_source_index,
 )
-from .surface_sanitization import (
+from .surface_redaction import (
     _build_public_action_surface_facts,
     _disambiguate_public_action_ids,
     _frameworks_surface,
@@ -60,11 +55,11 @@ from .surface_sanitization import (
     _sanitize_existing_action_surface_facts,
 )
 from .tools_agent import _build_tools_and_agent
+from .validation import _manifest_placeholder_warnings, _resolve_source_paths
 from .writing import _write_outputs
 
 __all__ = [
     "PACKET_FORMAT_NAMES",
-    "REGISTRY",
     "_ChecksDecision",
     "_DiffReferences",
     "_LoadedInputs",
@@ -113,7 +108,5 @@ __all__ = [
     "_write_packet",
     "_write_reports",
     "inspect_sources",
-    "load_manifest",
-    "load_manifest_with_positions",
     "run_scan",
 ]

@@ -19,7 +19,8 @@ from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 from .models import _LoadedInputs
-from .source_loading import _artifact_warnings, _load_sources, _manifest_placeholder_warnings
+from .source_loading import _artifact_warnings, _load_sources
+from .validation import _manifest_placeholder_warnings
 
 logger = logging.getLogger(__name__)
 
