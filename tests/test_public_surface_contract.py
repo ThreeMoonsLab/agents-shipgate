@@ -1135,6 +1135,50 @@ def test_well_known_links_to_triggers_and_llms_full():
     )
 
 
+def test_well_known_links_to_agent_discovery_onramps():
+    """Discovery metadata must keep the newer human/agent awareness
+    fields wired up. Otherwise AI search and coding agents can fetch
+    `.well-known` and miss the zero-install detector or per-agent
+    on-ramp docs."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+
+    audiences = set(data.get("audiences", []))
+    assert {"agent_builders", "platform_engineers", "coding_agents"} <= audiences
+
+    when_to_use = data.get("when_to_use", [])
+    assert any("n8n" in entry for entry in when_to_use), (
+        ".well-known when_to_use must mention n8n tool-surface changes."
+    )
+    assert any("Codex plugin" in entry for entry in when_to_use), (
+        ".well-known when_to_use must mention Codex plugin changes."
+    )
+
+    expected_urls = {
+        "ai_search_summary_url": "/docs/ai-search-summary.md",
+        "zero_install_detector_url": "/tools/shipgate-detect.py",
+    }
+    for key, suffix in expected_urls.items():
+        url = data.get(key, "")
+        assert url.startswith("https://"), f"{key} must be an absolute HTTPS URL."
+        assert url.endswith(suffix), f"{key} must end with {suffix}; got {url!r}."
+
+    onramps = data.get("agent_onramps", {})
+    expected_onramps = {
+        "target_repo_snippets": "/docs/target-repo-agent-snippets.md",
+        "codex": "/docs/agents/use-with-codex.md",
+        "claude_code": "/docs/agents/use-with-claude-code.md",
+        "cursor": "/docs/agents/use-with-cursor.md",
+    }
+    for key, suffix in expected_onramps.items():
+        url = onramps.get(key, "")
+        assert url.startswith("https://"), (
+            f"agent_onramps.{key} must be an absolute HTTPS URL."
+        )
+        assert url.endswith(suffix), (
+            f"agent_onramps.{key} must end with {suffix}; got {url!r}."
+        )
+
+
 def test_llms_txt_advertises_triggers_and_llms_full():
     """llms.txt is the short fan-out for AI search; it must list the
     trigger catalog and llms-full URLs so they are discoverable from

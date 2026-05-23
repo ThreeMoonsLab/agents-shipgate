@@ -17,6 +17,9 @@ agents-shipgate init --workspace . --write --ci --json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 
+Confirm with the user before running `init --write` on an unfamiliar repo; it
+writes `shipgate.yaml` and `init --ci` writes `.github/workflows/agents-shipgate.yml`.
+
 For a no-install relevance check, use the zero-install detector:
 
 ```bash
@@ -51,13 +54,16 @@ agents-shipgate apply-patches \
 Do not auto-assert approval, confirmation, idempotency, broad-scope, or
 prohibited-action policy decisions. Surface those as human review items.
 
-## Stable command surface
+## Frequently-used command surface
 
-Stable flags across `0.x`:
+Common commands this rule may route to:
+- `agents-shipgate detect --workspace . --json`
 - `agents-shipgate scan -c <path> --ci-mode <advisory|strict> --fail-on <severities>`
 - `agents-shipgate init --workspace . --write [--json]`
 - `agents-shipgate doctor [--json]`
 - `agents-shipgate contract --json`
+- `agents-shipgate apply-patches --from <report.json> --confidence high --apply`
+- `agents-shipgate bootstrap --workspace . --json`
 - `agents-shipgate explain <check-id> [--json]`
 - `agents-shipgate explain-finding <fingerprint> --from <report.json> [--json]`
 - `agents-shipgate list-checks [--json]`
