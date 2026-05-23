@@ -478,6 +478,7 @@ __all__ = [
     "KIT_CONFIG_SCHEMA_VERSION",
     "KIT_SIDECAR_SCHEMA_VERSION",
     "KIT_TARGETS",
+    "KitSource",
     "SIDECAR_FILENAME",
     "RenderedAdoptionKit",
     "bootstrap_legacy_hashes",
