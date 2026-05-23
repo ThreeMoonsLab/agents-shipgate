@@ -45,7 +45,12 @@ jobs:
         # run as part of the main Test step below.
 
       - name: Test
-        run: python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=75
+        # v0.21 (E7): bumped from 75 → 85. Actual aggregate coverage on
+        # current main is ~88%, so the gate is +10pp tighter with ~3pp
+        # headroom for day-to-day movement. The bump catches the next
+        # time a refactor lands materially less-covered code without
+        # a corresponding test pass.
+        run: python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
       - name: Build package
         run: |
