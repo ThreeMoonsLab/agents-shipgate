@@ -101,6 +101,16 @@ core/findings.apply_*              severity overrides, suppressions,
                                    v0.7 remediation annotation,
                                    v0.12 agent_action projection
                                      ↓
+apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
+                                   mark heuristic-provenance findings
+                                   suppressed BEFORE build_release_decision
+                                   runs, so excluded findings cannot
+                                   gate release. Runs after
+                                   apply_suppressions so manifest
+                                   intent wins on overlap. Always emits
+                                   the heuristics_filter envelope
+                                   (enabled=false when flag is unset).
+                                     ↓
 core/privacy piecemeal redaction    sanitize_model + redact_data on every
                                    public field; stats accumulate
                                      ↓
@@ -114,19 +124,16 @@ core/findings.build_report         assemble ReadinessReport; internally
                                    calls build_release_decision
                                    ({blocked, insufficient_evidence,
                                     review_required, passed} +
-                                   contribution_rules[] audit); populates
-                                   agent_summary + policy_audit + privacy_audit
+                                   contribution_rules[] audit) over the
+                                   post-filter active set; populates
+                                   agent_summary + policy_audit +
+                                   privacy_audit + heuristics_filter
                                      ↓
 apply_capability_diff              mutate report from public tools
                                      ↓
-apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
-                                   mark heuristic-provenance findings
-                                   suppressed (filter runs after
-                                   manifest suppressions so user
-                                   intent wins on overlap)
-                                     ↓
 build_reviewer_summary             populate v0.20 reviewer_summary from
-                                   final lens/audit data
+                                   final lens/audit data (already
+                                   post-filter)
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including

@@ -426,7 +426,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |

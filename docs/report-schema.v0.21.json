@@ -1973,6 +1973,12 @@
           "type": "integer"
         }
       },
+      "required": [
+        "enabled",
+        "excluded_provenance_kinds",
+        "filtered_by_kind",
+        "filtered_finding_count"
+      ],
       "title": "HeuristicsFilter",
       "type": "object"
     },
@@ -4284,15 +4290,7 @@
       "type": "object"
     },
     "heuristics_filter": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/HeuristicsFilter"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/HeuristicsFilter"
     },
     "loaded_adapters": {
       "items": {
@@ -4447,6 +4445,7 @@
     "findings",
     "frameworks",
     "generated_reports",
+    "heuristics_filter",
     "loaded_adapters",
     "loaded_plugins",
     "loaded_policy_packs",

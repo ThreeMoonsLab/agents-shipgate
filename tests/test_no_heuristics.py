@@ -151,19 +151,33 @@ def test_excluded_kinds_are_real_provenance_kinds() -> None:
 
 
 def test_keep_list_is_explicit_and_non_overlapping() -> None:
-    """Contract: the KEEP list (everything not in the EXCLUDE list)
-    must include ``static_declaration``, ``ast_extraction``, and
-    ``policy_pack``. A future ``ProvenanceKind`` literal must trigger
-    a deliberate filter-list update — this test fails loudly if a new
-    value lands without being classified."""
+    """Contract: the KEEP and EXCLUDE partitions of ``ProvenanceKind``
+    are pinned EXACTLY. A future ``ProvenanceKind`` literal must trigger
+    a deliberate filter-list update — either add it to the EXCLUDE
+    constant in ``schemas/report.py`` or to the EXPECTED_KEEP set below.
+
+    Pinning the literals (rather than deriving ``kept = valid - excluded``)
+    is what catches the regression. Derivation-style asserts would silently
+    pass for any newly-added literal because the derivation would include
+    it on whichever side the constant didn't, masking the missing decision.
+    """
     valid = set(get_args(ProvenanceKind))
     excluded = set(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS)
-    kept = valid - excluded
-    assert "static_declaration" in kept
-    assert "ast_extraction" in kept
-    assert "policy_pack" in kept
-    # The total partition is exact — no orphan literal.
-    assert kept | excluded == valid
+    expected_exclude = {"keyword_heuristic", "regex_heuristic"}
+    expected_keep = {"static_declaration", "ast_extraction", "policy_pack"}
+    assert excluded == expected_exclude, (
+        f"NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS drifted from the pinned "
+        f"set: got {excluded}, expected {expected_exclude}. Update the "
+        f"constant in agents_shipgate.schemas.report (and this test) "
+        f"only with an explicit decision about classification."
+    )
+    assert valid == expected_keep | expected_exclude, (
+        f"ProvenanceKind literals changed without updating this test. "
+        f"Got valid={valid}, expected {expected_keep | expected_exclude}. "
+        f"Either add the new literal to NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS "
+        f"or to the EXPECTED_KEEP pin above — every literal must be "
+        f"classified by --no-heuristics."
+    )
 
 
 # --- End-to-end run_scan tests --------------------------------------------
@@ -318,6 +332,91 @@ def test_filter_does_not_overwrite_manifest_suppression_reason_e2e(
         f.provenance_kind in NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS
         for f in flagged
     )
+
+
+# --- Wire-schema enforcement ----------------------------------------------
+
+
+def test_v21_schema_requires_heuristics_filter_and_rejects_null(tmp_path) -> None:
+    """The v0.21 schema must REQUIRE the heuristics_filter envelope and
+    REJECT ``null`` — otherwise the contract that "every emitted report
+    carries a real HeuristicsFilter" is unenforceable.
+
+    Parallel to ``test_v12_schema_requires_agent_summary_and_agent_action_non_nullable``
+    (test_agent_action_summary.py): without this test, a schema edit
+    that omits the field from `required` or emits `anyOf: [..., null]`
+    would let a payload silently violate the documented stable shape.
+    """
+    import jsonschema
+    import pytest as _pytest
+
+    repo_root = Path(__file__).resolve().parent.parent
+    schema = json.loads(
+        (repo_root / "docs" / "report-schema.v0.21.json").read_text("utf-8")
+    )
+
+    # Top-level required list pins the field.
+    assert "heuristics_filter" in schema["required"], (
+        "v0.21 schema must list heuristics_filter in the top-level required "
+        "block so payloads without the key fail validation."
+    )
+
+    # Direct $ref form — no anyOf-with-null. Otherwise a payload could
+    # ship `heuristics_filter: null` and validate.
+    hf_schema = schema["properties"]["heuristics_filter"]
+    assert hf_schema == {"$ref": "#/$defs/HeuristicsFilter"}, (
+        "heuristics_filter must be a direct $ref (no anyOf with null) so "
+        f"null payloads are rejected at the schema level. Got: {hf_schema}"
+    )
+
+    # The HeuristicsFilter definition itself must require all 4 fields.
+    hf_def = schema["$defs"]["HeuristicsFilter"]
+    assert set(hf_def["required"]) == {
+        "enabled",
+        "excluded_provenance_kinds",
+        "filtered_finding_count",
+        "filtered_by_kind",
+    }, (
+        f"HeuristicsFilter must require all 4 fields; got {hf_def['required']}"
+    )
+
+    # End-to-end: a real scan payload validates, but each negative mutation
+    # (strip field, set to null, drop a sub-field, swap to {}) must fail.
+    report, _ = run_scan(
+        config_path=SUPPORT_REFUND_FIXTURE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    payload = json.loads((tmp_path / "report.json").read_text("utf-8"))
+
+    jsonschema.validate(payload, schema)  # baseline: real payload validates
+
+    # 1. Strip the entire field → must fail.
+    stripped = {k: v for k, v in payload.items() if k != "heuristics_filter"}
+    with _pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(stripped, schema)
+
+    # 2. Set the field to null → must fail.
+    null_envelope = json.loads(json.dumps(payload))
+    null_envelope["heuristics_filter"] = None
+    with _pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(null_envelope, schema)
+
+    # 3. Set the field to an empty object {} → must fail (all four
+    # sub-fields are required).
+    empty_envelope = json.loads(json.dumps(payload))
+    empty_envelope["heuristics_filter"] = {}
+    with _pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(empty_envelope, schema)
+
+    # 4. Drop each required sub-field one at a time → each must fail.
+    for key in ("enabled", "excluded_provenance_kinds", "filtered_finding_count", "filtered_by_kind"):
+        bad = json.loads(json.dumps(payload))
+        del bad["heuristics_filter"][key]
+        with _pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(bad, schema)
+    assert report.heuristics_filter is not None  # sanity guard for the fixture
 
 
 # --- Reviewer-summary projection -------------------------------------------
