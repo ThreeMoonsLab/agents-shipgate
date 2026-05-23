@@ -32,11 +32,13 @@ from agents_shipgate.packet import (
     render_packet_markdown,
     serialize_packet_json,
 )
+from agents_shipgate.packet.builder import _build_not_proven
 from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF,
     PACKET_NON_PROOF_HEADLINE,
 )
 from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
+from agents_shipgate.schemas.report import Finding
 
 SAMPLE_CONFIG = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_DIR = Path("samples/support_refund_agent/expected")
@@ -132,6 +134,52 @@ def test_evidence_matrix_covers_expected_domains_and_renders(tmp_path):
     assert "## §1A Evidence matrix — compact review summary" in md
     assert "| Domain | Evidence present | Evidence source | Confidence |" in md
     assert "§1A Evidence matrix — compact review summary" in html
+
+
+def test_not_proven_residuals_include_non_static_provenance():
+    findings = [
+        Finding(
+            check_id="SHIP-KEYWORD",
+            title="keyword",
+            severity="medium",
+            category="test",
+            recommendation="r",
+            provenance_kind="keyword_heuristic",
+        ),
+        Finding(
+            check_id="SHIP-REGEX",
+            title="regex",
+            severity="medium",
+            category="test",
+            recommendation="r",
+            provenance_kind="regex_heuristic",
+        ),
+        Finding(
+            check_id="SHIP-AST",
+            title="ast",
+            severity="medium",
+            category="test",
+            recommendation="r",
+            provenance_kind="ast_extraction",
+        ),
+        Finding(
+            check_id="SHIP-POLICY-PACK",
+            title="policy pack",
+            severity="medium",
+            category="test",
+            recommendation="r",
+            provenance_kind="policy_pack",
+        ),
+    ]
+
+    section = _build_not_proven(findings, source_warnings=[], tools=[])
+    residuals = "\n".join(section.additional_residuals)
+
+    assert "heuristic provenance" in residuals
+    assert "keyword_heuristic=1" in residuals
+    assert "regex_heuristic=1" in residuals
+    assert "AST-extracted tool surfaces" in residuals
+    assert "external policy packs" in residuals
 
 
 def test_evidence_matrix_uses_release_decision_only_for_blocking_and_review():

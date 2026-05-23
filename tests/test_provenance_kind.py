@@ -14,7 +14,11 @@ import pytest
 from jsonschema import ValidationError, validate
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.findings import finding_fingerprint
+from agents_shipgate.core.findings import (
+    PROVENANCE_KIND_ORDER,
+    finding_fingerprint,
+    provenance_kind_counts,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.common import ProvenanceKind
 from agents_shipgate.schemas.report import Finding
@@ -98,6 +102,50 @@ def test_each_provenance_value_constructs_cleanly():
             provenance_kind=value,
         )
         assert finding.provenance_kind == value
+
+
+def test_provenance_kind_counts_cover_all_values_and_suppression():
+    findings = [
+        Finding(
+            check_id=f"SHIP-TEST-{index}",
+            title=f"t{index}",
+            severity="info",
+            category="test",
+            recommendation="r",
+            provenance_kind=kind,
+            suppressed=index == 2,
+        )
+        for index, kind in enumerate(PROVENANCE_KIND_ORDER)
+    ]
+
+    active_counts = provenance_kind_counts(findings)
+    all_counts = provenance_kind_counts(findings, include_suppressed=True)
+
+    assert set(active_counts) == set(PROVENANCE_KIND_ORDER)
+    assert active_counts["keyword_heuristic"] == 0
+    assert all_counts["keyword_heuristic"] == 1
+    for kind in (
+        "static_declaration",
+        "ast_extraction",
+        "regex_heuristic",
+        "policy_pack",
+    ):
+        assert active_counts[kind] == 1
+        assert all_counts[kind] == 1
+
+
+def test_provenance_kind_counts_treat_legacy_none_as_static():
+    finding = Finding(
+        check_id="SHIP-TEST",
+        title="t",
+        severity="info",
+        category="test",
+        recommendation="r",
+    )
+
+    counts = provenance_kind_counts([finding])
+
+    assert counts["static_declaration"] == 1
 
 
 def test_provenance_kind_not_in_fingerprint():

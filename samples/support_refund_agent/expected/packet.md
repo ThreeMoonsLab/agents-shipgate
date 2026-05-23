@@ -237,3 +237,4 @@ Agents Shipgate is an advisory, local-first, static Tool-Use Readiness release g
 - Low-confidence tool extractions: none
 - Suppressed findings in effect: none
 - Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.
+- 6 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=6, regex\_heuristic=0\); review the finding evidence before acting.

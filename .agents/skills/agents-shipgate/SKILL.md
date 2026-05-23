@@ -27,6 +27,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 - Existing manifest: run `agents-shipgate scan -c shipgate.yaml --suggest-patches --format json`.
 - First GitHub CI: copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.
 - Explain one finding: run `agents-shipgate explain-finding <fingerprint> --from agents-shipgate-reports/report.json --json`.
+- Triage heuristic findings: run `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic --json`.
 
 ## Boundaries
 

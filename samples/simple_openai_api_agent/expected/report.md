@@ -70,6 +70,20 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
    Evidence: retry\_policy=\{'max\_attempts': 2\}; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
    Recommendation: Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
 
+## Finding Provenance
+
+Reviewer triage signal only. Provenance kind does not change severity, release decision, fingerprints, baselines, or CI exit codes.
+
+| Provenance kind | Active findings |
+| --- | ---: |
+| `static_declaration` | 14 |
+| `ast_extraction` | 0 |
+| `keyword_heuristic` | 6 |
+| `regex_heuristic` | 0 |
+| `policy_pack` | 0 |
+
+Suppressed findings excluded: 0
+
 ## Capability <-> Intent Diff
 
 Agent intent:

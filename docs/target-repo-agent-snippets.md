@@ -198,6 +198,12 @@ auto_apply, propose_patch_for_review, escalate_to_human,
 suppress_with_reason, informational. Do not synthesize an action from
 the underlying flags when the enum is present.
 
+For reviewer triage by source reliability, run
+`agents-shipgate findings --from agents-shipgate-reports/report.json
+--provenance-kind keyword_heuristic,regex_heuristic --json`. The
+underlying `findings[].provenance_kind` field is a filter signal only,
+not a gate input.
+
 To translate a single finding into user-facing prose, run:
 
   agents-shipgate explain-finding <FINGERPRINT> \

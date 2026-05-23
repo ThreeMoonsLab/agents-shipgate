@@ -32,6 +32,20 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 No critical or high findings.
 
+## Finding Provenance
+
+Reviewer triage signal only. Provenance kind does not change severity, release decision, fingerprints, baselines, or CI exit codes.
+
+| Provenance kind | Active findings |
+| --- | ---: |
+| `static_declaration` | 0 |
+| `ast_extraction` | 0 |
+| `keyword_heuristic` | 0 |
+| `regex_heuristic` | 0 |
+| `policy_pack` | 0 |
+
+Suppressed findings excluded: 0
+
 ## Capability <-> Intent Diff
 
 No capability/intent misalignments detected from static evidence.
