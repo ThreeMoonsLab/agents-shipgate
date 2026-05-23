@@ -17,7 +17,8 @@ from agents_shipgate import __version__
 DEFAULT_CONFIG_RELATIVE_PATH = ".agents-shipgate/adoption-kit.yaml"
 KIT_METADATA_FILENAME = ".agents-shipgate-kit-metadata.json"
 SIDECAR_FILENAME = ".agents-shipgate-kit.json"
-KIT_SCHEMA_VERSION = 1
+KIT_CONFIG_SCHEMA_VERSION = 1
+KIT_SIDECAR_SCHEMA_VERSION = 1
 
 KitSource = Literal["bundled", "local_override", "bundled_plus_local_override"]
 
@@ -122,9 +123,10 @@ def load_adoption_kit_config(
             f"Adoption-kit config {path} must be a YAML mapping.",
             path=path,
         )
-    if raw.get("schema_version") != KIT_SCHEMA_VERSION:
+    if raw.get("schema_version") != KIT_CONFIG_SCHEMA_VERSION:
         raise AdoptionKitError(
-            f"Adoption-kit config {path} must set schema_version: {KIT_SCHEMA_VERSION}.",
+            "Adoption-kit config "
+            f"{path} must set schema_version: {KIT_CONFIG_SCHEMA_VERSION}.",
             path=path,
         )
     targets_raw = raw.get("targets") or {}
@@ -185,10 +187,10 @@ def render_adoption_kit(
     bundled_files = _read_bundled_files(spec)
     override_root = config.target_overrides.get(target) if config else None
     override_files = _read_override_files(override_root) if override_root else {}
-    root_files = {**bundled_files, **override_files}
+    merged_files = {**bundled_files, **override_files}
     root_files = {
         rel: _render_template(text)
-        for rel, text in sorted(root_files.items(), key=lambda item: item[0])
+        for rel, text in sorted(merged_files.items(), key=lambda item: item[0])
     }
     files = {
         f"{spec.target_root}/{rel}": text
@@ -243,7 +245,7 @@ def build_sidecar(rendered: RenderedAdoptionKit) -> dict[str, object]:
     """Build the sidecar JSON payload for a rendered kit target."""
 
     return {
-        "schema_version": KIT_SCHEMA_VERSION,
+        "schema_version": KIT_SIDECAR_SCHEMA_VERSION,
         "target": rendered.target,
         "kit_source": rendered.kit_source,
         "kit_source_id": rendered.kit_source_id,
@@ -263,7 +265,7 @@ def parse_sidecar(path: Path) -> KitSidecar | None:
         return None
     if not isinstance(raw, dict):
         return None
-    if raw.get("schema_version") != KIT_SCHEMA_VERSION:
+    if raw.get("schema_version") != KIT_SIDECAR_SCHEMA_VERSION:
         return None
     target = raw.get("target")
     kit_source = raw.get("kit_source")
@@ -306,7 +308,12 @@ def root_relative_path(target: str, workspace_relative_path: str) -> str:
 
 
 def first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
-    """Return the first existing symlink between ``workspace`` and ``path``."""
+    """Return the first existing symlink under ``workspace``.
+
+    Paths outside ``workspace`` return ``None`` here; callers do their own
+    containment checks and should report those as containment errors, not
+    symlink errors.
+    """
 
     workspace_real = workspace.resolve()
     try:
@@ -315,7 +322,7 @@ def first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
         try:
             relative_parts = path.resolve().relative_to(workspace_real).parts
         except ValueError:
-            return path
+            return None
     cur = workspace_real
     for part in relative_parts:
         cur = cur / part
@@ -468,6 +475,8 @@ __all__ = [
     "AdoptionKitConfig",
     "AdoptionKitError",
     "DEFAULT_CONFIG_RELATIVE_PATH",
+    "KIT_CONFIG_SCHEMA_VERSION",
+    "KIT_SIDECAR_SCHEMA_VERSION",
     "KIT_TARGETS",
     "SIDECAR_FILENAME",
     "RenderedAdoptionKit",

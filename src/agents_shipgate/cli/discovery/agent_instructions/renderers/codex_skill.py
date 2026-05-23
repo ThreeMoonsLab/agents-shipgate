@@ -2,28 +2,21 @@
 
 from __future__ import annotations
 
-from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
-    AdoptionKitConfig,
-    prior_render_hashes,
-    render_adoption_kit,
-)
-from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
-    render_bundle_text as _render_bundle_text,
-)
+from agents_shipgate.cli.discovery.agent_instructions import adoption_kit as _adoption_kit
 
 TARGET = "codex-skill"
 
 
-def render_files(config: AdoptionKitConfig | None = None) -> dict[str, str]:
+def render_files(config: _adoption_kit.AdoptionKitConfig | None = None) -> dict[str, str]:
     """Return relative file path -> UTF-8 text for the Codex skill bundle."""
 
-    return render_adoption_kit(TARGET, config).files
+    return _adoption_kit.render_adoption_kit(TARGET, config).files
 
 
-def render_bundle_text(config: AdoptionKitConfig | None = None) -> str:
+def render_bundle_text(config: _adoption_kit.AdoptionKitConfig | None = None) -> str:
     """Return a human-readable dry-run rendering of the full bundle."""
 
-    return _render_bundle_text(TARGET, config)
+    return _adoption_kit.render_bundle_text(TARGET, config)
 
 
-PRIOR_RENDER_SHA256: dict[str, tuple[str, ...]] = prior_render_hashes(TARGET)
+PRIOR_RENDER_SHA256: dict[str, tuple[str, ...]] = _adoption_kit.prior_render_hashes(TARGET)

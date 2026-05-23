@@ -5,10 +5,13 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_wheel_includes_adoption_kits(tmp_path: Path) -> None:
+    pytest.importorskip("build", reason="python-build not installed")
     out_dir = tmp_path / "dist"
     subprocess.run(
         [sys.executable, "-m", "build", "--wheel", "--outdir", str(out_dir)],

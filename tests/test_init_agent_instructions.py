@@ -12,6 +12,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.discovery.agent_instructions import TARGETS
@@ -201,7 +202,7 @@ def test_auto_discovered_agent_instructions_kit_is_used_on_write(
 
 def test_invalid_agent_instructions_kit_fails_before_write(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     kit_path = workspace / ".agents-shipgate/adoption-kit.yaml"
@@ -226,6 +227,38 @@ def test_invalid_agent_instructions_kit_fails_before_write(
     assert str(kit_path) in result.output
 
 
+def test_agent_instructions_kit_absolute_override_outside_workspace_error(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    outside = tmp_path / "outside-overrides"
+    outside.mkdir()
+    kit_path = workspace / ".agents-shipgate/adoption-kit.yaml"
+    kit_path.parent.mkdir(parents=True)
+    kit_path.write_text(
+        "schema_version: 1\n"
+        "targets:\n"
+        "  codex-skill:\n"
+        f"    overrides_dir: {outside}\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--agent-instructions=codex-skill",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "resolves outside workspace" in result.output
+    assert "is a symlink" not in result.output
+
+
 def test_invalid_selector_exits_two_with_human_error(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     result = runner.invoke(
@@ -240,7 +273,7 @@ def test_invalid_selector_exits_two_with_human_error(tmp_path: Path) -> None:
 
 def test_invalid_selector_emits_structured_error_under_agent_mode(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
@@ -430,7 +463,7 @@ def test_write_cursor_skipped_when_user_modified_exits_two(tmp_path: Path) -> No
 
 
 def test_skipped_target_emits_structured_stderr_under_agent_mode(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Hand-edited cursor + AGENTS_SHIPGATE_AGENT_MODE=1 produces a structured
     next_action JSON line on stderr so coding-agent callers can route to a fix

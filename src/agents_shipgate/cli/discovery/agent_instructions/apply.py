@@ -44,6 +44,7 @@ from pathlib import Path
 from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
     SIDECAR_FILENAME,
     AdoptionKitConfig,
+    KitSource,
     bootstrap_legacy_hashes,
     build_sidecar,
     parse_sidecar,
@@ -130,7 +131,7 @@ class TargetOutcome:
     message: str = ""
     rendered: str | None = None  # populated only on dry-run
     files: list[dict[str, str]] | None = None  # populated for file-tree targets
-    kit_source: str | None = None  # populated for adoption-kit file-tree targets
+    kit_source: KitSource | None = None  # populated for adoption-kit file-tree targets
 
     def to_json(self) -> dict[str, object]:
         payload: dict[str, object] = {
