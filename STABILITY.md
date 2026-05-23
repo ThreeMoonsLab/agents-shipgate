@@ -328,6 +328,11 @@ tests on every CI run, not by convention:
     call to resolve the bundled trigger catalog.
   - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled fixture directory.
+  - **`cli/discovery/agent_instructions/adoption_kit.py`** — one
+    `importlib.resources.files('agents_shipgate')` call to resolve bundled
+    first-party adoption-kit files from the installed wheel. Downstream
+    customization is explicit repo-local file reading through
+    `--agent-instructions-kit`, never dynamic imports or network fetches.
   - **`cli/self_check.py`** — one `__import__(module_name)` call
     validates that supplied modules import cleanly. Runs only under
     `agents-shipgate self-check`, never during scan.

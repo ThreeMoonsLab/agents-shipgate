@@ -30,6 +30,24 @@ agents-shipgate init --workspace . --write --agent-instructions=all
 The `codex-skill` target writes `.agents/skills/agents-shipgate/`. It is
 idempotent and safe to rerun; user-edited skill files are not overwritten.
 
+## Customize Generated Skill Content
+
+The installed package ships the default skill content offline. A downstream
+repo can override selected files without patching the wheel by adding
+`.agents-shipgate/adoption-kit.yaml`:
+
+```yaml
+schema_version: 1
+targets:
+  codex-skill:
+    overrides_dir: .agents-shipgate/adoption-kit/codex-skill
+```
+
+Files under the override directory are relative to
+`.agents/skills/agents-shipgate/`, for example `SKILL.md`,
+`references/recipes.md`, or `assets/advisory-pr-comment.yml`. Pass a
+different config path with `--agent-instructions-kit <path>`.
+
 ## Verify
 
 Open Codex in the project and run two checks:

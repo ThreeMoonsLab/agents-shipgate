@@ -7,6 +7,7 @@ decision" sentence, never in any other rendered content.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
@@ -142,6 +143,27 @@ def test_codex_skill_source_matches_renderer() -> None:
     """The checked-in repo-scoped Codex skill and init renderer must not drift."""
     for rel, content in render_codex_skill_files().items():
         assert (REPO_ROOT / rel).read_text(encoding="utf-8") == content
+
+
+def test_skill_renderers_do_not_embed_long_content_constants() -> None:
+    """Skill bundle prose lives in adoption-kit files, not Python constants."""
+
+    renderer_paths = (
+        REPO_ROOT
+        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
+        REPO_ROOT
+        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/claude_code_skill.py",
+    )
+    for path in renderer_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        long_strings = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and len(node.value) > 500
+        ]
+        assert not long_strings, f"{path} embeds generated content in Python"
 
 
 def test_codex_skill_benchmark_variant_uses_renderer(tmp_path: Path) -> None:
