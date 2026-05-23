@@ -138,7 +138,7 @@ def enrich_action_surface_diff_with_source(
     renderers read them explicitly).
 
     For safety, this function is only called on the PUBLIC diff
-    (``cli/scan.py``); the internal diff stays semantic so policy
+    (``cli/scan/sanitization.py``); the internal diff stays semantic so policy
     findings can be evaluated against unchanged evidence.
     """
     if not tool_source_index:

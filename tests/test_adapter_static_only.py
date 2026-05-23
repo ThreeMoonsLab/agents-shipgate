@@ -1242,14 +1242,16 @@ def test_scanner_sources_covers_known_files() -> None:
     sources = _scanner_sources()
     relative_paths = {str(p.relative_to(SCANNER_DIR)) for p in sources}
     required = {
-        "cli/scan.py",
+        "cli/scan/orchestrator.py",
+        "cli/scan/source_loading.py",
         "inputs/protocol.py",
         "inputs/mcp.py",
         "checks/registry.py",
         "checks/plugin_validation.py",
         "core/domain.py",
         "core/severity_overrides.py",
-        "core/findings.py",
+        "core/findings/report_builder.py",
+        "core/findings/identity.py",
         "schemas/report.py",
     }
     missing = required - relative_paths

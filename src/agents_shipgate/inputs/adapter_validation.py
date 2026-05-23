@@ -202,7 +202,7 @@ def run_validated_adapter(
 
     # Smuggling prevention: when the adapter declares a non-None
     # artifact_class, the returned artifact must be an instance of it.
-    # The dispatcher (cli/scan.py:_absorb) also enforces this for
+    # The dispatcher (cli/scan/source_loading.py:_absorb) also enforces this for
     # built-ins; recording it as a runtime error here gives external
     # consumers (loaded_adapters[].runtime_errors) visibility before
     # the dispatcher's TypeError fires.

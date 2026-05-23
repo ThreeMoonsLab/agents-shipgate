@@ -167,7 +167,7 @@ def test_canonical_registration_order():
 
 # ---------------------------------------------------------------------------
 # Dispatch-loop coverage. The dispatcher under test is
-# ``cli/scan.py:_load_sources``.
+# ``cli/scan/source_loading.py:_load_sources``.
 # ---------------------------------------------------------------------------
 
 
