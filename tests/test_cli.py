@@ -3,7 +3,6 @@ from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
 
-import click
 import pytest
 from pydantic import BaseModel
 from typer.main import get_command
@@ -243,13 +242,13 @@ def test_cli_scan_help_hides_deferred_flags():
     public_options = {
         option
         for parameter in scan_command.params
-        if isinstance(parameter, click.Option) and not parameter.hidden
+        if getattr(parameter, "opts", None) and not getattr(parameter, "hidden", False)
         for option in parameter.opts
     }
     hidden_options = {
         option
         for parameter in scan_command.params
-        if isinstance(parameter, click.Option) and parameter.hidden
+        if getattr(parameter, "opts", None) and getattr(parameter, "hidden", False)
         for option in parameter.opts
     }
 
