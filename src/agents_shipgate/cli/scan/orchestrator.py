@@ -32,6 +32,7 @@ def run_scan(
     plugins_enabled: bool | None = None,
     verbose: bool = False,
     suggest_patches: bool = False,
+    no_heuristics: bool = False,
     packet_enabled: bool | None = None,
     packet_formats: list[str] | None = None,
     packet_generated_at: str | None = None,
@@ -81,6 +82,7 @@ def run_scan(
         diffs=diffs,
         plugins_enabled=plugins_enabled,
         suggest_patches=suggest_patches,
+        no_heuristics=no_heuristics,
     )
     plan = _plan_outputs(
         manifest=resolved.manifest,

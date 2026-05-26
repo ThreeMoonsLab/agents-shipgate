@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-05-22; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.20`, packet schema `v0.6`.
+2026-05-23; auto-checked against `agents-shipgate contract --json`:
+runtime contract `1`, report schema `v0.21`, packet schema `v0.6`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -96,8 +96,20 @@ report/action_surface_diff         evaluate_action_surface_policies emits
 core/severity_overrides.resolve    floor enforcement, tier-crossing ack,
                                    expiry, dynamic-default aggregation
                                      ↓
-core/findings.apply_*              severity overrides, suppressions,
-                                   patch attachment (if --suggest-patches),
+core/findings.apply_*              severity overrides and manifest
+                                   suppressions
+                                     ↓
+apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
+                                   mark heuristic-provenance findings
+                                   suppressed BEFORE build_release_decision
+                                   runs, so excluded findings cannot
+                                   gate release. Runs after
+                                   apply_suppressions so manifest
+                                   intent wins on overlap. Always emits
+                                   the heuristics_filter envelope
+                                   (enabled=false when flag is unset).
+                                     ↓
+core/findings.patch/remediate      patch attachment (if --suggest-patches),
                                    v0.7 remediation annotation,
                                    v0.12 agent_action projection
                                      ↓
@@ -114,13 +126,16 @@ core/findings.build_report         assemble ReadinessReport; internally
                                    calls build_release_decision
                                    ({blocked, insufficient_evidence,
                                     review_required, passed} +
-                                   contribution_rules[] audit); populates
-                                   agent_summary + policy_audit + privacy_audit
+                                   contribution_rules[] audit) over the
+                                   post-filter active set; populates
+                                   agent_summary + policy_audit +
+                                   privacy_audit + heuristics_filter
                                      ↓
 apply_capability_diff              mutate report from public tools
                                      ↓
 build_reviewer_summary             populate v0.20 reviewer_summary from
-                                   final lens/audit data
+                                   final lens/audit data (already
+                                   post-filter)
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
@@ -222,6 +237,17 @@ gate-classification audit.
 For reviewer triage, `reviewer_summary` (v0.20) mirrors
 `release_decision.decision` and projects lens/audit activity counts plus
 `first_recommended_surface`.
+
+For security/GRC reviewers who want declared-only findings,
+`agents-shipgate scan --no-heuristics` (v0.21) marks
+`keyword_heuristic` and `regex_heuristic` findings as suppressed
+before the release decision is built. Filtered findings stay in
+`findings[]` for audit but no longer gate release. The
+`report.heuristics_filter` envelope records `enabled`,
+`excluded_provenance_kinds`, `filtered_finding_count`, and a
+per-kind breakdown — the audit pass for the filter. Earns the
+contract weight of `Finding.provenance_kind` (shipped v0.15) by
+giving it a first-class CLI consumer.
 
 ## Determinism
 
@@ -439,7 +465,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.20"`; older schemas frozen as
+  `report_schema_version: "0.21"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.6"`; older schemas frozen.

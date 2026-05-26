@@ -418,9 +418,9 @@ def test_architecture_doc_contract_stamp_matches_runtime():
         "`agents-shipgate contract --json`: runtime contract `N`, "
         "report schema `vX.Y`, packet schema `vX.Y`.'"
     )
-    assert stamp.group("date") == "2026-05-22", (
+    assert stamp.group("date") == "2026-05-23", (
         "docs/architecture.md contract-check date must stay pinned to "
-        "2026-05-22 until a deliberate architecture-doc refresh moves it."
+        "2026-05-23 until a deliberate architecture-doc refresh moves it."
     )
     assert stamp.group("contract") == CONTRACT_VERSION, (
         f"docs/architecture.md says runtime contract "

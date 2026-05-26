@@ -102,6 +102,7 @@ class _ChecksDecision:
     findings: list[Any]  # list[Finding]
     legacy_fingerprints: list[str]
     override_resolution: Any  # SeverityOverrideResolution
+    heuristics_filter: Any  # HeuristicsFilter
     loaded_plugins: list[dict[str, str | None]]
     context: ScanContext
 
@@ -162,3 +163,4 @@ class _SanitizedSurfaces:
     tool_surface_diff: Any
     baseline_summary: Any
     privacy_audit: Any
+    heuristics_filter: Any

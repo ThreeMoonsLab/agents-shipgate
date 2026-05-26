@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import SuppressionConfig
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import (
+    NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS,
+    Finding,
+    HeuristicsFilter,
+)
+
+NO_HEURISTICS_SUPPRESSION_REASON = "filtered by --no-heuristics"
 
 
 def apply_suppressions(
@@ -28,6 +36,36 @@ def apply_severity_overrides(
             finding.evidence.setdefault("default_severity", finding.severity)
             finding.severity = override
     return findings
+
+
+def apply_no_heuristics_filter(
+    findings: list[Finding],
+    *,
+    enabled: bool,
+) -> HeuristicsFilter:
+    """Suppress heuristic-provenance findings when ``--no-heuristics`` is set."""
+
+    excluded = set(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS)
+    envelope = HeuristicsFilter(
+        enabled=enabled,
+        excluded_provenance_kinds=list(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS),
+    )
+    if not enabled:
+        return envelope
+
+    counts: Counter[str] = Counter()
+    for finding in findings:
+        if finding.provenance_kind not in excluded:
+            continue
+        counts[finding.provenance_kind] += 1
+        if finding.suppressed:
+            continue
+        finding.suppressed = True
+        finding.suppression_reason = NO_HEURISTICS_SUPPRESSION_REASON
+
+    envelope.filtered_finding_count = sum(counts.values())
+    envelope.filtered_by_kind = dict(counts)
+    return envelope
 
 
 def _matching_suppression(

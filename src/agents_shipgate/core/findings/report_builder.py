@@ -8,6 +8,7 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     Finding,
+    HeuristicsFilter,
     LoadedPolicyPack,
     PolicyAudit,
     PrivacyAudit,
@@ -58,6 +59,7 @@ def build_report(
     action_surface_diff: ActionSurfaceDiff | None = None,
     policy_audit: PolicyAudit | None = None,
     privacy_audit: PrivacyAudit | None = None,
+    heuristics_filter: HeuristicsFilter | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -90,6 +92,7 @@ def build_report(
         # null check.
         policy_audit=policy_audit or PolicyAudit(),
         privacy_audit=privacy_audit,
+        heuristics_filter=heuristics_filter or HeuristicsFilter(),
     )
     report.release_decision = build_release_decision(
         report=report,

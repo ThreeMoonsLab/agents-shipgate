@@ -70,6 +70,7 @@ def _build_final_report(
         # existing in v0.17 reports.
         policy_audit=sanitized.policy_audit,
         privacy_audit=sanitized.privacy_audit,
+        heuristics_filter=sanitized.heuristics_filter,
     )
     apply_capability_diff(report, sanitized.tools)
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff

@@ -61,6 +61,7 @@ from .surface_redaction import (
 
 logger = logging.getLogger(__name__)
 
+
 def _sanitize_for_output(
     *,
     manifest: AgentsShipgateManifest,
@@ -296,6 +297,7 @@ def _sanitize_for_output(
         tool_surface_diff=public_tool_surface_diff,
         baseline_summary=baseline_summary,
         privacy_audit=privacy_audit,
+        heuristics_filter=decision.heuristics_filter,
     )
 
 

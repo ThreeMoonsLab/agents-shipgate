@@ -14,8 +14,10 @@ from .identity import (
     finding_fingerprint,
 )
 from .mutations import (
+    NO_HEURISTICS_SUPPRESSION_REASON,
     _matching_suppression,
     _severity_override_for_check,
+    apply_no_heuristics_filter,
     apply_severity_overrides,
     apply_suppressions,
 )
@@ -50,6 +52,7 @@ from .summaries import (
 
 __all__ = [
     "FINGERPRINT_EXCLUDED_EVIDENCE_KEYS",
+    "NO_HEURISTICS_SUPPRESSION_REASON",
     "PROVENANCE_KIND_ORDER",
     "SEVERITY_ORDER",
     "_REMEDIATION_FALLBACK",
@@ -72,6 +75,7 @@ __all__ = [
     "_tool_surface_changes",
     "_top_active_finding",
     "annotate_remediation",
+    "apply_no_heuristics_filter",
     "apply_severity_overrides",
     "apply_suppressions",
     "assign_finding_ids",

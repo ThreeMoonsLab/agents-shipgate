@@ -8,7 +8,11 @@ from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
 from agents_shipgate.core.findings.identity import dedupe_findings, finding_fingerprint
-from agents_shipgate.core.findings.mutations import apply_severity_overrides, apply_suppressions
+from agents_shipgate.core.findings.mutations import (
+    apply_no_heuristics_filter,
+    apply_severity_overrides,
+    apply_suppressions,
+)
 from agents_shipgate.core.findings.remediation import annotate_remediation
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
@@ -25,6 +29,7 @@ from .patching import _attach_patches, _check_metadata_lookup
 
 logger = logging.getLogger(__name__)
 
+
 def _run_checks_and_decide(
     *,
     manifest: AgentsShipgateManifest,
@@ -35,6 +40,7 @@ def _run_checks_and_decide(
     diffs: _DiffReferences,
     plugins_enabled: bool | None,
     suggest_patches: bool,
+    no_heuristics: bool,
 ) -> _ChecksDecision:
     """Phase 5: build internal action-surface facts, run all checks
     (built-in + plugin + policy-pack + action-surface policies),
@@ -107,6 +113,10 @@ def _run_checks_and_decide(
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore)
+    heuristics_filter = apply_no_heuristics_filter(
+        findings,
+        enabled=no_heuristics,
+    )
     if suggest_patches:
         _attach_patches(
             findings,
@@ -138,6 +148,7 @@ def _run_checks_and_decide(
         findings=findings,
         legacy_fingerprints=legacy_fingerprints,
         override_resolution=override_resolution,
+        heuristics_filter=heuristics_filter,
         loaded_plugins=loaded_plugins,
         context=context,
     )
