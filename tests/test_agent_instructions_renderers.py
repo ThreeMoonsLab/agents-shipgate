@@ -7,6 +7,7 @@ decision" sentence, never in any other rendered content.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
@@ -39,7 +40,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "011c3c3daeb537566651ba230b94bc3128b2c51fc51e3d360e8a74cf11f7a48f"
+        "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
@@ -71,7 +72,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a"
+        "920b60dcfeacb5eac55936d82f31796eb9a88bcec0e910fa56c278018c597772"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
         "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210"
@@ -142,6 +143,27 @@ def test_codex_skill_source_matches_renderer() -> None:
     """The checked-in repo-scoped Codex skill and init renderer must not drift."""
     for rel, content in render_codex_skill_files().items():
         assert (REPO_ROOT / rel).read_text(encoding="utf-8") == content
+
+
+def test_skill_renderers_do_not_embed_long_content_constants() -> None:
+    """Skill bundle prose lives in adoption-kit files, not Python constants."""
+
+    renderer_paths = (
+        REPO_ROOT
+        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
+        REPO_ROOT
+        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/claude_code_skill.py",
+    )
+    for path in renderer_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        long_strings = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and len(node.value) > 500
+        ]
+        assert not long_strings, f"{path} embeds generated content in Python"
 
 
 def test_codex_skill_benchmark_variant_uses_renderer(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate import __version__
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.fixtures import (
     FixturesUnavailableError,

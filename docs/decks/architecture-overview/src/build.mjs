@@ -290,7 +290,7 @@ async function main() {
     "The important boundary is before checks: all inputs become tools, artifacts, warnings, and one ScanContext.",
     grid({ name: "scan-grid", width: fill, height: fill, columns: [fr(1.05), fr(0.95)], columnGap: 52 }, [
       codePanel("scan-code", [
-        "src/agents_shipgate/cli/scan.py",
+        "src/agents_shipgate/cli/scan/orchestrator.py",
         "manifest = load_manifest(config_path)",
         "loaded_sources = _load_sources(...)",
         "api_source, api_artifacts = load_openai_api_artifacts(...)",
@@ -307,7 +307,7 @@ async function main() {
         compactItem("scan-output", "Reports are generated before exit policy", "JSON/Markdown/SARIF exist even when strict mode fails.", C.green),
       ]),
     ]),
-    "Source: src/agents_shipgate/cli/scan.py",
+    "Source: src/agents_shipgate/cli/scan/orchestrator.py",
   );
 
   // 6. Checks and findings
@@ -361,7 +361,7 @@ async function main() {
           compactItem("exit-20", "20", "strict-mode gate failure", C.red),
         ])),
     ]),
-    "Source: STABILITY.md and src/agents_shipgate/cli/scan.py",
+    "Source: STABILITY.md and src/agents_shipgate/cli/scan/orchestrator.py",
   );
 
   // 8. Trust and extension

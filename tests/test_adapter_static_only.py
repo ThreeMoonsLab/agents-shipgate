@@ -342,6 +342,29 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
             "'agents_shipgate' string (snippet pinning enforces this)."
         ),
     ),
+    AllowedException(
+        relative_path="cli/discovery/agent_instructions/adoption_kit.py",
+        surface="import:importlib.resources.files",
+        line=9,
+        snippet="from importlib.resources import files",
+        rationale=(
+            "adoption_kit.py reads bundled first-party adoption-kit files "
+            "from the installed wheel. From-import line pinned alongside "
+            "the call site for the same literal-anchor review as triggers.py."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/discovery/agent_instructions/adoption_kit.py",
+        surface="attr_call:importlib.resources.files",
+        line=354,
+        snippet="files('agents_shipgate')",
+        rationale=(
+            "Resolves bundled adoption-kits/* content inside the "
+            "agents-shipgate wheel. Anchor is the literal 'agents_shipgate' "
+            "string (snippet pinning enforces this); downstream customization "
+            "uses explicit repo-local override files, not dynamic imports."
+        ),
+    ),
 )
 
 
@@ -1242,14 +1265,16 @@ def test_scanner_sources_covers_known_files() -> None:
     sources = _scanner_sources()
     relative_paths = {str(p.relative_to(SCANNER_DIR)) for p in sources}
     required = {
-        "cli/scan.py",
+        "cli/scan/orchestrator.py",
+        "cli/scan/source_loading.py",
         "inputs/protocol.py",
         "inputs/mcp.py",
         "checks/registry.py",
         "checks/plugin_validation.py",
         "core/domain.py",
         "core/severity_overrides.py",
-        "core/findings.py",
+        "core/findings/report_builder.py",
+        "core/findings/identity.py",
         "schemas/report.py",
     }
     missing = required - relative_paths

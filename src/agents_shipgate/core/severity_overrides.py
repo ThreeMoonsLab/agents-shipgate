@@ -1,9 +1,9 @@
 """v0.17 (M1) severity-override validation + audit.
 
-Splits responsibility cleanly from ``core/findings.py``:
+Splits responsibility cleanly from ``core/findings/``:
 
 - ``findings.apply_severity_overrides`` stays the public mutation point
-  on the finding list (kept by ``cli/scan.py`` and existing tests).
+  on the finding list (kept by ``cli/scan/decision.py`` and existing tests).
 - This module owns the *policy validation* — floor enforcement, tier
   detection, acknowledgement matching, expiry checks — and produces an
   immutable ``SeverityOverrideResolution`` that the apply step consumes
@@ -240,7 +240,7 @@ def resolve_severity_overrides(
         # SHIP-ACTION-POLICY-VIOLATION bypass — an action policy
         # declared at ``severity: critical`` makes the effective
         # default critical, even though the catalog static default
-        # for that check is high. See ``cli/scan.py`` for the
+        # for that check is high. See ``cli/scan/decision.py`` for the
         # call-site that aggregates action-policy declarations.
         catalog_default_severity = target_metadata.default_severity
         dynamic_default = extra_defaults.get(check_id)

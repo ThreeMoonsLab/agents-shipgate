@@ -96,10 +96,8 @@ report/action_surface_diff         evaluate_action_surface_policies emits
 core/severity_overrides.resolve    floor enforcement, tier-crossing ack,
                                    expiry, dynamic-default aggregation
                                      ↓
-core/findings.apply_*              severity overrides, suppressions,
-                                   patch attachment (if --suggest-patches),
-                                   v0.7 remediation annotation,
-                                   v0.12 agent_action projection
+core/findings.apply_*              severity overrides and manifest
+                                   suppressions
                                      ↓
 apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
                                    mark heuristic-provenance findings
@@ -110,6 +108,10 @@ apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
                                    intent wins on overlap. Always emits
                                    the heuristics_filter envelope
                                    (enabled=false when flag is unset).
+                                     ↓
+core/findings.patch/remediate      patch attachment (if --suggest-patches),
+                                   v0.7 remediation annotation,
+                                   v0.12 agent_action projection
                                      ↓
 core/privacy piecemeal redaction    sanitize_model + redact_data on every
                                    public field; stats accumulate
@@ -139,7 +141,7 @@ report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
 packet/builder.build_packet        Release Evidence Packet (v0.6) including
                                    the evidence_matrix lens
                                      ↓
-cli/scan.py:run_scan               entry-point orchestrator. Composed of
+cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
                                    nine sequential phase helpers
                                    (_prepare_scan → _load_inputs →
                                    _build_tools_and_agent →

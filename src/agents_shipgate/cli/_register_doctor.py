@@ -12,7 +12,7 @@ from agents_shipgate.cli.diagnostics import (
     top_next_actions,
 )
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
-from agents_shipgate.cli.scan import inspect_sources
+from agents_shipgate.cli.scan.inspect import inspect_sources
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction

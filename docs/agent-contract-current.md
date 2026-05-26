@@ -37,7 +37,9 @@ The action exposes these as outputs `decision`, `blocker_count`, `review_item_co
 
 `agents-shipgate contract --json` exposes `manual_review_signals[]` as the
 installed CLI's stable list of report/packet fields to inspect for human review
-work.
+work. `findings[].provenance_kind` is included there as a filter/review signal
+only; it never changes the release decision, severity, fingerprints, baselines,
+or CI exit behavior.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:
 
@@ -96,6 +98,16 @@ Per-finding `provenance_kind` enum (v0.15+), additive classification — read th
 - `policy_pack` — emitted by an external policy pack rule. The rule's own confidence applies — Shipgate does not second-guess the pack.
 
 Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
+
+To filter operationally, use:
+
+```bash
+agents-shipgate findings --from agents-shipgate-reports/report.json \
+  --provenance-kind keyword_heuristic,regex_heuristic --json
+```
+
+The command reads active findings by default; add `--include-suppressed` when a
+reviewer needs suppressed entries in the same provenance summary.
 
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
 Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and

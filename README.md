@@ -134,6 +134,16 @@ The skill lives at `.agents/skills/agents-shipgate/`, can be invoked with
 `$agents-shipgate`, and teaches Codex the bootstrap, scan, report-reading,
 advisory CI, and finding-triage workflows.
 
+To customize generated skill content in a downstream repo without rebuilding
+`agents-shipgate`, add `.agents-shipgate/adoption-kit.yaml` with repo-local
+overrides, or pass it explicitly:
+
+```bash
+agents-shipgate init --workspace . --write \
+  --agent-instructions=codex-skill \
+  --agent-instructions-kit .agents-shipgate/adoption-kit.yaml
+```
+
 ## Who this is for
 
 - **Agent builders** — review MCP, OpenAPI, and SDK tool definitions before merging changes that expand the tool surface.

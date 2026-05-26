@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agents Shipgate"
+  short_description: "Run Tool-Use Readiness release gates"
+  default_prompt: "Use $agents-shipgate to add a Tool-Use Readiness release gate to this agent repo."
+
+policy:
+  allow_implicit_invocation: true

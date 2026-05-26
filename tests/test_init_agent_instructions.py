@@ -12,6 +12,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.discovery.agent_instructions import TARGETS
@@ -67,6 +68,15 @@ def test_dry_run_all_targets_json_has_rendered_content(tmp_path: Path) -> None:
     assert statuses == {name: "would_render" for name in TARGETS}
     for entry in ai["targets"]:
         assert entry["rendered"]
+    kit_sources = {
+        entry["name"]: entry.get("kit_source")
+        for entry in ai["targets"]
+        if entry["name"] in {"codex-skill", "claude-code-skill"}
+    }
+    assert kit_sources == {
+        "codex-skill": "bundled",
+        "claude-code-skill": "bundled",
+    }
     # No filesystem changes.
     for name in TARGETS:
         assert not (workspace / SPECS[name].relative_path).exists()
@@ -105,6 +115,150 @@ def test_dry_run_none_selector_emits_empty_targets_list(tmp_path: Path) -> None:
     }
 
 
+def test_explicit_agent_instructions_kit_reports_local_source(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    override_root = workspace / ".agents-shipgate/adoption-kit/codex-skill"
+    override_root.mkdir(parents=True)
+    override_root.joinpath("SKILL.md").write_text(
+        "# Custom Codex Skill\n",
+        encoding="utf-8",
+    )
+    kit_path = workspace / ".agents-shipgate/custom-kit.yaml"
+    kit_path.write_text(
+        "schema_version: 1\n"
+        "targets:\n"
+        "  codex-skill:\n"
+        "    overrides_dir: .agents-shipgate/adoption-kit/codex-skill\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--agent-instructions=codex-skill",
+            "--agent-instructions-kit",
+            str(kit_path.relative_to(workspace)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    [target] = payload["agent_instructions"]["targets"]
+    assert target["kit_source"] == "bundled_plus_local_override"
+    rendered_skill = next(
+        file["content"]
+        for file in target["files"]
+        if file["path"].endswith("/SKILL.md")
+    )
+    assert rendered_skill == "# Custom Codex Skill\n"
+
+
+def test_auto_discovered_agent_instructions_kit_is_used_on_write(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    override_root = workspace / ".agents-shipgate/adoption-kit/codex-skill"
+    override_root.mkdir(parents=True)
+    override_root.joinpath("references").mkdir()
+    override_root.joinpath("references/report-reading.md").write_text(
+        "# Custom Report Reader\n",
+        encoding="utf-8",
+    )
+    (workspace / ".agents-shipgate/adoption-kit.yaml").write_text(
+        "schema_version: 1\n"
+        "targets:\n"
+        "  codex-skill:\n"
+        "    overrides_dir: .agents-shipgate/adoption-kit/codex-skill\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--agent-instructions=codex-skill",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    [target] = payload["agent_instructions"]["targets"]
+    assert target["kit_source"] == "bundled_plus_local_override"
+    assert (
+        workspace
+        / ".agents/skills/agents-shipgate/references/report-reading.md"
+    ).read_text(encoding="utf-8") == "# Custom Report Reader\n"
+
+
+def test_invalid_agent_instructions_kit_fails_before_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    kit_path = workspace / ".agents-shipgate/adoption-kit.yaml"
+    kit_path.parent.mkdir(parents=True)
+    kit_path.write_text("schema_version: 2\n", encoding="utf-8")
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--agent-instructions=codex-skill",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert not (workspace / "shipgate.yaml").exists()
+    assert '"error": "config_error"' in result.output
+    assert str(kit_path) in result.output
+
+
+def test_agent_instructions_kit_absolute_override_outside_workspace_error(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
+    outside = tmp_path / "outside-overrides"
+    outside.mkdir()
+    kit_path = workspace / ".agents-shipgate/adoption-kit.yaml"
+    kit_path.parent.mkdir(parents=True)
+    kit_path.write_text(
+        "schema_version: 1\n"
+        "targets:\n"
+        "  codex-skill:\n"
+        f"    overrides_dir: {outside}\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--agent-instructions=codex-skill",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "resolves outside workspace" in result.output
+    assert "is a symlink" not in result.output
+
+
 def test_invalid_selector_exits_two_with_human_error(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     result = runner.invoke(
@@ -119,7 +273,7 @@ def test_invalid_selector_exits_two_with_human_error(tmp_path: Path) -> None:
 
 def test_invalid_selector_emits_structured_error_under_agent_mode(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _seed_workspace(tmp_path, "simple_langchain_agent")
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
@@ -309,7 +463,7 @@ def test_write_cursor_skipped_when_user_modified_exits_two(tmp_path: Path) -> No
 
 
 def test_skipped_target_emits_structured_stderr_under_agent_mode(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Hand-edited cursor + AGENTS_SHIPGATE_AGENT_MODE=1 produces a structured
     next_action JSON line on stderr so coding-agent callers can route to a fix

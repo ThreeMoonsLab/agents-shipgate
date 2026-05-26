@@ -151,7 +151,7 @@ for real Cursor runs.
 |---|---|
 | Agent ignores Shipgate on `10-agents-md` (tool-PR prompt) | Strengthen wording in `docs/target-repo-agent-snippets.md` AGENTS.md block; the renderer in `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lifts from there. |
 | Scan invoked without `--ci-mode advisory` | Make advisory the default in the snippet example; consider `init --write` defaulting workflow to advisory. |
-| Agent parses Markdown report not JSON | Add `agent_summary` excerpt to the snippet; have `src/agents_shipgate/cli/scan.py` print "Parse the JSON report at …" hint in agent mode. |
+| Agent parses Markdown report not JSON | Add `agent_summary` excerpt to the snippet; have `src/agents_shipgate/cli/scan/` print "Parse the JSON report at …" hint in agent mode. |
 | `CHANGE_ME` left in `shipgate.yaml` | CLI fix in `src/agents_shipgate/cli/_register_init.py`. Add diagnostic in `src/agents_shipgate/cli/diagnostics.py`. |
 | `agents-shipgate-reports/` committed | `init --write` patches `.gitignore` if not already covered. |
 | Auto-asserted approval / confirmation / idempotency | **Detector blocker → docs fix.** Strengthen warning in target snippets. **No manifest schema change in P0.2.** |

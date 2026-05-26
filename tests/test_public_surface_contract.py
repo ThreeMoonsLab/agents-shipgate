@@ -32,6 +32,7 @@ from agents_shipgate.report.markdown import DISCLAIMER
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
+    MANUAL_REVIEW_SIGNALS,
     SUPPORTED_INPUTS,
     build_contract_payload,
 )
@@ -382,6 +383,15 @@ def test_agent_contract_current_doc_is_canonical():
     assert "manual_review_signals[]" in text, (
         "docs/agent-contract-current.md must mention the local contract's "
         "manual_review_signals[] field."
+    )
+    assert "findings[].provenance_kind" in MANUAL_REVIEW_SIGNALS
+    assert "agents-shipgate findings" in text, (
+        "docs/agent-contract-current.md must make provenance_kind operational "
+        "via the findings filter command."
+    )
+    assert "never changes the release decision" in text, (
+        "docs/agent-contract-current.md must state that provenance_kind is "
+        "reviewer triage only, not a gate input."
     )
     assert CURRENT_PACKET_SCHEMA in text, (
         "docs/agent-contract-current.md must reference the current packet "
