@@ -17,7 +17,7 @@ from agents_shipgate.cli._helpers import (
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import top_next_actions
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -114,6 +114,20 @@ def register(app: typer.Typer) -> None:
                 "apply them; the report stays read-only."
             ),
         ),
+        no_heuristics: bool = typer.Option(
+            False,
+            "--no-heuristics",
+            help=(
+                "Filter out findings whose provenance_kind is "
+                "keyword_heuristic or regex_heuristic (v0.21+). Filtered "
+                "findings stay in findings[] marked suppressed; they no "
+                "longer gate release. static_declaration, ast_extraction, "
+                "and policy_pack findings are unaffected. The "
+                "report.heuristics_filter envelope records aggregate "
+                "counts. Useful for security/GRC reviewers who want "
+                "declared-only findings."
+            ),
+        ),
         packet: bool | None = typer.Option(
             None,
             "--packet/--no-packet",
@@ -187,6 +201,7 @@ def register(app: typer.Typer) -> None:
                     suggest_patches=suggest_patches,
                     packet_enabled=packet,
                     packet_formats=parsed_packet_formats,
+                    no_heuristics=no_heuristics,
                 )
                 exit_code = _apply_strict_plugins(
                     report, exit_code, strict_plugins=strict_plugins
@@ -210,6 +225,7 @@ def register(app: typer.Typer) -> None:
                 packet_enabled=packet,
                 packet_formats=parsed_packet_formats,
                 strict_plugins=strict_plugins,
+                no_heuristics=no_heuristics,
             )
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)

@@ -244,6 +244,15 @@ def build_report_schema() -> tuple[Path, str]:
             # we mark it required + non-nullable on the wire.
             "policy_audit",
             "privacy_audit",
+            # v0.21: heuristics_filter is the top-of-report audit envelope
+            # for the --no-heuristics CLI flag. Optional in Python for
+            # back-compat with older fixtures; emitted scans always
+            # populate it (empty envelope with enabled=false when the
+            # flag is not set), so we mark it required + non-nullable
+            # on the wire. Consumers can read
+            # ``heuristics_filter.filtered_finding_count`` without a
+            # null check.
+            "heuristics_filter",
             # v0.20: reviewer_summary parallels agent_summary for the
             # audit/lens dimensions. Optional in Python for back-compat
             # with test helpers; emitted scans always populate it via
@@ -282,6 +291,12 @@ def build_report_schema() -> tuple[Path, str]:
     # v0.18: same tightening for privacy_audit. Emitted scans always
     # carry the default-on privacy envelope after public output redaction.
     properties["privacy_audit"] = {"$ref": "#/$defs/PrivacyAudit"}
+    # v0.21: same tightening for heuristics_filter. Emitted scans always
+    # carry the envelope (with enabled=false when --no-heuristics was
+    # not set), so the wire shape is HeuristicsFilter, never null. The
+    # const + non-nullable form lets consumers read
+    # ``heuristics_filter.filtered_finding_count`` without a null check.
+    properties["heuristics_filter"] = {"$ref": "#/$defs/HeuristicsFilter"}
     # v0.20: same tightening for reviewer_summary. Parallel to v0.12
     # agent_summary — Python-Optional for test helpers, required +
     # non-nullable on the wire so consumers can read
@@ -310,6 +325,21 @@ def build_report_schema() -> tuple[Path, str]:
     if "RedactedPathSummary" in defs:
         defs["RedactedPathSummary"]["required"] = sorted(
             ["path", "count", "kinds"]
+        )
+    # v0.21: pin every HeuristicsFilter field as required. Pydantic
+    # auto-required is empty here because every field has a default
+    # (enabled=False, lists/dicts default-factory). On the wire every
+    # emitted scan carries all four fields — `apply_no_heuristics_filter`
+    # always populates them — so consumers can rely on the full shape
+    # without conditional key checks.
+    if "HeuristicsFilter" in defs:
+        defs["HeuristicsFilter"]["required"] = sorted(
+            [
+                "enabled",
+                "excluded_provenance_kinds",
+                "filtered_finding_count",
+                "filtered_by_kind",
+            ]
         )
     if "Finding" in defs:
         defs["Finding"]["required"] = sorted(

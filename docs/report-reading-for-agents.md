@@ -66,6 +66,17 @@ Per-finding stable fields (see [`AGENTS.md`](../AGENTS.md) Task 2 for the full l
 
 Group by `severity` to summarize; cite `check_id` so the user can run `agents-shipgate explain <check_id>` for rationale.
 
+For reviewer triage by source reliability, filter on
+`findings[].provenance_kind` with the dedicated command:
+
+```bash
+agents-shipgate findings --from agents-shipgate-reports/report.json \
+  --provenance-kind keyword_heuristic,regex_heuristic --json
+```
+
+This is not a gate signal. It does not change severity, release decisions,
+fingerprints, baselines, or CI exit codes.
+
 ### Step 4 · Per-finding autofix fields (v0.7+)
 
 For every active finding, inspect:
@@ -167,7 +178,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.20` | `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.20.json`](report-schema.v0.20.json) |
+| Report | `0.21` | `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.21.json`](report-schema.v0.21.json) |
 | Packet | `0.6` | `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.6.json`](packet-schema.v0.6.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `1` | — | `agents-shipgate contract --json` |

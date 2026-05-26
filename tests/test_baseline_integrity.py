@@ -632,10 +632,6 @@ def test_scan_integrity_off_emits_no_integrity_findings(tmp_path, monkeypatch):
         return manifest
 
     monkeypatch.setattr(loader_mod, "load_manifest", patched)
-    # cli.scan imports `load_manifest` at module level — patch the attribute it uses
-    import agents_shipgate.cli.scan as scan_mod
-
-    monkeypatch.setattr(scan_mod, "load_manifest", patched)
     report, _ = run_scan(
         config_path=SAMPLE,
         output_dir=tmp_path / "out2",
@@ -663,9 +659,6 @@ def test_scan_strict_integrity_sets_blocks_release(tmp_path, monkeypatch):
         return manifest
 
     monkeypatch.setattr(loader_mod, "load_manifest", patched)
-    import agents_shipgate.cli.scan as scan_mod
-
-    monkeypatch.setattr(scan_mod, "load_manifest", patched)
     report, _ = run_scan(
         config_path=SAMPLE,
         output_dir=tmp_path / "out2",
@@ -697,9 +690,6 @@ def test_scan_strict_integrity_malformed_audit_log_blocks_release(
         return manifest
 
     monkeypatch.setattr(loader_mod, "load_manifest", patched)
-    import agents_shipgate.cli.scan as scan_mod
-
-    monkeypatch.setattr(scan_mod, "load_manifest", patched)
     report, _ = run_scan(
         config_path=SAMPLE,
         output_dir=tmp_path / "out2",

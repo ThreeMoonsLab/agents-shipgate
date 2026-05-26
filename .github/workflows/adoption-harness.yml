@@ -32,7 +32,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SHIPGATE_HARNESS_BUDGET_USD: ${{ inputs.budget_usd }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
@@ -53,14 +53,14 @@ jobs:
             ${{ inputs.agent_filter && format('--agent={0}', inputs.agent_filter) || '' }}
       - name: Upload exit-criteria report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: exit-criteria
           path: .agents-private/adoption-sprint/*/exit_criteria.json
           if-no-files-found: warn
       - name: Upload CSV
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: results-csv
           path: benchmark/results/*.csv
@@ -72,7 +72,7 @@ jobs:
     # the pipeline. PR CI exercises the same code via tests/harness/.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

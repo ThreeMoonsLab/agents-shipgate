@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "target": "claude-code-skill",
+  "prior_render_sha256": {},
+  "bootstrap_legacy_sha256": {
+    "SKILL.md": [
+      "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9"
+    ],
+    "prompts/add-shipgate-to-repo.md": [
+      "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
+    ],
+    "prompts/decide-shipgate-relevance.md": [
+      "8fab0595326b127fb1678828fd9b15c63cbe98f0229aad5bb87d47030e4b9ca6"
+    ],
+    "prompts/explain-finding-to-user.md": [
+      "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
+    ],
+    "prompts/fix-top-finding.md": [
+      "90d36fbe91668fdc64e5e73727ec8285ee62c584d695b866261ef569fea07074"
+    ],
+    "prompts/recommend-fixes.md": [
+      "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
+    ],
+    "prompts/stabilize-strict-mode.md": [
+      "bb97c3fbd3b52d5755f6960878f350d484837849c3e536d99aab3fab3e353405"
+    ],
+    "prompts/triage-false-positive.md": [
+      "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
+    ],
+    "prompts/upgrade-shipgate-version.md": [
+      "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
+    ],
+    "ci-recipes/advisory-pr-comment.yml": [
+      "c3756c86f52cf00a594b3fe38179b66e0f07dc8c52b98b9e76f4a15939901c77"
+    ]
+  }
+}

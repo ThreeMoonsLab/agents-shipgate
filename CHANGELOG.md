@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+- **v0.21 — `--no-heuristics` CLI flag closes the round-3 / round-4 E5
+  carryover.** `Finding.provenance_kind` has shipped on every report since
+  v0.15 as required+non-nullable wire metadata but had no consumer for
+  four review cycles. v0.21 lands the consumer the field was always
+  designed for: a security/GRC-friendly filter that excludes findings
+  whose provenance is `keyword_heuristic` or `regex_heuristic` from the
+  active release-gating set.
+  - New `--no-heuristics` flag on `agents-shipgate scan` (stable in
+    0.x). When set, findings whose `provenance_kind` is in
+    `NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS` (today: `keyword_heuristic`
+    and `regex_heuristic`) are marked `suppressed=True` with
+    `suppression_reason="filtered by --no-heuristics"` BEFORE the
+    release decision is built. Filtered findings remain in `findings[]`
+    for transparency; they no longer gate release. The KEEP list is
+    `static_declaration`, `ast_extraction`, and `policy_pack` —
+    declared/parsed-shape findings and explicit external rules stay in
+    scope.
+  - New top-level `report.heuristics_filter` audit envelope. Required +
+    always present on emitted scans regardless of whether the flag was
+    set (parallel to `privacy_audit` shape). Fields: `enabled`,
+    `excluded_provenance_kinds: list[str]`, `filtered_finding_count`,
+    `filtered_by_kind: dict[str, int]`. Earns the contract weight of
+    `Finding.provenance_kind` by giving it a first-class consumer.
+  - Manifest-driven suppression wins on overlap: a finding the user
+    explicitly suppressed via `checks.ignore` keeps the user's reason
+    text even when its provenance_kind would have triggered the
+    filter. The audit envelope still counts the overlap so reviewers
+    see the filter's effective scope.
+  - `ReviewerSummary` lens/audit counts already reflect the post-filter
+    active set (the filter runs before `build_reviewer_summary`); no
+    new field added to `ReviewerSummary` — the dedicated envelope is
+    the right audit home.
+  - Schema bump: `report_schema_version: "0.20"` → `"0.21"`. v0.20 moves
+    to frozen-reference; existing v0.20 consumers ignore the new field.
+  - Contract-stamp pin in `docs/architecture.md` bumped to date
+    `2026-05-23`, report `v0.21`, packet `v0.6` (unchanged). The
+    `test_architecture_doc_contract_stamp_matches_runtime` regression
+    test moves in lockstep.
+  - 12 new tests in `tests/test_no_heuristics.py` covering: pure-
+    function filter semantics (KEEP / FILTER classifications per
+    provenance_kind), envelope shape parity across enabled=True/False,
+    manifest-suppression preservation, contract-list completeness
+    (every value in `NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS` is a
+    real `ProvenanceKind`; KEEP+EXCLUDE partition is exact), end-to-
+    end `run_scan(no_heuristics=True)`, CLI subprocess smoke test,
+    monotone-non-increasing reviewer-summary lens counts under
+    filtering.
+  - **Decision recorded.** Round-4 review's E5 carryover offered ship-
+    or-retire on `provenance_kind`. We ship. Retiring would have forced
+    a deprecation cycle on a stable-contract field used by every
+    report since v0.15; shipping the flag earns the weight and serves
+    a real audience (security/GRC reviewers triaging declared-only
+    findings before promotion).
+
+- **v0.21 — CI coverage gate raised from 75% → 85% (E7 from round-4 review).**
+  Both `.github/workflows/ci.yml` and `.github/workflows/release.yml` now
+  pass `--cov-fail-under=85`. Aggregate coverage on `main` at the time of
+  the bump is ~88%, so the gate is +10pp tighter with ~3pp headroom for
+  day-to-day movement. The bump catches the next time a refactor lands
+  materially less-covered code without corresponding tests. No source
+  change required to land — the gate is simply closer to the actual
+  signal. Per-file coverage is not enforced; the aggregate floor only
+  rises in step with what's already proven on `main`.
+
 - **v0.21 — decompose `inputs/n8n.py` into `inputs/n8n/` package (E8 from
   round-3 review).** The largest input adapter (1493 lines monolithic)
   is now a 6-module package with per-concern boundaries; the public
@@ -43,15 +107,13 @@
     343, langchain.py 305). Largest sub-module now is `_tools.py` at
     492 LOC.
 
-- **v0.21 — CI coverage gate raised from 75% → 85% (E7 from round-4 review).**
-  Both `.github/workflows/ci.yml` and `.github/workflows/release.yml` now
-  pass `--cov-fail-under=85`. Aggregate coverage on `main` at the time of
-  the bump is ~88%, so the gate is +10pp tighter with ~3pp headroom for
-  day-to-day movement. The bump catches the next time a refactor lands
-  materially less-covered code without corresponding tests. No source
-  change required to land — the gate is simply closer to the actual
-  signal. Per-file coverage is not enforced; the aggregate floor only
-  rises in step with what's already proven on `main`.
+- **Adoption kit rendering externalized.** Codex and Claude Code
+  `--agent-instructions` skill bundles now render from packaged
+  `adoption-kits/` files instead of Python string constants. Downstream repos
+  can provide `.agents-shipgate/adoption-kit.yaml` or
+  `--agent-instructions-kit <path>` for local overrides, and generated skill
+  directories now carry `.agents-shipgate-kit.json` sidecars for managed
+  migrations.
 
 - **v0.20 — third-party adapter entry-point discovery (E4 from round-3 review).**
   Opens the same extension surface for adapters (input loaders) that M5

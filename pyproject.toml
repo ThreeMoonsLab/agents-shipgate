@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -69,12 +69,12 @@ pdf = [
   # Optional dependency for `agents-shipgate scan --packet-format ...,pdf`
   # and `agents-shipgate evidence-packet --format pdf`. Skipped with a
   # warning if not installed; the rest of the packet still renders.
-  "weasyprint>=62,<70",
+  "weasyprint>=68.1,<70",
 ]
 dev = [
   "build>=1.5.0,<2",
   "cyclonedx-bom>=7.3.0,<8",
-  "hypothesis>=6.152.4,<7",
+  "hypothesis>=6.152.9,<7",
   "jsonschema>=4.26.0,<5",
   "pip-audit>=2.7,<3",
   "pytest>=9.0.3,<10",
@@ -111,6 +111,7 @@ packages = ["src/agents_shipgate"]
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
 "docs/triggers.json" = "agents_shipgate/_meta/triggers.json"
+"adoption-kits" = "agents_shipgate/_adoption_kits"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

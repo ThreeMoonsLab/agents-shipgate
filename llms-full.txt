@@ -278,14 +278,15 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
-- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for filtering heuristic-only findings)
+- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
 - `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
 - `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 - `release_decision.contribution_rules[]` (v0.17+, per-finding audit of how each finding contributed to the decision; one row per `report.findings` entry, with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`)
 - `policy_audit.severity_overrides_applied[]` (v0.17+, top-of-report audit envelope listing every manifest-driven severity override with `{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}`)
 - `privacy_audit` (v0.18+, top-level audit proving default redaction ran before public artifacts were written; `redacted_paths[]` contains counts and structural paths only, never raw values or raw hashes)
+- `heuristics_filter` (v0.21+, top-level audit envelope describing the `--no-heuristics` CLI filter pass; `enabled` is `False` and counts are zero when the flag is unset, so the field shape is stable across runs. When enabled, findings whose `provenance_kind` is `keyword_heuristic` or `regex_heuristic` are marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` before the release decision is built — they remain in `findings[]` for transparency but do not gate release.)
 
-The full schema is at [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) (current; emitted reports carry `report_schema_version: "0.20"`, adding the top-level `reviewer_summary` block — a deterministic projection of reviewer-lens surfaces and audit envelopes). v0.19 (frozen at [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json)) adds `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json) (current; emitted reports carry `report_schema_version: "0.21"`, adding the top-level `heuristics_filter` audit envelope alongside v0.20's `reviewer_summary` block). v0.20 (frozen at [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json)) added the `reviewer_summary` deterministic projection of reviewer-lens surfaces and audit envelopes. v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -351,7 +352,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) (current).
+[`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -389,7 +390,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.20` |
+| Report schema (current) | [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json) | `0.21` |
+| Report schema (v0.20 frozen reference) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.20` |
 | Report schema (v0.19 frozen reference) | [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) | `0.19` |
 | Report schema (v0.18 frozen reference) | [`docs/report-schema.v0.18.json`](docs/report-schema.v0.18.json) | `0.18` |
 | Report schema (v0.17 frozen reference) | [`docs/report-schema.v0.17.json`](docs/report-schema.v0.17.json) | `0.17` |
@@ -424,13 +426,14 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
+| `agents-shipgate findings` | `--from`, `--provenance-kind`, `--include-suppressed`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
@@ -832,9 +835,9 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.20` — [`docs/report-schema.v0.20.json`](report-schema.v0.20.json)
+- Current report schema: `0.21` — [`docs/report-schema.v0.21.json`](report-schema.v0.21.json)
 - Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
-- Frozen-reference report schemas: [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
 ## Read these first for release gating
@@ -849,6 +852,7 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.contribution_rules[]` (v0.17+) — deterministic per-finding audit explaining how each `report.findings` entry was classified. Exactly one row per finding (including suppressed). Each row carries `{finding_id, fingerprint, check_id, category, rule, rationale}`. `category` ∈ `{blocker, review_item, excluded}`; `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`. Reading the contribution rule is sufficient to predict the gate outcome for that finding without re-deriving the decision logic — the closed grammar of `(rule, category)` pairs is documented in [STABILITY.md "Release decision truth table"](../STABILITY.md#release-decision-truth-table). The audit cannot disagree with `blockers[]` / `review_items[]` (the same classification powers both).
 - `privacy_audit` (v0.18+) — confirms the default redaction pass ran before public artifacts were written. Read `enabled`, `rules_version`, `sensitive_field_inventory_version`, `redacted_occurrence_count`, `redacted_paths[]`, and `output_surfaces[]`. `redacted_paths[]` contains structural paths and counts only, never raw values or raw hashes.
 - `reviewer_summary` (v0.20+) — deterministic projection of the reviewer lens surfaces and audit envelopes; the reviewer-side parallel to `agent_summary`. Read this block first when triaging a scan for a human reviewer. Carries `verdict` (mirrors `release_decision.decision`), `headline` (≤200 chars, PR-comment-friendly), per-lens activity counts (`tool_surface_changes`, `capability_misalignments`, `action_surface_changes`, `evidence_matrix_gaps`), per-audit-envelope counts (`severity_overrides_applied`, `severity_overrides_tier_crossed`, `privacy_redactions`, `baseline_integrity_issues`), and `first_recommended_surface: ReviewerSurfacePointer | None` — a deterministic pointer naming which lens/audit to open first (`{kind, name, path, why}` where `kind` ∈ `{release_decision, lens, audit, evidence_matrix}` and `name` ∈ `{tool_surface_diff, capability_intent_diff, action_surface_diff, evidence_matrix, policy_audit, privacy_audit, baseline_integrity, release_decision}`). Same inputs always produce the same output; this block cannot disagree with the underlying lens/audit data.
+- `heuristics_filter` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Always present, even when the flag is unset (`enabled: False` with zero counts), so the report shape is stable. Carries `enabled: bool`, `excluded_provenance_kinds: list[str]` (`["keyword_heuristic", "regex_heuristic"]`), `filtered_finding_count: int`, and `filtered_by_kind: dict[str, int]` (per-kind breakdown). When `enabled: True`, findings whose `provenance_kind` is in the excluded list have been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision was built — they remain in `findings[]` for transparency but no longer gate release. The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved when they overlap with the filter. Useful for security/GRC reviewers who want declared-only findings.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
 
@@ -856,7 +860,9 @@ The action exposes these as outputs `decision`, `blocker_count`, `review_item_co
 
 `agents-shipgate contract --json` exposes `manual_review_signals[]` as the
 installed CLI's stable list of report/packet fields to inspect for human review
-work.
+work. `findings[].provenance_kind` is included there as a filter/review signal
+only; it never changes the release decision, severity, fingerprints, baselines,
+or CI exit behavior.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:
 
@@ -916,6 +922,16 @@ Per-finding `provenance_kind` enum (v0.15+), additive classification — read th
 
 Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
 
+To filter operationally, use:
+
+```bash
+agents-shipgate findings --from agents-shipgate-reports/report.json \
+  --provenance-kind keyword_heuristic,regex_heuristic --json
+```
+
+The command reads active findings by default; add `--include-suppressed` when a
+reviewer needs suppressed entries in the same provenance summary.
+
 For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
 Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
 adds two independent additive extensions:
@@ -963,7 +979,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.20.json`](report-schema.v0.20.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.21.json`](report-schema.v0.21.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog.
@@ -1974,7 +1990,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.20.json`](report-schema.v0.20.json) — current JSON
+- [`report-schema.v0.21.json`](report-schema.v0.21.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

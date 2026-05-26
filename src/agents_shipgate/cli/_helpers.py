@@ -14,9 +14,9 @@ from agents_shipgate.cli.diagnostics import (
     diagnose_missing_manifest,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
-from agents_shipgate.core.findings import SEVERITY_ORDER
+from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +315,7 @@ def _run_multi_scan(
     packet_enabled: bool | None = None,
     packet_formats: list[str] | None = None,
     strict_plugins: bool = False,
+    no_heuristics: bool = False,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo(f"Scanning {len(config_paths)} manifests")
@@ -341,6 +342,7 @@ def _run_multi_scan(
                 suggest_patches=suggest_patches,
                 packet_enabled=packet_enabled,
                 packet_formats=packet_formats,
+                no_heuristics=no_heuristics,
             )
         except ConfigError as exc:
             scan_exit_code = 2

@@ -42,6 +42,10 @@ MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.contribution_rules",
     "findings[].requires_human_review",
     "findings[].blocks_release",
+    # v0.15: provenance is a reviewer triage/filter axis only. It
+    # never changes release_decision, severity, fingerprints,
+    # baselines, or CI exit behavior.
+    "findings[].provenance_kind",
     "summary.human_review_recommended",
     "action_surface_diff",
     "codex_plugin_surface",

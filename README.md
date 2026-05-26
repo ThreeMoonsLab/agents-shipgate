@@ -134,6 +134,16 @@ The skill lives at `.agents/skills/agents-shipgate/`, can be invoked with
 `$agents-shipgate`, and teaches Codex the bootstrap, scan, report-reading,
 advisory CI, and finding-triage workflows.
 
+To customize generated skill content in a downstream repo without rebuilding
+`agents-shipgate`, add `.agents-shipgate/adoption-kit.yaml` with repo-local
+overrides, or pass it explicitly:
+
+```bash
+agents-shipgate init --workspace . --write \
+  --agent-instructions=codex-skill \
+  --agent-instructions-kit .agents-shipgate/adoption-kit.yaml
+```
+
 ## Who this is for
 
 - **Agent builders** — review MCP, OpenAPI, and SDK tool definitions before merging changes that expand the tool surface.
@@ -220,7 +230,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.20](docs/report-schema.v0.20.json); gating signal is `release_decision.decision`; v0.20 adds the top-level `reviewer_summary` block — a deterministic projection of reviewer lens + audit surfaces parallel to `agent_summary`; v0.19 added reviewer-grade dual-source provenance on top of v0.18's privacy audit), SARIF for GitHub code-scanning workflows.
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.21](docs/report-schema.v0.21.json); gating signal is `release_decision.decision`; v0.21 adds the top-level `heuristics_filter` envelope — the audit pass for the new `--no-heuristics` CLI flag — alongside v0.20's `reviewer_summary` block; v0.19 added reviewer-grade dual-source provenance on top of v0.18's privacy audit), SARIF for GitHub code-scanning workflows.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default and governed by [packet schema v0.6](docs/packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
 
 ## Exit codes
@@ -256,7 +266,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.20"`). v0.20 adds the top-level `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.21"`). v0.21 adds the top-level `heuristics_filter` envelope — the audit pass for the new `--no-heuristics` CLI flag — alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -444,7 +454,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.20"` (additive over v0.19's dual-source provenance, adding the `reviewer_summary` top-level block — a deterministic projection of reviewer lens activity and audit envelope counts plus a `first_recommended_surface` pointer) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.21"` (additive over v0.20's `reviewer_summary`, adding the `heuristics_filter` top-level audit envelope — the deterministic projection of the `--no-heuristics` CLI filter pass) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -521,7 +531,7 @@ readers and AI search ingest.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.20](docs/report-schema.v0.20.json)
+- [JSON report schema v0.21](docs/report-schema.v0.21.json)
 - [Privacy and redaction](docs/privacy.md)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
