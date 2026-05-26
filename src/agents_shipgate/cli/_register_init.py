@@ -18,6 +18,10 @@ from agents_shipgate.cli.discovery.agent_instructions import (
     apply_agent_instructions,
     parse_selector,
 )
+from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
+    AdoptionKitError,
+    load_adoption_kit_config,
+)
 from agents_shipgate.cli.discovery.agent_instructions.targets import SPECS as _AI_SPECS
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -80,6 +84,16 @@ def register(app: typer.Typer) -> None:
                 "where host files are shared, full-file/skill-bundle safe-update "
                 "checks elsewhere). Strict CI and baselines remain opt-in human "
                 "decisions; this flag only emits advisory guidance."
+            ),
+        ),
+        agent_instructions_kit: Path | None = typer.Option(
+            None,
+            "--agent-instructions-kit",
+            help=(
+                "Optional repo-local adoption-kit YAML config for file-tree "
+                "agent-instruction targets. Relative paths resolve under "
+                "--workspace. When omitted, init auto-discovers "
+                ".agents-shipgate/adoption-kit.yaml."
             ),
         ),
     ) -> None:
@@ -197,6 +211,35 @@ def register(app: typer.Typer) -> None:
                 "Inspect the template, then re-run with --write to commit it."
             )
 
+        kit_config = None
+        if agent_instructions_kit is not None or requested_targets is not None:
+            try:
+                kit_config = load_adoption_kit_config(
+                    workspace_resolved,
+                    agent_instructions_kit,
+                )
+            except AdoptionKitError as exc:
+                path = str(exc.path or agent_instructions_kit or workspace_resolved)
+                typer.echo(str(exc), err=True)
+                _emit_agent_mode_error(
+                    "config_error",
+                    path=path,
+                    message=str(exc),
+                    next_action=f"Edit {path}",
+                    next_actions=[
+                        NextAction(
+                            kind="edit",
+                            path=path,
+                            why=str(exc),
+                            expects=(
+                                "Adoption-kit config uses schema_version: 1 "
+                                "and each overrides_dir resolves under the workspace."
+                            ),
+                        ).model_dump(mode="json")
+                    ],
+                )
+                raise typer.Exit(2) from exc
+
         # Manifest action — orthogonal to --ci. Track outcome instead of
         # exiting immediately so --ci can still run when the manifest exists.
         manifest_status = "not_attempted"
@@ -235,7 +278,10 @@ def register(app: typer.Typer) -> None:
         agent_instructions_targets: list[object] = []
         if requested_targets is not None:
             ai_result = apply_agent_instructions(
-                workspace_resolved, requested_targets, write=write
+                workspace_resolved,
+                requested_targets,
+                write=write,
+                kit_config=kit_config,
             )
             agent_instructions_outcome = ai_result.to_json()
             agent_instructions_exit = ai_result.exit_code

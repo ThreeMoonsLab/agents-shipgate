@@ -12,6 +12,14 @@
   signal. Per-file coverage is not enforced; the aggregate floor only
   rises in step with what's already proven on `main`.
 
+- **Adoption kit rendering externalized.** Codex and Claude Code
+  `--agent-instructions` skill bundles now render from packaged
+  `adoption-kits/` files instead of Python string constants. Downstream repos
+  can provide `.agents-shipgate/adoption-kit.yaml` or
+  `--agent-instructions-kit <path>` for local overrides, and generated skill
+  directories now carry `.agents-shipgate-kit.json` sidecars for managed
+  migrations.
+
 - **v0.20 — third-party adapter entry-point discovery (E4 from round-3 review).**
   Opens the same extension surface for adapters (input loaders) that M5
   already opened for check plugins. Discovery is gated by the existing

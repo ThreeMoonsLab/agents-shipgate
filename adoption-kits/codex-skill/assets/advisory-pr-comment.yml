@@ -1,0 +1,26 @@
+# Advisory PR comment.
+# Recommended starting point: runs the scanner on every PR, posts a summary
+# comment, uploads the report as an artifact, and never fails the job.
+name: Agents Shipgate (advisory)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v{{ shipgate_version }}
+        with:
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '{{ shipgate_version }}'

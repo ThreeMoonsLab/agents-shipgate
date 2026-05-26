@@ -44,6 +44,20 @@ cp /path/to/agents-shipgate/.claude/commands/shipgate.md .claude/commands/shipga
 cp -r /path/to/agents-shipgate/skills/agents-shipgate .claude/skills/agents-shipgate
 ```
 
+The `agents-shipgate init --agent-instructions=claude-code-skill` renderer can
+also use repo-local overrides without rebuilding the package:
+
+```yaml
+schema_version: 1
+targets:
+  claude-code-skill:
+    overrides_dir: .agents-shipgate/adoption-kit/claude-code-skill
+```
+
+Files in that directory are relative to `.claude/skills/agents-shipgate/`.
+The default config path is `.agents-shipgate/adoption-kit.yaml`; override it
+with `--agent-instructions-kit <path>`.
+
 ## Verify
 
 Open Claude Code in the project. Two checks:

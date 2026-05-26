@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target": "codex-skill",
+  "prior_render_sha256": {},
+  "bootstrap_legacy_sha256": {
+    "SKILL.md": [
+      "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a"
+    ],
+    "references/recipes.md": [
+      "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210"
+    ],
+    "references/report-reading.md": [
+      "75a655059f3d45db365c744b0ff82d1c9d69c3638acacf640fd667ae87260d05"
+    ],
+    "assets/advisory-pr-comment.yml": [
+      "d4005102df70a627d3883334e827c4bc7527a35a2278573699e18a43afed3bcb"
+    ],
+    "agents/openai.yaml": [
+      "4d94a724336e5d36a2769630495f341007580e4dee306bc42a1aeca1af9e867b"
+    ]
+  }
+}

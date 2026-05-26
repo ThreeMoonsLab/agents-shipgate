@@ -5,8 +5,10 @@ Each renderer returns a string. Managed-block targets return only the
 returns the full file body since we own the whole file; the Codex skill
 renderer returns a repo-scoped file tree.
 
-Content is sourced from ``docs/target-repo-agent-snippets.md``. A snapshot
-test enforces parity so the doc and renderers cannot drift independently.
+Managed-block content is sourced from ``docs/target-repo-agent-snippets.md``.
+File-tree skill bundles are sourced from packaged ``adoption-kits/`` files.
+Snapshot tests enforce parity so authored content and renderers cannot drift
+independently.
 """
 
 from __future__ import annotations

@@ -7,6 +7,7 @@ parser, and PR template path resolution edge cases.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -18,16 +19,14 @@ from agents_shipgate.cli.discovery.agent_instructions import (
     apply_agent_instructions,
     parse_selector,
 )
+from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
+    SIDECAR_FILENAME,
+    load_adoption_kit_config,
+)
 from agents_shipgate.cli.discovery.agent_instructions.apply import (
     PR_TEMPLATE_DIR,
     PR_TEMPLATE_LOWER,
     PR_TEMPLATE_UPPER,
-)
-from agents_shipgate.cli.discovery.agent_instructions.renderers import (
-    claude_code_skill as claude_code_skill_module,
-)
-from agents_shipgate.cli.discovery.agent_instructions.renderers import (
-    codex_skill as codex_skill_module,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     cursor as cursor_module,
@@ -58,6 +57,28 @@ case_insensitive_fs = pytest.mark.skipif(
     _filesystem_is_case_sensitive(Path(__file__).parent),
     reason="Test asserts case-insensitive samefile collapsing.",
 )
+
+
+def _write_sidecar(
+    root: Path,
+    *,
+    target: str,
+    file_hashes: dict[str, str],
+) -> None:
+    (root / SIDECAR_FILENAME).write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "target": target,
+                "kit_source": "bundled",
+                "kit_source_id": f"test:{target}",
+                "writer_version": "0.0.0-test",
+                "file_hashes": file_hashes,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 # --- selector parsing ------------------------------------------------------
 
@@ -116,6 +137,8 @@ def test_apply_write_fresh_workspace_creates_all_targets(tmp_path: Path) -> None
     assert (tmp_path / "AGENTS.md").exists()
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / ".agents/skills/agents-shipgate/SKILL.md").exists()
+    assert (tmp_path / ".agents/skills/agents-shipgate" / SIDECAR_FILENAME).exists()
+    assert (tmp_path / ".claude/skills/agents-shipgate" / SIDECAR_FILENAME).exists()
     assert (tmp_path / ".cursor/rules/agents-shipgate.mdc").exists()
     assert (tmp_path / PR_TEMPLATE_LOWER).exists()
     # AGENTS.md preamble + block.
@@ -163,19 +186,68 @@ def test_codex_skill_repairs_missing_file(tmp_path: Path) -> None:
     assert missing.exists()
 
 
-def test_codex_skill_reports_migrate_and_repair_when_prior_file_and_missing_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_codex_skill_records_sidecar_for_pre_sidecar_current_tree(
+    tmp_path: Path,
+) -> None:
+    for rel, content in render_codex_skill_files().items():
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    sidecar = tmp_path / ".agents/skills/agents-shipgate" / SIDECAR_FILENAME
+    assert not sidecar.exists()
+
+    result = apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "migrated"
+    assert sidecar.exists()
+
+
+def test_codex_skill_local_override_migrates_sidecar_managed_tree(
+    tmp_path: Path,
 ) -> None:
     apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
-    skill = tmp_path / ".agents/skills/agents-shipgate/SKILL.md"
-    missing = tmp_path / ".agents/skills/agents-shipgate/references/recipes.md"
+    override_root = tmp_path / ".agents-shipgate/adoption-kit/codex-skill"
+    override_root.mkdir(parents=True)
+    override_root.joinpath("SKILL.md").write_text(
+        "# Custom Agents Shipgate Skill\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / ".agents-shipgate/adoption-kit.yaml"
+    config_path.write_text(
+        "schema_version: 1\n"
+        "targets:\n"
+        "  codex-skill:\n"
+        "    overrides_dir: .agents-shipgate/adoption-kit/codex-skill\n",
+        encoding="utf-8",
+    )
+    kit_config = load_adoption_kit_config(tmp_path)
+
+    result = apply_agent_instructions(
+        tmp_path,
+        ["codex-skill"],
+        write=True,
+        kit_config=kit_config,
+    )
+
+    [outcome] = result.targets
+    assert outcome.status == "migrated"
+    assert outcome.kit_source == "bundled_plus_local_override"
+    assert (tmp_path / ".agents/skills/agents-shipgate/SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "# Custom Agents Shipgate Skill\n"
+
+
+def test_codex_skill_reports_migrate_and_repair_from_sidecar(
+    tmp_path: Path,
+) -> None:
+    apply_agent_instructions(tmp_path, ["codex-skill"], write=True)
+    root = tmp_path / ".agents/skills/agents-shipgate"
+    skill = root / "SKILL.md"
+    missing = root / "references/recipes.md"
     prior_text = "# prior shipped skill\n"
     prior_sha = hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
-    monkeypatch.setattr(
-        codex_skill_module,
-        "PRIOR_RENDER_SHA256",
-        {".agents/skills/agents-shipgate/SKILL.md": (prior_sha,)},
-    )
+    _write_sidecar(root, target="codex-skill", file_hashes={"SKILL.md": prior_sha})
 
     skill.write_text(prior_text, encoding="utf-8")
     missing.unlink()
@@ -226,18 +298,19 @@ def test_claude_code_skill_repairs_missing_file(tmp_path: Path) -> None:
     assert missing.exists()
 
 
-def test_claude_code_skill_reports_migrate_and_repair(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_claude_code_skill_reports_migrate_and_repair_from_sidecar(
+    tmp_path: Path,
 ) -> None:
     apply_agent_instructions(tmp_path, ["claude-code-skill"], write=True)
-    skill = tmp_path / ".claude/skills/agents-shipgate/SKILL.md"
-    missing = tmp_path / ".claude/skills/agents-shipgate/prompts/fix-top-finding.md"
+    root = tmp_path / ".claude/skills/agents-shipgate"
+    skill = root / "SKILL.md"
+    missing = root / "prompts/fix-top-finding.md"
     prior_text = "# prior shipped skill\n"
     prior_sha = hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
-    monkeypatch.setattr(
-        claude_code_skill_module,
-        "PRIOR_RENDER_SHA256",
-        {".claude/skills/agents-shipgate/SKILL.md": (prior_sha,)},
+    _write_sidecar(
+        root,
+        target="claude-code-skill",
+        file_hashes={"SKILL.md": prior_sha},
     )
 
     skill.write_text(prior_text, encoding="utf-8")
