@@ -9,8 +9,8 @@ from urllib.parse import unquote
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
+from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
-from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,

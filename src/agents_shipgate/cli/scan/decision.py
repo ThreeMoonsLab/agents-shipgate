@@ -14,14 +14,14 @@ from agents_shipgate.core.findings.mutations import (
     apply_suppressions,
 )
 from agents_shipgate.core.findings.remediation import annotate_remediation
-from agents_shipgate.core.severity_overrides import resolve_severity_overrides
-from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
-from agents_shipgate.report.action_surface_diff import (
+from agents_shipgate.core.lenses.action_surface import (
     action_reference_from_scan_reference,
     build_action_surface_facts,
     compute_action_surface_diff,
     evaluate_action_surface_policies,
 )
+from agents_shipgate.core.severity_overrides import resolve_severity_overrides
+from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent

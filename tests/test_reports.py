@@ -335,7 +335,7 @@ def test_capability_intent_markdown_collapses_multiline_instruction_preview(tmp_
 
 
 def test_capability_diff_intent_tags_are_alias_based_and_negation_aware():
-    from agents_shipgate.report.capability_diff import _intent_tags
+    from agents_shipgate.core.lenses.capability_intent import _intent_tags
 
     tags = _intent_tags("send external email without preview")
 
@@ -350,7 +350,7 @@ def test_capability_diff_intent_tags_are_alias_based_and_negation_aware():
 
 
 def test_capability_diff_includes_framework_release_blocker_categories():
-    from agents_shipgate.report.capability_diff import apply_capability_diff
+    from agents_shipgate.core.lenses.capability_intent import apply_capability_diff
     from agents_shipgate.schemas.report import (
         Finding,
         ReadinessReport,

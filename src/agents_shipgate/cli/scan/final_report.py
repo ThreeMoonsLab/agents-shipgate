@@ -4,7 +4,7 @@ from typing import Any
 
 from agents_shipgate.core.findings.report_builder import build_report
 from agents_shipgate.core.findings.reviewer_summary import build_reviewer_summary
-from agents_shipgate.report.capability_diff import apply_capability_diff
+from agents_shipgate.core.lenses.capability_intent import apply_capability_diff
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport

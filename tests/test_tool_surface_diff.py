@@ -2,7 +2,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
 )
-from agents_shipgate.report.tool_surface_diff import (
+from agents_shipgate.core.lenses.tool_surface import (
     ToolSurfaceDiffReference,
     build_tool_surface_facts,
     compute_tool_surface_diff,

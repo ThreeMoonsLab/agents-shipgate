@@ -8,14 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.scan import _flatten_and_deduplicate_tools, _load_sources
+from agents_shipgate.cli.scan.source_loading import (
+    _flatten_and_deduplicate_tools,
+    _load_sources,
+)
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.artifact_models import ValidationArtifacts
 from agents_shipgate.core.domain import (
     LoadedToolSource,
     Tool,
 )
-from agents_shipgate.report.action_surface_diff import build_action_surface_facts
+from agents_shipgate.core.lenses.action_surface import build_action_surface_facts
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
