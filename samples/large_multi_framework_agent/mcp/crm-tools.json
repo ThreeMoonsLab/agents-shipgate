@@ -1,0 +1,219 @@
+{
+  "tools": [
+    {
+      "name": "crm.lookup_customer",
+      "description": "Look up a customer by email, phone, or external id. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "Email, phone, or external id.", "maxLength": 200 }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "annotations": { "readOnlyHint": true, "idempotentHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:read"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.list_customer_orders",
+      "description": "List orders for a customer with pagination. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "annotations": { "readOnlyHint": true, "idempotentHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:read", "crm:orders:read"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.get_ticket",
+      "description": "Retrieve a support ticket by id. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id"],
+        "properties": { "ticket_id": { "type": "string" } }
+      },
+      "annotations": { "readOnlyHint": true, "idempotentHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:read"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.list_tickets",
+      "description": "List support tickets with optional status filter.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["open", "pending", "resolved", "closed"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      },
+      "annotations": { "readOnlyHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:read"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.get_interaction_history",
+      "description": "Retrieve recent customer interactions across channels.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id"],
+        "properties": { "customer_id": { "type": "string" } }
+      },
+      "annotations": { "readOnlyHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:read"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.create_ticket",
+      "description": "Open a new support ticket. Creates a record visible to agents.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "subject", "description"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "subject": { "type": "string", "maxLength": 200 },
+          "description": { "type": "string", "maxLength": 5000 },
+          "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:write"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.update_ticket",
+      "description": "Update fields on an existing ticket.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id", "updates"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "updates": { "type": "object", "description": "Free-form ticket updates." }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:write"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.close_ticket",
+      "description": "Close a support ticket with a resolution note.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id", "resolution"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "resolution": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:write"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.add_note",
+      "description": "Append an internal note to a ticket (not visible to customer).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id", "note"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "note": { "type": "string", "maxLength": 2000 }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:write"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.escalate_ticket",
+      "description": "Escalate a ticket to a senior agent or specialized queue.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket_id", "tier"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "tier": { "type": "string", "enum": ["tier2", "tier3", "specialist"] }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:tickets:write"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.send_customer_message",
+      "description": "Send an in-app message to a customer.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "body"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "body": { "type": "string", "maxLength": 4000 }
+        }
+      },
+      "annotations": { "openWorldHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:communicate"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.send_customer_email",
+      "description": "Send an external email to the customer about an order or ticket.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "subject", "body"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "subject": { "type": "string", "maxLength": 200 },
+          "body": { "type": "string", "maxLength": 8000 }
+        }
+      },
+      "annotations": { "openWorldHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:communicate"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.send_customer_sms",
+      "description": "Send an external SMS to the customer's phone number on file.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "body"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "body": { "type": "string", "maxLength": 320 }
+        }
+      },
+      "annotations": { "openWorldHint": true },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:communicate"] },
+      "owner": "crm-platform"
+    },
+    {
+      "name": "crm.delete_customer_data",
+      "description": "Permanently delete all customer data per GDPR/CCPA request.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "compliance_request_id"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "compliance_request_id": { "type": "string" }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:admin"] },
+      "owner": "compliance-platform"
+    },
+    {
+      "name": "crm.export_customer_data",
+      "description": "Export all customer data for a data-subject access request.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["customer_id", "compliance_request_id"],
+        "properties": {
+          "customer_id": { "type": "string" },
+          "compliance_request_id": { "type": "string" }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["crm:customers:admin"] },
+      "owner": "compliance-platform"
+    }
+  ]
+}

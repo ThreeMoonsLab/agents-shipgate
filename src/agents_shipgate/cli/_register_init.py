@@ -23,6 +23,10 @@ from agents_shipgate.cli.discovery.agent_instructions.adoption_kit import (
     load_adoption_kit_config,
 )
 from agents_shipgate.cli.discovery.agent_instructions.targets import SPECS as _AI_SPECS
+from agents_shipgate.cli.discovery.gitignore_block import (
+    GitignoreOutcomeStatus,
+    ensure_reports_gitignore,
+)
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -41,7 +45,16 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def init(
         workspace: Path = typer.Option(Path("."), "--workspace", help="Workspace to inspect."),
-        write: bool = typer.Option(False, "--write", help="Write shipgate.yaml if it does not exist."),
+        write: bool = typer.Option(
+            False,
+            "--write",
+            help=(
+                "Write shipgate.yaml if it does not exist. Also ensures "
+                ".gitignore ignores agents-shipgate-reports/ via a managed "
+                "block (idempotent; respects an existing line or explicit "
+                "!negation; never blocks init)."
+            ),
+        ),
         json_output: bool = typer.Option(
             False,
             "--json",
@@ -287,6 +300,20 @@ def register(app: typer.Typer) -> None:
             agent_instructions_exit = ai_result.exit_code
             agent_instructions_targets = list(ai_result.targets)
 
+        # Gitignore action — runs unconditionally on --write so the reports
+        # directory created by the first `scan` is never silently committed.
+        # Idempotent: subsequent runs see the managed block and report
+        # `unchanged`. Never blocks `init` (exit_contribution is 0) — the
+        # outcome is advisory, surfaced in --json and as a one-line message.
+        # Also runs when the manifest already exists so repos that adopted
+        # Shipgate before this CLI version was released get the line on their
+        # next `init --write`.
+        gitignore_outcome = (
+            ensure_reports_gitignore(workspace_resolved, write=write)
+            if write
+            else None
+        )
+
         # Idempotency reconciliation: when --agent-instructions selects at least
         # one real target AND the manifest already exists, treat the manifest
         # action as already-done so `init --write --agent-instructions=<target>`
@@ -341,6 +368,8 @@ def register(app: typer.Typer) -> None:
                 payload["workflow"] = workflow_outcome
             if agent_instructions_outcome is not None:
                 payload["agent_instructions"] = agent_instructions_outcome
+            if gitignore_outcome is not None:
+                payload["gitignore"] = gitignore_outcome.to_json()
             typer.echo(json.dumps(payload, indent=2))
         else:
             if not write:
@@ -378,6 +407,23 @@ def register(app: typer.Typer) -> None:
                     stream = sys.stderr if outcome.status.startswith("skipped") else sys.stdout
                     if outcome.message:
                         print(outcome.message, file=stream)
+            if gitignore_outcome is not None:
+                # Quiet the no-op cases (already_present + unchanged) to keep
+                # the success path scannable. Everything else — created,
+                # updated, migrated, skipped_*, error — gets a line so an
+                # adopter sees what changed (or why nothing did).
+                noisy_status = {
+                    GitignoreOutcomeStatus.ALREADY_PRESENT,
+                    GitignoreOutcomeStatus.UNCHANGED,
+                }
+                if gitignore_outcome.status not in noisy_status:
+                    stream = (
+                        sys.stderr
+                        if gitignore_outcome.status.value.startswith("skipped")
+                        or gitignore_outcome.status is GitignoreOutcomeStatus.ERROR
+                        else sys.stdout
+                    )
+                    print(gitignore_outcome.message, file=stream)
 
         # Surface a structured next_action JSON line for the rank-1 skipped target
         # so coding-agent callers can route to a fix without scraping stdout. Gated

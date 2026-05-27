@@ -1,0 +1,132 @@
+{
+  "tools": [
+    {
+      "name": "internal.list_inventory_levels",
+      "description": "List current SKU inventory levels across warehouses. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "warehouse_id": { "type": "string" },
+          "sku_filter": { "type": "string", "maxLength": 100 }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "idempotentHint": true },
+      "auth": { "type": "oauth2", "scopes": ["inventory:read"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.get_warehouse_status",
+      "description": "Get operational status for a warehouse (open/throttled/down). Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["warehouse_id"],
+        "properties": { "warehouse_id": { "type": "string" } }
+      },
+      "annotations": { "readOnlyHint": true },
+      "auth": { "type": "oauth2", "scopes": ["inventory:read"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.list_carriers",
+      "description": "List available carriers and their current cost profile. Read-only.",
+      "inputSchema": { "type": "object", "properties": {} },
+      "annotations": { "readOnlyHint": true, "idempotentHint": true },
+      "auth": { "type": "oauth2", "scopes": ["inventory:read"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.reserve_inventory",
+      "description": "Reserve inventory units for an upcoming shipment.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["sku", "quantity", "warehouse_id"],
+        "properties": {
+          "sku": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 10000 },
+          "warehouse_id": { "type": "string" },
+          "idempotency_key": { "type": "string" }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:write"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.release_inventory",
+      "description": "Release previously reserved inventory back to available pool.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["reservation_id"],
+        "properties": { "reservation_id": { "type": "string" } }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:write"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.adjust_inventory",
+      "description": "Adjust on-hand inventory count after a physical recount.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["sku", "warehouse_id", "delta"],
+        "properties": {
+          "sku": { "type": "string" },
+          "warehouse_id": { "type": "string" },
+          "delta": { "type": "integer" }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:write"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.transfer_inventory",
+      "description": "Transfer inventory between warehouses. Has logistical side effect.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["sku", "from_warehouse", "to_warehouse", "quantity"],
+        "properties": {
+          "sku": { "type": "string" },
+          "from_warehouse": { "type": "string" },
+          "to_warehouse": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 10000 }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:write"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.trigger_inventory_audit",
+      "description": "Trigger a physical inventory audit at a warehouse.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["warehouse_id"],
+        "properties": { "warehouse_id": { "type": "string" } }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:admin"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.refresh_warehouse_status",
+      "description": "Force a refresh of warehouse status from the WMS.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["warehouse_id"],
+        "properties": { "warehouse_id": { "type": "string" } }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:admin"] },
+      "owner": "warehouse-platform"
+    },
+    {
+      "name": "internal.drain_warehouse",
+      "description": "Drain all in-flight reservations for a warehouse before maintenance. Destructive operation.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["warehouse_id", "reason"],
+        "properties": {
+          "warehouse_id": { "type": "string" },
+          "reason": { "type": "string", "maxLength": 500 }
+        }
+      },
+      "auth": { "type": "oauth2", "scopes": ["inventory:admin"] },
+      "owner": "warehouse-platform"
+    }
+  ]
+}
