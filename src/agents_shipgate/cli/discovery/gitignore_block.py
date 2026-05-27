@@ -289,7 +289,7 @@ def upsert(host: bytes, *, version: int = GITIGNORE_BLOCK_VERSION) -> UpsertResu
 def _line_matches_reports_dir(line: str) -> bool:
     """True iff ``line`` already ignores ``agents-shipgate-reports/``.
 
-    Accepts the canonical name + leading/trailing slash variants. Two
+    Accepts the canonical name + leading/trailing slash variants. Three
     things this deliberately does NOT do:
 
     * Strip an "inline ``#`` comment." Gitignore only treats lines that
@@ -299,25 +299,34 @@ def _line_matches_reports_dir(line: str) -> bool:
       with a trailing comment." Treating it as already-present would
       leave the reports directory visible to ``git status`` while we
       refused to append our own block.
+    * **Strip leading whitespace.** Gitignore does NOT strip leading
+      whitespace from patterns: `` agents-shipgate-reports/`` (one
+      leading space) matches nothing, as ``git check-ignore`` confirms.
+      We must NOT treat such a line as already-present — that would be
+      the same silent-leak bug as the inline-``#`` case. We
+      ``rstrip()`` instead of ``strip()`` so trailing whitespace IS
+      tolerated (gitignore itself ignores trailing whitespace on
+      patterns) while a leading-whitespace line falls through to the
+      append branch.
     * Normalize globstar forms like ``**/agents-shipgate-reports/`` —
       they semantically differ from a root-anchored ignore and a user
       using them probably knows what they're doing; redundancy is the
       worst case if we don't match.
-
-    Trailing whitespace IS stripped because gitignore itself ignores
-    trailing whitespace on patterns; leading whitespace is also
-    stripped because patterns indented for readability are common in
-    user-edited files and gitignore's leading-whitespace handling is
-    not portable enough to rely on.
     """
-    token = line.strip()
+    token = line.rstrip()
     if not token or token.startswith("#") or token.startswith("!"):
         return False
     return token in _EQUIVALENT_TOKENS
 
 
 def _line_negates_reports_dir(line: str) -> bool:
-    token = line.strip()
+    # Same ``rstrip()``-not-``strip()`` rule as ``_line_matches_reports_dir``:
+    # gitignore does not strip leading whitespace, so a line like
+    # `` !agents-shipgate-reports/`` is NOT honored as a negation
+    # (``git check-ignore`` confirms). Treating it as ``skipped_negated``
+    # would refuse to add our managed block under the false belief that
+    # the user opted out — leave it to fall through instead.
+    token = line.rstrip()
     if not token.startswith("!"):
         return False
     return token[1:] in _EQUIVALENT_TOKENS

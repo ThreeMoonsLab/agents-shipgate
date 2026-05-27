@@ -45,11 +45,18 @@
     on version bump; refused on a newer version).
   - File present with `agents-shipgate-reports/` (or `/agents-shipgate-reports`
     / `agents-shipgate-reports` / `/agents-shipgate-reports/`) already on its
-    own line → no-op (`already_present`). Trailing whitespace is tolerated
-    (gitignore itself ignores it); mid-line `#` is *not* treated as a
-    comment introducer (gitignore only treats line-leading `#` as a
-    comment, so `agents-shipgate-reports/  # legacy line` is a literal
-    pattern that matches nothing — we fall through and append our block).
+    own line → no-op (`already_present`). Normalization mirrors what
+    gitignore itself does: trailing whitespace is stripped (gitignore
+    ignores it on patterns), but **leading whitespace is not** — a line
+    like ` agents-shipgate-reports/` (one leading space) is a broken
+    pattern that git does not honor, so we fall through and append our
+    managed block. Mid-line `#` is *not* treated as a comment introducer
+    (gitignore only treats line-leading `#` as a comment, so
+    `agents-shipgate-reports/  # legacy line` is a literal pattern that
+    matches nothing — we again fall through and append). The same
+    leading-whitespace rule applies to `!`-negations:
+    ` !agents-shipgate-reports/` is not honored by git, so we don't treat
+    it as `skipped_negated` either.
   - File present with `!agents-shipgate-reports/` → no-op
     (`skipped_negated`). Explicit user opt-outs are respected.
   - File present with ambiguous markers (e.g. duplicate blocks) → no-op
@@ -68,9 +75,11 @@
   one-line message prints to stdout (or stderr for skip/error statuses);
   `unchanged` and `already_present` are quiet so the success path stays
   scannable. New module: `agents_shipgate.cli.discovery.gitignore_block`.
-  New tests: `tests/test_init_gitignore.py` (43 cases covering pure
+  New tests: `tests/test_init_gitignore.py` (48 cases covering pure
   parsing, upsert, variant detection, CRLF parse + two-run CRLF
-  idempotency, mid-line-`#` no-stripping, and end-to-end through the CLI).
+  idempotency, mid-line-`#` no-stripping, leading-whitespace rejection
+  (space + tab + on negations), trailing-whitespace acceptance, and
+  end-to-end through the CLI).
 
 - **v0.21 — `--no-heuristics` CLI flag closes the round-3 / round-4 E5
   carryover.** `Finding.provenance_kind` has shipped on every report since

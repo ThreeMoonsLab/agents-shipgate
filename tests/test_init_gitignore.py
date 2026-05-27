@@ -205,6 +205,69 @@ def test_detect_existing_state_ignores_full_line_comment() -> None:
     assert present is False
 
 
+def test_detect_existing_state_rejects_leading_space() -> None:
+    """Gitignore does NOT strip leading whitespace from patterns.
+
+    Verified locally with ``git check-ignore`` on a fixture .gitignore
+    containing exactly `` agents-shipgate-reports/``: exit 1 (no match).
+    Treating such a line as ``already_present`` would refuse to append
+    our managed block while leaving the directory un-ignored — the same
+    silent-leak shape as the inline-``#`` bug. Use ``rstrip()`` so
+    trailing whitespace is tolerated and leading whitespace falls
+    through to the append branch.
+    """
+    present, _ = detect_existing_state(b" agents-shipgate-reports/\n")
+    assert present is False
+
+
+def test_detect_existing_state_rejects_leading_tab() -> None:
+    """Same rationale as the leading-space test; verified via
+    ``git check-ignore`` against ``\\tagents-shipgate-reports/``: exit 1.
+    """
+    present, _ = detect_existing_state(b"\tagents-shipgate-reports/\n")
+    assert present is False
+
+
+def test_detect_existing_state_rejects_leading_whitespace_negation() -> None:
+    """`` !agents-shipgate-reports/`` (leading space before ``!``) is
+    NOT honored as a negation by git — leading whitespace breaks the
+    parse. Verified locally: a file containing
+    ``agents-shipgate-reports/`` then `` !agents-shipgate-reports/``
+    still has the directory ignored (exit 0). We must not treat such a
+    line as ``skipped_negated``; fall through and append instead.
+    """
+    _, negated = detect_existing_state(b" !agents-shipgate-reports/\n")
+    assert negated is False
+
+
+def test_detect_existing_state_accepts_trailing_whitespace() -> None:
+    """Gitignore DOES strip trailing whitespace from patterns (unless
+    backslash-escaped), so ``agents-shipgate-reports/   `` is the same
+    pattern as ``agents-shipgate-reports/``. We mirror that with
+    ``rstrip()`` and report ``present``.
+    """
+    present, _ = detect_existing_state(b"agents-shipgate-reports/   \n")
+    assert present is True
+
+
+def test_ensure_appends_managed_block_when_line_has_leading_space(
+    tmp_path: Path,
+) -> None:
+    """End-to-end shape of the bug: a user has ` ` followed by the
+    canonical name (perhaps from a careless paste). Git wouldn't ignore
+    the directory, so neither should we trust the line — we must add
+    the managed block so the directory is actually ignored.
+    """
+    (tmp_path / ".gitignore").write_text(" agents-shipgate-reports/\n")
+    outcome = ensure_reports_gitignore(tmp_path, write=True)
+    assert outcome.status is GitignoreOutcomeStatus.APPENDED
+    content = (tmp_path / ".gitignore").read_text()
+    assert "# agents-shipgate:start v=1" in content
+    # The user's broken-pattern line is preserved verbatim; we just
+    # added our managed block after it.
+    assert content.startswith(" agents-shipgate-reports/\n")
+
+
 def test_detect_existing_state_finds_negation() -> None:
     _, negated = detect_existing_state(b"!agents-shipgate-reports/\n")
     assert negated is True
