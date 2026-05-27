@@ -46,8 +46,15 @@ GITIGNORE_BLOCK_VERSION: int = 1
 # we tried to add and edit accordingly).
 REPORTS_DIR_NAME: str = "agents-shipgate-reports"
 
-START_PATTERN = re.compile(rb"^# agents-shipgate:start v=(\d+)$", re.MULTILINE)
-END_PATTERN = re.compile(rb"^# agents-shipgate:end$", re.MULTILINE)
+# ``\r?`` before ``$`` so the markers parse on a CRLF-style ``.gitignore``
+# too. Without it, ``parse()`` returns ``NO_MARKERS`` on a host that was
+# (correctly) rendered with CRLF newlines on the first install, and the
+# next ``init --write`` appends a duplicate block instead of recognizing
+# the existing one. Regression coverage:
+# ``test_parse_locates_present_block_with_crlf_newlines`` and
+# ``test_ensure_idempotent_on_second_run_with_crlf``.
+START_PATTERN = re.compile(rb"^# agents-shipgate:start v=(\d+)\r?$", re.MULTILINE)
+END_PATTERN = re.compile(rb"^# agents-shipgate:end\r?$", re.MULTILINE)
 
 # Variants of the reports-dir line we treat as "user already covered this".
 # Normalization strips leading/trailing whitespace and the optional leading
@@ -279,43 +286,38 @@ def upsert(host: bytes, *, version: int = GITIGNORE_BLOCK_VERSION) -> UpsertResu
 # --- equivalent-line + negation detection -----------------------------------
 
 
-def _strip_inline_comment(line: str) -> str:
-    """Strip an inline ``#`` comment, respecting ``\\#`` escapes.
-
-    .gitignore treats a literal ``\\#`` as a hash character in the pattern.
-    Conservative implementation: walk character-by-character.
-    """
-    out: list[str] = []
-    i = 0
-    while i < len(line):
-        ch = line[i]
-        if ch == "\\" and i + 1 < len(line) and line[i + 1] == "#":
-            out.append("\\#")
-            i += 2
-            continue
-        if ch == "#":
-            break
-        out.append(ch)
-        i += 1
-    return "".join(out)
-
-
 def _line_matches_reports_dir(line: str) -> bool:
     """True iff ``line`` already ignores ``agents-shipgate-reports/``.
 
-    Accepts the canonical name + leading/trailing slash variants. Globstar
-    forms like ``**/agents-shipgate-reports/`` are intentionally NOT matched
-    — they semantically differ from a root-anchored ignore and a user using
-    them probably knows what they're doing; redundancy is the worst case.
+    Accepts the canonical name + leading/trailing slash variants. Two
+    things this deliberately does NOT do:
+
+    * Strip an "inline ``#`` comment." Gitignore only treats lines that
+      *start* with ``#`` as comments — a mid-line ``#`` is part of the
+      pattern. So ``agents-shipgate-reports/  # legacy line`` is a
+      literal pattern matching nothing, not "ignore the reports dir
+      with a trailing comment." Treating it as already-present would
+      leave the reports directory visible to ``git status`` while we
+      refused to append our own block.
+    * Normalize globstar forms like ``**/agents-shipgate-reports/`` —
+      they semantically differ from a root-anchored ignore and a user
+      using them probably knows what they're doing; redundancy is the
+      worst case if we don't match.
+
+    Trailing whitespace IS stripped because gitignore itself ignores
+    trailing whitespace on patterns; leading whitespace is also
+    stripped because patterns indented for readability are common in
+    user-edited files and gitignore's leading-whitespace handling is
+    not portable enough to rely on.
     """
-    token = _strip_inline_comment(line).strip()
-    if not token or token.startswith("!"):
+    token = line.strip()
+    if not token or token.startswith("#") or token.startswith("!"):
         return False
     return token in _EQUIVALENT_TOKENS
 
 
 def _line_negates_reports_dir(line: str) -> bool:
-    token = _strip_inline_comment(line).strip()
+    token = line.strip()
     if not token.startswith("!"):
         return False
     return token[1:] in _EQUIVALENT_TOKENS

@@ -77,6 +77,30 @@ def test_render_block_preserves_crlf_newlines() -> None:
     assert block.endswith(b"# agents-shipgate:end\r\n")
 
 
+def test_parse_locates_present_block_with_crlf_newlines() -> None:
+    """Regression: prior to the ``\\r?$`` regex tolerance, parsing a block
+    rendered with CRLF newlines fell through to NO_MARKERS — which caused
+    the next ``ensure_reports_gitignore`` run to append a duplicate block.
+    """
+    host = render_block(1, b"\r\n")
+    parsed = parse(host)
+    assert parsed.state is GitignoreBlockState.PRESENT
+    assert parsed.location is not None
+    assert parsed.location.version == 1
+    assert parsed.location.line_start == 0
+    assert parsed.location.line_end == len(host)
+
+
+def test_upsert_unchanged_when_crlf_block_already_present() -> None:
+    """End-to-end version of the parse regression: a host containing the
+    CRLF-rendered managed block must upsert to UNCHANGED, not APPENDED."""
+    host = b"node_modules/\r\n\r\n" + render_block(1, b"\r\n")
+    result = upsert(host)
+    assert result.status is GitignoreUpsertStatus.UNCHANGED
+    # And belt-and-suspenders: exactly one block in the resulting bytes.
+    assert result.new_bytes.count(b"agents-shipgate:start") == 1
+
+
 def test_upsert_appends_to_empty_host() -> None:
     result = upsert(b"")
     assert result.status is GitignoreUpsertStatus.APPENDED
@@ -146,15 +170,38 @@ def test_detect_existing_state_finds_anchored_variant() -> None:
     assert present is True
 
 
-def test_detect_existing_state_ignores_inline_comment() -> None:
-    present, _ = detect_existing_state(b"agents-shipgate-reports/  # legacy line\n")
-    assert present is True
+def test_detect_existing_state_treats_mid_line_hash_as_pattern_character() -> None:
+    """Gitignore does NOT support inline comments.
+
+    A line like ``agents-shipgate-reports/  # legacy line`` is a literal
+    pattern with embedded ``#`` and whitespace — it matches nothing. Git's
+    own ``git check-ignore`` confirms it does not ignore the directory.
+    Therefore we must NOT report ``already_present`` for this case; we
+    should fall through and append our managed block so the directory is
+    actually ignored.
+    """
+    present, negated = detect_existing_state(
+        b"agents-shipgate-reports/  # legacy line\n"
+    )
+    assert present is False
+    assert negated is False
 
 
-def test_detect_existing_state_respects_escaped_hash() -> None:
-    # ``\#`` is a literal hash, not a comment introducer; the token therefore
-    # isn't the canonical name and shouldn't match.
+def test_detect_existing_state_treats_backslash_hash_as_pattern_character() -> None:
+    """A ``\\#`` mid-line is part of the pattern too, not an escape.
+
+    Gitignore's only ``\\#`` rule is for patterns that *begin* with ``#``
+    (so the line isn't read as a comment). Mid-line ``#`` doesn't need
+    escaping and ``\\#`` is just two literal characters in the pattern.
+    """
     present, _ = detect_existing_state(b"agents-shipgate-reports/\\#weird\n")
+    assert present is False
+
+
+def test_detect_existing_state_ignores_full_line_comment() -> None:
+    """A comment line that happens to contain the canonical name is not
+    an ignore directive."""
+    present, _ = detect_existing_state(b"# agents-shipgate-reports/ is ignored\n")
     assert present is False
 
 
@@ -212,6 +259,30 @@ def test_ensure_idempotent_on_second_run(tmp_path: Path) -> None:
     assert second.status is GitignoreOutcomeStatus.UNCHANGED
     after = (tmp_path / ".gitignore").read_bytes()
     assert before == after  # byte-identical
+
+
+def test_ensure_idempotent_on_second_run_with_crlf(tmp_path: Path) -> None:
+    """Regression for the CRLF parsing bug.
+
+    A pre-existing CRLF ``.gitignore`` (common on Windows checkouts) gets
+    a CRLF-rendered managed block on the first ``ensure`` (newline style
+    is preserved). The second ``ensure`` must recognize that block and
+    report UNCHANGED — prior to the regex fix it instead appended a
+    second block every run, eventually producing N marker blocks for N
+    invocations.
+    """
+    (tmp_path / ".gitignore").write_bytes(b"node_modules/\r\nbuild/\r\n")
+    first = ensure_reports_gitignore(tmp_path, write=True)
+    assert first.status is GitignoreOutcomeStatus.APPENDED
+    before = (tmp_path / ".gitignore").read_bytes()
+    assert before.count(b"agents-shipgate:start") == 1
+    # File should still be CRLF after the append (newline style preserved).
+    assert b"\r\n" in before
+    second = ensure_reports_gitignore(tmp_path, write=True)
+    assert second.status is GitignoreOutcomeStatus.UNCHANGED
+    after = (tmp_path / ".gitignore").read_bytes()
+    assert before == after  # byte-identical
+    assert after.count(b"agents-shipgate:start") == 1  # still exactly one
 
 
 def test_ensure_respects_existing_canonical_line(tmp_path: Path) -> None:

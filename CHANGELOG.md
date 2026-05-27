@@ -45,14 +45,19 @@
     on version bump; refused on a newer version).
   - File present with `agents-shipgate-reports/` (or `/agents-shipgate-reports`
     / `agents-shipgate-reports` / `/agents-shipgate-reports/`) already on its
-    own line → no-op (`already_present`). Inline comments and the canonical
-    leading/trailing-slash variants are recognized.
+    own line → no-op (`already_present`). Trailing whitespace is tolerated
+    (gitignore itself ignores it); mid-line `#` is *not* treated as a
+    comment introducer (gitignore only treats line-leading `#` as a
+    comment, so `agents-shipgate-reports/  # legacy line` is a literal
+    pattern that matches nothing — we fall through and append our block).
   - File present with `!agents-shipgate-reports/` → no-op
     (`skipped_negated`). Explicit user opt-outs are respected.
   - File present with ambiguous markers (e.g. duplicate blocks) → no-op
     (`skipped_ambiguous`).
-  Idempotent: re-running on a clean install returns `unchanged` and leaves
-  the file byte-identical. Also runs when the manifest already exists so
+  Idempotent on both LF and CRLF hosts (CRLF is preserved when writing,
+  and the marker regex tolerates a trailing `\r` so the second `init
+  --write` recognizes the existing block rather than appending a
+  duplicate). Also runs when the manifest already exists so
   repos that adopted Shipgate before this CLI version get the line on their
   next `init --write`. Failure modes (symlinked `.gitignore` chain, path is
   not a regular file, write error) emit an `error`/`skipped_*` outcome but
@@ -63,8 +68,9 @@
   one-line message prints to stdout (or stderr for skip/error statuses);
   `unchanged` and `already_present` are quiet so the success path stays
   scannable. New module: `agents_shipgate.cli.discovery.gitignore_block`.
-  New tests: `tests/test_init_gitignore.py` (39 cases covering pure parsing,
-  upsert, variant detection, and end-to-end through the CLI).
+  New tests: `tests/test_init_gitignore.py` (43 cases covering pure
+  parsing, upsert, variant detection, CRLF parse + two-run CRLF
+  idempotency, mid-line-`#` no-stripping, and end-to-end through the CLI).
 
 - **v0.21 — `--no-heuristics` CLI flag closes the round-3 / round-4 E5
   carryover.** `Finding.provenance_kind` has shipped on every report since
