@@ -365,17 +365,19 @@ def test_openapi_loader_rejects_malformed_documents(tmp_path, bad_payload):
 @given(
     operation_id=TOOL_NAMES,
     description=FREE_TEXT,
-    tags=st.lists(
-        st.from_regex(r"[a-z][a-z0-9_-]{0,12}", fullmatch=True),
-        max_size=3,
-        unique=True,
-    ),
 )
-def test_openapi_loader_preserves_description_and_tags(
-    tmp_path, operation_id, description, tags
+def test_openapi_loader_preserves_description(
+    tmp_path, operation_id, description
 ):
-    """Description and tags survive extraction onto the Tool's
-    ``description`` and ``annotations`` respectively."""
+    """Operation ``description`` survives extraction onto
+    ``Tool.description``.
+
+    OpenAPI ``tags`` are not covered here — the current
+    ``_extract_annotations`` only copies ``x-*`` extension metadata
+    onto ``Tool.annotations``, not the standard ``tags`` array. If a
+    future loader change starts surfacing tags, add an assertion for
+    it then; do not imply coverage from the test name.
+    """
 
     spec = {
         "openapi": "3.1.0",
@@ -385,7 +387,6 @@ def test_openapi_loader_preserves_description_and_tags(
                 "get": {
                     "operationId": operation_id,
                     "description": description,
-                    "tags": tags,
                     "responses": {"200": {"description": "ok"}},
                 }
             }

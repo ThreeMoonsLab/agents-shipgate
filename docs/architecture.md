@@ -35,7 +35,10 @@ src/agents_shipgate/
 │                      filtered through `checks/plugin_validation.py`.
 ├── core/               Domain logic: ScanContext, findings, baseline,
 │                      severity_overrides, dynamic_defaults, privacy,
-│                      risk_hints, heuristics, errors. NOT wire types.
+│                      risk_hints, heuristics, errors, and `lenses/`
+│                      (reviewer-lens computation: tool_surface,
+│                      action_surface, capability_intent). NOT wire
+│                      types.
 ├── schemas/            (v0.11+) Wire-shape Pydantic models — `manifest`,
 │                      `report`, `packet`, `baseline`, `contract`,
 │                      `diagnostics`, `surfaces`, `policy_pack`,
@@ -44,10 +47,11 @@ src/agents_shipgate/
 │                      Layer-isolated: schemas may NOT import core (lint
 │                      enforced by `tests/test_schema_boundaries.py`).
 ├── ci/                 release_decision, exit_policy, github_summary.
-├── report/             Output formatters: markdown, json_report, sarif;
-│                      plus the three reviewer-lens computations
-│                      (tool_surface_diff, capability_diff,
-│                      action_surface_diff).
+├── report/             Output formatters only: markdown, json_report,
+│                      sarif. Reviewer-lens *computation* lives in
+│                      `core/lenses/`; renderers here consume the
+│                      pre-built lens facts and diffs from the
+│                      `ReadinessReport` Pydantic fields.
 └── packet/             Release Evidence Packet builder + renderers
                        (markdown, json, html, pdf). Includes the
                        v0.6 `evidence_matrix` reviewer-lens projection.
@@ -90,7 +94,7 @@ checks/registry.py run_checks      built-ins + validated plugins +
                                      ↓
 inputs/policy_packs.run            user-declared YAML rules emit findings
                                      ↓
-report/action_surface_diff         evaluate_action_surface_policies emits
+core/lenses/action_surface         evaluate_action_surface_policies emits
                                    findings with blocks_release=True
                                      ↓
 core/severity_overrides.resolve    floor enforcement, tier-crossing ack,
