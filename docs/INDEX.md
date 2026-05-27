@@ -9,7 +9,6 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
-- [`seo-geo-review.md`](seo-geo-review.md) — SEO/GEO review and action plan for the website and repository
 - [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form

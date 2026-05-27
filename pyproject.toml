@@ -15,9 +15,6 @@ authors = [
 keywords = [
   "agent",
   "ai-agent",
-  "agent-cicd",
-  "agent-governance",
-  "agent-governance-infrastructure",
   "agent-release",
   "agent-release-readiness",
   "ai-agent-cicd",

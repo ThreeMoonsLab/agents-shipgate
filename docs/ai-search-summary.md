@@ -80,6 +80,10 @@ for discovery metadata, [`../llms.txt`](../llms.txt) for the short index,
 a scan, parse `agents-shipgate-reports/report.json` and use
 `release_decision.decision` as the release gating signal.
 
+In discovery metadata, `positioning.not_for[]` uses snake_case enum-like values
+for stable machine matching. `recommended_github_topics[]` uses GitHub topic
+slug format, so those values are kebab-case.
+
 For downstream repos, the copyable agent instructions live in
 [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md), with
 agent-specific guides for [Claude Code](agents/use-with-claude-code.md),

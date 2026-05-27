@@ -1,10 +1,13 @@
 # SEO and GEO Review
 
-Reviewed: 2026-05-27
-
 Scope: Three Moons Lab marketing site, live public pages, and the
 `ThreeMoonsLab/agents-shipgate` repository surfaces that search engines, answer
 engines, and coding agents ingest.
+
+This is a point-in-time recommendation for the marketing site and repository
+surfaces as reviewed during PR #130. The marketing website source lives outside
+this repository; website-specific copy below should be applied in that site
+repo rather than treated as durable product documentation here.
 
 ## Executive Summary
 
@@ -142,6 +145,10 @@ The market-facing expansion should be:
 
 ## Website Copy Improvements
 
+This section is a recommendation against the live marketing site at the time of
+review. Keep the canonical product promise in this repository, and apply page
+copy changes in the marketing site source.
+
 ### Homepage
 
 Recommended title:
@@ -231,16 +238,6 @@ The README is already strong. The most important refinements are:
   produces concrete release evidence, not generic policy advice.
 - Keep the "For coding agents" section and machine-readable links. These are
   unusually valuable for GEO.
-
-Applied repo-side changes in this pass:
-
-- Added an agent release-readiness positioning sentence to the README intro.
-- Added category and keyword fields to in-tree `.well-known` discovery metadata.
-- Expanded PyPI/GitHub-facing keywords around agent CI/CD, MCP security, and
-  tool-surface scanning.
-- Added an AI-search answer for Three Moons Lab to `docs/ai-search-summary.md`.
-- Added FAQ/glossary language for "agent release readiness" and "Agent Release
-  Readiness Report" while preserving Tool-Use Readiness as the concrete wedge.
 
 ## FAQ and Glossary Suggestions
 
