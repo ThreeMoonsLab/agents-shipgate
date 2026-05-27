@@ -1,0 +1,233 @@
+openapi: 3.0.3
+info:
+  title: Benchmark API
+  version: 1.0.0
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes: {}
+paths:
+  /comment/0:
+    get:
+      operationId: api_get_comment_0
+      summary: Get comment
+      description: Get a comment via the HTTP API.
+      security:
+      - oauth2:
+        - api:comment:read
+      responses:
+        '200':
+          description: OK
+  /alert/1:
+    get:
+      operationId: api_list_alert_1
+      summary: List alert
+      description: List a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:read
+      responses:
+        '200':
+          description: OK
+  /comment/2:
+    get:
+      operationId: api_lookup_comment_2
+      summary: Lookup comment
+      description: Lookup a comment via the HTTP API.
+      security:
+      - oauth2:
+        - api:comment:read
+      responses:
+        '200':
+          description: OK
+  /alert/3:
+    get:
+      operationId: api_lookup_alert_3
+      summary: Lookup alert
+      description: Lookup a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:read
+      responses:
+        '200':
+          description: OK
+  /config/4:
+    get:
+      operationId: api_search_config_4
+      summary: Search config
+      description: Search a config via the HTTP API.
+      security:
+      - oauth2:
+        - api:config:read
+      responses:
+        '200':
+          description: OK
+  /milestone/5:
+    get:
+      operationId: api_search_milestone_5
+      summary: Search milestone
+      description: Search a milestone via the HTTP API.
+      security:
+      - oauth2:
+        - api:milestone:read
+      responses:
+        '200':
+          description: OK
+  /log/6:
+    get:
+      operationId: api_status_log_6
+      summary: Status log
+      description: Status a log via the HTTP API.
+      security:
+      - oauth2:
+        - api:log:read
+      responses:
+        '200':
+          description: OK
+  /comment/7:
+    get:
+      operationId: api_lookup_comment_7
+      summary: Lookup comment
+      description: Lookup a comment via the HTTP API.
+      security:
+      - oauth2:
+        - api:comment:read
+      responses:
+        '200':
+          description: OK
+  /alert/8:
+    get:
+      operationId: api_search_alert_8
+      summary: Search alert
+      description: Search a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:read
+      responses:
+        '200':
+          description: OK
+  /policy/9:
+    post:
+      operationId: api_charge_policy_9
+      summary: Charge policy
+      description: Charge a policy via the HTTP API.
+      security:
+      - oauth2:
+        - api:policy:write
+      responses:
+        '200':
+          description: OK
+  /role/10:
+    get:
+      operationId: api_view_role_10
+      summary: View role
+      description: View a role via the HTTP API.
+      security:
+      - oauth2:
+        - api:role:read
+      responses:
+        '200':
+          description: OK
+  /comment/11:
+    get:
+      operationId: api_get_comment_11
+      summary: Get comment
+      description: Get a comment via the HTTP API.
+      security:
+      - oauth2:
+        - api:comment:read
+      responses:
+        '200':
+          description: OK
+  /config/12:
+    post:
+      operationId: api_cancel_config_12
+      summary: Cancel config
+      description: Cancel a config via the HTTP API.
+      security:
+      - oauth2:
+        - api:config:write
+      responses:
+        '200':
+          description: OK
+  /thread/13:
+    get:
+      operationId: api_list_thread_13
+      summary: List thread
+      description: List a thread via the HTTP API.
+      security:
+      - oauth2:
+        - api:thread:read
+      responses:
+        '200':
+          description: OK
+  /tag/14:
+    post:
+      operationId: api_charge_tag_14
+      summary: Charge tag
+      description: Charge a tag via the HTTP API.
+      security:
+      - oauth2:
+        - api:tag:write
+      responses:
+        '200':
+          description: OK
+  /ticket/15:
+    get:
+      operationId: api_view_ticket_15
+      summary: View ticket
+      description: View a ticket via the HTTP API.
+      security:
+      - oauth2:
+        - api:ticket:read
+      responses:
+        '200':
+          description: OK
+  /ticket/16:
+    post:
+      operationId: api_update_ticket_16
+      summary: Update ticket
+      description: Update a ticket via the HTTP API.
+      security:
+      - oauth2:
+        - api:ticket:write
+      responses:
+        '200':
+          description: OK
+  /scope/17:
+    get:
+      operationId: api_list_scope_17
+      summary: List scope
+      description: List a scope via the HTTP API.
+      security:
+      - oauth2:
+        - api:scope:read
+      responses:
+        '200':
+          description: OK
+  /subscription/18:
+    post:
+      operationId: api_charge_subscription_18
+      summary: Charge subscription
+      description: Charge a subscription via the HTTP API.
+      security:
+      - oauth2:
+        - api:subscription:write
+      responses:
+        '200':
+          description: OK
+  /project/19:
+    post:
+      operationId: api_refund_project_19
+      summary: Refund project
+      description: Refund a project via the HTTP API.
+      security:
+      - oauth2:
+        - api:project:write
+      responses:
+        '200':
+          description: OK

@@ -1,0 +1,19 @@
+version: '0.1'
+project:
+  name: benchmark-small
+agent:
+  name: Benchmark Small Agent
+  declared_purpose:
+  - Process customer support and billing operations.
+  prohibited_actions:
+  - execute arbitrary code without approval
+environment:
+  target: production_like
+tool_sources:
+- id: main
+  type: mcp
+  path: tools/mcp.json
+permissions:
+  scopes:
+  - stripe:read
+  - zendesk:read

@@ -1,0 +1,46 @@
+# Latency budgets for `run_scan` on synthetic benchmark scenarios.
+#
+# Each budget is a wallclock ceiling in seconds. The pytest suite at
+# `tests/test_latency_budget.py` runs each scenario `measured_iterations`
+# times (after `warmup_iterations` discarded warmups) and asserts the
+# *median* duration is at or below the budget.
+#
+# Budgets are deliberately generous — CI hardware varies by ~3x between
+# fast workstations and shared GitHub Actions free-tier runners. The
+# goal is to catch *catastrophic* regressions (a refactor that 2-3x's
+# scan latency) rather than to measure absolute throughput. Tune via
+# `python scripts/run_benchmarks.py --update-budgets-from-median` when
+# you have a stable hardware reference.
+#
+# Median of the local-dev baseline (single run, MacBook M1) at time
+# of authoring:
+#   small  → 0.18s  (10 tools, MCP only)
+#   medium → 0.23s  (50 tools, MCP + OpenAPI)
+#   large  → 0.50s  (200 tools, 2× MCP + OpenAPI + policies)
+#
+# Budgets below assume CI runs 3-5x slower. Bump the headline values
+# *up* (more permissive) when you see legitimate flakes; never bump
+# them down without first running `scripts/run_benchmarks.py` on a
+# stable host to confirm the improvement is real and durable.
+
+warmup_iterations: 1
+measured_iterations: 3
+
+# Per-scenario budgets. Add an entry here + a directory under
+# `benchmark/perf/scenarios/` to add a new size band.
+scenarios:
+  small:
+    path: small
+    budget_seconds: 3.0
+    expected_min_tools: 8
+    expected_max_tools: 12
+  medium:
+    path: medium
+    budget_seconds: 5.0
+    expected_min_tools: 45
+    expected_max_tools: 55
+  large:
+    path: large
+    budget_seconds: 10.0
+    expected_min_tools: 190
+    expected_max_tools: 210
