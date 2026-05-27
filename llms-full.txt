@@ -493,7 +493,7 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 
 - Run `python -m ruff check .` and `python -m pytest` before committing.
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.
-- New checks must include: code in `src/agents_shipgate/checks/`, metadata in `checks/registry.py:CHECK_METADATA`, a test in `tests/`, and a row in `docs/checks.md`.
+- New checks must include: code in `src/agents_shipgate/checks/<category>.py` plus a `BUILTIN_CHECKS` entry in `checks/registry.py`, metadata in `docs/checks/<category>.yaml` (loaded into `CHECK_METADATA` at registry import time by `agents_shipgate.checks._metadata_loader`), a test in `tests/`, and a row in `docs/checks.md`. After editing YAML, regenerate `docs/checks.json` with `python scripts/generate_schemas.py`.
 - Do not change check IDs in published versions; always add new ones.
 - If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit `docs/manifest-v0.1.json` + `docs/checks.json`.
 

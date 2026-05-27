@@ -1,0 +1,29 @@
+# Check catalog · category: side_effects
+#
+# This file is the source of truth for the 'side_effects' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-SIDEFX-IDEMPOTENCY-MISSING
+  default_severity: high
+  floor_severity: medium
+  description: Risky write tool lacks idempotency evidence; critical when retry is
+    known.
+  rationale: Retries against non-idempotent writes can duplicate financial or external
+    side effects.
+  fires_when: Risky write tool lacks idempotency annotation, key, or policy.
+  evidence_fields:
+  - risk_tags
+  - retry_policy_known
+  recommendation: Add idempotency evidence or policy.
+  requires_human_review_regardless_of_patch: true

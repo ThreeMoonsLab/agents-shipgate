@@ -1,0 +1,42 @@
+# Check catalog · category: schema
+#
+# This file is the source of truth for the 'schema' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-SCHEMA-BROAD-FREE-TEXT
+  default_severity: high
+  description: Action-like tool accepts broad free-form input.
+  rationale: Broad action/body/update fields increase blast radius for write tools.
+  fires_when: A write/action-like tool has free-form command/action/update-style parameters.
+  evidence_fields:
+  - parameter
+  - type
+  recommendation: Constrain the field with structured schema or enums.
+- id: SHIP-SCHEMA-FREEFORM-OUTPUT
+  default_severity: medium
+  description: Tool returns free-form string output.
+  rationale: Free-form tool output may carry prompt injection into later model context.
+  fires_when: A tool output schema is string or an SDK function returns str.
+  evidence_fields:
+  - output_schema
+  recommendation: Prefer structured output for model-consumed tool results.
+- id: SHIP-SCHEMA-MISSING-BOUNDS
+  default_severity: high
+  description: Risky numeric parameter lacks a maximum bound.
+  rationale: Unbounded counts or financial amounts weaken blast-radius control.
+  fires_when: A risky numeric parameter lacks a maximum.
+  evidence_fields:
+  - parameter
+  - type
+  recommendation: Add a maximum or equivalent policy limit.

@@ -1,0 +1,96 @@
+# Check catalog · category: codex_plugin
+#
+# This file is the source of truth for the 'codex_plugin' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE
+  default_severity: medium
+  description: Codex plugin app connector surface is not statically enumerable.
+  rationale: |-
+    Connector-backed app capabilities are externally mediated and cannot be proven from local plugin metadata alone.
+  fires_when: A Codex plugin declares an app connector without an explicit local enumerable
+    tool surface.
+  evidence_fields:
+  - plugin
+  - app
+  - connector_id
+  - path
+  recommendation: |-
+    Treat connector app capabilities as a review item or provide explicit local inventory/policy evidence.
+- id: SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING
+  default_severity: high
+  description: Codex plugin component path cannot be loaded.
+  rationale: |-
+    Release review cannot inspect declared skills, MCP servers, apps, or hooks when component paths are missing or escape the package.
+  fires_when: A plugin component path is missing, outside the plugin root, or outside
+    the manifest directory.
+  evidence_fields:
+  - plugin
+  - component
+  - path
+  - reason
+  recommendation: Fix component paths so every declared plugin artifact resolves locally.
+- id: SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING
+  default_severity: medium
+  description: Codex plugin marketplace entry lacks policy metadata.
+  rationale: |-
+    Marketplace installation and authentication policy are part of the release surface coding agents need to review.
+  fires_when: A marketplace plugin entry lacks policy.installation, policy.authentication,
+    or category.
+  evidence_fields:
+  - marketplace
+  - plugin
+  - missing
+  recommendation: Add policy.installation, policy.authentication, and category to
+    the marketplace entry.
+- id: SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE
+  default_severity: high
+  description: Codex plugin MCP server is declared but not statically enumerable.
+  rationale: |-
+    Agents Shipgate does not execute MCP commands, so reviewer-visible tool metadata requires an explicit local inventory.
+  fires_when: |-
+    A Codex plugin declares an MCP server and no matching codex_plugins.mcp_tool_inventories entry loaded successfully.
+  evidence_fields:
+  - plugin
+  - server
+  - path
+  - inventory_path
+  recommendation: Provide a local MCP tool inventory for the plugin server.
+- id: SHIP-CODEX-PLUGIN-METADATA-MISSING
+  default_severity: medium
+  description: Codex plugin package metadata is incomplete or ambiguous.
+  rationale: Plugin identity needs to be stable before publication or downstream agent
+    adoption.
+  fires_when: |-
+    A Codex plugin manifest is missing required identity metadata, its name does not match the package root, or duplicate plugin names are present.
+  evidence_fields:
+  - plugin
+  - source_id
+  - manifest_path
+  - issues
+  recommendation: Fill required plugin metadata and make plugin names unambiguous.
+- id: SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING
+  default_severity: medium
+  description: Codex plugin skill metadata is missing or duplicated.
+  rationale: Skill frontmatter is the static routing surface agents use to decide
+    whether a skill applies.
+  fires_when: A SKILL.md lacks name or description frontmatter, or two skills in the
+    same plugin share a name.
+  evidence_fields:
+  - plugin
+  - skill
+  - path
+  - missing_fields
+  - duplicate
+  recommendation: Give each skill a unique name and clear description frontmatter.

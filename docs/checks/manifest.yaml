@@ -1,0 +1,70 @@
+# Check catalog · category: manifest
+#
+# This file is the source of truth for the 'manifest' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING
+  default_severity: high
+  description: Production high-risk tool has no declared owner.
+  rationale: High-risk production tools need an accountable owning team for review
+    and remediation.
+  fires_when: environment.target is production_like or production and a high-risk
+    tool lacks owner metadata.
+  evidence_fields:
+  - environment
+  - risk_tags
+  recommendation: Declare an owner for each high-risk production tool.
+- id: SHIP-MANIFEST-STALE-POLICY
+  default_severity: medium
+  description: A policy references a missing tool.
+  rationale: Approval, confirmation, and idempotency policies should map to the actual
+    release surface.
+  fires_when: A policy entry names a tool that is not loaded.
+  evidence_fields:
+  - policy
+  - tool
+  recommendation: Remove stale policy entries or update them to current tool names.
+  suggested_patch_kind: remove_pointer
+- id: SHIP-MANIFEST-STALE-RISK-OVERRIDE
+  default_severity: medium
+  description: A risk override references a missing tool.
+  rationale: Risk overrides should not outlive the tool they describe.
+  fires_when: risk_overrides.tools contains a tool that is not loaded.
+  evidence_fields:
+  - tool
+  recommendation: Remove stale risk overrides or update them to current tool names.
+  suggested_patch_kind: remove_pointer
+- id: SHIP-MANIFEST-STALE-SUPPRESSION
+  default_severity: medium
+  description: A suppression references a missing check or tool.
+  rationale: Stale suppressions hide intent and make release review harder to audit.
+  fires_when: checks.ignore contains an unknown check_id or a tool name that is not
+    loaded.
+  evidence_fields:
+  - check_id
+  - tool
+  - issues
+  recommendation: Remove stale suppressions or update them to current check IDs and
+    tool names.
+  suggested_patch_kind: remove_pointer
+- id: SHIP-MANIFEST-UNUSED-SCOPE
+  default_severity: medium
+  description: Manifest declares permission scopes unused by loaded tools.
+  rationale: Unused permissions weaken least-privilege review and often indicate stale
+    config.
+  fires_when: permissions.scopes includes a scope not required by any loaded tool.
+  evidence_fields:
+  - scope
+  - tool_scopes
+  recommendation: Remove unused scopes or add tool metadata showing why they are required.

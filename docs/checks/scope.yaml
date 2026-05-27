@@ -1,0 +1,38 @@
+# Check catalog · category: scope
+#
+# This file is the source of truth for the 'scope' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT
+  default_severity: high
+  floor_severity: medium
+  description: Tool appears to overlap with a manifest prohibited action.
+  rationale: Prohibited actions should not be contradicted by attached tool capabilities.
+  fires_when: Tool name/description/risk tags overlap prohibited_actions without a
+    mitigating policy.
+  evidence_fields:
+  - prohibited_action
+  - risk_tags
+  recommendation: Remove or narrow the tool, or revise policy/scope text.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE
+  default_severity: high
+  floor_severity: medium
+  description: Write-capable tool contradicts a read-only declared purpose.
+  rationale: Declared purpose should constrain the attached tool surface.
+  fires_when: Purpose text is read-only but attached tools are write-capable.
+  evidence_fields:
+  - declared_purpose
+  - risk_tags
+  recommendation: Remove the tool or update release scope.

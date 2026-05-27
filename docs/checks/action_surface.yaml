@@ -1,0 +1,148 @@
+# Check catalog · category: action_surface
+#
+# This file is the source of truth for the 'action_surface' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-ACTION-APPROVAL-REMOVED
+  default_severity: critical
+  floor_severity: high
+  description: Action approval policy was removed.
+  rationale: Removing approval weakens the release boundary for an existing action.
+  fires_when: Base action approval.required was true and head no longer requires approval.
+  evidence_fields:
+  - change
+  recommendation: |-
+    Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket.
+- id: SHIP-ACTION-CONTROL-DOWNGRADE
+  default_severity: high
+  description: Action declaration weakens an inherited approval or safeguard control.
+  rationale: |-
+    Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.
+  fires_when: action_surface.actions.approval or safeguards sets an inherited true
+    control to false.
+  evidence_fields:
+  - action_id
+  - path
+  - inherited
+  - declared
+  recommendation: |-
+    Keep the inherited action_surface.actions[] approval/safeguard control enabled or remove the weakening declaration.
+- id: SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING
+  default_severity: critical
+  floor_severity: high
+  description: New destructive action lacks approval or rollback controls.
+  rationale: Destructive actions need explicit approval and rollback evidence before
+    release.
+  fires_when: An added destructive action lacks approval.required or safeguards.rollback.
+  evidence_fields:
+  - action_id
+  - missing
+  recommendation: Declare approval.required and safeguards.rollback or remove the
+    destructive action.
+- id: SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED
+  default_severity: high
+  description: Action declaration weakens the inferred effect.
+  rationale: |-
+    Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.
+  fires_when: action_surface.actions.effect is lower risk than the effect inferred
+    from the loaded tool metadata.
+  evidence_fields:
+  - action_id
+  - inferred_effect
+  - declared_effect
+  recommendation: |-
+    Set action_surface.actions[].effect to the inferred operation effect or remove the weaker declaration.
+- id: SHIP-ACTION-EFFECT-ESCALATED
+  default_severity: critical
+  floor_severity: high
+  description: Action effect escalated compared with the base surface.
+  rationale: Effect escalation changes what the agent can do in the real world and
+    needs explicit review.
+  fires_when: An action changes to a higher-risk effect such as read to write or write
+    to destructive.
+  evidence_fields:
+  - change
+  recommendation: |-
+    Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation.
+- id: SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING
+  default_severity: high
+  description: New external communication action lacks audit evidence.
+  rationale: External communication changes agent blast radius and should be auditable.
+  fires_when: An added external_communication action lacks safeguards.audit_log.
+  evidence_fields:
+  - action_id
+  - missing
+  recommendation: Declare safeguards.audit_log for the external communication action.
+- id: SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
+  default_severity: critical
+  floor_severity: high
+  description: New financial write action lacks required controls.
+  rationale: Financial write actions need approval, audit, and idempotency evidence
+    before release.
+  fires_when: |-
+    An added action is financial_write and lacks approval.required, safeguards.audit_log, or safeguards.idempotency.
+  evidence_fields:
+  - action_id
+  - missing
+  recommendation: Declare approval.required, safeguards.audit_log, and safeguards.idempotency.
+- id: SHIP-ACTION-POLICY-VIOLATION
+  default_severity: high
+  floor_severity: medium
+  dynamic_default: true
+  description: An action-surface policy requirement is not satisfied.
+  rationale: |-
+    Action Surface Diff policies are the reviewer-facing release boundary for external action capability.
+  fires_when: |-
+    A user-declared action_surface.policies rule matches an action and one or more required dot-path values are absent or different.
+  evidence_fields:
+  - policy_id
+  - action_id
+  - missing
+  recommendation: Satisfy the action-surface policy requirements or remove/narrow
+    the action.
+- id: SHIP-ACTION-SAFEGUARD-REMOVED
+  default_severity: high
+  description: Action safeguard was removed.
+  rationale: Removing audit, idempotency, rollback, or dry-run safeguards expands
+    blast radius.
+  fires_when: A previously true action safeguard is false or absent in the head surface.
+  evidence_fields:
+  - change
+  recommendation: |-
+    Restore the removed action_surface.actions[].safeguards field or document the reviewed exception under action_surface.actions[].evidence.
+- id: SHIP-ACTION-UNDECLARED
+  default_severity: high
+  description: A loaded tool lacks explicit action-surface metadata.
+  rationale: Action Surface Diff depends on reviewer-visible action metadata for release
+    decisions.
+  fires_when: |-
+    action_surface.require_explicit_actions is true and a loaded tool has no matching action_surface.actions entry.
+  evidence_fields:
+  - action_id
+  - tool_name
+  recommendation: Add action_surface.actions metadata for the tool or disable require_explicit_actions.
+- id: SHIP-ACTION-WILDCARD-SCOPE
+  default_severity: critical
+  floor_severity: high
+  description: Action surface includes a wildcard or admin-like scope.
+  rationale: Wildcard scopes make action blast radius too broad for deterministic
+    release review.
+  fires_when: An added action declares a broad scope, or a modified action expands
+    into a broad scope.
+  evidence_fields:
+  - action_id
+  - scopes
+  - change
+  recommendation: |-
+    Replace action_surface.actions[].scopes with operation-specific scopes; remove wildcard/admin scopes.

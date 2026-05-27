@@ -1,0 +1,76 @@
+# Check catalog · category: n8n
+#
+# This file is the source of truth for the 'n8n' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-N8N-AI-TOOL-METADATA-MISSING
+  default_severity: medium
+  description: n8n AI-exposed tool lacks static metadata.
+  rationale: |-
+    Static review depends on descriptions and parameter schemas because Shipgate does not execute n8n workflows.
+  fires_when: An n8n AI-exposed tool lacks description or static parameter metadata.
+  evidence_fields:
+  - missing
+  - source_type
+  recommendation: |-
+    Add n8n tool descriptions, $fromAI() parameter metadata, workflow input schemas, or explicit inventory metadata.
+- id: SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING
+  default_severity: high
+  description: n8n credential stubs are not declared.
+  rationale: |-
+    Credential type evidence lets reviewers assess high-risk integrations without exposing secret values.
+  fires_when: Production-like n8n workflows reference credentials but no local credential
+    stubs are declared.
+  evidence_fields:
+  - credential_ref_count
+  - credential_stub_file_count
+  recommendation: Declare local n8n credential stubs.
+- id: SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+  default_severity: high
+  description: n8n tool surface cannot be statically enumerated.
+  rationale: |-
+    Release review needs an explicit local inventory when n8n workflow JSON uses runtime tool names, unresolved workflow references, wildcard MCP exposure, or community tool nodes without static metadata. This is high severity in every environment because static release evidence cannot prove the actual tool inventory.
+  fires_when: |-
+    An n8n workflow has an unresolved DB workflow id, runtime expression in a tool name, wildcard MCP Server/Client exposure without an inventory, or an uninventoried community/custom tool node.
+  evidence_fields:
+  - surface
+  - explicit_inventory
+  recommendation: |-
+    Provide explicit local n8n/MCP tool inventory metadata or replace runtime/wildcard n8n tool exposure.
+- id: SHIP-N8N-EVAL-COVERAGE-MISSING
+  default_severity: medium
+  description: n8n eval coverage is not declared.
+  rationale: n8n AI workflow releases should include response and tool-trajectory
+    eval evidence before promotion.
+  fires_when: n8n inputs target production_like or production and no eval files are
+    declared.
+  evidence_fields:
+  - workflow_count
+  - ai_agent_count
+  - eval_file_count
+  recommendation: Declare n8n eval files for expected responses and tool-use trajectories.
+- id: SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED
+  default_severity: high
+  description: n8n MCP Client Tool exposes an unfiltered toolset.
+  rationale: |-
+    All-tools and all-except MCP client selections can expose more tools than reviewers expect. The check is environment-sensitive because the selector is straightforward to narrow before production, while production-like use increases blast radius.
+  fires_when: An n8n MCP Client Tool uses All or All Except selection and no explicit
+    local inventory is declared.
+  evidence_fields:
+  - source_ref
+  - node_id
+  - selection_mode
+  - explicit_inventory
+  recommendation: Select an explicit MCP tool allowlist in n8n or provide a local
+    MCP inventory.

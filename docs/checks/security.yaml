@@ -1,0 +1,48 @@
+# Check catalog · category: security
+#
+# This file is the source of truth for the 'security' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-DOC-INJECTION-RISK
+  default_severity: medium
+  description: Tool description contains instruction-override-like language.
+  rationale: Tool metadata can be placed into model context and should not contain
+    prompt-like directives.
+  fires_when: |-
+    Description text matches instruction override patterns. Severity is high only when multiple patterns match on a write/high-risk tool.
+  evidence_fields:
+  - matched
+  recommendation: Rewrite the description as neutral metadata.
+- id: SHIP-DOC-SECRET-IN-DESCRIPTION
+  default_severity: medium
+  description: Tool description contains a secret-like value.
+  rationale: Credentials in tool metadata can leak into reports, prompts, or logs.
+  fires_when: |-
+    Description contains known key formats or labeled secret-like values. Severity is high only when multiple patterns match on a write/high-risk tool.
+  evidence_fields:
+  - matched
+  recommendation: Remove and rotate the exposed secret.
+- id: SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER
+  default_severity: high
+  description: n8n workflow JSON contains a secret-like value.
+  rationale: |-
+    Workflow JSON, pinned data, static data, and node notes can be committed or reported; hardcoded secret-like values should be moved into credentials or variables.
+  fires_when: |-
+    A static n8n workflow parameter, node note, pinData entry, or staticData entry matches a secret-like token pattern. Evidence is redacted and contains only source location and secret kind, never a secret verifier.
+  evidence_fields:
+  - source_ref
+  - parameter_pointer
+  - secret_kind
+  recommendation: Move secret values into n8n credentials or variables and rotate
+    the exposed value.

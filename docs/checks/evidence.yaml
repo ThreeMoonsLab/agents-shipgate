@@ -1,0 +1,84 @@
+# Check catalog · category: evidence
+#
+# This file is the source of truth for the 'evidence' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
+  default_severity: high
+  description: Local HITL approval trace evidence is missing or incomplete for an
+    approval-required tool.
+  rationale: |-
+    Limited automation review depends on reviewer-visible local evidence that approval-controlled actions were approved before the tool call; absence of local evidence does not prove the runtime control is absent.
+  fires_when: |-
+    validation.required_evidence.approval_trace_required is true and no loaded local approval trace shows approved=true for an approval-required tool.
+  evidence_fields:
+  - tool_name
+  - required
+  - reason
+  - trace_files
+  - approved_tools
+  - source_provenance
+  recommendation: Add or fix local approval trace evidence, or change the validation
+    review posture.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING
+  default_severity: high
+  description: Local high-risk auto-approval exclusion evidence is missing or incomplete.
+  rationale: |-
+    High-risk tools that already declare approval policy need separate local evidence that they are excluded from auto-approval review posture; absence of local evidence does not prove the runtime control is absent.
+  fires_when: |-
+    validation.required_evidence.high_risk_auto_approval_exclusion_required is true and a high-risk tool with declared approval policy is not listed in loaded high_risk_auto_approval_exclusions.
+  evidence_fields:
+  - required
+  - reason
+  - risk_tags
+  - exclusion_files
+  - excluded_tools
+  - source_provenance
+  recommendation: |-
+    Document high-risk approval-controlled tools in local high_risk_auto_approval_exclusions with reasons.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING
+  default_severity: high
+  description: Local HITL promotion criteria evidence is missing or incomplete.
+  rationale: |-
+    A limited auto-approval review posture needs local criteria evidence; Shipgate structures the missing evidence for reviewers but does not certify runtime enforcement.
+  fires_when: |-
+    validation.target_review_posture is limited_auto_approval and promotion criteria are absent, unloadable, or the canonical required-evidence flags are not true in the manifest and criteria file.
+  evidence_fields:
+  - target_review_posture
+  - reason
+  - criteria_files
+  - manifest_flags_missing
+  - criteria_flags_missing
+  - source_provenance
+  recommendation: |-
+    Add or fix local promotion criteria evidence documenting the review posture and required evidence flags.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-EVIDENCE-OVERRIDE-REASON-MISSING
+  default_severity: high
+  description: Local HITL override reason evidence is missing or incomplete.
+  rationale: |-
+    Override, bypass, and auto-approval events need reviewer-visible local reasons for governance review; absence of local evidence does not prove the runtime control is absent.
+  fires_when: |-
+    validation.required_evidence.override_reason_required is true and override logs are absent, empty, unloadable, or contain events without non-empty reasons.
+  evidence_fields:
+  - required
+  - reason
+  - override_log_files
+  - events_missing_reason
+  - source_provenance
+  recommendation: Record non-empty reasons in local override, bypass, and auto-approval
+    evidence.
+  requires_human_review_regardless_of_patch: true
