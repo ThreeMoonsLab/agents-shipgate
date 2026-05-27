@@ -29,10 +29,15 @@ src/agents_shipgate/
 │                      class with `inputs/protocol.py:REGISTRY`. No
 │                      adapter may import/exec user code (lint enforced).
 ├── checks/             Pure functions `(ScanContext) -> list[Finding]`.
-│                      Built-ins listed in `checks/registry.py:BUILTIN_CHECKS`;
-│                      external plugins discovered via the
-│                      `agents_shipgate.checks` entry-point group and
-│                      filtered through `checks/plugin_validation.py`.
+│                      Built-in callables listed in
+│                      `checks/registry.py:BUILTIN_CHECKS`; built-in
+│                      metadata in per-category YAML under
+│                      `docs/checks/<category>.yaml`, loaded into
+│                      `CHECK_METADATA` at import time by
+│                      `checks/_metadata_loader.py`. External plugins
+│                      discovered via the `agents_shipgate.checks`
+│                      entry-point group and filtered through
+│                      `checks/plugin_validation.py`.
 ├── core/               Domain logic: ScanContext, findings, baseline,
 │                      severity_overrides, dynamic_defaults, privacy,
 │                      risk_hints, heuristics, errors. NOT wire types.
@@ -405,23 +410,40 @@ the full checklist.
 1. Write the check function in `checks/<category>.py` with signature
    `(ScanContext) -> list[Finding]`. Use the `tool_finding()` /
    `agent_finding()` factories in `checks/base.py`; both require a
-   `provenance_kind` kwarg.
-2. Register the metadata in `checks/registry.py:CHECK_METADATA`. For
-   release-critical checks, declare `floor_severity` (severity below
-   which a `severity_override` cannot apply, even with an
-   acknowledgement). For checks whose emitted severity depends on
-   user-declared manifest values (e.g. action-surface policies),
-   declare `dynamic_default=True` AND add an overlay branch in
+   `provenance_kind` kwarg. Register the callable in
+   `checks/registry.py:BUILTIN_CHECKS` (canonical run order).
+2. Declare the metadata in `docs/checks/<category>.yaml`. The
+   filename **is** the check's `category` (the loader injects it,
+   and rejects any per-row `category` that disagrees). `docs_url`
+   is also loader-derived from the check id; do not set it in YAML.
+   Every other `agents_shipgate.schemas.checks.CheckMetadata` field
+   maps 1:1 onto a YAML key. For release-critical checks, declare
+   `floor_severity` (severity below which a `severity_override`
+   cannot apply, even with an acknowledgement). For checks whose
+   emitted severity depends on user-declared manifest values
+   (e.g. action-surface policies), declare `dynamic_default: true`
+   AND add an overlay branch in
    `core/dynamic_defaults.py:dynamic_check_defaults` — the model
    validator requires the floor; the contract test
    `test_dynamic_default_aggregator_overlay_fires` requires the
    overlay. See [`STABILITY.md` § dynamic-severity check classes](../STABILITY.md#severity-override-floor).
 3. Add a test in `tests/`.
-4. Document in `docs/checks.md` (and regenerate `docs/checks.json`
-   via `python scripts/generate_schemas.py`).
+4. Document in `docs/checks.md` (human-maintained prose) and
+   regenerate the machine catalog with
+   `python scripts/generate_schemas.py` (writes
+   `docs/checks.json`).
 5. **Do not change check IDs in published versions.** Always add
    new ones; legacy IDs may expand to new IDs via
    `core/check_ids.py:expands_to_check_id`.
+
+The YAML-driven catalog is loaded once at registry import time by
+`agents_shipgate.checks._metadata_loader.load_check_metadata()`.
+Duplicate ids across files, mismatched per-row `category`, explicit
+per-row `docs_url`, missing `id`, malformed top-level shape, and
+Pydantic validation errors all raise `ValueError` with the file
+path and offending check id — the catalog is a wire-stable
+contract (`docs/checks.json`), so schema deviations fail at import
+time, not at scan time.
 
 ## Adoption harness (developer-only)
 

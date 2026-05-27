@@ -9,9 +9,10 @@
 # (identity → severity → narrative → evidence → remediation).
 # Fields equal to the model default may be omitted.
 #
-# When editing this file, regenerate docs/checks.json and
-# docs/checks.md (if present) with:
+# After editing this file, regenerate docs/checks.json with:
 #   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
 checks:
 - id: SHIP-ACTION-APPROVAL-REMOVED
   default_severity: critical
