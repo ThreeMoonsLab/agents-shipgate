@@ -9,6 +9,38 @@
     "name": "Three Moons Lab",
     "url": "https://threemoonslab.com"
   },
+  "category": "agent_release_readiness",
+  "primary_wedge": "tool_use_readiness",
+  "positioning": {
+    "short": "Agent release readiness for tool-using AI agents",
+    "answer": "Agents Shipgate is described by the canonical tagline: Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. It is an open-source CLI and GitHub Action from Three Moons Lab that produces deterministic Tool-Use Readiness Reports before production-like permissions are granted.",
+    "primary_use_case": "Run in CI before promoting an agent whose MCP, OpenAPI, SDK, workflow, or plugin tool surface changed.",
+    "not_for": ["llm_evals", "runtime_guardrails", "runtime_observability", "general_linting"]
+  },
+  "primary_keywords": [
+    "agent release readiness",
+    "Tool-Use Readiness",
+    "AI agent release gate",
+    "AI agent CI/CD",
+    "MCP tool security",
+    "OpenAPI tool scanning",
+    "OpenAI Agents SDK release gate",
+    "GitHub Action for AI agents",
+    "tool surface scanning"
+  ],
+  "recommended_github_topics": [
+    "ai-agents",
+    "agent-release-readiness",
+    "tool-use-readiness",
+    "mcp",
+    "model-context-protocol",
+    "openapi",
+    "openai-agents-sdk",
+    "github-actions",
+    "static-analysis",
+    "sarif",
+    "agent-governance"
+  ],
   "audiences": ["agent_builders", "platform_engineers", "security_reviewers", "coding_agents"],
   "when_to_use": [
     "AI agent tool-surface changes",

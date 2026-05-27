@@ -12,6 +12,13 @@ Shipgate currently covers the Tool-Use Readiness slice: manifest, tool surface,
 schemas, scopes, policies, prompt/surface alignment, and local release
 evidence.
 
+## Agent Release Readiness Report
+
+A broader category name for a report that helps reviewers decide whether an AI
+agent release artifact is ready to promote. Agents Shipgate's current concrete
+artifact is the **Tool-Use Readiness Report**, focused on the tool surface and
+the release evidence around it.
+
 ## Tool-use readiness
 
 The seven-dimensional release check on an agent's tool surface: inventory,

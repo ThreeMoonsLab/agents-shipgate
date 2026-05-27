@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "0.10.0"
-description = "Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex plugin, n8n."
+description = "Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -17,10 +17,14 @@ keywords = [
   "ai-agent",
   "agent-release",
   "agent-release-readiness",
+  "ai-agent-cicd",
   "tool-use",
+  "tool-surface",
+  "tool-surface-scanning",
   "release-readiness",
   "release-gate",
   "mcp",
+  "mcp-security",
   "openai-agents-sdk",
   "google-adk",
   "openapi",

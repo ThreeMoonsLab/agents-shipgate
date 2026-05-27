@@ -16,6 +16,13 @@ release artifact before promotion. For agents-shipgate, that artifact is the
 checked-in manifest, declared tool surface, schemas, scopes, policies, prompts,
 and release evidence that describe what the agent can do.
 
+## Is Agents Shipgate an agent release-readiness tool?
+
+Yes. Agents Shipgate fits the agent release-readiness slot in CI. Its current
+wedge is Tool-Use Readiness: reviewing tool inventory, schemas, scopes,
+approval policies, side effects, idempotency, and blast radius before an agent
+gets production-like permissions.
+
 ## What is tool-use readiness?
 
 Tool-use readiness is the seven-dimensional release check on an agent's

@@ -1189,6 +1189,63 @@ def test_well_known_links_to_agent_discovery_onramps():
         )
 
 
+def test_well_known_seo_geo_positioning_fields_are_pinned():
+    """AI-search discovery fields are public contract surface. Pin
+    their shape so answer-engine positioning does not silently drift
+    away from the Tool-Use Readiness wedge."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+
+    assert data.get("category") == "agent_release_readiness"
+    assert data.get("primary_wedge") == "tool_use_readiness"
+
+    positioning = data.get("positioning", {})
+    assert positioning.get("short") == "Agent release readiness for tool-using AI agents"
+    assert POSITIONING_PHRASE in positioning.get("answer", "")
+    assert "Three Moons Lab" in positioning.get("answer", "")
+    assert "Tool-Use Readiness Reports" in positioning.get("answer", "")
+    assert "MCP, OpenAPI, SDK, workflow, or plugin" in positioning.get(
+        "primary_use_case", ""
+    )
+    assert positioning.get("not_for") == [
+        "llm_evals",
+        "runtime_guardrails",
+        "runtime_observability",
+        "general_linting",
+    ]
+
+    primary_keywords = data.get("primary_keywords", [])
+    for keyword in (
+        "agent release readiness",
+        "Tool-Use Readiness",
+        "AI agent release gate",
+        "AI agent CI/CD",
+        "MCP tool security",
+        "OpenAPI tool scanning",
+        "OpenAI Agents SDK release gate",
+        "GitHub Action for AI agents",
+        "tool surface scanning",
+    ):
+        assert keyword in primary_keywords
+
+    recommended_topics = data.get("recommended_github_topics", [])
+    for topic in (
+        "ai-agents",
+        "agent-release-readiness",
+        "tool-use-readiness",
+        "mcp",
+        "model-context-protocol",
+        "openapi",
+        "openai-agents-sdk",
+        "github-actions",
+        "static-analysis",
+        "sarif",
+    ):
+        assert topic in recommended_topics
+    assert all("_" not in topic for topic in recommended_topics), (
+        "recommended_github_topics must use GitHub topic slug kebab-case."
+    )
+
+
 def test_llms_txt_advertises_triggers_and_llms_full():
     """llms.txt is the short fan-out for AI search; it must list the
     trigger catalog and llms-full URLs so they are discoverable from
@@ -1335,6 +1392,20 @@ def test_structured_metadata_fields_use_mvp_wedge_positioning():
     pyproject = tomllib.loads(_read("pyproject.toml"))
     description = pyproject["project"]["description"]
     assert description.startswith(f"{POSITIONING_PHRASE}.")
+
+
+def test_pyproject_keywords_stay_wedge_focused():
+    """PyPI keywords render as public project tags, so keep them
+    focused on the Tool-Use Readiness wedge instead of broader category
+    or duplicated CI/CD phrasing."""
+    pyproject = tomllib.loads(_read("pyproject.toml"))
+    keywords = set(pyproject["project"]["keywords"])
+
+    assert "agent-governance-infrastructure" not in keywords
+    assert "agent-governance" not in keywords
+    assert not {"agent-cicd", "ai-agent-cicd"} <= keywords, (
+        "Use one CI/CD keyword so the visible PyPI tag set stays focused."
+    )
 
 
 def test_report_and_packet_disclaimers_use_mvp_wedge_positioning():
