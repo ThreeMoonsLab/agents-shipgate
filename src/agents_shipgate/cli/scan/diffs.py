@@ -4,7 +4,7 @@ from pathlib import Path
 
 from agents_shipgate.core.baseline import load_baseline
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.report.tool_surface_diff import (
+from agents_shipgate.core.lenses.tool_surface import (
     ToolSurfaceDiffReference,
     load_tool_surface_diff_reference,
     reference_from_baseline,

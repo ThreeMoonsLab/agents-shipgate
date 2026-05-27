@@ -10,9 +10,9 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.lenses.action_surface import build_action_surface_facts
+from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_model
-from agents_shipgate.report.action_surface_diff import build_action_surface_facts
-from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import (

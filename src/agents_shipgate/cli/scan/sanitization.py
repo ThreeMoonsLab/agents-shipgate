@@ -18,24 +18,24 @@ from agents_shipgate.core.domain import Agent
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
 from agents_shipgate.core.findings.remediation import annotate_remediation
+from agents_shipgate.core.lenses.action_surface import (
+    action_reference_from_scan_reference,
+    attach_action_surface_finding_summary,
+    compute_action_surface_diff,
+    enrich_action_surface_diff_with_source,
+)
+from agents_shipgate.core.lenses.tool_surface import (
+    build_tool_surface_facts,
+    compute_tool_surface_diff,
+    disabled_tool_surface_diff,
+    enrich_tool_surface_diff_with_source,
+)
 from agents_shipgate.core.privacy import (
     build_privacy_audit,
     redact_data,
     sanitize_findings,
     sanitize_model,
     sanitize_tools,
-)
-from agents_shipgate.report.action_surface_diff import (
-    action_reference_from_scan_reference,
-    attach_action_surface_finding_summary,
-    compute_action_surface_diff,
-    enrich_action_surface_diff_with_source,
-)
-from agents_shipgate.report.tool_surface_diff import (
-    build_tool_surface_facts,
-    compute_tool_surface_diff,
-    disabled_tool_surface_diff,
-    enrich_tool_surface_diff_with_source,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import BaselineSummary, LoadedPolicyPack, PolicyAudit

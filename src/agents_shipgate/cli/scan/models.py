@@ -17,8 +17,8 @@ from agents_shipgate.core.artifact_models import (
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent, LoadedToolSource, Tool
+from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.core.privacy import RedactionStats
-from agents_shipgate.report.tool_surface_diff import ToolSurfaceDiffReference
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import PolicyAudit

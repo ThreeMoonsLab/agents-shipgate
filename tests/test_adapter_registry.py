@@ -15,7 +15,7 @@ from typing import ClassVar, Literal
 
 import pytest
 
-from agents_shipgate.cli.scan import _load_sources
+from agents_shipgate.cli.scan.source_loading import _load_sources
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,

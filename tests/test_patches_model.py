@@ -122,7 +122,7 @@ def test_run_id_identical_when_only_patches_field_differs(tmp_path: Path) -> Non
     baseline_run_id = report.run_id
 
     # Inject patches into a copy of the same findings; recompute run_id.
-    from agents_shipgate.cli.scan import _run_id
+    from agents_shipgate.cli.scan.run_identity import _run_id
 
     findings_with_patches = []
     for finding in report.findings:

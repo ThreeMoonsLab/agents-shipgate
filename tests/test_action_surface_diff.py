@@ -11,7 +11,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings import assign_finding_ids
-from agents_shipgate.report.action_surface_diff import (
+from agents_shipgate.core.lenses.action_surface import (
     _dedupe_findings,
     build_action_surface_facts,
     compute_action_surface_diff,
@@ -426,7 +426,7 @@ def test_action_policy_finding_evidence_excludes_v019_source_fields():
     legacy. The diff row itself still carries the structured fields
     for renderers.
     """
-    from agents_shipgate.report.action_surface_diff import _change_evidence
+    from agents_shipgate.core.lenses.action_surface import _change_evidence
 
     change = ActionSurfaceChange(
         type="APPROVAL_REMOVED",

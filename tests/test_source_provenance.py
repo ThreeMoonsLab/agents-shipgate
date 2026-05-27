@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 
 from agents_shipgate.checks.base import tool_finding
-from agents_shipgate.cli.scan import _run_id
+from agents_shipgate.cli.scan.run_identity import _run_id
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import (
