@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+- **New large-scale sample + asserted latency budget.**
+  Adds `samples/large_multi_framework_agent/` — a production-shape retail-ops
+  AI assistant with ~65 tools across five tool sources (payments OpenAPI,
+  fulfillment OpenAPI, CRM MCP, internal warehouse MCP, OpenAI Agents SDK).
+  Exercises the pipeline (loaders → checks → release decision → reports +
+  packet + privacy redaction) at realistic load, well beyond the 5–15 tool
+  range covered by the existing samples. The manifest declares *partial*
+  governance coverage on purpose so the scan surfaces a realistic mix of
+  blockers, review items, and audit-envelope activity (~10 critical
+  approval gaps, ~70 review items, severity overrides, suppressions,
+  manual risk hints).
+  New `tests/test_large_sample.py` (12 cases) asserts:
+  - **Latency budget of 10.0 s wall-clock per scan** (typical: 1–2 s on a
+    2024 laptop). The release gate lives on the CI critical path; a
+    silent regression that doubles scan time would be felt by every
+    adopter. The budget is generous to absorb CI variance — if the
+    typical time exceeds half the budget, the sample has grown or the
+    pipeline has regressed.
+  - **Structural shape**: all 5 sources contribute tools; tool count in
+    [50, 100]; findings in [40, 200]; decision blocked; at least one
+    critical `SHIP-POLICY-APPROVAL-MISSING`; scope-coverage fires;
+    severity-override audit envelope populated; contribution rules
+    exhaustive over findings; privacy/reviewer/heuristics audit
+    envelopes emitted.
+  No committed `expected/report.{md,json}` goldens (intentional — pinning
+  50+ findings × 20+ report sections through every schema bump is high
+  cost, low signal). Auto-discovered as `agents-shipgate fixture run
+  large_multi_framework_agent`; NOT added to `self-check`'s default
+  fixture set so install verification stays fast.
+
+- **`init --write` now ensures `agents-shipgate-reports/` is gitignored.**
+  Closes a long-standing DX gap: the reports directory created by the first
+  `scan` would silently appear in `git status` (and could be committed by an
+  agent running `git add -A`). On every `init --write` we now also write a
+  managed block to `.gitignore`:
+  - File missing → created with just the block.
+  - File present without our markers and without an existing
+    `agents-shipgate-reports/` line → managed block appended (separated by
+    one blank line; user content preserved byte-for-byte).
+  - File present with our markers → upserted (unchanged / updated / migrated
+    on version bump; refused on a newer version).
+  - File present with `agents-shipgate-reports/` (or `/agents-shipgate-reports`
+    / `agents-shipgate-reports` / `/agents-shipgate-reports/`) already on its
+    own line → no-op (`already_present`). Inline comments and the canonical
+    leading/trailing-slash variants are recognized.
+  - File present with `!agents-shipgate-reports/` → no-op
+    (`skipped_negated`). Explicit user opt-outs are respected.
+  - File present with ambiguous markers (e.g. duplicate blocks) → no-op
+    (`skipped_ambiguous`).
+  Idempotent: re-running on a clean install returns `unchanged` and leaves
+  the file byte-identical. Also runs when the manifest already exists so
+  repos that adopted Shipgate before this CLI version get the line on their
+  next `init --write`. Failure modes (symlinked `.gitignore` chain, path is
+  not a regular file, write error) emit an `error`/`skipped_*` outcome but
+  never block `init` — exit code is unchanged from prior versions.
+
+  The outcome is surfaced in `--json` output as a new
+  `gitignore: {status, path, message, block_version}` field. A human-readable
+  one-line message prints to stdout (or stderr for skip/error statuses);
+  `unchanged` and `already_present` are quiet so the success path stays
+  scannable. New module: `agents_shipgate.cli.discovery.gitignore_block`.
+  New tests: `tests/test_init_gitignore.py` (39 cases covering pure parsing,
+  upsert, variant detection, and end-to-end through the CLI).
+
 - **v0.21 — `--no-heuristics` CLI flag closes the round-3 / round-4 E5
   carryover.** `Finding.provenance_kind` has shipped on every report since
   v0.15 as required+non-nullable wire metadata but had no consumer for

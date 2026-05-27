@@ -1,0 +1,313 @@
+openapi: 3.1.0
+info:
+  title: Payments API
+  version: "2.4"
+  description: |
+    Payment processing for the retail-ops AI assistant. Covers charges, refunds,
+    customer accounts, payment methods, disputes, and subscriptions. Read
+    operations are safe; write operations create real-world side effects and
+    require explicit approval.
+
+servers:
+  - url: https://payments.example.test
+
+components:
+  securitySchemes:
+    paymentsOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.test/oauth/token
+          scopes:
+            payments:charges:read: View charge records.
+            payments:charges:write: Create and capture charges.
+            payments:refunds:read: View refund records.
+            payments:refunds:write: Create refunds.
+            payments:customers:read: View customer accounts.
+            payments:customers:write: Create and modify customer accounts.
+            payments:customers:admin: Delete customer data (destructive).
+            payments:disputes:read: View dispute records.
+            payments:disputes:write: Submit dispute evidence.
+            payments:subscriptions:write: Modify subscription state.
+            payments:account:admin: Account-level destructive operations.
+
+  schemas:
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          minimum: 0
+          maximum: 1000000
+          description: Amount in minor currency units.
+        currency:
+          type: string
+          enum: ["USD", "CAD", "EUR", "GBP"]
+    ChargeRequest:
+      type: object
+      required: [customer_id, money]
+      properties:
+        customer_id:
+          type: string
+          description: Customer to charge.
+        money:
+          $ref: "#/components/schemas/Money"
+        idempotency_key:
+          type: string
+          description: Optional per-request idempotency token.
+    RefundRequest:
+      type: object
+      required: [charge_id, money]
+      properties:
+        charge_id:
+          type: string
+        money:
+          $ref: "#/components/schemas/Money"
+        reason:
+          type: string
+          description: Refund reason for audit.
+    CustomerUpdate:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        billing_address:
+          type: object
+          description: Free-form billing address payload.
+
+paths:
+  /charges/{charge_id}:
+    get:
+      operationId: get_charge
+      summary: Retrieve a charge by id.
+      description: Returns full charge record. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: charge_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:charges:read] }]
+      responses: { "200": { description: OK } }
+
+  /charges:
+    get:
+      operationId: list_charges
+      summary: List recent charges with optional filters.
+      description: Paginated. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: customer_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      security: [{ paymentsOAuth: [payments:charges:read] }]
+      responses: { "200": { description: OK } }
+    post:
+      operationId: create_charge
+      summary: Create and authorize a new charge against a customer.
+      description: |
+        Initiates a new authorization with the payment processor. Has external
+        side effect; the charge is reflected on the customer statement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChargeRequest" }
+      security: [{ paymentsOAuth: [payments:charges:write] }]
+      responses: { "201": { description: Charge created } }
+
+  /charges/{charge_id}/capture:
+    post:
+      operationId: capture_charge
+      summary: Capture a previously authorized charge.
+      description: Settles funds against the customer's payment method.
+      parameters:
+        - name: charge_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:charges:write] }]
+      responses: { "200": { description: Captured } }
+
+  /charges/{charge_id}/void:
+    post:
+      operationId: void_authorization
+      summary: Void an uncaptured authorization.
+      description: Releases the hold; destructive for the in-flight authorization.
+      parameters:
+        - name: charge_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:charges:write] }]
+      responses: { "200": { description: Voided } }
+
+  /refunds:
+    get:
+      operationId: list_refunds
+      summary: List recent refunds.
+      description: Paginated. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      security: [{ paymentsOAuth: [payments:refunds:read] }]
+      responses: { "200": { description: OK } }
+    post:
+      operationId: create_refund
+      summary: Create a refund against a captured charge.
+      description: |
+        Issues funds back to the customer's original payment method. High-risk
+        financial action with external side effect.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefundRequest" }
+      security: [{ paymentsOAuth: [payments:refunds:write] }]
+      responses: { "201": { description: Refund created } }
+
+  /refunds/{refund_id}:
+    get:
+      operationId: get_refund
+      summary: Retrieve a refund by id.
+      description: Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: refund_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:refunds:read] }]
+      responses: { "200": { description: OK } }
+
+  /customers/{customer_id}:
+    get:
+      operationId: get_customer
+      summary: Retrieve a customer record by id.
+      description: Read-only customer profile lookup.
+      x-readOnlyHint: true
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:customers:read] }]
+      responses: { "200": { description: OK } }
+    patch:
+      operationId: update_customer
+      summary: Patch a customer record.
+      description: Updates customer profile fields.
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerUpdate" }
+      security: [{ paymentsOAuth: [payments:customers:write] }]
+      responses: { "200": { description: Updated } }
+    delete:
+      operationId: delete_customer
+      summary: Permanently delete a customer record.
+      description: |
+        Destructive. Erases the customer profile and orphans linked records.
+        Cannot be undone.
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:customers:admin] }]
+      responses: { "204": { description: Deleted } }
+
+  /customers:
+    get:
+      operationId: list_customers
+      summary: List customer records with optional search.
+      description: Paginated. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: query
+          in: query
+          schema: { type: string, maxLength: 200 }
+      security: [{ paymentsOAuth: [payments:customers:read] }]
+      responses: { "200": { description: OK } }
+    post:
+      operationId: create_customer
+      summary: Create a new customer account.
+      description: External-write side effect — creates a record at the payment processor.
+      security: [{ paymentsOAuth: [payments:customers:write] }]
+      responses: { "201": { description: Created } }
+
+  /disputes:
+    get:
+      operationId: list_disputes
+      summary: List dispute records.
+      description: Read-only.
+      x-readOnlyHint: true
+      security: [{ paymentsOAuth: [payments:disputes:read] }]
+      responses: { "200": { description: OK } }
+
+  /disputes/{dispute_id}:
+    get:
+      operationId: get_dispute
+      summary: Retrieve a dispute by id.
+      description: Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: dispute_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:disputes:read] }]
+      responses: { "200": { description: OK } }
+
+  /disputes/{dispute_id}/evidence:
+    post:
+      operationId: submit_dispute_evidence
+      summary: Submit evidence files for a dispute.
+      description: |
+        Uploads evidence to the payment processor. External write side effect;
+        the dispute outcome is influenced by the submission.
+      parameters:
+        - name: dispute_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:disputes:write] }]
+      responses: { "201": { description: Submitted } }
+
+  /subscriptions/{subscription_id}/cancel:
+    post:
+      operationId: cancel_subscription
+      summary: Cancel an active subscription.
+      description: |
+        Stops future billing for the subscription. Destructive change to the
+        customer's billing relationship.
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ paymentsOAuth: [payments:subscriptions:write] }]
+      responses: { "200": { description: Cancelled } }
+
+  /account/terminate:
+    post:
+      operationId: terminate_account
+      summary: Terminate the merchant account.
+      description: |
+        Catastrophic destructive operation. Closes the merchant account, stops
+        all in-flight authorizations, and disables all API access.
+      security: [{ paymentsOAuth: [payments:account:admin] }]
+      responses: { "202": { description: Termination scheduled } }
