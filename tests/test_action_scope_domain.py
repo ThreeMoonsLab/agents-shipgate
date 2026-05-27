@@ -29,17 +29,17 @@ from agents_shipgate.core.domain import (
     ToolParameter,
     ToolRiskHint,
 )
-from agents_shipgate.core.risk_hints import (
-    canonical_risk_tags,
-    is_high_risk_tool,
-    parse_scopes,
-    tool_side_effect,
-)
 from agents_shipgate.core.lenses.action_surface import (
     _infer_effect,
     _normalized_risk_tags,
     action_to_fact,
     build_action,
+)
+from agents_shipgate.core.risk_hints import (
+    canonical_risk_tags,
+    is_high_risk_tool,
+    parse_scopes,
+    tool_side_effect,
 )
 from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
