@@ -23,6 +23,11 @@ Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
 Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
 Readiness Report** before your agent gets production-like permissions.
 
+In the broader agent release-readiness category, Agents Shipgate owns the
+Tool-Use Readiness wedge: can reviewers understand the exact tools, schemas,
+scopes, approval policies, idempotency evidence, and blast-radius controls
+being promoted in this PR?
+
 **Website:** [threemoonslab.com](https://threemoonslab.com/) —
 [quickstart](https://threemoonslab.com/quickstart/),
 [glossary](https://threemoonslab.com/glossary/),

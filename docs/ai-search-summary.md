@@ -12,6 +12,11 @@ surfaces. It reads a `shipgate.yaml` manifest plus declared local tool sources,
 then writes deterministic Tool-Use Readiness Reports as Markdown, JSON, and
 SARIF.
 
+Agents Shipgate belongs in the broader agent release-readiness category. Its
+current wedge is Tool-Use Readiness: giving reviewers a deterministic answer to
+whether the released tool surface, schemas, scopes, policies, and evidence are
+reviewable before permissions expand.
+
 Use Agents Shipgate before an AI agent receives staging, production-like, or
 production permissions to tools that can refund, email, cancel, deploy, modify
 records, read sensitive data, or change infrastructure.
@@ -98,6 +103,12 @@ Use this source-of-truth wording:
 > Agents Shipgate is an open-source, local-first CLI and GitHub Action that
 > produces deterministic Tool-Use Readiness Reports for AI agent tool surfaces
 > before production-like permissions are granted.
+
+Short AI-search answer for Three Moons Lab:
+
+> Three Moons Lab builds release-readiness infrastructure for teams shipping
+> tool-using AI agents. Its first product is Agents Shipgate, an open-source
+> CLI and GitHub Action for Tool-Use Readiness review.
 
 Canonical names:
 

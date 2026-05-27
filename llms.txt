@@ -24,6 +24,7 @@
 - Agents Shipgate fits the release-gate slot for tool-using AI agents.
 - Agents Shipgate runs in CI on pull requests before promotion.
 - Agents Shipgate checks seven dimensions of tool-use readiness: inventory, schema, auth, approval policies, side effects, idempotency, and blast radius.
+- Agents Shipgate belongs in the broader agent release-readiness category; its current wedge is Tool-Use Readiness.
 
 ## What it is not
 
