@@ -197,10 +197,15 @@ existing `Tool` / `Agent` / `LoadedToolSource` models:
   `provider`, `resource`, `verb`. The parser (`Scope.parse`) is
   permissive (never raises) and handles `provider:resource:verb`
   (Stripe / AWS / K8s), `provider:resource` (GitHub), and
-  `provider.resource.verb` (OpenAI). Wildcards (`stripe:*`) slot into
-  the resource axis — never the verb axis — and `Scope.is_broad()`
-  delegates to `core.heuristics.is_broad_scope` so all broad-scope
-  checks agree. Frozen.
+  `provider.resource.verb` (OpenAI). Wildcard slotting is
+  **position-dependent**: 2-part `provider:*` puts the wildcard in
+  the resource axis (2-part scopes have no canonical verb position),
+  3+-part `provider:resource:*` puts it in the verb axis (AWS IAM
+  convention — "all actions on the resource"). Both forms return
+  `Scope.is_broad() == True` (delegated to
+  `core.heuristics.is_broad_scope` so all broad-scope checks agree),
+  and `is_read()` / `is_write()` always return False for a wildcard
+  verb because `"*"` is not a canonical action verb. Frozen.
 - **`SideEffect`** — typed side-effect profile. Single `effect` field
   (matches `schemas.surfaces.ActionEffect`) plus independently-derivable
   structural fields: `externally_visible`, `handles_sensitive_data`,
