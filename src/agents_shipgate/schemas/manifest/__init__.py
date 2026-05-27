@@ -23,6 +23,7 @@ from agents_shipgate.schemas.manifest._artifacts import (
     ArtifactPathConfig,
     NamedArtifactPathConfig,
 )
+from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.manifest.action_surface import (
     ActionApprovalConfig,
     ActionDeclarationConfig,
@@ -93,6 +94,9 @@ __all__ = [
     # tool_sources constants
     "BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES",
     "BUILTIN_TOOL_SOURCE_TYPES",
+    # _common (re-exported for back-compat — was a non-underscore
+    # module symbol of the legacy schemas.manifest module)
+    "STRICT_MODEL_CONFIG",
     # action_surface
     "ActionApprovalConfig",
     "ActionDeclarationConfig",
