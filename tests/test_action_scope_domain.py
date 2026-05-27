@@ -31,16 +31,20 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.risk_hints import (
     canonical_risk_tags,
+    is_high_risk_tool,
     parse_scopes,
     tool_side_effect,
 )
-from agents_shipgate.report.action_surface_diff import (
+from agents_shipgate.core.lenses.action_surface import (
     _infer_effect,
     _normalized_risk_tags,
     action_to_fact,
     build_action,
 )
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import (
+    ActionDeclarationConfig,
+    AgentsShipgateManifest,
+)
 
 
 def _tool(
@@ -384,3 +388,157 @@ def test_action_is_extra_forbid() -> None:
             side_effect=SideEffect(effect="read"),
             risk_tagz=[],  # type: ignore[call-arg]  # intentional typo: tests extra=forbid
         )
+
+
+# --- is_high_risk parity with legacy ``is_high_risk_tool`` ----------------
+
+# Review finding: if checks migrate from ``is_high_risk_tool(tool)`` to
+# ``tool_side_effect(tool).is_high_risk``, sensitive/privileged-data tools
+# must not silently lose high-risk classification. The legacy
+# ``HIGH_RISK_TAGS`` includes ``sensitive_data_access``; the typed
+# classifier must agree.
+
+
+@pytest.mark.parametrize("tool", PARITY_TOOLS, ids=lambda t: t.name)
+def test_side_effect_is_high_risk_matches_legacy(tool: Tool) -> None:
+    """For every PARITY_TOOLS case, the typed and legacy classifiers agree."""
+    legacy = is_high_risk_tool(tool)
+    typed = tool_side_effect(tool).is_high_risk
+    assert typed == legacy, f"{tool.name}: legacy={legacy} typed={typed}"
+
+
+def test_side_effect_is_high_risk_covers_sensitive_data() -> None:
+    """Sensitive-data tools land as high-risk under both predicates.
+
+    Pre-fix the typed classifier returned False for
+    ``effect="privileged_data_access"`` — that drift would have let
+    migrated checks stop requiring high-risk controls on sensitive tools.
+    """
+    tool = _tool("sensitive", hints=[("sensitive_data_access", "medium")])
+    assert is_high_risk_tool(tool) is True
+    se = tool_side_effect(tool)
+    assert se.handles_sensitive_data is True
+    assert se.effect == "privileged_data_access"
+    assert se.is_high_risk is True
+
+
+def test_side_effect_is_high_risk_via_structural_field_when_effect_lower() -> None:
+    """A tool whose declared effect is ``write`` but which handles
+    sensitive data still classifies as high-risk via the structural
+    ``handles_sensitive_data`` field."""
+    se = SideEffect(effect="write", handles_sensitive_data=True)
+    assert se.is_high_risk is True
+    se2 = SideEffect(effect="write", financial=True)
+    assert se2.is_high_risk is True
+    se3 = SideEffect(effect="write", code_execution=True)
+    assert se3.is_high_risk is True
+    # Plain write with no structural escalators stays low-risk.
+    assert SideEffect(effect="write").is_high_risk is False
+
+
+# --- Declaration-only SideEffect derivation (review finding #2) -----------
+
+# When a manifest declares ``action_surface.actions[].effect`` *without*
+# matching ``risk_tags``, ``build_action`` previously derived ``effect``
+# from the declaration but derived structural fields only from tags —
+# producing a contradictory ``SideEffect`` (e.g. ``effect=financial_write``
+# with ``financial=False``). The fix routes both call sites through the
+# shared ``derive_side_effect`` helper which feeds ``effect`` into every
+# structural field.
+
+
+def _tool_for_declaration() -> Tool:
+    """Plain GET tool with no risk_hints — leaves the inferred surface
+    empty so any structural derivation in ``SideEffect`` must come from
+    the declaration's ``effect`` field."""
+    return _tool("declared_only_tool", annotations={"httpMethod": "GET"})
+
+
+def test_build_action_declaration_only_financial_write() -> None:
+    """Manifest declaration ``effect: financial_write`` with no
+    ``risk_tags`` still yields ``financial=True``,
+    ``externally_visible=True``, and ``is_high_risk=True``."""
+    manifest = _empty_manifest()
+    tool = _tool_for_declaration()
+    declaration = ActionDeclarationConfig(tool=tool.name, effect="financial_write")
+    action = build_action(manifest, agent_id="agent-1", tool=tool, declaration=declaration)
+    assert action.effect == "financial_write"
+    assert action.side_effect.financial is True
+    assert action.side_effect.externally_visible is True
+    assert action.side_effect.is_high_risk is True
+
+
+def test_build_action_declaration_only_destructive() -> None:
+    """Manifest declaration ``effect: destructive`` with no destructive
+    tag yields ``reversibility="irreversible"`` and ``is_high_risk=True``."""
+    manifest = _empty_manifest()
+    tool = _tool_for_declaration()
+    declaration = ActionDeclarationConfig(tool=tool.name, effect="destructive")
+    action = build_action(manifest, agent_id="agent-1", tool=tool, declaration=declaration)
+    assert action.effect == "destructive"
+    assert action.side_effect.reversibility == "irreversible"
+    assert action.side_effect.is_high_risk is True
+
+
+def test_build_action_declaration_only_code_execution() -> None:
+    """Declaration ``effect: code_execution`` lights up the structural
+    code_execution flag even without a matching tag."""
+    manifest = _empty_manifest()
+    tool = _tool_for_declaration()
+    declaration = ActionDeclarationConfig(tool=tool.name, effect="code_execution")
+    action = build_action(manifest, agent_id="agent-1", tool=tool, declaration=declaration)
+    assert action.effect == "code_execution"
+    assert action.side_effect.code_execution is True
+    assert action.side_effect.is_high_risk is True
+
+
+def test_build_action_declaration_only_privileged_data_access() -> None:
+    """Declaration ``effect: privileged_data_access`` lights up
+    ``handles_sensitive_data`` even without a sensitive tag."""
+    manifest = _empty_manifest()
+    tool = _tool_for_declaration()
+    declaration = ActionDeclarationConfig(tool=tool.name, effect="privileged_data_access")
+    action = build_action(manifest, agent_id="agent-1", tool=tool, declaration=declaration)
+    assert action.effect == "privileged_data_access"
+    assert action.side_effect.handles_sensitive_data is True
+    assert action.side_effect.is_high_risk is True
+
+
+# --- Wildcard slotting contract (review open question) --------------------
+
+# The parser slots wildcards by *position*, not by axis:
+# - 2-part ``provider:*`` puts the wildcard in the resource axis
+#   (2-part scopes have no canonical verb position).
+# - 3+-part ``provider:resource:*`` puts the wildcard in the verb axis
+#   (AWS IAM convention: trailing ``*`` is the action wildcard).
+# Both forms return ``is_broad()=True`` and ``is_read()/is_write()=False``.
+
+
+def test_wildcard_slotting_two_part_lands_in_resource() -> None:
+    parsed = Scope.parse("stripe:*")
+    assert parsed.provider == "stripe"
+    assert parsed.resource == "*"
+    assert parsed.verb is None
+    assert parsed.is_broad() is True
+    assert parsed.is_read() is False
+    assert parsed.is_write() is False
+
+
+def test_wildcard_slotting_three_part_lands_in_verb() -> None:
+    parsed = Scope.parse("s3:bucket:*")
+    assert parsed.provider == "s3"
+    assert parsed.resource == "bucket"
+    assert parsed.verb == "*"
+    assert parsed.is_broad() is True
+    # Wildcard is NOT a canonical action verb — read/write classifiers
+    # return False so least-privilege gating treats it as ambiguous.
+    assert parsed.is_read() is False
+    assert parsed.is_write() is False
+
+
+def test_wildcard_slotting_four_plus_part_keeps_verb_wildcard() -> None:
+    parsed = Scope.parse("aws:iam:role:*")
+    assert parsed.provider == "aws"
+    assert parsed.resource == "iam:role"
+    assert parsed.verb == "*"
+    assert parsed.is_broad() is True

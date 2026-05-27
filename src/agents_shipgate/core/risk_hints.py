@@ -318,7 +318,7 @@ def _add_hint(
 # ``customer_communication`` vs ``external_communication``, etc.) — collapse
 # them to a single canonical name so downstream effect inference and
 # SideEffect derivation use one vocabulary. This mirrors
-# ``report/action_surface_diff.py::_RISK_TAG_MAP``; the duplication is
+# ``core/lenses/action_surface.py::_RISK_TAG_MAP``; the duplication is
 # intentional during the migration window, and a follow-up PR can collapse
 # the action-surface site onto this constant.
 CANONICAL_RISK_TAG_MAP: dict[str, str] = {
@@ -377,34 +377,87 @@ def parse_scopes(tool: Tool) -> list[Scope]:
 def tool_side_effect(tool: Tool) -> SideEffect:
     """Derive a typed ``SideEffect`` from the tool's risk hints + annotations.
 
-    Single source of truth for effect inference: this function and
-    ``report/action_surface_diff.py::_infer_effect`` must agree on the
-    final ``effect`` value for any given tool. The action-surface site
-    delegates to this in Phase C; until then both implementations live
-    side-by-side and a Phase D test pins their agreement.
+    Single source of truth for tool-context effect inference: this
+    function and ``core/lenses/action_surface.py::_infer_effect`` must
+    agree on the final ``effect`` value for any given tool. The
+    structural-field derivation is delegated to ``derive_side_effect``
+    so the action-surface path (which may override ``effect`` via a
+    manifest declaration) cannot drift from this tool-context path.
     """
     tags = set(canonical_risk_tags(tool))
     method = str(tool.annotations.get("httpMethod") or "").upper()
-
     effect = _derive_effect(tags, method)
-    externally_visible = (
-        "external_communication" in tags
-        or "writes_data" in tags
-        or effect in {"destructive", "financial_write", "external_communication"}
+    return derive_side_effect(
+        effect=effect,
+        risk_tags=tags,
+        idempotency_known=_derive_idempotency_known(tool),
     )
-    handles_sensitive_data = "privileged_data" in tags or "secret_access" in tags
-    financial = "financial_write" in tags
-    code_execution = "code_execution" in tags
-    reversibility = _derive_reversibility(tags, method)
-    idempotency_known = _derive_idempotency_known(tool)
 
+
+def derive_side_effect(
+    *,
+    effect: ActionEffect,
+    risk_tags: list[str] | set[str],
+    idempotency_known: bool | None = None,
+) -> SideEffect:
+    """Single source of truth for ``SideEffect`` construction.
+
+    Used by ``tool_side_effect`` (tool-context path, where ``effect`` is
+    derived purely from tags) AND
+    ``core/lenses/action_surface.py::build_action`` (manifest-context
+    path, where ``effect`` may come from a user declaration). Routing
+    both paths through this helper guarantees that the structural
+    fields cannot contradict ``effect`` — a manifest declaring
+    ``effect: financial_write`` with no matching ``risk_tags`` still
+    yields ``SideEffect(financial=True, externally_visible=True,
+    is_high_risk=True)``.
+
+    Structural-field derivation rules (applied in order):
+
+    - ``externally_visible`` — True if any of ``external_communication``
+      / ``writes_data`` is in ``risk_tags``, OR ``effect`` is in
+      ``{destructive, financial_write, external_communication}``.
+    - ``handles_sensitive_data`` — True if ``risk_tags`` contains
+      ``privileged_data`` or ``secret_access``, OR ``effect`` is
+      ``privileged_data_access``.
+    - ``financial`` — True if ``risk_tags`` contains ``financial_write``
+      OR ``effect`` is ``financial_write``.
+    - ``code_execution`` — True if ``risk_tags`` contains
+      ``code_execution`` OR ``effect`` is ``code_execution``.
+    - ``reversibility`` — ``irreversible`` if ``risk_tags`` contains
+      ``destructive`` / ``irreversible`` OR ``effect`` is
+      ``destructive``; ``reversible`` if ``risk_tags`` contains
+      ``read_only`` and not ``writes_data``; ``unknown`` otherwise.
+      (A declared ``effect: read`` *without* a ``read_only`` tag stays
+      ``unknown`` — declared-read doesn't promise reversibility on its
+      own; positive evidence is needed.)
+    """
+    tag_set: set[str] = set(risk_tags) if not isinstance(risk_tags, set) else risk_tags
     return SideEffect(
         effect=effect,
-        externally_visible=externally_visible,
-        handles_sensitive_data=handles_sensitive_data,
-        financial=financial,
-        code_execution=code_execution,
-        reversibility=reversibility,
+        externally_visible=(
+            "external_communication" in tag_set
+            or "writes_data" in tag_set
+            or effect in {"destructive", "financial_write", "external_communication"}
+        ),
+        handles_sensitive_data=(
+            "privileged_data" in tag_set
+            or "secret_access" in tag_set
+            or effect == "privileged_data_access"
+        ),
+        financial=("financial_write" in tag_set or effect == "financial_write"),
+        code_execution=("code_execution" in tag_set or effect == "code_execution"),
+        reversibility=(
+            "irreversible"
+            if (
+                "destructive" in tag_set
+                or "irreversible" in tag_set
+                or effect == "destructive"
+            )
+            else "reversible"
+            if "read_only" in tag_set and "writes_data" not in tag_set
+            else "unknown"
+        ),
         idempotency_known=idempotency_known,
     )
 
@@ -412,7 +465,7 @@ def tool_side_effect(tool: Tool) -> SideEffect:
 def _derive_effect(tags: set[str], method: str) -> ActionEffect:
     """Effect-tier inference.
 
-    Mirrors ``report/action_surface_diff.py::_infer_effect`` exactly so
+    Mirrors ``core/lenses/action_surface.py::_infer_effect`` exactly so
     Phase C can delete the duplicate. The ordering is significant —
     destructive > financial_write > external_communication > production_ops
     > code_execution > identity_access > privileged_data_access > write
@@ -439,14 +492,6 @@ def _derive_effect(tags: set[str], method: str) -> ActionEffect:
     if method == "DELETE":
         return "destructive"
     return "read"
-
-
-def _derive_reversibility(tags: set[str], method: str) -> str:
-    if "destructive" in tags or "irreversible" in tags or method == "DELETE":
-        return "irreversible"
-    if "read_only" in tags and "writes_data" not in tags:
-        return "reversible"
-    return "unknown"
 
 
 def _derive_idempotency_known(tool: Tool) -> bool | None:

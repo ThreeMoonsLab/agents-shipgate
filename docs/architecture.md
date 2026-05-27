@@ -217,13 +217,13 @@ existing `Tool` / `Agent` / `LoadedToolSource` models:
   profile; its `effect` field matches `_infer_effect` byte-for-byte.
 - `canonical_risk_tags(tool: Tool) -> list[str]` — risk-tag
   canonicalization through `CANONICAL_RISK_TAG_MAP` (single source of
-  truth that `_normalized_risk_tags` in `report/action_surface_diff.py`
+  truth that `_normalized_risk_tags` in `core/lenses/action_surface.py`
   mirrors during the migration window).
 
 **Wire-format invariant.** These types are **in-memory only**. The
 canonical serialized shapes remain `ActionFact.required_scopes:
 list[str]`, `AuthInfo.scopes: list[str]`, and `ActionFact.effect:
-ActionEffect`. `report/action_surface_diff.py` builds a typed `Action`
+ActionEffect`. `core/lenses/action_surface.py` builds a typed `Action`
 first (`build_action(...)`) and then serializes it to `ActionFact`
 (`action_to_fact(...)`) — the legacy `_action_from_tool` is now a
 thin wrapper around this pair. The output is byte-identical, so

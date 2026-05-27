@@ -158,8 +158,15 @@ class Scope(BaseModel):
     - ``provider:resource:verb``    — Stripe-, AWS-, K8s-style triples.
     - ``provider:resource``         — GitHub-style ``repo:status``.
     - ``provider.resource.verb``    — OpenAI / dot-separated APIs.
-    - ``provider:*``                — wildcard verb (``Scope.is_broad`` is True).
+    - ``provider:*``                — broad on resource (``Scope.is_broad`` is True).
+    - ``provider:resource:*``       — broad on verb (AWS-style; ``Scope.is_broad`` is True).
     - ``admin``, ``*``              — broad tokens (no structural parts).
+
+    Wildcard slotting is **position-dependent** — the wildcard occupies
+    whatever slot it would naturally fill by position. ``is_broad()``
+    returns True regardless of which slot it ended up in, and
+    ``is_read()`` / ``is_write()`` always return False for a wildcard
+    verb because ``"*"`` is not a canonical action verb.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -197,10 +204,23 @@ class Scope(BaseModel):
             if cleaned[0] == "*":
                 return cls(raw=raw)
             return cls(raw=raw, provider=cleaned[0])
-        # Wildcards are not action verbs — they always slot into the
-        # resource axis (e.g. ``"stripe:*"`` means "broad on stripe",
-        # not "stripe with verb=*"). ``is_broad()`` still flags them
-        # through ``core.heuristics.is_broad_scope``.
+        # Wildcard slotting is position-dependent — the wildcard always
+        # occupies the slot that part would naturally occupy by position:
+        #
+        # - 2-part ``provider:*`` → resource is ``"*"``, verb is ``None``.
+        #   2-part scopes have no canonical verb position, so the trailing
+        #   token is treated as a resource regardless of value.
+        # - 3+-part ``provider:resource:*`` → resource is concrete, verb is
+        #   ``"*"``. This matches AWS IAM / GCP-style wildcards where the
+        #   action axis is the rightmost position (``s3:bucket:*`` means
+        #   "all actions on the bucket").
+        #
+        # In every case ``is_broad()`` returns True via
+        # ``core.heuristics.is_broad_scope`` regardless of which slot the
+        # wildcard ended up in, so least-privilege gating is unaffected
+        # by the slot choice. ``is_read()``/``is_write()`` always return
+        # False for ``verb="*"`` because ``"*"`` is not in the
+        # _SCOPE_READ_VERBS / _SCOPE_WRITE_VERBS sets.
         if len(cleaned) == 2:
             if cleaned[-1] == "*":
                 return cls(raw=raw, provider=cleaned[0], resource="*")
@@ -208,8 +228,7 @@ class Scope(BaseModel):
             if tail in _SCOPE_VERB_TOKENS:
                 return cls(raw=raw, provider=cleaned[0], verb=cleaned[-1])
             return cls(raw=raw, provider=cleaned[0], resource=cleaned[-1])
-        # 3+ parts: provider is first; the tail position is a verb only
-        # when it is a known verb token and not a wildcard.
+        # 3+ parts.
         provider = cleaned[0]
         if cleaned[-1] == "*":
             resource = ":".join(cleaned[1:-1]) if len(cleaned) > 2 else None
@@ -241,8 +260,20 @@ class Scope(BaseModel):
 
 
 # Effect tiers that always count as high-risk regardless of risk-tag set.
-# Mirrors the catalog used by ``report/action_surface_diff.py`` for
-# severity classification; kept here so domain-level reasoning matches.
+# Mirrors the catalog used by ``core/lenses/action_surface.py`` for
+# severity classification AND the legacy ``core.risk_hints.HIGH_RISK_TAGS``
+# set (the canonical-mapped versions) so the typed ``SideEffect.is_high_risk``
+# never under-reports relative to the legacy ``is_high_risk_tool``
+# predicate. The mapping back to legacy tags:
+#
+# - destructive             ← destructive
+# - external_communication  ← external_write / customer_communication
+# - financial_write         ← financial_action
+# - production_operation    ← infrastructure_change → production_ops
+# - code_execution          ← code_execution
+# - privileged_data_access  ← sensitive_data_access → privileged_data
+# - identity_access         ← (not in legacy HIGH_RISK_TAGS; typed-only
+#                              escalation, strictly more conservative)
 _HIGH_RISK_EFFECTS: frozenset[str] = frozenset(
     {
         "code_execution",
@@ -250,6 +281,7 @@ _HIGH_RISK_EFFECTS: frozenset[str] = frozenset(
         "external_communication",
         "financial_write",
         "identity_access",
+        "privileged_data_access",
         "production_operation",
     }
 )
@@ -281,10 +313,19 @@ class SideEffect(BaseModel):
 
     @property
     def is_high_risk(self) -> bool:
-        """Canonical high-risk classifier for severity / gating."""
+        """Canonical high-risk classifier for severity / gating.
+
+        Maintains the invariant that
+        ``tool_side_effect(tool).is_high_risk`` is True whenever the
+        legacy ``core.risk_hints.is_high_risk_tool(tool)`` is True.
+        Both ``effect`` and the structural fields contribute so that a
+        tool whose declared effect tier is lower than its
+        ``handles_sensitive_data`` / ``financial`` / ``code_execution``
+        signals still classifies as high-risk.
+        """
         if self.effect in _HIGH_RISK_EFFECTS:
             return True
-        return self.financial or self.code_execution
+        return self.financial or self.code_execution or self.handles_sensitive_data
 
 
 class Action(BaseModel):
@@ -299,7 +340,7 @@ class Action(BaseModel):
 
     ``risk_tags`` is retained as a parallel ``list[str]`` so the typed
     Action serializes cleanly back to the wire ``ActionFact`` shape via
-    ``report.action_surface_diff.action_to_fact``. Outside the action-
+    ``core.lenses.action_surface.action_to_fact``. Outside the action-
     surface pipeline, code should prefer ``side_effect`` for branching.
     """
 

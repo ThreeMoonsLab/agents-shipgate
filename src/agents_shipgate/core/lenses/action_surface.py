@@ -6,11 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from agents_shipgate.core.domain import Action, Scope, SideEffect, Tool
+from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
-from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
+from agents_shipgate.core.risk_hints import (
+    derive_side_effect,
+    is_effectively_read_only,
+    risk_tags,
+)
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -365,25 +369,16 @@ def build_action(
     required_input_fields = sorted(
         {parameter.name for parameter in tool.parameters if parameter.required}
     )
-    side_effect = SideEffect(
+    # Route through the shared ``derive_side_effect`` helper so the
+    # tool-context path (``tool_side_effect(tool)``) and this manifest-
+    # context path cannot drift on structural-field derivation. The
+    # helper also feeds ``effect`` into every structural field, so a
+    # manifest declaring ``effect: financial_write`` with no matching
+    # ``risk_tags`` still yields ``financial=True``,
+    # ``externally_visible=True``, and ``is_high_risk=True``.
+    side_effect = derive_side_effect(
         effect=effect,
-        externally_visible=(
-            "external_communication" in risk_tag_values
-            or "writes_data" in risk_tag_values
-            or effect in {"destructive", "financial_write", "external_communication"}
-        ),
-        handles_sensitive_data=(
-            "privileged_data" in risk_tag_values or "secret_access" in risk_tag_values
-        ),
-        financial="financial_write" in risk_tag_values,
-        code_execution="code_execution" in risk_tag_values,
-        reversibility=(
-            "irreversible"
-            if "destructive" in risk_tag_values or "irreversible" in risk_tag_values
-            else "reversible"
-            if "read_only" in risk_tag_values and "writes_data" not in risk_tag_values
-            else "unknown"
-        ),
+        risk_tags=risk_tag_values,
         idempotency_known=(safeguards.idempotency if safeguards.idempotency else None),
     )
     return Action(
