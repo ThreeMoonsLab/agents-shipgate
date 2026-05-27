@@ -188,6 +188,53 @@ Adding a new wire field: edit the relevant `schemas/<name>.py`, run
 public. The CI step `python scripts/generate_schemas.py --check`
 fails if the committed JSON drifts from the live model.
 
+## Typed domain types: `Scope`, `SideEffect`, `Action`
+
+`core/domain.py` exposes three typed in-memory shapes alongside the
+existing `Tool` / `Agent` / `LoadedToolSource` models:
+
+- **`Scope`** — typed view of a permission scope string, with `raw`,
+  `provider`, `resource`, `verb`. The parser (`Scope.parse`) is
+  permissive (never raises) and handles `provider:resource:verb`
+  (Stripe / AWS / K8s), `provider:resource` (GitHub), and
+  `provider.resource.verb` (OpenAI). Wildcards (`stripe:*`) slot into
+  the resource axis — never the verb axis — and `Scope.is_broad()`
+  delegates to `core.heuristics.is_broad_scope` so all broad-scope
+  checks agree. Frozen.
+- **`SideEffect`** — typed side-effect profile. Single `effect` field
+  (matches `schemas.surfaces.ActionEffect`) plus independently-derivable
+  structural fields: `externally_visible`, `handles_sensitive_data`,
+  `financial`, `code_execution`, `reversibility`, `idempotency_known`.
+  `is_high_risk` is the canonical classifier. Frozen.
+- **`Action`** — typed runtime representation of an action. Mirrors
+  `schemas.surfaces.ActionFact` but with `scopes: list[Scope]` and
+  `side_effect: SideEffect` instead of the wire-shape string-bag.
+
+**Typed accessors in `core/risk_hints.py`:**
+- `parse_scopes(tool: Tool) -> list[Scope]` — order-preserving wrapper
+  over `tool.auth.scopes`.
+- `tool_side_effect(tool: Tool) -> SideEffect` — derives the typed
+  profile; its `effect` field matches `_infer_effect` byte-for-byte.
+- `canonical_risk_tags(tool: Tool) -> list[str]` — risk-tag
+  canonicalization through `CANONICAL_RISK_TAG_MAP` (single source of
+  truth that `_normalized_risk_tags` in `report/action_surface_diff.py`
+  mirrors during the migration window).
+
+**Wire-format invariant.** These types are **in-memory only**. The
+canonical serialized shapes remain `ActionFact.required_scopes:
+list[str]`, `AuthInfo.scopes: list[str]`, and `ActionFact.effect:
+ActionEffect`. `report/action_surface_diff.py` builds a typed `Action`
+first (`build_action(...)`) and then serializes it to `ActionFact`
+(`action_to_fact(...)`) — the legacy `_action_from_tool` is now a
+thin wrapper around this pair. The output is byte-identical, so
+`report_schema_version` and all finding fingerprints stay stable.
+
+The existing string-based predicates in `core/risk_hints.py`
+(`has_risk_tag`, `risk_tags`, `is_effectively_read_only`,
+`is_high_risk_tool`, `is_write_tool`) are unchanged — they remain the
+public API used by every check in `checks/`. New code should prefer
+the typed accessors; legacy callers may migrate incrementally.
+
 ## Reviewer surfaces: five lenses + three audit envelopes
 
 The emitted `report.json` and the Release Evidence Packet expose

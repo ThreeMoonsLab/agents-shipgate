@@ -4,6 +4,8 @@ import re
 from collections.abc import Iterable
 
 from agents_shipgate.core.domain import (
+    Scope,
+    SideEffect,
     Tool,
     ToolRiskHint,
 )
@@ -12,6 +14,7 @@ from agents_shipgate.schemas.common import (
     parse_confidence,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.surfaces import ActionEffect
 
 HIGH_RISK_TAGS = {
     "destructive",
@@ -298,3 +301,164 @@ def _add_hint(
             evidence={key: value for key, value in evidence.items() if value is not None},
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Typed accessors for the new ``Scope`` and ``SideEffect`` domain types.
+#
+# These are additive — every legacy string-based predicate above keeps its
+# signature and behavior. The typed views below are derived from the same
+# underlying ``tool.risk_hints`` + ``tool.auth.scopes`` + ``tool.annotations``
+# data, so they cannot disagree with the string predicates.
+# ---------------------------------------------------------------------------
+
+
+# Risk-tag canonicalization. Several historical synonyms exist in
+# ``ToolRiskHint.tag`` (``write`` vs ``writes_data``, ``external_write`` vs
+# ``customer_communication`` vs ``external_communication``, etc.) — collapse
+# them to a single canonical name so downstream effect inference and
+# SideEffect derivation use one vocabulary. This mirrors
+# ``report/action_surface_diff.py::_RISK_TAG_MAP``; the duplication is
+# intentional during the migration window, and a follow-up PR can collapse
+# the action-surface site onto this constant.
+CANONICAL_RISK_TAG_MAP: dict[str, str] = {
+    "read_only": "read_only",
+    "write": "writes_data",
+    "writes_data": "writes_data",
+    "external_write": "external_communication",
+    "external_communication": "external_communication",
+    "customer_communication": "external_communication",
+    "financial_action": "financial_write",
+    "financial_write": "financial_write",
+    "external_side_effect": "external_communication",
+    "destructive": "destructive",
+    "infrastructure_change": "production_ops",
+    "production_operation": "production_ops",
+    "production_ops": "production_ops",
+    "sensitive_data_access": "privileged_data",
+    "privileged_data_access": "privileged_data",
+    "privileged_data": "privileged_data",
+    "code_execution": "code_execution",
+    "identity_access": "identity_access",
+    "network_access": "network_access",
+    "filesystem_write": "filesystem_write",
+    "customer_data": "customer_data",
+    "secret_access": "secret_access",
+    "irreversible": "irreversible",
+}
+
+
+def canonical_risk_tags(tool: Tool, min_confidence: str | None = None) -> list[str]:
+    """Return ``tool.risk_hints`` tags canonicalized through ``CANONICAL_RISK_TAG_MAP``.
+
+    Always includes ``read_only`` when ``is_effectively_read_only(tool)`` is
+    True, so the caller doesn't need to special-case the read-only path.
+    """
+    threshold = confidence_rank(min_confidence) if min_confidence else 0
+    tags = {
+        CANONICAL_RISK_TAG_MAP.get(hint.tag, hint.tag)
+        for hint in tool.risk_hints
+        if confidence_rank(hint.confidence) >= threshold
+    }
+    if is_effectively_read_only(tool):
+        tags.add("read_only")
+    return sorted(tags)
+
+
+def parse_scopes(tool: Tool) -> list[Scope]:
+    """Return the tool's declared auth scopes as typed ``Scope`` values.
+
+    Order is preserved from ``tool.auth.scopes`` so wire-shape round-trips
+    are predictable. Empty / whitespace-only strings are dropped.
+    """
+    return [Scope.parse(raw) for raw in tool.auth.scopes if raw and raw.strip()]
+
+
+def tool_side_effect(tool: Tool) -> SideEffect:
+    """Derive a typed ``SideEffect`` from the tool's risk hints + annotations.
+
+    Single source of truth for effect inference: this function and
+    ``report/action_surface_diff.py::_infer_effect`` must agree on the
+    final ``effect`` value for any given tool. The action-surface site
+    delegates to this in Phase C; until then both implementations live
+    side-by-side and a Phase D test pins their agreement.
+    """
+    tags = set(canonical_risk_tags(tool))
+    method = str(tool.annotations.get("httpMethod") or "").upper()
+
+    effect = _derive_effect(tags, method)
+    externally_visible = (
+        "external_communication" in tags
+        or "writes_data" in tags
+        or effect in {"destructive", "financial_write", "external_communication"}
+    )
+    handles_sensitive_data = "privileged_data" in tags or "secret_access" in tags
+    financial = "financial_write" in tags
+    code_execution = "code_execution" in tags
+    reversibility = _derive_reversibility(tags, method)
+    idempotency_known = _derive_idempotency_known(tool)
+
+    return SideEffect(
+        effect=effect,
+        externally_visible=externally_visible,
+        handles_sensitive_data=handles_sensitive_data,
+        financial=financial,
+        code_execution=code_execution,
+        reversibility=reversibility,
+        idempotency_known=idempotency_known,
+    )
+
+
+def _derive_effect(tags: set[str], method: str) -> ActionEffect:
+    """Effect-tier inference.
+
+    Mirrors ``report/action_surface_diff.py::_infer_effect`` exactly so
+    Phase C can delete the duplicate. The ordering is significant —
+    destructive > financial_write > external_communication > production_ops
+    > code_execution > identity_access > privileged_data_access > write
+    > read — and matches the documented severity escalation rules.
+    """
+    if "destructive" in tags:
+        return "destructive"
+    if "financial_write" in tags:
+        return "financial_write"
+    if "external_communication" in tags:
+        return "external_communication"
+    if "production_ops" in tags:
+        return "production_operation"
+    if "code_execution" in tags:
+        return "code_execution"
+    if "identity_access" in tags:
+        return "identity_access"
+    if "privileged_data" in tags:
+        return "privileged_data_access"
+    if "writes_data" in tags:
+        return "write"
+    if method in {"POST", "PUT", "PATCH"}:
+        return "write"
+    if method == "DELETE":
+        return "destructive"
+    return "read"
+
+
+def _derive_reversibility(tags: set[str], method: str) -> str:
+    if "destructive" in tags or "irreversible" in tags or method == "DELETE":
+        return "irreversible"
+    if "read_only" in tags and "writes_data" not in tags:
+        return "reversible"
+    return "unknown"
+
+
+def _derive_idempotency_known(tool: Tool) -> bool | None:
+    """Three-state: True / False / None (unknown).
+
+    ``True`` when an idempotency signal is declared (hint, key parameter,
+    explicit annotation); ``False`` is reserved for cases where we
+    know the tool is *not* idempotent (none today — kept for future
+    runtime evidence); ``None`` otherwise.
+    """
+    if tool.annotations.get("idempotentHint") is True:
+        return True
+    if any(parameter.name == "idempotency_key" for parameter in tool.parameters):
+        return True
+    return None
