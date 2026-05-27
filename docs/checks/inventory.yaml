@@ -1,0 +1,52 @@
+# Check catalog · category: inventory
+#
+# This file is the source of truth for the 'inventory' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE
+  default_severity: high
+  floor_severity: medium
+  description: Production target includes low-confidence tool extraction.
+  rationale: Production promotion should not depend primarily on best-effort SDK inference.
+  fires_when: environment.target is production and tools include lower-confidence
+    extraction.
+  evidence_fields:
+  - tools
+  recommendation: Declare those tools through manifest, MCP, or OpenAPI inputs.
+- id: SHIP-INVENTORY-NOT-ENUMERABLE
+  default_severity: high
+  description: Tool surface cannot be enumerated from declared inputs.
+  rationale: A release gate must fail closed when it cannot see the agent's tools.
+  fires_when: No tools are loaded from required manifest sources.
+  evidence_fields:
+  - tool_sources
+  recommendation: Declare at least one local MCP JSON or OpenAPI tool source.
+- id: SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE
+  default_severity: medium
+  description: Tool surface exceeds the MVP review threshold.
+  rationale: Large tool surfaces are harder to reason about during promotion.
+  fires_when: The normalized tool count exceeds the built-in threshold.
+  evidence_fields:
+  - tool_count
+  - threshold
+  recommendation: Split or reduce the tool surface before release.
+- id: SHIP-INVENTORY-WILDCARD-TOOLS
+  default_severity: high
+  floor_severity: medium
+  description: Wildcard or all-tools exposure is declared.
+  rationale: Wildcard tools make review and least-privilege reasoning impossible.
+  fires_when: A source declares all tools or wildcard exposure.
+  evidence_fields:
+  - source_id
+  - source_ref
+  recommendation: Replace wildcard exposure with an explicit allowlist.

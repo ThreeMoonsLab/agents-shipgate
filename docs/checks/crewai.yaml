@@ -1,0 +1,38 @@
+# Check catalog · category: crewai
+#
+# This file is the source of truth for the 'crewai' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+  default_severity: high
+  description: CrewAI tool surface cannot be statically enumerated.
+  rationale: |-
+    CrewAI exposes ad hoc agent-bound tool lists rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.
+  fires_when: A CrewAI agent tool binding is dynamic or unresolved and no explicit
+    local inventory is declared.
+  evidence_fields:
+  - surface
+  - explicit_inventory
+  recommendation: Provide explicit MCP-style tool inventory metadata for dynamic CrewAI
+    tool lists.
+- id: SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING
+  default_severity: medium
+  description: CrewAI function tool lacks static metadata.
+  rationale: |-
+    Static review depends on descriptions and parameter schemas because user CrewAI code is not imported.
+  fires_when: A CrewAI @tool or BaseTool class lacks description or parameter metadata.
+  evidence_fields:
+  - missing
+  - source_type
+  recommendation: Add docstrings, descriptions, type annotations, args_schema, or
+    explicit local inventory metadata.

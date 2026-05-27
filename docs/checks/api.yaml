@@ -1,0 +1,134 @@
+# Check catalog · category: api
+#
+# This file is the source of truth for the 'api' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-API-FUNCTION-SCHEMA-STRICTNESS
+  default_severity: high
+  description: OpenAI API function schema is not strict enough for reliable tool calls.
+  rationale: Strict schemas reduce ambiguous tool arguments and downstream side-effect
+    risk.
+  fires_when: |-
+    An OpenAI API function lacks strict=true, object parameters, additionalProperties=false, complete required fields, or bounded risky fields.
+  evidence_fields:
+  - issues
+  - risk_tags
+  recommendation: Use strict function schemas with explicit required fields and constrained
+    risky parameters.
+- id: SHIP-API-OPERATIONAL-READINESS
+  default_severity: medium
+  description: Deprecated compatibility alias for the v0.3 OpenAI API operational
+    readiness bundle.
+  rationale: |-
+    v0.4 emits atomic OpenAI API readiness check IDs, but this ID remains available for existing suppressions, severity overrides, baselines, SARIF consumers, and explain/list-checks workflows during the deprecation window.
+  fires_when: |-
+    Not emitted by v0.4 scans; matching configuration expands to the v0.4 atomic OpenAI API operational readiness checks.
+  evidence_fields:
+  - legacy_check_id
+  recommendation: |-
+    Migrate suppressions, severity overrides, and baselines to the specific v0.4 SHIP-API-* readiness check IDs.
+- id: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH
+  default_severity: high
+  description: Prompt scope contradicts enabled OpenAI API tools.
+  rationale: Prompt instructions should match the actual write/high-risk tool surface.
+  fires_when: |-
+    Prompt text says read-only/advice-only while write tools are enabled, or high-risk tools lack approval/confirmation instructions.
+  evidence_fields:
+  - tools
+  recommendation: Align prompt scope with enabled tools and add approval/confirmation
+    instructions.
+- id: SHIP-API-RETRY-POLICY-MISSING
+  default_severity: medium
+  description: OpenAI API high-risk flow lacks retry policy metadata.
+  rationale: Retries need explicit policy metadata so reviewers can reason about duplicate
+    side effects.
+  fires_when: High-risk OpenAI API tools exist and no retry_policy is declared.
+  evidence_fields:
+  - high_risk_tools
+  recommendation: Declare retry_policy in openai_api.policy_rules or model_config.
+- id: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY
+  default_severity: high
+  description: OpenAI API write tool may be retried without idempotency evidence.
+  rationale: |-
+    Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.
+  fires_when: Retry policy is declared and a risky write tool lacks idempotency evidence.
+  evidence_fields:
+  - retry_policy
+  - risk_tags
+  recommendation: Add idempotency evidence for retried risky OpenAI API tools or avoid
+    retrying those side effects.
+- id: SHIP-API-STRUCTURED-OUTPUT-READINESS
+  default_severity: medium
+  description: OpenAI API structured output schema is missing or under-specified.
+  rationale: Downstream release decisions need explicit, structured success/refusal/review
+    modeling.
+  fires_when: |-
+    No response format exists, a response schema is too broad, decision/status fields lack enums, or refusal/needs_review/error modeling is absent.
+  evidence_fields:
+  - path
+  - issues
+  - high_risk_tools
+  recommendation: |-
+    Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields.
+- id: SHIP-API-TEST-CASES-MISSING
+  default_severity: medium
+  description: OpenAI API high-risk flow lacks test case metadata.
+  rationale: High-risk tool-call flows should have release evidence before promotion.
+  fires_when: High-risk OpenAI API tools exist and no test cases are declared.
+  evidence_fields:
+  - high_risk_tools
+  recommendation: Add simple OpenAI API test cases for high-risk tool-call flows.
+- id: SHIP-API-TIMEOUT-MISSING
+  default_severity: medium
+  description: OpenAI API high-risk flow lacks timeout metadata.
+  rationale: Timeouts define failure behavior and reduce ambiguous tool-call continuation.
+  fires_when: High-risk OpenAI API tools exist and no timeout metadata is declared.
+  evidence_fields:
+  - high_risk_tools
+  recommendation: Declare tool-call timeout metadata for high-risk OpenAI API flows.
+- id: SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING
+  default_severity: medium
+  description: OpenAI API high-risk tool lacks success/failure output modeling.
+  rationale: Tool output schemas help release reviewers reason about downstream failure
+    handling.
+  fires_when: A high-risk OpenAI API tool lacks declared success/failure output schema
+    metadata.
+  evidence_fields:
+  - tool_output_schemas
+  recommendation: Declare success_fields and failure_fields for high-risk OpenAI API
+    tools.
+- id: SHIP-API-TRACE-APPROVAL-MISSING
+  default_severity: medium
+  description: OpenAI API trace sample shows a policy-controlled tool without approval.
+  rationale: Trace samples should demonstrate approval behavior for tools that require
+    approval.
+  fires_when: A trace sample marks approved=false for a tool with approval policy
+    evidence.
+  evidence_fields:
+  - tool_name
+  - approved
+  recommendation: Require approval before calling policy-controlled OpenAI API tools.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-API-TRACE-CONFIRMATION-MISSING
+  default_severity: medium
+  description: OpenAI API trace sample shows a policy-controlled tool without confirmation.
+  rationale: Trace samples should demonstrate explicit confirmation for tools that
+    require confirmation.
+  fires_when: A trace sample marks confirmed=false for a tool with confirmation policy
+    evidence.
+  evidence_fields:
+  - tool_name
+  - confirmed
+  recommendation: Require explicit confirmation before calling policy-controlled OpenAI
+    API tools.
+  requires_human_review_regardless_of_patch: true

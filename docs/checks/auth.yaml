@@ -1,0 +1,57 @@
+# Check catalog · category: auth
+#
+# This file is the source of truth for the 'auth' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-AUTH-MANIFEST-BROAD-SCOPE
+  default_severity: high
+  floor_severity: medium
+  description: Manifest declares broad permission scopes.
+  rationale: Broad manifest scopes weaken least-privilege review.
+  fires_when: permissions.scopes contains wildcard/admin-like scopes.
+  evidence_fields:
+  - scopes
+  recommendation: Replace with operation-specific scopes.
+  requires_human_review_regardless_of_patch: true
+- id: SHIP-AUTH-MISSING-SCOPE
+  default_severity: high
+  floor_severity: medium
+  description: Scope-requiring tool lacks declared auth scopes.
+  rationale: Reviewers cannot assess least privilege without scope metadata.
+  fires_when: A write or sensitive-data tool has no auth scopes.
+  evidence_fields:
+  - risk_tags
+  recommendation: Declare scopes in OpenAPI, MCP, or manifest metadata.
+- id: SHIP-AUTH-SCOPE-COVERAGE-MISSING
+  default_severity: high
+  floor_severity: medium
+  description: Tool-required scopes are not covered by manifest permissions.scopes.
+  rationale: The manifest should describe the actual permissions needed by the release.
+  fires_when: A tool scope is absent from permissions.scopes and not covered by a
+    wildcard.
+  evidence_fields:
+  - tool_scopes
+  - manifest_scopes
+  - missing_scopes
+  recommendation: Add or reconcile required scopes.
+  suggested_patch_kind: append_pointer
+- id: SHIP-AUTH-TOOL-BROAD-SCOPE
+  default_severity: high
+  floor_severity: medium
+  description: Tool declares broad auth scopes.
+  rationale: Tool-level broad scopes may grant more power than the operation needs.
+  fires_when: A tool auth scope is wildcard/admin-like.
+  evidence_fields:
+  - scopes
+  recommendation: Use narrower tool scopes.
+  requires_human_review_regardless_of_patch: true

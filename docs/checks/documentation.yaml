@@ -1,0 +1,24 @@
+# Check catalog · category: documentation
+#
+# This file is the source of truth for the 'documentation' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-DOC-MISSING-DESCRIPTION
+  default_severity: medium
+  description: Tool description is missing or too short.
+  rationale: Poor tool descriptions increase wrong-tool and reviewer misunderstanding
+    risk.
+  fires_when: A tool description is missing or shorter than the minimum.
+  evidence_fields:
+  - description_length
+  recommendation: Add a clear capability description.

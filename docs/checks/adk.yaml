@@ -1,0 +1,79 @@
+# Check catalog · category: adk
+#
+# This file is the source of truth for the 'adk' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
+  default_severity: high
+  description: Google ADK toolset cannot be statically enumerated.
+  rationale: |-
+    Release review needs an explicit tool inventory; ADK MCP/OpenAPI toolsets may resolve tools dynamically at runtime.
+  fires_when: |-
+    A Google ADK toolset is dynamic or unresolved and no explicit MCP/OpenAPI/tool inventory input is declared.
+  evidence_fields:
+  - toolset
+  - explicit_inventory
+  recommendation: Provide explicit MCP/OpenAPI/tool inventory inputs for dynamic ADK
+    toolsets.
+- id: SHIP-ADK-EVAL-COVERAGE-MISSING
+  default_severity: medium
+  description: Google ADK eval coverage is not declared.
+  rationale: ADK releases should include response and tool-trajectory eval evidence
+    before promotion.
+  fires_when: Google ADK inputs target production_like or production and no eval files
+    are declared.
+  evidence_fields:
+  - agent_count
+  - eval_file_count
+  recommendation: Declare ADK eval files for expected responses and tool-use trajectories.
+- id: SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING
+  default_severity: medium
+  description: Google ADK function tool lacks static metadata.
+  rationale: Static review depends on descriptions and parameter schemas because user
+    ADK code is not imported.
+  fires_when: A Google ADK function/config tool lacks description or parameter metadata.
+  evidence_fields:
+  - missing
+  - source_type
+  recommendation: Add docstrings, annotations, or explicit local inventory metadata.
+- id: SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING
+  default_severity: high
+  description: High-risk Google ADK tools lack static guardrail evidence.
+  rationale: Callbacks and plugins are the static ADK surface where release reviewers
+    can see guardrail intent.
+  fires_when: High-risk ADK tools are present without callbacks, plugins, or equivalent
+    manifest policy evidence.
+  evidence_fields:
+  - tools
+  recommendation: Attach ADK callbacks/plugins or manifest policies that document
+    guardrails.
+- id: SHIP-ADK-LONGRUNNING-CONTRACT-MISSING
+  default_severity: high
+  description: Google ADK long-running tool lacks an operation contract.
+  rationale: Long-running tools need explicit status and operation-id semantics for
+    safe continuation.
+  fires_when: A LongRunningFunctionTool lacks structured status/progress and operation
+    id output evidence.
+  evidence_fields:
+  - output_schema
+  recommendation: Document operation id, status/progress fields, and completion behavior.
+- id: SHIP-ADK-MCP-TOOLSET-UNFILTERED
+  default_severity: high
+  description: Google ADK McpToolset lacks a static tool filter.
+  rationale: Unfiltered MCP toolsets can expose more tools than reviewers expect.
+  fires_when: A Google ADK McpToolset has no static tool_filter.
+  evidence_fields:
+  - source_ref
+  - agent_name
+  - inventory_path
+  recommendation: Declare a tool_filter and provide a local MCP tool inventory.

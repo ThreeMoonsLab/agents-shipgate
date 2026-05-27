@@ -1,0 +1,65 @@
+# Check catalog · category: baseline
+#
+# This file is the source of truth for the 'baseline' category of
+# Agents Shipgate built-in checks. Loaded at import time by
+# agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# When editing this file, regenerate docs/checks.json and
+# docs/checks.md (if present) with:
+#   python scripts/generate_schemas.py
+checks:
+- id: SHIP-BASELINE-ENTRY-EXPIRED
+  default_severity: high
+  description: Baseline entry's review window has expired.
+  rationale: |-
+    Reviewer-set `provenance.expires` is the renewable consent for accepting technical debt. Past that date the entry needs a fresh review, not a silent extension.
+  fires_when: A baseline entry's `provenance.expires` is before today's UTC date.
+  evidence_fields:
+  - fingerprint
+  - check_id
+  - tool_name
+  - expires
+  - days_overdue
+  - reason
+  recommendation: |-
+    Re-review the accepted debt and either remove the entry, fix the underlying finding, or extend `provenance.expires` with a new reason.
+- id: SHIP-BASELINE-ENTRY-STALE
+  default_severity: low
+  description: Baseline entry no longer corresponds to an active finding or check
+    ID.
+  rationale: |-
+    Stale baseline entries hide intent — reviewers cannot tell whether the accepted debt was resolved or whether the check was renamed. Pruning keeps the baseline aligned with reality.
+  fires_when: |-
+    A baseline entry references a deprecated check ID (an alias in LEGACY_CHECK_ID_ALIASES) or did not match any active scan finding (resolved_count contribution).
+  evidence_fields:
+  - fingerprint
+  - check_id
+  - tool_name
+  - kind
+  - replacement_check_ids
+  recommendation: |-
+    Remove resolved entries via `agents-shipgate baseline save`, or update deprecated check IDs to their canonical replacements.
+- id: SHIP-BASELINE-INTEGRITY-MISMATCH
+  default_severity: critical
+  description: Baseline file integrity check failed.
+  rationale: |-
+    The baseline JSON has been edited outside `agents-shipgate baseline save`, lacks an audit log row, has a malformed audit log row, or references a run_id not present in the audit log. A release gate that accepts silent baseline edits cannot claim to govern technical debt.
+  fires_when: |-
+    The baseline file's SHA-256 differs from the latest audit log entry's hash_after, the audit log is missing, empty, or malformed, an entry's provenance.run_id is not in the audit log, or an entry pre-dates v0.5 and lacks provenance entirely.
+  evidence_fields:
+  - fingerprint
+  - check_id
+  - tool_name
+  - kind
+  - expected_hash
+  - computed_hash
+  - audit_log_path
+  - latest_audit_run_id
+  - error
+  recommendation: |-
+    Re-run `agents-shipgate baseline save` to refresh the baseline and audit log, or `agents-shipgate baseline verify` for the full report. Investigate the diff before accepting.
