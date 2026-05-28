@@ -45,6 +45,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 | [`simple_crewai_agent`](simple_crewai_agent/) | CrewAI static Python extraction. |
 | [`multi_agent_workspace`](multi_agent_workspace/) | Multiple manifests in one workspace. |
 | [`baseline_workflow`](baseline_workflow/) | Baseline adoption before strict CI. |
+| [`large_multi_framework_agent`](large_multi_framework_agent/) | Production-shape retail-ops agent with ~65 tools across 5 sources. Exercises the pipeline at scale and pins the CI latency budget. No committed goldens — see the per-sample README. |
 | [`_anti_patterns`](_anti_patterns/) | Intentionally unsafe or invalid examples for tests and docs. |
 
 ## Direct scans

@@ -1,0 +1,255 @@
+openapi: 3.1.0
+info:
+  title: Fulfillment API
+  version: "1.7"
+  description: |
+    Shipment lifecycle for the retail-ops AI assistant. Covers order lookup,
+    shipment creation and routing, holds and cancellations, and warehouse
+    inventory state.
+
+servers:
+  - url: https://fulfillment.example.test
+
+components:
+  securitySchemes:
+    fulfillmentOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.test/oauth/token
+          scopes:
+            fulfillment:orders:read: View order records.
+            fulfillment:shipments:read: View shipment records.
+            fulfillment:shipments:write: Create or modify shipments.
+            fulfillment:shipments:cancel: Cancel a shipment in flight.
+            fulfillment:warehouse:read: View warehouse inventory snapshots.
+
+  schemas:
+    Address:
+      type: object
+      required: [street, city, country]
+      properties:
+        street: { type: string, maxLength: 200 }
+        city: { type: string, maxLength: 100 }
+        region: { type: string, maxLength: 100 }
+        country: { type: string, minLength: 2, maxLength: 2 }
+        postal_code: { type: string, maxLength: 20 }
+    ShipmentRequest:
+      type: object
+      required: [order_id, destination]
+      properties:
+        order_id: { type: string }
+        carrier: { type: string, enum: [usps, ups, fedex, dhl] }
+        destination: { $ref: "#/components/schemas/Address" }
+        idempotency_key: { type: string }
+
+paths:
+  /orders/{order_id}:
+    get:
+      operationId: get_order
+      summary: Retrieve an order by id.
+      description: Read-only order lookup including line items.
+      x-readOnlyHint: true
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:orders:read] }]
+      responses: { "200": { description: OK } }
+
+  /orders:
+    get:
+      operationId: list_orders
+      summary: List orders with optional filters.
+      description: Paginated. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: customer_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      security: [{ fulfillmentOAuth: [fulfillment:orders:read] }]
+      responses: { "200": { description: OK } }
+
+  /shipments:
+    get:
+      operationId: list_shipments
+      summary: List shipments.
+      description: Paginated. Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, in_transit, delivered, returned, cancelled] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:read] }]
+      responses: { "200": { description: OK } }
+    post:
+      operationId: create_shipment
+      summary: Create a shipment for an order.
+      description: |
+        Books a shipment with the selected carrier. External side effect;
+        carrier label is generated and customer notification is dispatched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShipmentRequest" }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "201": { description: Created } }
+
+  /shipments/{shipment_id}:
+    get:
+      operationId: get_shipment
+      summary: Retrieve a shipment by id.
+      description: Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:read] }]
+      responses: { "200": { description: OK } }
+
+  /shipments/{shipment_id}/track:
+    get:
+      operationId: track_shipment
+      summary: Retrieve current carrier tracking for a shipment.
+      description: Read-only carrier-reported status.
+      x-readOnlyHint: true
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:read] }]
+      responses: { "200": { description: OK } }
+
+  /shipments/{shipment_id}/address:
+    patch:
+      operationId: update_shipping_address
+      summary: Update the destination address on an in-flight shipment.
+      description: |
+        Calls the carrier to reroute. May incur additional cost; treated as a
+        write side effect.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Address" }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "200": { description: OK } }
+
+  /shipments/{shipment_id}/cancel:
+    post:
+      operationId: cancel_shipment
+      summary: Cancel an in-flight shipment.
+      description: |
+        Destructive. Stops carrier movement and may incur restocking fees if
+        the package has already left the warehouse.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:cancel] }]
+      responses: { "200": { description: Cancelled } }
+
+  /shipments/{shipment_id}/hold:
+    post:
+      operationId: hold_shipment
+      summary: Put a shipment on temporary hold at the warehouse.
+      description: Reversible; pairs with release_shipment.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "200": { description: On hold } }
+
+  /shipments/{shipment_id}/release:
+    post:
+      operationId: release_shipment
+      summary: Release a held shipment back into the fulfillment queue.
+      description: Reverses a prior hold.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "200": { description: Released } }
+
+  /shipments/{shipment_id}/reroute:
+    post:
+      operationId: reroute_shipment
+      summary: Reroute a shipment to a different carrier mid-flight.
+      description: |
+        Calls both carriers; original carrier may charge a return fee. Treated
+        as a costly external write.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "200": { description: Rerouted } }
+
+  /shipments/{shipment_id}/expedite:
+    post:
+      operationId: expedite_shipment
+      summary: Upgrade a shipment to express delivery.
+      description: Carrier billing impact; external write.
+      parameters:
+        - name: shipment_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "200": { description: Expedited } }
+
+  /shipments/bulk:
+    post:
+      operationId: bulk_create_shipments
+      summary: Bulk-create shipments for a batch of orders.
+      description: |
+        Atomic batch creation. Treated as a high-impact write because a single
+        call can dispatch dozens of carrier requests.
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:write] }]
+      responses: { "201": { description: Bulk created } }
+
+  /shipments/bulk/cancel:
+    post:
+      operationId: bulk_cancel_shipments
+      summary: Bulk-cancel shipments in flight.
+      description: |
+        Destructive batch. Cancels many shipments and may incur restocking fees
+        for each.
+      security: [{ fulfillmentOAuth: [fulfillment:shipments:cancel] }]
+      responses: { "200": { description: Bulk cancelled } }
+
+  /warehouse/{warehouse_id}/inventory:
+    get:
+      operationId: get_warehouse_inventory
+      summary: Snapshot of warehouse inventory levels.
+      description: Read-only.
+      x-readOnlyHint: true
+      parameters:
+        - name: warehouse_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ fulfillmentOAuth: [fulfillment:warehouse:read] }]
+      responses: { "200": { description: OK } }

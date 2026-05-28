@@ -1,0 +1,168 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+version: "0.1"
+
+project:
+  name: retail-ops-assistant
+  owner: ai-platform
+  repo: github.com/acme/retail-ops-assistant
+
+agent:
+  name: retail-ops-assistant
+  sdk:
+    type: openai-agents
+    language: python
+    entrypoint: agents/ops_assistant.py
+    object: ops_assistant
+    static_extract: true
+    deep_import: false
+  declared_purpose:
+    - prepare refund requests for human review
+    - draft customer communications without sending
+    - reconcile order, payment, and shipment state
+    - coordinate inventory adjustments with the warehouse team
+  prohibited_actions:
+    - issue refunds without approval
+    - send external customer communications without preview
+    - cancel shipments without operations confirmation
+    - delete or export customer data outside a compliance request
+    - terminate the merchant account
+
+environment:
+  target: production_like
+  promotion_from: staging
+  promotion_to: production
+
+# Five tool sources exercising every per-source adapter that scales: two
+# large OpenAPI specs, two MCP exports, and one SDK Python file. ~65 tools
+# total after extraction.
+tool_sources:
+  - id: payments_openapi
+    type: openapi
+    path: specs/payments.openapi.yaml
+    trust: internal
+  - id: fulfillment_openapi
+    type: openapi
+    path: specs/fulfillment.openapi.yaml
+    trust: internal
+  - id: crm_mcp
+    type: mcp
+    path: mcp/crm-tools.json
+    trust: internal
+  - id: internal_mcp
+    type: mcp
+    path: mcp/internal-tools.json
+    trust: internal
+  - id: ops_sdk
+    type: openai_agents_sdk
+    path: agents/ops_assistant.py
+    mode: static
+    optional: true
+
+policies:
+  require_approval_for_tools:
+    - tool: create_refund
+      reason: real_money_external_write
+    - tool: cancel_subscription
+      reason: customer_billing_change
+    - tool: terminate_account
+      reason: catastrophic_account_action
+    - tool: internal.drain_warehouse
+      reason: blocks_warehouse_operations
+    - tool: crm.delete_customer_data
+      reason: gdpr_compliance_boundary
+
+  # Confirmation policy is partial on purpose: shipping cancellations and
+  # external customer communications are covered, but a few destructive
+  # ops are intentionally NOT covered so the scan surfaces findings.
+  require_confirmation_for_tools:
+    - cancel_shipment
+    - bulk_cancel_shipments
+    - crm.send_customer_email
+    - crm.send_customer_sms
+
+  # Idempotency policy is also partial: create_charge, create_refund, and
+  # create_shipment are covered. internal.reserve_inventory and
+  # internal.adjust_inventory are intentionally NOT covered to demonstrate
+  # idempotency gap findings.
+  require_idempotency_for_tools:
+    - create_charge
+    - create_refund
+    - create_shipment
+
+permissions:
+  # Realistic-but-partial. The scope-coverage check should fire for the
+  # operations whose required scopes are missing (e.g., subscriptions,
+  # account admin, compliance admin) — those gaps are intentional so the
+  # sample exercises the auth checks.
+  scopes:
+    - payments:charges:read
+    - payments:charges:write
+    - payments:refunds:read
+    - payments:refunds:write
+    - payments:customers:read
+    - payments:customers:write
+    - payments:disputes:read
+    - fulfillment:orders:read
+    - fulfillment:shipments:read
+    - fulfillment:shipments:write
+    - fulfillment:warehouse:read
+    - crm:customers:read
+    - crm:customers:communicate
+    - crm:orders:read
+    - crm:tickets:read
+    - crm:tickets:write
+    - inventory:read
+    - inventory:write
+  credential_mode: service_account
+  notes: "User-delegated identity is not implemented for this assistant."
+
+risk_overrides:
+  tools:
+    # Override the auto-classified risk for a couple of tools where the
+    # default risk inference is too coarse.
+    calculate_refund_total:
+      tags: ["read_only"]
+      remove_tags: ["financial_action"]
+      confidence: manual
+      reason: "Pure local computation; despite the name, does not touch the payment processor."
+    render_customer_email_preview:
+      tags: ["read_only"]
+      remove_tags: ["external_write", "customer_communication"]
+      confidence: manual
+      reason: "Renders a preview locally; does not dispatch the email."
+    # Manually flag the SDK escalation tool as a high-impact internal write
+    # so reviewers see an explicit owner attribution.
+    escalate_to_human:
+      tags: ["write"]
+      owner: oncall-platform
+      confidence: manual
+      reason: "Pages on-call; reviewers need to see owner attribution."
+
+checks:
+  severity_overrides:
+    # Demonstrate the policy_audit envelope by downgrading one heuristic
+    # check to medium. Tier-boundary acknowledgement isn't needed because
+    # high → medium stays within the high/medium tier.
+    SHIP-DOC-INJECTION-RISK:
+      severity: medium
+      reason: "Tool descriptions are reviewed by humans before release; risk is acknowledged."
+  ignore:
+    # Demonstrate the suppression path. The reason is required.
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: render_customer_email_preview
+      reason: "Description lives in the docstring; SDK adapter passes it through."
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: calculate_refund_total
+      reason: "Description lives in the docstring; SDK adapter passes it through."
+
+ci:
+  mode: advisory
+  pr_comment: true
+  annotations: false
+  upload_artifact: true
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

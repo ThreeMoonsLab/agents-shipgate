@@ -6,11 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
-from agents_shipgate.core.risk_hints import is_effectively_read_only, risk_tags
+from agents_shipgate.core.risk_hints import (
+    derive_side_effect,
+    is_effectively_read_only,
+    risk_tags,
+)
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -313,13 +317,24 @@ def action_reference_from_scan_reference(
     )
 
 
-def _action_from_tool(
+def build_action(
     manifest: AgentsShipgateManifest,
     *,
     agent_id: str,
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
-) -> ActionFact:
+) -> Action:
+    """Build the typed ``Action`` for a tool + optional declaration.
+
+    Single source of truth for action construction. ``_action_from_tool``
+    delegates here, then serializes the typed Action to ``ActionFact``
+    via ``action_to_fact``. The two-step shape lets callers that want a
+    typed view (future checks, follow-up refactors) bypass the wire
+    serialization entirely.
+
+    The output is deterministic: same inputs always produce the same
+    Action, including ``risk_tags`` and ``scopes`` ordering.
+    """
     provider = _provider(tool, declaration)
     operation = _operation(tool, declaration)
     action_id = (
@@ -333,11 +348,15 @@ def _action_from_tool(
         if declaration and declaration.risk_tags
         else inferred_tags
     )
-    scopes = (
+    scope_strings = (
         _normalize_strings(declaration.scopes)
         if declaration and declaration.scopes
         else _normalize_strings(tool.auth.scopes)
     )
+    # Wire-format effect (string) follows the declaration override, then
+    # falls back to the legacy ``_infer_effect`` so byte-identical hashes
+    # are preserved during the migration window. The typed ``SideEffect``
+    # built below carries the same effect plus structural fields.
     effect = (
         declaration.effect
         if declaration and declaration.effect
@@ -350,10 +369,80 @@ def _action_from_tool(
     required_input_fields = sorted(
         {parameter.name for parameter in tool.parameters if parameter.required}
     )
+    # Route through the shared ``derive_side_effect`` helper so the
+    # tool-context path (``tool_side_effect(tool)``) and this manifest-
+    # context path cannot drift on structural-field derivation. The
+    # helper also feeds ``effect`` into every structural field, so a
+    # manifest declaring ``effect: financial_write`` with no matching
+    # ``risk_tags`` still yields ``financial=True``,
+    # ``externally_visible=True``, and ``is_high_risk=True``.
+    side_effect = derive_side_effect(
+        effect=effect,
+        risk_tags=risk_tag_values,
+        idempotency_known=(safeguards.idempotency if safeguards.idempotency else None),
+    )
+    return Action(
+        action_id=action_id,
+        agent_id=agent_id,
+        tool_id=tool.id,
+        tool_name=tool.name,
+        provider=provider,
+        source_type=tool.source_type,
+        source_id=tool.source_id,
+        operation=operation,
+        side_effect=side_effect,
+        risk_tags=risk_tag_values,
+        scopes=[Scope.parse(raw) for raw in scope_strings],
+        approval_required=approval.required,
+        approval_threshold=approval.threshold,
+        safeguard_idempotency=safeguards.idempotency,
+        safeguard_audit_log=safeguards.audit_log,
+        safeguard_rollback=safeguards.rollback,
+        safeguard_dry_run=safeguards.dry_run,
+        evidence_owner=evidence.owner,
+        evidence_runbook=evidence.runbook,
+        evidence_approval_ticket=evidence.approval_ticket,
+        input_fields=input_fields,
+        required_input_fields=required_input_fields,
+        input_schema=tool.input_schema,
+        parameters_for_hash=[
+            parameter.model_dump(mode="json") for parameter in tool.parameters
+        ],
+    )
+
+
+def action_to_fact(action: Action) -> ActionFact:
+    """Serialize a typed ``Action`` to its wire-shape ``ActionFact``.
+
+    Hashes are computed here (not on ``Action``) because:
+
+    - The ``ActionFact`` shape is the canonical hash input — any future
+      typed-Action enrichment must not alter what gets hashed.
+    - Hashes are a serialization concern, not a domain concern.
+
+    Byte-identical to the legacy ``_action_from_tool`` body for any
+    Action built via ``build_action``; pinned by
+    ``tests/test_action_surface_diff.py`` golden assertions.
+    """
+    approval = ActionApprovalFact(
+        required=action.approval_required,
+        threshold=action.approval_threshold,
+    )
+    safeguards = ActionSafeguardsFact(
+        idempotency=action.safeguard_idempotency,
+        audit_log=action.safeguard_audit_log,
+        rollback=action.safeguard_rollback,
+        dry_run=action.safeguard_dry_run,
+    )
+    evidence = ActionEvidenceFact(
+        owner=action.evidence_owner,
+        runbook=action.evidence_runbook,
+        approval_ticket=action.evidence_approval_ticket,
+    )
     schema_hash = _stable_hash(
         {
-            "input_schema": tool.input_schema,
-            "parameters": [parameter.model_dump(mode="json") for parameter in tool.parameters],
+            "input_schema": action.input_schema,
+            "parameters": action.parameters_for_hash,
         }
     )
     policy_hash = _stable_hash(
@@ -365,35 +454,54 @@ def _action_from_tool(
     )
     risk_hash = _stable_hash(
         {
-            "effect": effect,
-            "risk_tags": risk_tag_values,
-            "required_scopes": scopes,
+            "effect": action.effect,
+            "risk_tags": action.risk_tags,
+            "required_scopes": action.scope_strings,
         }
     )
     return ActionFact(
-        action_id=action_id,
-        agent_id=agent_id,
-        tool_id=tool.id,
-        tool_name=tool.name,
-        provider=provider,
-        source_type=tool.source_type,
-        source_id=tool.source_id,
-        operation=operation,
-        effect=effect,
-        risk_tags=risk_tag_values,
-        required_scopes=scopes,
+        action_id=action.action_id,
+        agent_id=action.agent_id,
+        tool_id=action.tool_id,
+        tool_name=action.tool_name,
+        provider=action.provider,
+        source_type=action.source_type,
+        source_id=action.source_id,
+        operation=action.operation,
+        effect=action.effect,
+        risk_tags=action.risk_tags,
+        required_scopes=action.scope_strings,
         approval_policy=approval,
         safeguards=safeguards,
         evidence=evidence,
-        input_fields=input_fields,
-        required_input_fields=required_input_fields,
+        input_fields=action.input_fields,
+        required_input_fields=action.required_input_fields,
         input_schema_hash=schema_hash,
         hashes=ActionSurfaceHashes(
-            identity_hash=_stable_hash(action_id),
+            identity_hash=_stable_hash(action.action_id),
             schema_hash=schema_hash,
             policy_hash=policy_hash,
             risk_hash=risk_hash,
         ),
+    )
+
+
+def _action_from_tool(
+    manifest: AgentsShipgateManifest,
+    *,
+    agent_id: str,
+    tool: Tool,
+    declaration: ActionDeclarationConfig | None,
+) -> ActionFact:
+    """Backward-compatible wrapper: build typed Action, then serialize.
+
+    Kept as the entry point used by ``build_action_surface_facts`` so
+    external callers and tests that import this private symbol keep
+    working byte-for-byte. New call sites should prefer ``build_action``
+    directly to get the typed view.
+    """
+    return action_to_fact(
+        build_action(manifest, agent_id=agent_id, tool=tool, declaration=declaration)
     )
 
 
