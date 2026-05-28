@@ -1608,6 +1608,28 @@
       "requires_human_review": true,
       "requires_human_review_regardless_of_patch": true,
       "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "verify",
+      "default_severity": "medium",
+      "description": "A PR changed a release trust-root file (manifest, shipgate state, policy, prompts, the Shipgate CI gate, agent instructions, or a tool-surface declaration).",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-trust-root-touched",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "changed_file",
+        "trust_root_class",
+        "matched_glob"
+      ],
+      "fires_when": "A changed file from the verification context matches a trust-root surface glob. Emits nothing on a plain scan (no verification context).",
+      "floor_severity": null,
+      "id": "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+      "mvp_tier": "lifecycle",
+      "rationale": "Trust-root files define the release gate. A coding agent told to make CI pass can weaken the gate instead of fixing the underlying readiness issue (reward hacking); touching a trust root must therefore require human review.",
+      "recommendation": "Have a human review the trust-root change before merge; do not weaken the gate to pass CI.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
     }
   ],
   "description": "Machine-readable catalog of built-in checks. Generated from agents_shipgate.checks.registry.check_catalog(). Do not edit by hand.",

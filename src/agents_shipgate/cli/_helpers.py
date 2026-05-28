@@ -317,6 +317,7 @@ def _run_multi_scan(
     packet_formats: list[str] | None = None,
     strict_plugins: bool = False,
     no_heuristics: bool = False,
+    verification_context=None,
 ) -> int:
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo(f"Scanning {len(config_paths)} manifests")
@@ -344,6 +345,7 @@ def _run_multi_scan(
                 packet_enabled=packet_enabled,
                 packet_formats=packet_formats,
                 no_heuristics=no_heuristics,
+                verification_context=verification_context,
             )
         except ConfigError as exc:
             scan_exit_code = 2

@@ -206,12 +206,17 @@ Two implicit triggers also fire even when no row above matches:
 - **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
 - **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, or `google-adk` can change AST extraction even without app-code edits.
 
-A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To verify a path list locally:
+A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To evaluate a diff locally, use the first-class `trigger` subcommand:
 
 ```bash
-python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md
-python -m agents_shipgate.triggers --list-rules --json
+# From a list of changed paths (and optional diff body for diff_contains rules):
+agents-shipgate trigger --changed-files changed.txt --diff pr.diff --json
+# Or straight from git (the ONLY mode that shells out to git):
+agents-shipgate trigger --base origin/main --head HEAD --json
+agents-shipgate trigger --list-rules --json
 ```
+
+The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, and `diff_tokens`. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
 
 **Stop conditions.** Stop and do not run `init` only when **all** of these hold:
 
@@ -401,7 +406,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
@@ -409,6 +414,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
 | `agents-shipgate findings` | `--from`, `--provenance-kind`, `--include-suppressed`, `--json` |
+| `agents-shipgate trigger` | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |

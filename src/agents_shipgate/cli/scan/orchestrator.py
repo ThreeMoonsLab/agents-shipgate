@@ -6,6 +6,7 @@ from agents_shipgate import _perf
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verification import VerificationContext
 
 from .decision import _run_checks_and_decide
 from .diffs import _load_diff_references
@@ -37,6 +38,7 @@ def run_scan(
     packet_enabled: bool | None = None,
     packet_formats: list[str] | None = None,
     packet_generated_at: str | None = None,
+    verification_context: VerificationContext | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -93,6 +95,7 @@ def run_scan(
             plugins_enabled=plugins_enabled,
             suggest_patches=suggest_patches,
             no_heuristics=no_heuristics,
+            verification_context=verification_context,
         )
     with _perf.phase("plan_outputs"):
         plan = _plan_outputs(

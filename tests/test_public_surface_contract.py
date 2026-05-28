@@ -853,6 +853,68 @@ def test_triggers_json_rule_rows_appear_verbatim_in_agents_md():
         )
 
 
+def _agents_md_trigger_table_rows() -> list[tuple[str, str]]:
+    """Parse the (trigger, decision) data rows of the AGENTS.md
+    "Should I run Shipgate on this PR?" markdown table."""
+    agents_md = _read("AGENTS.md")
+    start = agents_md.index("| Trigger in this PR")
+    table_lines: list[str] = []
+    for line in agents_md[start:].splitlines():
+        if not line.startswith("|"):
+            break
+        table_lines.append(line)
+    rows: list[tuple[str, str]] = []
+    for line in table_lines[2:]:  # skip header + separator
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 2:
+            rows.append((cells[0], cells[1]))
+    return rows
+
+
+def test_agents_md_trigger_table_rows_are_covered_by_catalog():
+    """Reverse of the verbatim-rows test: every row in the AGENTS.md
+    trigger table must be backed by a docs/triggers.json rule. A 'Yes'
+    row needs a run_shipgate/force_run rule with that exact
+    ``agents_md_row``; a plain 'Skip' row needs a skip_shipgate rule;
+    a 'dry-run' row is the advisory refactor case (the dry_run rule uses
+    different prose, so only require that a dry_run rule exists).
+
+    Catches the drift where a new tool surface is added to the prose
+    table (e.g. n8n) but no catalog rule is added, so a coding agent
+    applying triggers.json would silently miss it."""
+    triggers = _load_triggers_json()
+    rows_by_action: dict[str, set[str]] = {}
+    for rule in triggers["rules"]:
+        rows_by_action.setdefault(rule["action"], set()).add(rule["agents_md_row"])
+    run_rows = rows_by_action.get("run_shipgate", set()) | rows_by_action.get(
+        "force_run", set()
+    )
+    skip_rows = rows_by_action.get("skip_shipgate", set())
+    has_dry_run_rule = bool(rows_by_action.get("dry_run"))
+
+    data_rows = _agents_md_trigger_table_rows()
+    assert data_rows, "Could not parse the AGENTS.md trigger table."
+
+    for trigger_text, decision in data_rows:
+        decision_l = decision.lower()
+        if decision_l == "yes":
+            assert trigger_text in run_rows, (
+                f"AGENTS.md trigger row {trigger_text!r} (decision={decision!r}) "
+                "has no run_shipgate/force_run rule in docs/triggers.json. Add a "
+                "rule whose agents_md_row matches this cell, or fix the table."
+            )
+        elif "dry-run" in decision_l:
+            assert has_dry_run_rule, (
+                f"AGENTS.md row {trigger_text!r} (decision={decision!r}) implies "
+                "an advisory dry-run, but docs/triggers.json has no dry_run rule."
+            )
+        else:  # plain Skip
+            assert trigger_text in skip_rows, (
+                f"AGENTS.md skip row {trigger_text!r} (decision={decision!r}) has "
+                "no skip_shipgate rule in docs/triggers.json."
+            )
+
+
 def test_triggers_evaluator_smoke():
     """Sanity-check the evaluator for the canonical positive and
     negative cases. Prevents a regression where rule semantics drift

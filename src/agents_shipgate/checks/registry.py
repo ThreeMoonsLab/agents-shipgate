@@ -22,6 +22,7 @@ from agents_shipgate.checks import (
     policy,
     schema,
     side_effects,
+    verify,
 )
 from agents_shipgate.checks._metadata_loader import load_check_metadata
 from agents_shipgate.checks.plugin_validation import (
@@ -52,6 +53,7 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     crewai.run,
     codex_plugin.run,
     n8n.run,
+    verify.run,
 ]
 
 
