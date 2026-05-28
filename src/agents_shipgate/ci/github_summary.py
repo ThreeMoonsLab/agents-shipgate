@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.report.markdown import _safe_markdown_text
+from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.report import ReadinessReport
 
 
@@ -34,7 +35,7 @@ def write_github_step_summary(report: ReadinessReport) -> None:
                     f"Blockers: {len(decision.blockers)} · "
                     f"Review items: {len(decision.review_items)}"
                 ),
-                f"Evidence coverage: {_evidence_coverage_text(decision.evidence_coverage)}",
+                f"Evidence coverage: {evidence_coverage_text(decision.evidence_coverage)}",
             ]
         )
         if decision.decision == "insufficient_evidence":
@@ -153,18 +154,6 @@ def write_github_step_summary(report: ReadinessReport) -> None:
     lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
-
-
-def _evidence_coverage_text(evidence) -> str:
-    extras: list[str] = []
-    if evidence.low_confidence_tool_count:
-        extras.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
-    if evidence.source_warning_count:
-        extras.append(f"{evidence.source_warning_count} source warning(s)")
-    if evidence.human_review_recommended:
-        extras.append("human review recommended")
-    suffix = f" ({'; '.join(extras)})" if extras else ""
-    return f"{evidence.level}{suffix}"
 
 
 def _agent_next_action_line(action) -> str:

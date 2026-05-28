@@ -59,7 +59,7 @@ def load_openai_sdk_static_tools(
             for tool in _load_python_file(python_file, source, base_dir)
         ]
     elif path.suffix.lower() == ".py":
-        tools = _load_python_file(path, source, base_dir, source_ref=entrypoint)
+        tools = _load_python_file(path, source, base_dir)
     else:
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"

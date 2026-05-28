@@ -26,7 +26,7 @@ checks:
   recommendation: Constrain the field with structured schema or enums.
 - id: SHIP-SCHEMA-FREEFORM-OUTPUT
   default_severity: medium
-  mvp_tier: core
+  mvp_tier: evidence
   description: Tool returns free-form string output.
   rationale: Free-form tool output may carry prompt injection into later model context.
   fires_when: A tool output schema is string or an SDK function returns str.

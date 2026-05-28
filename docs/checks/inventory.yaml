@@ -36,7 +36,7 @@ checks:
   recommendation: Declare at least one local MCP JSON or OpenAPI tool source.
 - id: SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE
   default_severity: medium
-  mvp_tier: core
+  mvp_tier: hygiene
   description: Tool surface exceeds the MVP review threshold.
   rationale: Large tool surfaces are harder to reason about during promotion.
   fires_when: The normalized tool count exceeds the built-in threshold.

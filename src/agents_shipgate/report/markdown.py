@@ -11,6 +11,7 @@ from agents_shipgate.core.findings import (
     provenance_kind_counts,
 )
 from agents_shipgate.core.privacy import sanitize_report
+from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.report import (
     DeclaredIntention,
     Finding,
@@ -133,16 +134,9 @@ def _append_release_decision(lines: list[str], report: ReadinessReport) -> None:
     lines.append("")
     _append_decision_items(lines, "Blockers", decision.blockers)
     _append_decision_items(lines, "Review items", decision.review_items)
-    ev = decision.evidence_coverage
-    ev_extras: list[str] = []
-    if ev.low_confidence_tool_count:
-        ev_extras.append(f"{ev.low_confidence_tool_count} low-confidence tool(s)")
-    if ev.source_warning_count:
-        ev_extras.append(f"{ev.source_warning_count} source warning(s)")
-    if ev.human_review_recommended:
-        ev_extras.append("human review recommended")
-    suffix = f" ({'; '.join(ev_extras)})" if ev_extras else ""
-    lines.append(f"Evidence coverage: {ev.level}{suffix}")
+    lines.append(
+        f"Evidence coverage: {evidence_coverage_text(decision.evidence_coverage)}"
+    )
     lines.append("")
     bd = decision.baseline_delta
     if bd.enabled:

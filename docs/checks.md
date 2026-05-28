@@ -634,7 +634,12 @@ def search_customer(customer_id: str) -> str:
     ...
 ```
 
-The static extractor does not execute user code and intentionally does not detect dynamic wrappers, factory-created tools, `Tool.from_fn()` style objects, runtime imports, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or manifest metadata.
+When `tool_sources[].path` points at a directory, the extractor scans immediate
+`*.py` files in sorted order; it does not recurse into nested packages. The
+static extractor does not execute user code and intentionally does not detect
+dynamic wrappers, factory-created tools, `Tool.from_fn()` style objects, runtime
+imports, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or
+manifest metadata.
 
 ## Google ADK Static Extraction
 

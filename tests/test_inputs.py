@@ -528,6 +528,7 @@ async def faq_lookup_tool(question: str) -> str:
     assert len(loaded.tools) == 1
     assert loaded.tools[0].name == "faq_lookup_tool"
     assert loaded.tools[0].description == "Lookup frequently asked questions."
+    assert loaded.tools[0].source_ref == "agent.py"
 
 
 def test_openai_sdk_static_description_override_takes_precedence_over_docstring(tmp_path):

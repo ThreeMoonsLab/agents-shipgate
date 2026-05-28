@@ -63,7 +63,7 @@ checks:
   recommendation: Declare retry_policy in openai_api.policy_rules or model_config.
 - id: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY
   default_severity: high
-  mvp_tier: adapter
+  mvp_tier: core
   description: OpenAI API write tool may be retried without idempotency evidence.
   rationale: |-
     Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.

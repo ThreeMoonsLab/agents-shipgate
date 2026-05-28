@@ -74,7 +74,7 @@ def test_list_checks_json_carries_remediation_metadata_for_every_check():
             )
             assert entry[key] is not None, (
                 f"{entry['id']}.{key} is None in list-checks --json — "
-                "all four fields must be populated for every catalog entry"
+                "all required catalog fields must be populated for every entry"
             )
 
 

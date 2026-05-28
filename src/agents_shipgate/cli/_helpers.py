@@ -17,6 +17,7 @@ from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
+from agents_shipgate.report.summary_text import evidence_coverage_text
 
 logger = logging.getLogger(__name__)
 
@@ -423,7 +424,7 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         typer.echo(f"Blockers: {len(decision.blockers)}")
         typer.echo(f"Review items: {len(decision.review_items)}")
         ev = decision.evidence_coverage
-        typer.echo(f"Evidence coverage: {_evidence_coverage_text(ev)}")
+        typer.echo(f"Evidence coverage: {evidence_coverage_text(ev)}")
         if decision.decision == "insufficient_evidence":
             typer.echo(
                 "Improve evidence: provide MCP export, OpenAPI spec, explicit "
@@ -513,18 +514,6 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
-
-
-def _evidence_coverage_text(evidence) -> str:
-    extras: list[str] = []
-    if evidence.low_confidence_tool_count:
-        extras.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
-    if evidence.source_warning_count:
-        extras.append(f"{evidence.source_warning_count} source warning(s)")
-    if evidence.human_review_recommended:
-        extras.append("human review recommended")
-    suffix = f" ({'; '.join(extras)})" if extras else ""
-    return f"{evidence.level}{suffix}"
 
 
 def _top_cli_findings(report, *, limit: int):
