@@ -20,11 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
       - id: agents-shipgate
         uses: ThreeMoonsLab/agents-shipgate@v0.10.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
+          diff_base: target
 ```
 
 To post PR comments, set:
@@ -66,20 +69,30 @@ Action outputs:
 | `report_json` | Path to `report.json`. |
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
+| `verifier_json` | Path to `verifier.json`. |
+| `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
 
-The action writes Markdown, JSON, and SARIF reports. Upload `report.sarif` to
-GitHub code scanning from your workflow if you want SARIF annotations.
+The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
+packet JSON, verifier JSON, and PR-comment Markdown artifacts. It intentionally
+emits `packet.json` only for the packet; `pr-comment.md` is the human PR
+surface. Verify never fetches; use `fetch-depth: 0` on checkout or fetch the
+base ref before the action when `diff_base: target` is set. An explicit
+`head_ref` is scanned from an isolated archive; without it, the checked-out
+workspace is scanned. Upload `report.sarif` to GitHub code scanning from your
+workflow if you want SARIF annotations.
 
 For source-only testing in this repository:
 
 ```yaml
 - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+  with:
+    fetch-depth: 0
 - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
   with:
     python-version: "3.12"
 - run: python -m pip install -e ".[dev]"
-- run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
+- run: agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
 ## Local Diagnostics

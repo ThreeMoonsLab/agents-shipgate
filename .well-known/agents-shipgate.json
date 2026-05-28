@@ -67,7 +67,7 @@
   "contract": "agents-shipgate contract --json",
   "contract_version": "1",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin", "n8n"],
-  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html"],
+  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md"],
   "gating_signal": "release_decision.decision",
   "trust_model": "static_by_default",
   "schemas": {

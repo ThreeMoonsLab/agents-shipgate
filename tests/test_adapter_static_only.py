@@ -9,8 +9,8 @@ surfaces.
 
 v0.18 (PR #2): the scope widened from adapter sources only to the whole
 scanner package. A small allowlist (``ALLOWED_EXCEPTIONS`` below) captures
-the four legitimate first-party meta-CLI surfaces with prose rationale —
-bootstrap subprocess chaining, git probing in artifacts/triggers, and
+legitimate first-party meta-CLI surfaces with prose rationale — bootstrap
+subprocess chaining, git probing in artifacts/triggers/verify, and
 self-check ``__import__`` validation. Two contract tests prevent
 allowlist rot.
 
@@ -285,6 +285,30 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
             "the shared triggers._git_diff_context git probe; this file "
             "issues no subprocess.run call itself (git runs in triggers.py "
             "only, and only under --base/--head)."
+        ),
+    ),
+    # cli/verify/git.py — verify orchestrates local base/head git reads.
+    # It never fetches and never executes user code.
+    AllowedException(
+        relative_path="cli/verify/git.py",
+        surface="import:subprocess",
+        line=4,
+        snippet="import subprocess",
+        rationale=(
+            "Verify uses local git commands to resolve refs, collect diffs, "
+            "resolve git metadata paths, and archive base/head trees. Fixed "
+            "argv, capture-only, no shell, and no network fetch."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/verify/git.py",
+        surface="attr_call:subprocess.run",
+        line=77,
+        snippet="subprocess.run(cmd, capture_output=True, check=check, text=text, timeout=60)",
+        rationale=(
+            "_run_git helper for verify: executes fixed git argv assembled "
+            "inside Shipgate (rev-parse, diff, archive). Capture-only, no "
+            "shell, no user-code execution, and no fetch."
         ),
     ),
     # cli/self_check.py — validates the installed environment via __import__
@@ -1258,6 +1282,14 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
         f"cli/discovery/artifacts.py subprocess.run calls (one per "
         f"call site at lines 361 and 377), got "
         f"{len(artifacts_subprocess_run)}."
+    )
+    verify_subprocess_run = by_file_surface.get(
+        ("cli/verify/git.py", "attr_call:subprocess.run"), []
+    )
+    assert len(verify_subprocess_run) == 1, (
+        f"Expected 1 AllowedException entry for cli/verify/git.py "
+        f"subprocess.run (the shared fixed-argv _run_git helper), got "
+        f"{len(verify_subprocess_run)}."
     )
 
 
