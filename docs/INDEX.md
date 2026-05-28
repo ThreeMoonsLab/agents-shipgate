@@ -11,6 +11,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
 - [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
+- [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
