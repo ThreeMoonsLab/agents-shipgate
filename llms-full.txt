@@ -879,13 +879,17 @@ do not use it as a release verdict. The release gate is still
 `report.json.release_decision.decision`. `verify` never fetches, so CI callers
 must make the base ref available before invocation. Supplying `--head` makes
 verify scan an isolated archive of that ref; omitting it scans the checked-out
-workspace.
+workspace. If an explicit `--base` ref or PR diff cannot be inspected, verify
+skips a head-only scan; `verifier.json.merge_verdict` is `unknown` and the
+command exits 2.
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check — no
 scan, no manifest required, exits 0. It emits a `verifier.json` with
-`mode: "preview"` and a `first_next_action` carrying the install/verify command.
-Use it as the first touch before a full scan. To evaluate just the run/skip
-trigger, run `agents-shipgate trigger --base origin/main --head HEAD --json`.
+`mode: "preview"` and a `first_next_action` carrying the next recommended action:
+`none` for irrelevant diffs, `detect`/`init` for relevant unconfigured repos, or
+`verify` for configured repos. Use it as the first touch before a full scan. To
+evaluate just the run/skip trigger, run
+`agents-shipgate trigger --base origin/main --head HEAD --json`.
 
 In `agents-shipgate-reports/verifier.json`, read these additive fields
 (`verifier_schema_version` stays `"0.1"`; full schema

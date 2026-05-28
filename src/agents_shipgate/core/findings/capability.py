@@ -21,6 +21,7 @@ that do not exist yet, so the projection never produces them.
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from agents_shipgate.core.risk_hints import CANONICAL_RISK_TAG_MAP
@@ -82,6 +83,29 @@ def _cap_id(change_type: str, subject_kind: str, subject: str, disc: str) -> str
     """Deterministic, collision-resistant id for a capability change row."""
     raw = f"{change_type}|{subject_kind}|{subject}|{disc}"
     return "cap_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _action_disc(change: ActionSurfaceChange) -> str:
+    """Stable discriminator for action rows that collapse to one change_type.
+
+    Multiple ActionSurfaceChange rows for the same action can intentionally
+    project to ``action_modified``. The public row IDs still need to be unique
+    so consumers can reference them without ambiguity.
+    """
+    return json.dumps(
+        {
+            "action_id": change.action_id,
+            "surface_change_type": change.type,
+            "reason": change.reason,
+            "before": change.before,
+            "after": change.after,
+            "added": change.added,
+            "removed": change.removed,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
 
 
 def _decision_keys(
@@ -200,7 +224,7 @@ def _action_change(
         related, fallback_severity=change.severity
     )
     return CapabilityChange(
-        id=_cap_id(change_type, subject_kind, subject, change.action_id),
+        id=_cap_id(change_type, subject_kind, subject, _action_disc(change)),
         change_type=change_type,  # type: ignore[arg-type]
         subject_kind=subject_kind,  # type: ignore[arg-type]
         subject=subject,

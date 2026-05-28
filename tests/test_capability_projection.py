@@ -171,6 +171,42 @@ def test_approval_removed_maps_to_policy_change():
     assert "approval_missing" in changes[0].risk_tags
 
 
+def test_multiple_modifications_for_same_action_have_unique_ids():
+    report = _report(
+        action_surface_diff=ActionSurfaceDiff(
+            enabled=True,
+            modified=[
+                ActionSurfaceChange(
+                    type="SCOPE_EXPANDED",
+                    action_id="a2",
+                    tool_name="stripe.create_refund",
+                    severity="high",
+                    reason="Action scope expanded.",
+                    before=["stripe:refunds:read"],
+                    after=["stripe:*"],
+                    added=["stripe:*"],
+                ),
+                ActionSurfaceChange(
+                    type="EFFECT_ESCALATED",
+                    action_id="a2",
+                    tool_name="stripe.create_refund",
+                    severity="critical",
+                    reason="Action effect escalated.",
+                    before="read",
+                    after="financial_write",
+                ),
+            ],
+        ),
+        release_decision=_release_decision("review_required"),
+        findings=[],
+    )
+
+    changes = build_capability_changes(report=report, findings=[])
+
+    assert len(changes) == 2
+    assert len({change.id for change in changes}) == 2
+
+
 def test_tool_and_scope_changes_project():
     tsd = ToolSurfaceDiff(
         enabled=True,

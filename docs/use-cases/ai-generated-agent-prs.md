@@ -103,7 +103,9 @@ agents-shipgate verify --base origin/main --head HEAD --json
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
   manifest required, exits 0. It emits `mode: "preview"` and a `first_next_action`
-  with the install/verify command. Use it as the first touch on any repo or PR.
+  with the next recommended action (`none` for irrelevant diffs,
+  `detect`/`init` for relevant unconfigured repos, or `verify` for configured
+  repos). Use it as the first touch on any repo or PR.
 - `init --write --ci --agent-instructions=all` writes `shipgate.yaml`, the
   advisory CI workflow, and the agent-instruction surfaces (`AGENTS.md`,
   `CLAUDE.md`, the Cursor rule, the Codex/Claude skills, and the PR template) via
@@ -111,7 +113,8 @@ agents-shipgate verify --base origin/main --head HEAD --json
 - `verify --base origin/main --head HEAD --json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or
-  `git fetch origin main` locally).
+  `git fetch origin main` locally); if the requested diff cannot be inspected,
+  verify emits `merge_verdict: unknown` and exits 2 instead of guessing.
 
 To evaluate just the run/skip trigger for a diff:
 

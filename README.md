@@ -92,14 +92,16 @@ agents-shipgate verify --base origin/main --head HEAD --json
 
 - `verify --preview` is a lightweight relevance check — no scan, no manifest
   required, exits 0. It tells you whether this PR is worth gating and prints the
-  install/verify command to run next.
+  next recommended action (`none` for irrelevant diffs, `detect`/`init` for
+  relevant unconfigured repos, or `verify` for configured repos).
 - `init --write --ci --agent-instructions=all` writes `shipgate.yaml`, the
   advisory CI workflow, and the agent-instruction surfaces (`AGENTS.md`,
   `CLAUDE.md`, the Cursor rule, and the PR template) so the gate is wired for
   both humans and coding agents.
 - `verify --base origin/main --head HEAD` runs the authoritative head scan with
   diff context and writes `agents-shipgate-reports/verifier.json` plus
-  `pr-comment.md` alongside the standard report artifacts.
+  `pr-comment.md` alongside the standard report artifacts. If the requested diff
+  cannot be inspected, verify emits `merge_verdict: unknown` and exits 2.
 
 Read [`agents-shipgate-reports/verifier.json`](docs/verifier-schema.v0.1.json)
 first: `merge_verdict` (`mergeable` / `human_review_required` /
@@ -554,7 +556,7 @@ jobs:
 
 Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action now delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If the base ref is missing locally, verify records `base_status` in `verifier.json`, disables the diff, and leaves the head release gate unchanged.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action now delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If the base ref is missing locally, verify records `base_status` in `verifier.json`, emits `merge_verdict: unknown`, and exits 2.
 
 Outputs: `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Prefer `decision` and `ci_would_fail` over legacy `status` for new release gates.
 

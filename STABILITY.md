@@ -555,9 +555,11 @@ isolated archive of that ref; when omitted, it scans the checked-out workspace.
 `verify` never fetches. Callers that want base diff enrichment must make the
 base ref available before invoking the command, for example with
 `actions/checkout` `fetch-depth: 0` or an explicit `git fetch origin <base>` in
-CI. If the base ref, base manifest, or base scan is unavailable, verify records
-`base_status` in `verifier.json`, disables diff enrichment, and leaves the head
-release decision and exit code unchanged.
+CI. If the requested base ref or PR diff context is unavailable, verify records
+`base_status` in `verifier.json`, skips a head-only scan, emits
+`merge_verdict: "unknown"`, and exits 2. If the base tree is available but the
+base manifest or base scan is unavailable, verify records `base_status`, disables
+diff enrichment, and leaves the head release decision and exit code unchanged.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, and `pr-comment.md`. `verify` intentionally requests packet
@@ -567,8 +569,10 @@ full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check: it
 runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with
-`mode: "preview"` and a `first_next_action` carrying the install/verify command.
-Use it as the first touch on a repo or PR before committing to a full scan.
+`mode: "preview"` and a `first_next_action` carrying the next recommended
+action. That action may be `none` for irrelevant diffs, `detect`/`init` for
+relevant unconfigured repos, or `verify` for configured repos. Use it as the
+first touch on a repo or PR before committing to a full scan.
 
 `verifier.json` is governed by [`docs/verifier-schema.v0.1.json`](docs/verifier-schema.v0.1.json)
 (`verifier_schema_version` stays `"0.1"` within `0.x`; minor field additions are

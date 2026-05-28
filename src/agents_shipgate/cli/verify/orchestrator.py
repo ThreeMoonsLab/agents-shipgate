@@ -78,6 +78,7 @@ def run_verify(
     base_tree: str | None = None
     base_report: Path | None = None
     base_notes: list[str] = []
+    diff_unavailable = False
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
@@ -90,8 +91,11 @@ def run_verify(
             try:
                 changed_files, diff_text = diff_context(git_root, base, head)
             except Exception as exc:  # noqa: BLE001 - diff context degrades only.
+                diff_unavailable = True
+                base_status = "archive_failed"
                 base_notes.append(f"Could not collect diff for {base}...{head}: {exc}")
         else:
+            diff_unavailable = True
             base_status = "ref_missing"
             base_notes.append(
                 f"Base ref {base!r} is not available locally; run with fetch-depth: 0 "
@@ -125,6 +129,28 @@ def run_verify(
         out_dir=out_dir,
         ci_mode=ci_mode,
     )
+
+    if diff_unavailable:
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base,
+            head=head,
+            changed_files=changed_files,
+            diff_text=diff_text,
+            trigger=trigger,
+            base_status=base_status,
+            base_tree=base_tree,
+            base_report=base_report,
+            base_notes=base_notes,
+            report=None,
+            head_status="failed",
+            head_exit_code=2,
+            out_dir=out_dir,
+            ci_mode=ci_mode,
+        )
+        _write_artifacts(verifier, verifier_path, pr_comment_path, report=None)
+        return verifier, None, 2
 
     if not trigger.get("run_shipgate"):
         if base and base_status == "not_requested":
@@ -736,13 +762,21 @@ def run_preview(
     changed_files: list[str] = []
     diff_text = ""
     notes: list[str] = []
+    diff_unavailable = False
     if base or head:
         try:
             git_root = ensure_git_workspace(root)
             head_ref = head or "HEAD"
-            if base and ref_exists(git_root, base) and ref_exists(git_root, head_ref):
-                changed_files, diff_text = diff_context(git_root, base, head_ref)
+            if base:
+                if ref_exists(git_root, base) and ref_exists(git_root, head_ref):
+                    changed_files, diff_text = diff_context(git_root, base, head_ref)
+                else:
+                    diff_unavailable = True
+                    notes.append(
+                        "Preview diff unavailable: base/head ref is not available locally."
+                    )
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            diff_unavailable = True
             notes.append(f"Preview diff unavailable: {exc}")
 
     trigger = evaluate(
@@ -752,7 +786,18 @@ def run_preview(
         user_requested=True,
     )
 
-    if manifest_present:
+    if diff_unavailable:
+        next_action = VerifierNextAction(
+            actor="coding_agent",
+            kind="fetch_base",
+            command=None,
+            why=(
+                "Preview could not inspect the requested PR diff; make the base "
+                "and head refs available locally, then rerun preview or verify."
+            ),
+        )
+        headline = "Shipgate preview could not inspect the requested PR diff."
+    elif manifest_present:
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
@@ -762,7 +807,21 @@ def run_preview(
         headline = (
             "Shipgate is configured; run verify on the PR to get a merge verdict."
         )
-    else:
+    elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
+        trigger_action = trigger.get("next_action") or {}
+        next_action = VerifierNextAction(
+            actor="coding_agent",
+            kind=trigger_action.get("kind") or "command",
+            command=trigger_action.get("command")
+            or "agents-shipgate detect --workspace . --json",
+            why=trigger_action.get("why")
+            or "This change looks agent-related; detect tool surfaces first.",
+        )
+        headline = (
+            "Shipgate is relevant to this diff; detect the workspace before "
+            "initializing the gate."
+        )
+    elif not (base or head):
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
@@ -770,12 +829,24 @@ def run_preview(
                 "agents-shipgate init --workspace . --write --ci "
                 "--agent-instructions=all"
             ),
-            why="No shipgate.yaml found; initialize Shipgate, then run verify on PRs.",
+            why=(
+                "No PR diff was supplied and no shipgate.yaml was found; "
+                "initialize Shipgate if this workspace contains an agent."
+            ),
         )
         headline = (
             "Shipgate is not set up here yet; initialize it to gate "
             "agent-capability PRs."
         )
+    else:
+        trigger_action = trigger.get("next_action") or {}
+        next_action = VerifierNextAction(
+            actor="coding_agent",
+            kind=trigger_action.get("kind") or "none",
+            command=trigger_action.get("command"),
+            why=trigger_action.get("why") or "No Shipgate-relevant changes detected.",
+        )
+        headline = "No Shipgate-relevant agent-capability changes detected in this diff."
 
     verifier = VerifierArtifact(
         workspace=str(root),
