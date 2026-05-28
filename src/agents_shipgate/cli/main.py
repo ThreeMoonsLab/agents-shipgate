@@ -24,6 +24,7 @@ from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.trigger import trigger as _trigger_command
+from agents_shipgate.cli.verify import verify as _verify_command
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -84,6 +85,13 @@ app.command(
         "verdict. Reads --changed-files / --diff, or --base/--head (git)."
     ),
 )(_trigger_command)
+app.command(
+    "verify",
+    help=(
+        "Run the canonical ongoing-PR verifier: trigger evaluation, optional "
+        "base scan, and one authoritative head scan."
+    ),
+)(_verify_command)
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)

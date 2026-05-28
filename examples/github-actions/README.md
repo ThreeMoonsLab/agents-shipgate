@@ -73,8 +73,13 @@ findings can feed those fields through `findings[].blocks_release`.
 
 **Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
 
-For PR review diffs, set `diff_base: target`. The action performs a best-effort
-base-branch scan with the PR-side installed package; use `fetch-depth: 0` on
-`actions/checkout` if your workflow needs reliable target-branch comparison.
-`base_ref` and `head_ref` may be set explicitly for clearer PR wiring; existing
-`diff_base` / `diff_from` workflows keep working.
+Verifier artifacts: `verifier_json` points at `verifier.json`, and
+`pr_comment_markdown` points at the Markdown body the action posts to PRs.
+
+For PR review diffs, set `diff_base: target`. The action delegates to
+`agents-shipgate verify`, which never fetches. Use `fetch-depth: 0` on
+`actions/checkout` or fetch the base ref in an earlier step; otherwise verify
+records `base_status` and runs a head-only gate. `base_ref` and `head_ref` may
+be set explicitly for clearer PR wiring. When `head_ref` is set, verify scans
+an isolated archive of that ref; otherwise it scans the checked-out workspace.
+Existing `diff_base` / `diff_from` workflows keep working.

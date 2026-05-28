@@ -843,6 +843,7 @@ agents-shipgate contract --json
 - Runtime contract: `1`
 - Current report schema: `0.21` — [`docs/report-schema.v0.21.json`](report-schema.v0.21.json)
 - Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
+- Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
 - Frozen-reference report schemas: [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -861,6 +862,23 @@ In `agents-shipgate-reports/report.json`:
 - `heuristics_filter` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Always present, even when the flag is unset (`enabled: False` with zero counts), so the report shape is stable. Carries `enabled: bool`, `excluded_provenance_kinds: list[str]` (`["keyword_heuristic", "regex_heuristic"]`), `filtered_finding_count: int`, and `filtered_by_kind: dict[str, int]` (per-kind breakdown). When `enabled: True`, findings whose `provenance_kind` is in the excluded list have been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision was built — they remain in `findings[]` for transparency but no longer gate release. The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved when they overlap with the filter. Useful for security/GRC reviewers who want declared-only findings.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
+
+For ongoing PR workflows, prefer:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+```
+
+`verify` writes `verifier.json` and `pr-comment.md` alongside the head scan
+artifacts. The packet artifact is intentionally `packet.json` only; use
+`scan` for manifest-driven packet Markdown/HTML/PDF rendering. Read
+`verifier.json.base_status` to understand whether base diff enrichment ran;
+do not use it as a release verdict. The release gate is still
+`report.json.release_decision.decision`. `verify` never fetches, so CI callers
+must make the base ref available before invocation. Supplying `--head` makes
+verify scan an isolated archive of that ref; omitting it scans the checked-out
+workspace.
 
 ## Read these for release review
 

@@ -37,15 +37,15 @@ inputs:
   diff_base:
     required: false
     default: ""
-    description: Set to target to best-effort scan the pull request base branch for diff.
+    description: Set to target to use the locally available pull request base branch for diff.
   base_ref:
     required: false
     default: ""
-    description: Optional base ref/SHA for PR action-surface diff. Falls back to github.base_ref.
+    description: Optional local base ref/SHA for PR diff. Falls back to origin/<github.base_ref>. The action never fetches.
   head_ref:
     required: false
     default: ""
-    description: Optional head ref/SHA for PR action-surface diff. The checked-out workspace is scanned by default.
+    description: Optional local head ref/SHA for PR diff and scan. Omit to scan the checked-out workspace.
   baseline_mode:
     required: false
     default: new-findings
@@ -118,6 +118,12 @@ outputs:
   report_sarif:
     description: Path to the generated SARIF report.
     value: ${{ steps.report_outputs.outputs.report_sarif }}
+  verifier_json:
+    description: Path to verifier.json.
+    value: ${{ steps.report_outputs.outputs.verifier_json }}
+  pr_comment_markdown:
+    description: Path to the generated PR comment Markdown.
+    value: ${{ steps.report_outputs.outputs.pr_comment_markdown }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -188,11 +194,12 @@ runs:
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         args=(
-          scan
+          verify
+          --workspace "."
           --config "${CONFIG}"
           --ci-mode "${CI_MODE}"
           --out "${OUTPUT_DIR}"
-          --format markdown,json,sarif
+          --format json
         )
         if [ -n "${FAIL_ON}" ]; then
           args+=(--fail-on "${FAIL_ON}")
@@ -200,62 +207,18 @@ runs:
         if [ -n "${BASELINE}" ]; then
           args+=(--baseline "${BASELINE}" --baseline-mode "${BASELINE_MODE}")
         fi
-        resolved_diff_from="${DIFF_FROM}"
-        diff_tmp_to_cleanup=""
-        diff_worktree_to_cleanup=""
-        if [ -z "${resolved_diff_from}" ] && [ "${DIFF_BASE}" = "target" ]; then
-          resolved_base_ref="${INPUT_BASE_REF:-${BASE_REF}}"
-          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${resolved_base_ref}" ]; then
-            base_tmp="$(mktemp -d)"
-            base_worktree="${base_tmp}/base"
-            base_out="${base_tmp}/reports"
-            diff_tmp_to_cleanup="${base_tmp}"
-            diff_worktree_to_cleanup="${base_worktree}"
-            diff_note=""
-            if ! git fetch --depth=1 origin "${resolved_base_ref}"; then
-              diff_note="tool-surface diff disabled: could not fetch base ref ${resolved_base_ref}"
-            elif ! git worktree add --detach "${base_worktree}" "FETCH_HEAD"; then
-              diff_note="tool-surface diff disabled: could not create base worktree"
-            elif [ ! -f "${base_worktree}/${CONFIG}" ]; then
-              diff_note="tool-surface diff disabled: base branch lacks ${CONFIG}"
-            else
-              set +e
-              (
-                cd "${base_worktree}"
-                agents-shipgate scan \
-                  --config "${CONFIG}" \
-                  --ci-mode advisory \
-                  --out "${base_out}" \
-                  --format json \
-                  --no-packet
-              )
-              base_exit=$?
-              set -e
-              if [ "${base_exit}" -eq 0 ] && [ -f "${base_out}/report.json" ]; then
-                resolved_diff_from="${base_out}/report.json"
-              else
-                diff_note="tool-surface diff disabled: base branch scan failed with exit ${base_exit}"
-              fi
-            fi
-            if [ -n "${diff_note}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-              printf '## Agents Shipgate\n\n- %s\n\n' "${diff_note}" >> "${GITHUB_STEP_SUMMARY}"
-            fi
-          elif [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-            printf '## Agents Shipgate\n\n- tool-surface diff disabled: diff_base=target requires a pull_request event with github.base_ref\n\n' >> "${GITHUB_STEP_SUMMARY}"
-          fi
+        if [ -n "${DIFF_FROM}" ]; then
+          args+=(--diff-from "${DIFF_FROM}")
         fi
-        if [ -n "${resolved_diff_from}" ]; then
-          args+=(--diff-from "${resolved_diff_from}")
+        resolved_base_ref="${INPUT_BASE_REF}"
+        if [ -z "${resolved_base_ref}" ] && [ "${DIFF_BASE}" = "target" ] && [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
+          resolved_base_ref="origin/${BASE_REF}"
+        fi
+        if [ -n "${resolved_base_ref}" ]; then
+          args+=(--base "${resolved_base_ref}")
         fi
         if [ -n "${INPUT_HEAD_REF}" ]; then
-          if git rev-parse --verify --quiet "${INPUT_HEAD_REF}^{commit}" >/dev/null; then
-            git checkout --detach "${INPUT_HEAD_REF}"
-          elif git fetch --depth=1 origin "${INPUT_HEAD_REF}"; then
-            git checkout --detach FETCH_HEAD
-          else
-            echo "Agents Shipgate: could not resolve head_ref '${INPUT_HEAD_REF}'" >&2
-            exit 2
-          fi
+          args+=(--head "${INPUT_HEAD_REF}")
         fi
         if [ -n "${POLICY_PACKS}" ]; then
           while IFS= read -r policy_pack; do
@@ -269,12 +232,6 @@ runs:
         set +e
         agents-shipgate "${args[@]}"
         exit_code=$?
-        if [ -n "${diff_worktree_to_cleanup}" ] && [ -d "${diff_worktree_to_cleanup}" ]; then
-          git worktree remove --force "${diff_worktree_to_cleanup}" >/dev/null 2>&1 || true
-        fi
-        if [ -n "${diff_tmp_to_cleanup}" ]; then
-          rm -rf "${diff_tmp_to_cleanup}"
-        fi
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
@@ -294,6 +251,8 @@ runs:
         report_json = output_dir / "report.json"
         report_markdown = output_dir / "report.md"
         report_sarif = output_dir / "report.sarif"
+        verifier_json = output_dir / "verifier.json"
+        pr_comment_markdown = output_dir / "pr-comment.md"
         summary = {}
         baseline = {}
         adk_surface = {}
@@ -336,6 +295,8 @@ runs:
             "report_json": report_json,
             "report_markdown": report_markdown,
             "report_sarif": report_sarif,
+            "verifier_json": verifier_json,
+            "pr_comment_markdown": pr_comment_markdown,
             "decision": release_decision.get("decision", ""),
             "blocker_count": len(release_decision.get("blockers") or []),
             "review_item_count": len(release_decision.get("review_items") or []),
@@ -451,174 +412,14 @@ runs:
         script: |
           const fs = require("fs");
           const path = require("path");
-          const reportPath = path.join(process.env.OUTPUT_DIR || "agents-shipgate-reports", "report.json");
-          if (!fs.existsSync(reportPath)) {
-            core.warning(`Agents Shipgate report not found at ${reportPath}`);
+          const outputDir = process.env.OUTPUT_DIR || "agents-shipgate-reports";
+          const commentPath = path.join(outputDir, "pr-comment.md");
+          if (!fs.existsSync(commentPath)) {
+            core.warning(`Agents Shipgate PR comment not found at ${commentPath}`);
             return;
           }
-          const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-          const summary = report.summary || {};
-          const decision = report.release_decision || null;
-          const agentSummary = report.agent_summary || null;
-          const reviewerSummary = report.reviewer_summary || null;
-          const adk = ((report.frameworks || {}).google_adk) || null;
-          const diff = report.tool_surface_diff || {};
-          const diffSummary = diff.summary || {};
-          const actionDiff = report.action_surface_diff || {};
-          const actionDiffSummary = actionDiff.summary || {};
-          const escapeMarkdown = (value) =>
-            String(value || "")
-              .replace(/\\/g, "\\\\")
-              .replace(/([\[\]\(\)`*_{}#+\-.!|>])/g, "\\$1");
-          const truncate = (value, limit) => {
-            const text = String(value || "");
-            return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
-          };
-          const activeFindings = (report.findings || []).filter((finding) => !finding.suppressed);
-          const byId = new Map(activeFindings.filter((finding) => finding.id).map((finding) => [finding.id, finding]));
-          const byFingerprint = new Map(activeFindings.filter((finding) => finding.fingerprint).map((finding) => [finding.fingerprint, finding]));
-          const sameItem = (finding, item) =>
-            finding.check_id === item.check_id && finding.title === item.title;
-          const topItems = [];
-          const seenTop = new Set();
-          const pushTop = (finding) => {
-            if (!finding) return;
-            const key = finding.id || finding.fingerprint || `${finding.check_id}:${finding.title}`;
-            if (seenTop.has(key)) return;
-            seenTop.add(key);
-            topItems.push(finding);
-          };
-          if (decision) {
-            for (const item of [...(decision.blockers || []), ...(decision.review_items || [])]) {
-              pushTop(byId.get(item.id) || byFingerprint.get(item.fingerprint) || activeFindings.find((finding) => sameItem(finding, item)));
-              if (topItems.length >= 3) break;
-            }
-          }
-          for (const finding of activeFindings.filter((finding) => ["critical", "high"].includes(finding.severity))) {
-            if (topItems.length >= 3) break;
-            pushTop(finding);
-          }
-          const top = topItems
-            .slice(0, 3)
-            .map((finding, index) => `${index + 1}. ${escapeMarkdown(truncate(finding.title || finding.check_id, 240))}`)
-            .join("\n");
-          const evidenceText = (evidence) => {
-            if (!evidence) return "";
-            const extras = [];
-            if (evidence.low_confidence_tool_count) extras.push(`${evidence.low_confidence_tool_count} low-confidence tool(s)`);
-            if (evidence.source_warning_count) extras.push(`${evidence.source_warning_count} source warning(s)`);
-            if (evidence.human_review_recommended) extras.push("human review recommended");
-            return `Evidence coverage: ${evidence.level || "unknown"}${extras.length ? ` (${extras.join("; ")})` : ""}`;
-          };
-          const nextActionLine = agentSummary && agentSummary.first_recommended_action
-            ? (agentSummary.first_recommended_action.command
-              ? `Next action: \`${escapeMarkdown(agentSummary.first_recommended_action.command)}\``
-              : `Next action: ${escapeMarkdown(agentSummary.first_recommended_action.why || "")}`)
-            : "";
-          const reviewerStart = reviewerSummary && reviewerSummary.first_recommended_surface
-            ? `Reviewer start: \`${escapeMarkdown(reviewerSummary.first_recommended_surface.name || "")}\` — ${escapeMarkdown(reviewerSummary.first_recommended_surface.why || "")}`
-            : "";
-          const ciModeLine = decision && decision.fail_policy
-            ? `CI mode: \`${decision.fail_policy.ci_mode || "advisory"}\` — ${decision.fail_policy.would_fail_ci ? "this PR would fail CI" : "this PR is not blocked by Shipgate"}`
-            : "";
-          const decisionLines = decision
-            ? [
-                `Decision: \`${decision.decision}\``,
-                agentSummary && agentSummary.headline ? `Summary: ${escapeMarkdown(agentSummary.headline)}` : "",
-                `Reason: ${escapeMarkdown(decision.reason || "")}`,
-                `Blockers: ${(decision.blockers || []).length} · Review items: ${(decision.review_items || []).length}`,
-                evidenceText(decision.evidence_coverage),
-                decision.decision === "insufficient_evidence"
-                  ? "Improve evidence: provide MCP export, OpenAPI spec, explicit local tool inventory, or a broader OpenAI SDK source path; then rerun scan."
-                  : "",
-                nextActionLine,
-                reviewerStart,
-                `Fail policy: would_fail_ci=\`${(decision.fail_policy || {}).would_fail_ci ? "true" : "false"}\` (exit ${(decision.fail_policy || {}).exit_code ?? "?"})`,
-                ciModeLine,
-              ].filter(Boolean)
-            : [
-                `Status: ${summary.status || "unknown"}`,
-                `Critical: ${summary.critical_count || 0} · High: ${summary.high_count || 0} · Medium: ${summary.medium_count || 0}`,
-                `Human review: ${summary.human_review_recommended ? "recommended" : "not required"}`,
-              ];
           const STICKY = "<!-- agents-shipgate-pr-comment -->";
-          const actionDiffHighlights = () => {
-            if (!actionDiff.enabled) {
-              const note = (actionDiff.notes || [])[0];
-              return note ? [`Action-surface diff: ${escapeMarkdown(note)}`] : [];
-            }
-            const lines = [
-              "### Action Surface Diff",
-              `Actions: +${actionDiffSummary.actions_added || 0}, -${actionDiffSummary.actions_removed || 0}, ${actionDiffSummary.actions_modified || 0} modified`,
-              `Blocking findings: ${actionDiffSummary.blocking_findings || 0}`,
-            ];
-            const highlights = [];
-            for (const item of actionDiff.modified || []) {
-              if (["SCOPE_EXPANDED", "EFFECT_ESCALATED", "APPROVAL_REMOVED", "SAFEGUARD_REMOVED"].includes(item.type)) {
-                highlights.push(`- \`${escapeMarkdown(item.tool_name || item.action_id)}\`: ${escapeMarkdown(item.type)}`);
-              }
-            }
-            for (const item of actionDiff.added || []) {
-              highlights.push(`- Added action \`${escapeMarkdown(item.tool_name || item.action_id)}\``);
-            }
-            for (const item of actionDiff.removed || []) {
-              highlights.push(`- Removed action \`${escapeMarkdown(item.tool_name || item.action_id)}\``);
-            }
-            return [...lines, ...highlights.slice(0, 5)];
-          };
-          const diffHighlights = () => {
-            if (!diff.enabled) {
-              const note = (diff.notes || [])[0];
-              const lines = note ? [`Tool-surface diff: ${escapeMarkdown(note)}`] : [];
-              if ((diffSummary.new_findings || 0) || (diffSummary.resolved_findings || 0) || (diffSummary.accepted_debt || 0)) {
-                lines.push(`Finding deltas: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`);
-              }
-              return lines;
-            }
-            const lines = [
-              "### What changed",
-              `Tools: +${diffSummary.tools_added || 0}, -${diffSummary.tools_removed || 0}, ${diffSummary.tools_changed || 0} changed`,
-              `Risk/control drift: ${diffSummary.new_high_risk_effects || 0} new high-risk effect(s), ${diffSummary.controls_removed || 0} removed control(s)`,
-              `Findings: ${diffSummary.new_findings || 0} new, ${diffSummary.resolved_findings || 0} resolved, ${diffSummary.accepted_debt || 0} accepted debt`,
-            ];
-            const riskHighlights = [];
-            const controlHighlights = [];
-            const toolHighlights = [];
-            for (const item of diff.high_risk_effects || []) {
-              if (item.kind === "added") riskHighlights.push(`- New high-risk tag \`${escapeMarkdown(item.tag)}\` on \`${escapeMarkdown(item.tool)}\``);
-            }
-            for (const item of diff.controls || []) {
-              if (item.kind === "removed") controlHighlights.push(`- Removed \`${escapeMarkdown(item.control)}\` for \`${escapeMarkdown(item.tool)}\``);
-            }
-            for (const item of diff.tools || []) {
-              if (item.kind === "added") toolHighlights.push(`- Added tool \`${escapeMarkdown(item.name)}\``);
-              if (item.kind === "removed") toolHighlights.push(`- Removed tool \`${escapeMarkdown(item.name)}\``);
-            }
-            const highlights = [];
-            const groups = [controlHighlights, riskHighlights, toolHighlights];
-            while (highlights.length < 5 && groups.some((group) => group.length)) {
-              for (const group of groups) {
-                if (group.length && highlights.length < 5) highlights.push(group.shift());
-              }
-            }
-            return [...lines, ...highlights];
-          };
-          const diffSections = [...actionDiffHighlights(), ...diffHighlights()];
-          const whatChanged = truncate(diffSections.join("\n"), 1500);
-          const body = truncate([
-            STICKY,
-            "## Agents Shipgate",
-            "",
-            ...decisionLines,
-            whatChanged,
-            adk ? `Google ADK: ${adk.agent_count || 0} agents · ${adk.dynamic_toolset_count || 0} dynamic toolsets` : "",
-            "",
-            top ? `Top findings:\n${top}` : "No critical or high findings.",
-            "",
-            "Artifacts (in `agents-shipgate-report` workflow artifact):",
-            "- Tool-Use Readiness Report: `report.md` / `report.json`",
-            "- Release Evidence Packet: `packet.md` / `packet.json` / `packet.html`",
-          ].join("\n"), 6000);
+          const body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
           // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
           // earlier comments before Shipgate's first run, which would silently regress to append-only.

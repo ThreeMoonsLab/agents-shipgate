@@ -36,6 +36,8 @@ def test_action_has_marketplace_metadata_and_outputs():
         "high_count",
         "baseline_new_count",
         "report_json",
+        "verifier_json",
+        "pr_comment_markdown",
         "exit_code",
     } <= set(data["outputs"])
 
@@ -52,10 +54,14 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "DIFF_FROM: ${{ inputs.diff_from }}" in text
     assert "DIFF_BASE: ${{ inputs.diff_base }}" in text
     assert "INPUT_HEAD_REF: ${{ inputs.head_ref }}" in text
-    assert "git checkout --detach" in text
+    assert "verify" in text
+    assert "--workspace" in text
     assert "args+=(--diff-from" in text
-    assert "git worktree remove --force" in text
-    assert 'rm -rf "${diff_tmp_to_cleanup}"' in text
+    assert "args+=(--base" in text
+    assert "args+=(--head" in text
+    assert "git fetch" not in text
+    assert "git checkout --detach" not in text
+    assert "git worktree" not in text
     assert "POLICY_PACKS: ${{ inputs.policy_packs }}" in text
     assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text
@@ -76,12 +82,10 @@ def test_action_step_summary_leads_with_release_decision():
 def test_action_pr_comment_truncates_user_controlled_text():
     text = Path("action.yml").read_text(encoding="utf-8")
 
-    assert "const truncate =" in text
-    assert "truncate(finding.title || finding.check_id, 240)" in text
-    assert "const groups = [controlHighlights, riskHighlights, toolHighlights]" in text
-    assert "const diffSections = [...actionDiffHighlights(), ...diffHighlights()]" in text
+    assert "pr-comment.md" in text
+    assert "fs.readFileSync(commentPath" in text
+    assert ".slice(0, 6000)" in text
     assert "preferredDiff" not in text
-    assert "].join(\"\\n\"), 6000)" in text
 
 
 def test_action_diff_inputs_describe_current_schema_versions():
@@ -89,6 +93,8 @@ def test_action_diff_inputs_describe_current_schema_versions():
 
     assert "v0.4 baseline" in data["inputs"]["diff_from"]["description"]
     assert "head_ref" in data["inputs"]
+    assert "never fetches" in data["inputs"]["base_ref"]["description"]
+    assert "diff and scan" in data["inputs"]["head_ref"]["description"]
 
 
 def test_action_pr_comment_upserts_via_sticky_marker():
@@ -120,12 +126,11 @@ def test_action_pr_comment_paginates_listcomments_lookup():
 
 
 def test_action_pr_comment_includes_packet_artifact_pointer():
-    """The PR comment template must point reviewers at both the report
-    and the packet (the latter is the reviewer-shaped artifact)."""
+    """The action must post the verifier-rendered PR comment artifact."""
     text = Path("action.yml").read_text(encoding="utf-8")
 
-    assert "Release Evidence Packet" in text
-    assert "packet.md" in text and "packet.json" in text
+    assert "pr-comment.md" in text
+    assert "verifier_json" in text
 
 
 def test_action_pr_comment_surfaces_ci_mode():
@@ -134,7 +139,7 @@ def test_action_pr_comment_surfaces_ci_mode():
     fail_policy.ci_mode in the comment removes that ambiguity."""
     text = Path("action.yml").read_text(encoding="utf-8")
 
-    assert "fail_policy.ci_mode" in text
+    assert "pr-comment.md" in text
     assert "would_fail_ci" in text
 
 

@@ -13,6 +13,8 @@ Writes / verifies:
                                  minor derived from report_schema_version default)
 - docs/packet-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
+- docs/verifier-schema.v0.1.json
+                                (from agents_shipgate.schemas.verifier.VerifierArtifact)
 
 ``--check`` mode is the M4 trust-hardening gate: it generates each schema in
 memory (running the same post-processing as ``write``) and compares it to the
@@ -1019,6 +1021,32 @@ def write_packet_schema(*, check_only: bool = False, drift: list[str] | None = N
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_verifier_schema() -> tuple[Path, str]:
+    """Generate docs/verifier-schema.v0.1.json from VerifierArtifact."""
+
+    from agents_shipgate.schemas.verifier import VerifierArtifact
+
+    schema = VerifierArtifact.model_json_schema()
+    minor = str(VerifierArtifact.model_fields["verifier_schema_version"].default)
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/verifier-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Verifier Artifact v{minor}"
+    schema["description"] = (
+        "JSON Schema for verifier.json. Generated from "
+        "agents_shipgate.schemas.verifier.VerifierArtifact. Do not edit by hand."
+    )
+    target = DOCS / f"verifier-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
+    target, content = build_verifier_schema()
+    return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1026,6 +1054,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("checks_catalog", build_checks_catalog),
     ("report", build_report_schema),
     ("packet", build_packet_schema),
+    ("verifier", build_verifier_schema),
 )
 
 

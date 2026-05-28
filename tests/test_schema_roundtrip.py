@@ -1,8 +1,9 @@
 """Schema round-trip tests (M4 · trust hardening).
 
 Every committed schema under ``docs/`` (``manifest-v0.1.json``,
-``checks.json``, the current-minor ``report-schema.v0.*.json``, and the
-current-minor ``packet-schema.v0.*.json``) MUST match what
+``checks.json``, the current-minor ``report-schema.v0.*.json``,
+the current-minor ``packet-schema.v0.*.json``, and
+``verifier-schema.v0.1.json``) MUST match what
 ``scripts/generate_schemas.py`` produces from the live Pydantic models.
 
 These tests call the generator's builder functions directly — no
@@ -93,6 +94,11 @@ def test_packet_schema_matches_committed_file(generator):
     _assert_match(target, content)
 
 
+def test_verifier_schema_matches_committed_file(generator):
+    target, content = generator.build_verifier_schema()
+    _assert_match(target, content)
+
+
 def test_checks_catalog_matches_committed_file(generator):
     target, content = generator.build_checks_catalog()
     _assert_match(target, content)
@@ -148,6 +154,7 @@ def test_builders_are_pure(generator):
         generator.build_report_schema,
         generator.build_packet_schema,
         generator.build_checks_catalog,
+        generator.build_verifier_schema,
     ):
         target_a, content_a = builder()
         target_b, content_b = builder()

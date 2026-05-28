@@ -15,6 +15,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | Command | Stable flags |
 |---|---|
 | `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format`, `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
@@ -365,6 +366,10 @@ tests on every CI run, not by convention:
     --exclude-standard`) for trigger evaluation. Reads diff content
     only. **Plus** one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled trigger catalog.
+  - **`cli/verify/git.py`** — one shared `subprocess.run` helper invokes
+    local `git rev-parse`, `git diff`, and `git archive` for verify
+    base/head orchestration. It never fetches, uses fixed argv, captures
+    output, and never executes user code.
   - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled fixture directory.
   - **`cli/discovery/agent_instructions/adoption_kit.py`** — one
@@ -536,6 +541,35 @@ The audit log is **tamper-evident, not tamper-proof**: a well-resourced
 adversary who atomically rewrites both the baseline JSON and the audit log
 defeats `verify`. The goal is to make casual or accidental edits observably
 wrong in code review.
+
+### Verify Orchestrator
+
+`agents-shipgate verify` is the canonical ongoing-PR command. It evaluates the
+published trigger catalog against the local diff, optionally scans a locally
+available base tree into an isolated temporary directory, and then runs exactly
+one authoritative head scan. When `--head` is provided, the head scan uses an
+isolated archive of that ref; when omitted, it scans the checked-out workspace.
+`report.json.release_decision.decision` remains the only release gate;
+`verifier.json` is an orchestration artifact.
+
+`verify` never fetches. Callers that want base diff enrichment must make the
+base ref available before invoking the command, for example with
+`actions/checkout` `fetch-depth: 0` or an explicit `git fetch origin <base>` in
+CI. If the base ref, base manifest, or base scan is unavailable, verify records
+`base_status` in `verifier.json`, disables diff enrichment, and leaves the head
+release decision and exit code unchanged.
+
+The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
+`verifier.json`, and `pr-comment.md`. `verify` intentionally requests packet
+JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
+the human PR surface. Use `agents-shipgate scan` when you want the manifest's
+full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
+
+Successful base reports are cached under git metadata
+(`git rev-parse --git-path agents-shipgate/base-scans/...`), not under the
+working tree or report output directory. The cache is a local-iteration
+optimization, safe to miss on ephemeral CI, and verify prunes stale entries
+best-effort after writes.
 
 ### Tool-Surface Diff
 
