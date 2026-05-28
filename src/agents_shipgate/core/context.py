@@ -22,6 +22,7 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
+from agents_shipgate.schemas.verification import VerificationContext
 
 T = TypeVar("T")
 
@@ -55,6 +56,11 @@ class ScanContext:
     # callers that don't thread the index keep working with
     # ``positions.lookup(...) == None``.
     manifest_positions: PositionIndex = field(default_factory=_empty_position_index)
+    # Optional diff-aware metadata supplied by the verifier workflow
+    # (``--changed-files`` today; ``verify`` orchestration in P1). When
+    # None, verify/trust-root checks emit nothing and plain ``scan``
+    # behavior is unchanged. See ``schemas/verification.py``.
+    verification: VerificationContext | None = None
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

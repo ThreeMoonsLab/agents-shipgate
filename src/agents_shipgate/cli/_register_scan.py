@@ -21,8 +21,30 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.verification import VerificationContext
 
 logger = logging.getLogger(__name__)
+
+
+def _build_verification_context(
+    changed_files: Path | None,
+) -> VerificationContext | None:
+    """Build the verification context from a --changed-files file.
+
+    Returns None when no file is given (plain scan behavior). Raises
+    ConfigError when the path is supplied but unreadable — a CLI flag
+    value problem, not a manifest problem.
+    """
+    if changed_files is None:
+        return None
+    try:
+        text = changed_files.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(
+            f"--changed-files file could not be read: {changed_files} ({exc})"
+        ) from exc
+    paths = [line.strip() for line in text.splitlines() if line.strip()]
+    return VerificationContext(changed_files=paths, diff_text_available=False)
 
 
 def register(app: typer.Typer) -> None:
@@ -146,6 +168,17 @@ def register(app: typer.Typer) -> None:
                 "PDF requires the [pdf] extras."
             ),
         ),
+        changed_files: Path | None = typer.Option(
+            None,
+            "--changed-files",
+            help=(
+                "Path to a file of newline-separated changed paths "
+                "(repo-relative). Supplies the verification context so "
+                "trust-root checks (e.g. SHIP-VERIFY-TRUST-ROOT-TOUCHED) "
+                "fire. Single-config scans only; without it, plain scan "
+                "behavior is unchanged."
+            ),
+        ),
         verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
     ) -> None:
         """Run the local-first, static Tool-Use Readiness release gate for AI agent tool surfaces."""
@@ -160,6 +193,7 @@ def register(app: typer.Typer) -> None:
             if ci_mode and ci_mode not in {"advisory", "strict"}:
                 raise ConfigError("--ci-mode must be advisory or strict")
             parsed_fail_on = _parse_fail_on(fail_on)
+            verification_context = _build_verification_context(changed_files)
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)
             guidance = (
@@ -184,6 +218,18 @@ def register(app: typer.Typer) -> None:
 
         try:
             config_paths = _resolve_config_paths(config=config, workspace=workspace)
+            if verification_context is not None and len(config_paths) > 1:
+                # --changed-files describes ONE PR's diff against ONE
+                # manifest's trust roots. Fanning the same changed-files
+                # list across every resolved manifest would mis-attribute
+                # a trust-root touch to unrelated manifests (e.g. flag both
+                # a/ and b/ for an edit under a/). Reject rather than guess.
+                raise ConfigError(
+                    "--changed-files is single-config only, but "
+                    f"{len(config_paths)} manifests resolved. Re-run scan "
+                    "against one manifest (-c <path>) when supplying "
+                    "--changed-files."
+                )
             if len(config_paths) == 1:
                 report, exit_code = run_scan(
                     config_path=config_paths[0],
@@ -202,6 +248,7 @@ def register(app: typer.Typer) -> None:
                     packet_enabled=packet,
                     packet_formats=parsed_packet_formats,
                     no_heuristics=no_heuristics,
+                    verification_context=verification_context,
                 )
                 exit_code = _apply_strict_plugins(
                     report, exit_code, strict_plugins=strict_plugins

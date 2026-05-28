@@ -102,6 +102,7 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
+| `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
 
 ## Check Details
 
@@ -569,7 +570,24 @@ Two sub-kinds, both `low` severity:
 - `resolved_not_pruned` — entry matched no active scan finding. Re-run
   `agents-shipgate baseline save` to drop the entry from the baseline.
 
-## Risk Tags
+### SHIP-VERIFY-TRUST-ROOT-TOUCHED
+
+A PR changed a file that defines the release gate's trust spine — the
+manifest (`shipgate.yaml`), `.agents-shipgate/` state (baselines,
+waivers), `policies/`, `prompts/`, the Shipgate CI gate
+(`.github/workflows/agents-shipgate.yml`), agent instructions
+(`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.cursor/rules/`,
+`.agents/skills/`, `.codex/`), Codex plugin packages (`.codex-plugin/`),
+or tool-surface declarations (`.app.json`, `.mcp.json`, `SKILL.md`).
+
+This is Tier A trust-root protection: pure path/glob classification of
+the changed files. It is the cheap half of the reward-hacking guard — a
+coding agent told to make CI pass can weaken the gate instead of fixing
+the readiness issue, so touching a trust root must require human review.
+The finding fires only when a verification context (changed files) is
+supplied (`agents-shipgate scan --changed-files ...` or, later, `verify`);
+a plain `scan` emits nothing. It is one ordinary `Finding` at `medium`
+severity routed through `release_decision` — never a second verdict.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 

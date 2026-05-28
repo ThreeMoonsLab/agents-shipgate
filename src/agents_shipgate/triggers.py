@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+
+from agents_shipgate.core.globbing import glob_match as _glob_match
 
 _TRIGGERS_FILENAME = "triggers.json"
 
@@ -76,51 +77,36 @@ def load_triggers() -> dict[str, Any]:
     )
 
 
-def _glob_match(pattern: str, path: str) -> bool:
-    """Match ``path`` against a glob extended with ``**`` semantics.
+def _collect_diff_contains(pred: Any, out: set[str]) -> None:
+    """Walk a predicate tree and collect every ``diff_contains`` token."""
+    if not isinstance(pred, dict):
+        return
+    for key in ("any_of", "all_of"):
+        if key in pred:
+            for nested in pred[key]:
+                _collect_diff_contains(nested, out)
+    token = pred.get("diff_contains")
+    if isinstance(token, str):
+        out.add(token)
 
-    ``**/foo`` matches ``foo`` at any depth (including the repo root);
-    ``dir/**`` matches ``dir`` and anything below it; bare ``**``
-    matches zero or more characters across path segments. ``*`` and
-    ``?`` are segment-local (do not cross ``/``). Path separators are
-    forward slashes; backslashes are normalized.
+
+def _matched_diff_tokens(triggers: dict[str, Any], diff_text: str) -> list[str]:
+    """Return the catalog ``diff_contains`` tokens present in ``diff_text``.
+
+    Deterministic (sorted, de-duplicated). These are the stable token
+    forms — decorator names, package names, function calls — that the
+    catalog watches for and that actually appear in the supplied diff.
     """
-    pattern = pattern.replace("\\", "/")
-    path = path.replace("\\", "/")
-    if not any(token in pattern for token in ("*", "?", "[")):
-        return path == pattern
-
-    parts: list[str] = []
-    i = 0
-    n = len(pattern)
-    while i < n:
-        if pattern.startswith("**/", i):
-            parts.append("(?:[^/]+/)*")
-            i += 3
-        elif pattern.startswith("/**", i):
-            parts.append("(?:/.*)?")
-            i += 3
-        elif pattern.startswith("**", i):
-            parts.append(".*")
-            i += 2
-        elif pattern[i] == "*":
-            parts.append("[^/]*")
-            i += 1
-        elif pattern[i] == "?":
-            parts.append("[^/]")
-            i += 1
-        elif pattern[i] == "[":
-            close = pattern.find("]", i + 1)
-            if close == -1:
-                parts.append(re.escape(pattern[i]))
-                i += 1
-            else:
-                parts.append(pattern[i : close + 1])
-                i = close + 1
-        else:
-            parts.append(re.escape(pattern[i]))
-            i += 1
-    return re.fullmatch("".join(parts), path) is not None
+    if not diff_text:
+        return []
+    tokens: set[str] = set()
+    for rule in triggers.get("rules", []):
+        _collect_diff_contains(rule.get("when"), tokens)
+    stop_block = triggers.get("stop_conditions") or {}
+    _collect_diff_contains(
+        {k: v for k, v in stop_block.items() if k != "description"}, tokens
+    )
+    return sorted(token for token in tokens if token in diff_text)
 
 
 def _eval_predicate(
@@ -215,16 +201,26 @@ def evaluate(
 
     Returns a dict with:
 
+    - ``schema_version`` (str) — the trigger catalog's schema version.
+    - ``should_run`` (bool) — friendly alias of ``run_shipgate`` (same
+      value); kept so consumers reading either field agree.
     - ``run_shipgate`` (bool) — final verdict.
-    - ``matched_rules`` (list) — every rule whose ``when`` clause fired.
-    - ``stop_conditions_fired`` (bool) — whether the explicit stop
-      block held; this beats every rule action.
+    - ``force_run`` (bool) — a ``force_run`` rule matched and was not
+      overridden by the stop block (opted-in repo → run on every PR).
     - ``dry_run_recommended`` (bool) — true when a ``dry_run`` rule
       fired and no ``run_shipgate``/``force_run``/``skip_shipgate``
       rule did. Callers that want to be helpful can propose a
       non-mutating ``scan`` even though ``run_shipgate`` is false.
+    - ``skip_reason`` (str|None) — ``None`` when running; otherwise a
+      stable token: ``stop_conditions``, ``skip_rule``, ``dry_run_only``
+      or ``no_match``.
+    - ``stop_conditions_fired`` (bool) — whether the explicit stop
+      block held; this beats every rule action.
     - ``rationale`` (str) — single-sentence explanation.
-    - ``schema_version`` (str) — the trigger catalog's schema version.
+    - ``matched_rules`` (list) — every rule whose ``when`` clause fired.
+    - ``changed_files`` (list) — the input paths, echoed back.
+    - ``diff_tokens`` (list) — catalog ``diff_contains`` tokens that
+      are present in ``diff_text`` (sorted, de-duplicated).
 
     Action precedence (highest first): ``stop_conditions`` → skip;
     ``force_run`` → run (overrides skip; used by manifest-present);
@@ -273,8 +269,10 @@ def evaluate(
     has_dry_run = any(a == ACTION_DRY_RUN for a in actions)
 
     dry_run_recommended = False
+    skip_reason: str | None = None
     if stop_fired:
         run = False
+        skip_reason = "stop_conditions"
         rationale = (
             "Stop conditions hold (detect classifies as non-agent, "
             "no manifest, user did not explicitly request a scan)."
@@ -288,6 +286,7 @@ def evaluate(
         )
     elif has_skip:
         run = False
+        skip_reason = "skip_rule"
         skipping = [m["id"] for m in matched if m["action"] == ACTION_SKIP]
         rationale = (
             "skip_shipgate rule(s) matched (beats run_shipgate): "
@@ -300,6 +299,7 @@ def evaluate(
     elif has_dry_run:
         run = False
         dry_run_recommended = True
+        skip_reason = "dry_run_only"
         dry = [m["id"] for m in matched if m["action"] == ACTION_DRY_RUN]
         rationale = (
             "dry_run rule(s) matched (advisory, no manifest write): "
@@ -307,21 +307,31 @@ def evaluate(
         )
     else:
         run = False
+        skip_reason = "no_match"
         rationale = (
             "No rules matched; nothing in this PR signals a tool-surface change."
         )
 
+    # ``should_run`` is a friendlier alias of ``run_shipgate`` (identical
+    # value); both are kept so 0.x consumers reading either field agree.
     return {
+        "schema_version": triggers.get("schema_version"),
+        "should_run": run,
         "run_shipgate": run,
+        "force_run": has_force_run and not stop_fired,
         "dry_run_recommended": dry_run_recommended,
-        "matched_rules": matched,
+        "skip_reason": skip_reason,
         "stop_conditions_fired": stop_fired,
         "rationale": rationale,
-        "schema_version": triggers.get("schema_version"),
+        "matched_rules": matched,
+        "changed_files": list(paths),
+        "diff_tokens": _matched_diff_tokens(triggers, diff_text),
     }
 
 
-def _git_diff_context(revspec: str | None) -> tuple[list[str], str]:
+def _git_diff_context(
+    revspec: str | None, *, cwd: Path | None = None
+) -> tuple[list[str], str]:
     """Read changed paths and the unified-diff body from ``git diff``.
 
     ``revspec`` semantics:
@@ -336,25 +346,33 @@ def _git_diff_context(revspec: str | None) -> tuple[list[str], str]:
       NOT captured in ``diff_text`` because reading arbitrary unstaged
       files into memory is risky.
 
+    ``cwd`` selects the git working directory; ``None`` uses the
+    process cwd.
+
     Returns ``([paths], diff_text)``.
     """
+    run_kwargs: dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "check": True,
+    }
+    if cwd is not None:
+        run_kwargs["cwd"] = str(cwd)
     if revspec:
         names_cmd = ["git", "diff", "--name-only", revspec]
         body_cmd = ["git", "diff", revspec]
     else:
         names_cmd = ["git", "diff", "HEAD", "--name-only"]
         body_cmd = ["git", "diff", "HEAD"]
-    names = subprocess.run(names_cmd, capture_output=True, text=True, check=True)
-    body = subprocess.run(body_cmd, capture_output=True, text=True, check=True)
+    names = subprocess.run(names_cmd, **run_kwargs)
+    body = subprocess.run(body_cmd, **run_kwargs)
     paths = [line for line in names.stdout.splitlines() if line.strip()]
     diff_text = body.stdout
 
     if not revspec:
         untracked = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard"],
-            capture_output=True,
-            text=True,
-            check=True,
+            **run_kwargs,
         )
         for line in untracked.stdout.splitlines():
             stripped = line.strip()

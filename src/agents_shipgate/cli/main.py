@@ -23,6 +23,7 @@ from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
+from agents_shipgate.cli.trigger import trigger as _trigger_command
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -76,6 +77,13 @@ app.command(
         "reviewer triage."
     ),
 )(_findings_command)
+app.command(
+    "trigger",
+    help=(
+        "Evaluate the trigger catalog against a diff and emit a run/skip "
+        "verdict. Reads --changed-files / --diff, or --base/--head (git)."
+    ),
+)(_trigger_command)
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)

@@ -231,12 +231,17 @@ Two implicit triggers also fire even when no row above matches:
 - **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
 - **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, or `google-adk` can change AST extraction even without app-code edits.
 
-A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To verify a path list locally:
+A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To evaluate a diff locally, use the first-class `trigger` subcommand:
 
 ```bash
-python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md
-python -m agents_shipgate.triggers --list-rules --json
+# From a list of changed paths (and optional diff body for diff_contains rules):
+agents-shipgate trigger --changed-files changed.txt --diff pr.diff --json
+# Or straight from git (the ONLY mode that shells out to git):
+agents-shipgate trigger --base origin/main --head HEAD --json
+agents-shipgate trigger --list-rules --json
 ```
+
+The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, and `diff_tokens`. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
 
 **Stop conditions.** Stop and do not run `init` only when **all** of these hold:
 
@@ -426,7 +431,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--no-heuristics`, `--verbose`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--workspace`, `--json`, `--verbose` |
@@ -434,6 +439,7 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
 | `agents-shipgate findings` | `--from`, `--provenance-kind`, `--include-suppressed`, `--json` |
+| `agents-shipgate trigger` | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--out` |
@@ -1096,6 +1102,7 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
+| `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
 
 ## Check Details
 
@@ -1563,7 +1570,24 @@ Two sub-kinds, both `low` severity:
 - `resolved_not_pruned` — entry matched no active scan finding. Re-run
   `agents-shipgate baseline save` to drop the entry from the baseline.
 
-## Risk Tags
+### SHIP-VERIFY-TRUST-ROOT-TOUCHED
+
+A PR changed a file that defines the release gate's trust spine — the
+manifest (`shipgate.yaml`), `.agents-shipgate/` state (baselines,
+waivers), `policies/`, `prompts/`, the Shipgate CI gate
+(`.github/workflows/agents-shipgate.yml`), agent instructions
+(`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.cursor/rules/`,
+`.agents/skills/`, `.codex/`), Codex plugin packages (`.codex-plugin/`),
+or tool-surface declarations (`.app.json`, `.mcp.json`, `SKILL.md`).
+
+This is Tier A trust-root protection: pure path/glob classification of
+the changed files. It is the cheap half of the reward-hacking guard — a
+coding agent told to make CI pass can weaken the gate instead of fixing
+the readiness issue, so touching a trust root must require human review.
+The finding fires only when a verification context (changed files) is
+supplied (`agents-shipgate scan --changed-files ...` or, later, `verify`);
+a plain `scan` emits nothing. It is one ordinary `Finding` at `medium`
+severity routed through `release_decision` — never a second verdict.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 

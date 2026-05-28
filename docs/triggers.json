@@ -81,6 +81,21 @@
       "command": "agents-shipgate detect --workspace . --json"
     },
     {
+      "id": "TRIGGER-N8N-WORKFLOW-CHANGED",
+      "agents_md_row": "Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories",
+      "when": {
+        "any_of": [
+          {"diff_contains": "n8n-nodes-base."},
+          {"diff_contains": "n8n-nodes-langchain."},
+          {"diff_contains": "@n8n/n8n-nodes-"},
+          {"glob": "**/*n8n*.json"},
+          {"glob": "**/.n8n/**"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "n8n workflow JSON declares an AI tool surface (AI Agent tool sub-nodes, MCP client/server tools, HTTP Request tools); `n8n-nodes-*` node-type tokens are the stable in-diff marker. Changes need a tool-use readiness check."
+    },
+    {
       "id": "TRIGGER-FUNCTION-TOOL-DECORATOR",
       "agents_md_row": "Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK)",
       "when": {

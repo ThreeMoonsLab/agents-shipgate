@@ -226,7 +226,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="import:subprocess",
-        line=25,
+        line=24,
         snippet="import subprocess",
         rationale=(
             "Trigger evaluation runs ``git diff`` to determine whether a "
@@ -237,43 +237,54 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=347,
-        snippet=(
-            "subprocess.run(names_cmd, capture_output=True, text=True, "
-            "check=True)"
-        ),
+        line=367,
+        snippet="subprocess.run(names_cmd, **run_kwargs)",
         rationale=(
             "git-diff change-name pass: ``git diff --name-only "
-            "base...HEAD``. argv constructed inside Shipgate from "
-            "validated base ref (names_cmd built at call site)."
+            "base...HEAD``. argv (names_cmd) constructed inside Shipgate "
+            "from validated base ref; run_kwargs is a fixed capture-only "
+            "dict (capture_output/text/check, optional cwd)."
         ),
     ),
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=348,
-        snippet=(
-            "subprocess.run(body_cmd, capture_output=True, text=True, "
-            "check=True)"
-        ),
+        line=368,
+        snippet="subprocess.run(body_cmd, **run_kwargs)",
         rationale=(
             "git-diff body pass: ``git diff base...HEAD`` for full "
-            "diff body inspection. argv constructed inside Shipgate "
-            "(body_cmd built at call site)."
+            "diff body inspection. argv (body_cmd) constructed inside "
+            "Shipgate; run_kwargs is the same fixed capture-only dict."
         ),
     ),
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=353,
+        line=373,
         snippet=(
             "subprocess.run(['git', 'ls-files', '--others', "
-            "'--exclude-standard'], capture_output=True, text=True, "
-            "check=True)"
+            "'--exclude-standard'], **run_kwargs)"
         ),
         rationale=(
             "git-untracked enumeration: ``git ls-files --others "
             "--exclude-standard``. Fixed argv, capture-only, no shell."
+        ),
+    ),
+    # cli/trigger.py — the `agents-shipgate trigger` subcommand imports
+    # subprocess ONLY to catch ``subprocess.CalledProcessError`` from the
+    # shared ``triggers._git_diff_context`` git probe (allowlisted above).
+    # It issues no subprocess call of its own — git is invoked exclusively
+    # inside triggers.py, and only when --base/--head is passed.
+    AllowedException(
+        relative_path="cli/trigger.py",
+        surface="import:subprocess",
+        line=23,
+        snippet="import subprocess",
+        rationale=(
+            "trigger subcommand catches subprocess.CalledProcessError from "
+            "the shared triggers._git_diff_context git probe; this file "
+            "issues no subprocess.run call itself (git runs in triggers.py "
+            "only, and only under --base/--head)."
         ),
     ),
     # cli/self_check.py — validates the installed environment via __import__
@@ -298,7 +309,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="import:importlib.resources.files",
-        line=27,
+        line=26,
         snippet="from importlib.resources import files",
         rationale=(
             "triggers.py reads the bundled docs/triggers.json catalog from "
@@ -310,7 +321,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:importlib.resources.files",
-        line=61,
+        line=62,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled trigger catalog (docs/triggers.json) "
@@ -1214,7 +1225,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
 
     Confirms that ``triggers.py`` has THREE distinct
     ``subprocess.run`` AllowedException entries (one per call site at
-    lines 347, 348, 353), not one blanket entry that permits all
+    lines 367, 368, 373), not one blanket entry that permits all
     occurrences. Same for ``cli/discovery/artifacts.py`` (two call
     sites at 361 and 377). Adding a fourth ``subprocess.run`` to
     ``triggers.py`` must require adding a new ALLOWED_EXCEPTIONS entry.
@@ -1234,7 +1245,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     assert len(triggers_subprocess_run) == 3, (
         f"Expected 3 distinct AllowedException entries for "
         f"triggers.py subprocess.run calls (one per call site at "
-        f"lines 347, 348, 353), got {len(triggers_subprocess_run)}. "
+        f"lines 367, 368, 373), got {len(triggers_subprocess_run)}. "
         f"Per-call-site pinning is the structural fix for the "
         f"P1 review finding — each subprocess.run call must have "
         f"its own entry with line + snippet pinning."

@@ -23,6 +23,7 @@ from agents_shipgate.core.lenses.action_surface import (
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.verification import VerificationContext
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent
 from .patching import _attach_patches, _check_metadata_lookup
@@ -41,6 +42,7 @@ def _run_checks_and_decide(
     plugins_enabled: bool | None,
     suggest_patches: bool,
     no_heuristics: bool,
+    verification_context: VerificationContext | None = None,
 ) -> _ChecksDecision:
     """Phase 5: build internal action-surface facts, run all checks
     (built-in + plugin + policy-pack + action-surface policies),
@@ -76,6 +78,7 @@ def _run_checks_and_decide(
         framework_artifacts=inputs.artifact_bag,
         action_surface_facts=action_surface_facts,
         manifest_positions=manifest_positions,
+        verification=verification_context,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(

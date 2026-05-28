@@ -1,0 +1,35 @@
+# Check catalog · category: verify
+#
+# This file is the source of truth for the 'verify' category of
+# Agents Shipgate built-in checks (trust-root protection — the
+# reward-hacking guard for AI coding workflows). Loaded at import time
+# by agents_shipgate.checks._metadata_loader.load_check_metadata().
+#
+# Field reference: agents_shipgate.schemas.checks.CheckMetadata.
+# Field order in this file follows the loader's canonical layout
+# (identity → severity → narrative → evidence → remediation).
+# Fields equal to the model default may be omitted.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand when the
+# user-facing prose (description/rationale/recommendation) changes.
+checks:
+- id: SHIP-VERIFY-TRUST-ROOT-TOUCHED
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  description: A PR changed a release trust-root file (manifest, shipgate state,
+    policy, prompts, the Shipgate CI gate, agent instructions, or a tool-surface
+    declaration).
+  rationale: Trust-root files define the release gate. A coding agent told to make
+    CI pass can weaken the gate instead of fixing the underlying readiness issue
+    (reward hacking); touching a trust root must therefore require human review.
+  fires_when: A changed file from the verification context matches a trust-root
+    surface glob. Emits nothing on a plain scan (no verification context).
+  evidence_fields:
+  - changed_file
+  - trust_root_class
+  - matched_glob
+  recommendation: Have a human review the trust-root change before merge; do not
+    weaken the gate to pass CI.

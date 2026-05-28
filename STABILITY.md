@@ -14,7 +14,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 
 | Command | Stable flags |
 |---|---|
-| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
+| `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
@@ -23,6 +23,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` (v0.12+) | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
 | `agents-shipgate findings` (v0.20+) | `--from` (default: `agents-shipgate-reports/report.json`), `--provenance-kind`, `--include-suppressed`, `--json` |
+| `agents-shipgate trigger` (v0.11+) | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
@@ -371,6 +372,11 @@ tests on every CI run, not by convention:
     first-party adoption-kit files from the installed wheel. Downstream
     customization is explicit repo-local file reading through
     `--agent-instructions-kit`, never dynamic imports or network fetches.
+  - **`cli/trigger.py`** — imports `subprocess` only to catch
+    `subprocess.CalledProcessError` from the shared
+    `triggers._git_diff_context` git probe. The `agents-shipgate trigger`
+    subcommand issues no `subprocess.run` call of its own; git runs in
+    `triggers.py` exclusively, and only when `--base`/`--head` is passed.
   - **`cli/self_check.py`** — one `__import__(module_name)` call
     validates that supplied modules import cleanly. Runs only under
     `agents-shipgate self-check`, never during scan.
