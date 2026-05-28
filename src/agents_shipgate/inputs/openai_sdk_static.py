@@ -75,8 +75,6 @@ def _load_python_file(
     path: Path,
     source: ToolSourceConfig,
     base_dir: Path,
-    *,
-    source_ref: str | None = None,
 ) -> list[Tool]:
     try:
         tree = parse_python_file(path, label="OpenAI Agents SDK")
@@ -86,7 +84,7 @@ def _load_python_file(
             "OpenAI Agents SDK entrypoint",
         )
         raise InputParseError(message) from exc
-    ref = source_ref or display_path(path, base_dir)
+    ref = display_path(path, base_dir)
     decorator_names = _function_tool_decorator_names(tree)
     return [
         _function_to_tool(node, source, ref, decorator_names)

@@ -275,12 +275,14 @@ severity, fingerprints, baselines, `release_decision`, or CI exit behavior.
 
 ### Static Python extraction
 
-Framework AST extractors share the same runtime/context parameter skip list:
-`self`, `cls`, `ctx`, `context`, `config`, `runtime`, `run_manager`, and
-`callbacks`. Those names are treated as framework plumbing and are omitted from
-normalized tool input schemas. For OpenAI Agents SDK sources, file and directory
-mode both emit manifest-relative POSIX `source_ref` values; directory mode scans
-only immediate `*.py` files in sorted order.
+OpenAI Agents SDK, CrewAI, and LangChain/LangGraph AST extractors share the
+same runtime/context parameter skip list: `self`, `cls`, `ctx`, `context`,
+`config`, `runtime`, `run_manager`, and `callbacks`. Those names are treated as
+framework plumbing and are omitted from normalized tool input schemas. Google
+ADK uses its own static extractor skip list: `self`, `ctx`, `context`, and
+`tool_context`. For OpenAI Agents SDK sources, file and directory mode both emit
+manifest-relative POSIX `source_ref` values; directory mode scans only immediate
+`*.py` files in sorted order.
 
 ### Fingerprint algorithm
 
