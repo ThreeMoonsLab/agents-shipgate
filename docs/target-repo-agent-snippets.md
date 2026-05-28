@@ -274,3 +274,27 @@ jobs:
 
 Advisory mode reports findings without blocking merge. Move to strict mode only
 after the team has triaged current findings and saved a baseline.
+
+## Verify-On-PR Instruction
+
+Add this verifier instruction to any agent-facing surface in the target repo
+(for example the body of `AGENTS.md` or `CLAUDE.md`). It is the ongoing-PR
+companion to the bootstrap snippets above:
+
+```text
+Before claiming completion on any PR that changes agent tools, MCP exports,
+OpenAPI specs, prompts, permissions, policies, CI gates, or shipgate.yaml, run:
+`agents-shipgate verify --base origin/main --head HEAD --json`. Read
+agents-shipgate-reports/verifier.json first, then report.json. Do not claim
+completion when merge_verdict is blocked, insufficient_evidence, or
+human_review_required unless the user has explicitly accepted the human review
+requirement. Never weaken shipgate.yaml, Shipgate CI, AGENTS.md, skills, policy
+packs, baselines, waivers, or suppressions merely to make Shipgate pass.
+```
+
+`verifier.json` leads with `merge_verdict`
+(`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /
+`unknown`), a deterministic projection of `release_decision.decision` — the gate,
+which lives in `report.json`. See
+[`use-cases/ai-generated-agent-prs.md`](use-cases/ai-generated-agent-prs.md) for
+the full PR-verification walkthrough.

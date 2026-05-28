@@ -1,7 +1,11 @@
 {
   "schema_version": 1,
   "target": "claude-code-skill",
-  "prior_render_sha256": {},
+  "prior_render_sha256": {
+    "SKILL.md": [
+      "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019"
+    ]
+  },
   "bootstrap_legacy_sha256": {
     "SKILL.md": [
       "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9"

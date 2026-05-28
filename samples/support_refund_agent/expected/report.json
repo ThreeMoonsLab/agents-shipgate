@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.21",
+  "report_schema_version": "0.22",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -3092,11 +3092,13 @@
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
+    "capability_changes": 0,
     "first_recommended_surface": {
       "kind": "release_decision",
       "name": "release_decision",
       "path": "report.release_decision",
       "why": "Release is blocked; read release_decision.blockers[] for the gating findings."
     }
-  }
+  },
+  "capability_changes": []
 }

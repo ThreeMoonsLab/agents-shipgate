@@ -154,6 +154,33 @@ outputs:
   actions_removed:
     description: Number of actions removed by Action Surface Diff.
     value: ${{ steps.report_outputs.outputs.actions_removed }}
+  should_run:
+    description: Whether the trigger catalog said Shipgate should run on this diff (`true`/`false`). v0.22+.
+    value: ${{ steps.report_outputs.outputs.should_run }}
+  trigger_rule_ids:
+    description: Comma-separated IDs of the trigger rules that matched. v0.22+.
+    value: ${{ steps.report_outputs.outputs.trigger_rule_ids }}
+  merge_verdict:
+    description: "Merge verdict projected from release_decision (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). v0.22+."
+    value: ${{ steps.report_outputs.outputs.merge_verdict }}
+  can_merge_without_human:
+    description: Whether the PR can merge without human review (`true`/`false`). v0.22+.
+    value: ${{ steps.report_outputs.outputs.can_merge_without_human }}
+  trust_root_touched:
+    description: Whether the PR changed a release-gate trust root (SHIP-VERIFY-TRUST-ROOT-TOUCHED fired). v0.22+.
+    value: ${{ steps.report_outputs.outputs.trust_root_touched }}
+  policy_weakened:
+    description: Whether semantic policy weakening was detected. Reserved; currently always `false`. v0.22+.
+    value: ${{ steps.report_outputs.outputs.policy_weakened }}
+  capability_changes_added:
+    description: Number of added agent capabilities (actions/tools/scopes) in the PR diff. v0.22+.
+    value: ${{ steps.report_outputs.outputs.capability_changes_added }}
+  capability_changes_modified:
+    description: Number of modified agent capabilities in the PR diff. v0.22+.
+    value: ${{ steps.report_outputs.outputs.capability_changes_modified }}
+  capability_changes_removed:
+    description: Number of removed agent capabilities in the PR diff. v0.22+.
+    value: ${{ steps.report_outputs.outputs.capability_changes_removed }}
 
 runs:
   using: composite
@@ -275,6 +302,30 @@ runs:
                 action_surface_diff = payload.get("action_surface_diff") or {}
                 action_diff_summary = action_surface_diff.get("summary") or {}
 
+        # verifier.json carries the merge-decision projection + trigger result.
+        # It is always written by `verify` (even on a trigger-skip), so these
+        # outputs are populated whether or not a head scan ran.
+        verifier = {}
+        if verifier_json.exists():
+            with verifier_json.open(encoding="utf-8") as handle:
+                verifier = json.load(handle)
+        trigger = verifier.get("trigger") or {}
+        capability_changes = verifier.get("capability_changes") or []
+        trigger_rule_ids = ",".join(
+            m.get("id", "")
+            for m in (trigger.get("matched_rules") or [])
+            if m.get("id")
+        )
+
+        def _count_caps(kinds: set) -> int:
+            return sum(
+                1 for c in capability_changes if c.get("change_type") in kinds
+            )
+
+        cap_added = _count_caps({"action_added", "tool_added", "scope_added"})
+        cap_removed = _count_caps({"action_removed", "tool_removed", "scope_removed"})
+        cap_modified = len(capability_changes) - cap_added - cap_removed
+
         def clean(value: object) -> str:
             # `value or ""` would emit 0 as "", which breaks workflow
             # checks like `if: outputs.blocker_count == '0'`. Treat None
@@ -308,6 +359,22 @@ runs:
             "actions_added": action_diff_summary.get("actions_added", 0),
             "actions_modified": action_diff_summary.get("actions_modified", 0),
             "actions_removed": action_diff_summary.get("actions_removed", 0),
+            # v0.22 verifier (merge-decision) projection. Sourced from
+            # verifier.json so they populate on skip and run alike.
+            "should_run": str(bool(trigger.get("should_run"))).lower(),
+            "trigger_rule_ids": trigger_rule_ids,
+            "merge_verdict": verifier.get("merge_verdict", ""),
+            "can_merge_without_human": str(
+                bool(verifier.get("can_merge_without_human"))
+            ).lower(),
+            "trust_root_touched": str(bool(verifier.get("trust_root_touched"))).lower(),
+            # SHIP-VERIFY-POLICY-WEAKENED (semantic policy-weakening detection)
+            # is a future trust-root pass; constant false until it ships so
+            # consumers do not read a false signal as "no weakening detected".
+            "policy_weakened": "false",
+            "capability_changes_added": cap_added,
+            "capability_changes_modified": cap_modified,
+            "capability_changes_removed": cap_removed,
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():

@@ -12,10 +12,10 @@ agents-shipgate contract --json
 
 - Latest release: `v0.10.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.21` — [`docs/report-schema.v0.21.json`](report-schema.v0.21.json)
+- Current report schema: `0.22` — [`docs/report-schema.v0.22.json`](report-schema.v0.22.json)
 - Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
-- Frozen-reference report schemas: [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
 ## Read these first for release gating
@@ -50,6 +50,53 @@ do not use it as a release verdict. The release gate is still
 must make the base ref available before invocation. Supplying `--head` makes
 verify scan an isolated archive of that ref; omitting it scans the checked-out
 workspace.
+
+`agents-shipgate verify --preview --json` is a lightweight relevance check — no
+scan, no manifest required, exits 0. It emits a `verifier.json` with
+`mode: "preview"` and a `first_next_action` carrying the install/verify command.
+Use it as the first touch before a full scan. To evaluate just the run/skip
+trigger, run `agents-shipgate trigger --base origin/main --head HEAD --json`.
+
+In `agents-shipgate-reports/verifier.json`, read these additive fields
+(`verifier_schema_version` stays `"0.1"`; full schema
+[`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)). **Lead with
+`merge_verdict`.** Every field below is a mirror or deterministic projection of
+`report.json`; `release_decision.decision` remains the gate.
+
+- `merge_verdict` — `"mergeable"` / `"human_review_required"` /
+  `"insufficient_evidence"` / `"blocked"` / `"unknown"`. Deterministic projection
+  of `release_decision.decision` (`passed`→`mergeable`,
+  `review_required`→`human_review_required`,
+  `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
+  decision→`unknown`). It cannot disagree with the gate; switch on the enum with
+  an `unknown`/`human_review_required` fallback for future values.
+- `can_merge_without_human` — `bool`.
+- `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
+- `headline` — single-sentence, PR-comment-friendly summary (or `null`).
+- `human_review` — `{required: bool, why: str|null}`.
+- `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
+  The `actor` separates mechanical coding-agent work from human-only decisions.
+- `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
+  root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
+  policy packs, prompts, baselines, waivers, etc.). Backed by the
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED` check.
+- `capability_changes[]` — `{id, change_type, subject_kind, subject, risk_tags,
+  release_impact, rationale, related_finding_ids, ...}`. `change_type` is
+  snake_case (`action_added`, `action_removed`, `action_modified`,
+  `tool_added`/`tool_removed`/`tool_modified`,
+  `scope_added`/`scope_removed`/`scope_modified`, `approval_policy_removed`, …);
+  `release_impact` ∈ `{none, informational, review_required, blocks_release,
+  insufficient_evidence}` and mirrors the gate.
+- `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
+
+`verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
+`head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an
+`artifacts` map. The matching GitHub Action outputs are `merge_verdict`,
+`can_merge_without_human`, `trust_root_touched`, and
+`capability_changes_{added,modified,removed}` (the original `decision`,
+`blocker_count`, `review_item_count`, `ci_would_fail` outputs are preserved). See
+[STABILITY.md §Verify Orchestrator](../STABILITY.md#verify-orchestrator) for the
+authoritative contract.
 
 ## Read these for release review
 
@@ -174,7 +221,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.21.json`](report-schema.v0.21.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.22.json`](report-schema.v0.22.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

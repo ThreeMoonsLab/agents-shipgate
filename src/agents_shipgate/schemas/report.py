@@ -487,10 +487,88 @@ class ReviewerSummary(BaseModel):
     privacy_redactions: int = 0
     baseline_integrity_issues: int = 0
 
+    # v0.22: count of capability-change rows (``report.capability_changes``).
+    # Pure count of the same list; canonical ownership of the count lives
+    # here rather than spawning a third summary block.
+    capability_changes: int = 0
+
     # Deterministic recommended starting surface for the reviewer. None
     # only when the scan is fully clean (verdict=passed + every count
     # above is zero).
     first_recommended_surface: ReviewerSurfacePointer | None = None
+
+
+# --- v0.22: capability-change projection ------------------------------------
+#
+# A deterministic "what changed about agent capability?" rollup of the
+# existing action-surface and tool-surface diffs, shaped for an AI coding
+# agent / reviewer reading a PR. It is a pure PROJECTION — release_impact is
+# a read of ``release_decision``, never a second gate (one-decision-engine
+# contract). See docs/engineering/ai-coding-workflow-verifier.md §7.1.
+CapabilityChangeType = Literal[
+    # Tier A — derivable today from action_surface_diff + tool_surface_diff.
+    "action_added",
+    "action_removed",
+    "action_modified",
+    "tool_added",
+    "tool_removed",
+    "tool_modified",
+    "scope_added",
+    "scope_removed",
+    "scope_modified",
+    "approval_policy_removed",
+    # Tier B — defined for a stable closed enum, but only emitted once the
+    # trust-root weakening checks (P3) that back them exist. The projection
+    # never produces these values today.
+    "ci_gate_modified",
+    "shipgate_policy_modified",
+    "agent_instruction_modified",
+    "baseline_modified",
+    "waiver_or_suppression_modified",
+]
+CapabilitySubjectKind = Literal[
+    "tool",
+    "action",
+    "scope",
+    "policy",
+    "ci",
+    "baseline",
+    "agent_instruction",
+    "manifest",
+    "unknown",
+]
+CapabilityReleaseImpact = Literal[
+    "none",
+    "informational",
+    "review_required",
+    "blocks_release",
+    "insufficient_evidence",
+]
+
+
+class CapabilityChange(BaseModel):
+    """One deterministic "what changed about agent capability?" row.
+
+    Projected from ``action_surface_diff`` / ``tool_surface_diff`` rows and
+    joined to ``findings`` + ``release_decision`` for ``release_impact``.
+    ``release_impact`` mirrors the gate (``release_decision``); this block
+    never introduces a finding-independent blocker.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    change_type: CapabilityChangeType
+    subject_kind: CapabilitySubjectKind
+    subject: str
+    risk_tags: list[str] = Field(default_factory=list)
+    source_path: str | None = None
+    source_start_line: int | None = None
+    provenance_kind: str = "static_declaration"
+    confidence: Confidence = "medium"
+    release_impact: CapabilityReleaseImpact = "none"
+    rationale: str
+    related_finding_ids: list[str] = Field(default_factory=list)
 
 
 class SeverityOverrideAuditEntry(BaseModel):
@@ -629,7 +707,13 @@ class ReadinessReport(BaseModel):
     # (manifest YAML path + line) for high-risk findings whose
     # triggering evidence also lives in the manifest. Old consumers
     # ignore the new fields.
-    report_schema_version: str = "0.21"
+    # v0.22 (additive): top-level ``capability_changes[]`` — a
+    # deterministic "what changed about agent capability?" projection of
+    # the action/tool surface diffs, shaped for AI coding agents reading a
+    # PR. Pure read of release_decision for ``release_impact`` (no new
+    # gate). Optional at the Python level (default_factory) so older test
+    # helpers constructing minimal reports keep working.
+    report_schema_version: str = "0.22"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -714,3 +798,7 @@ class ReadinessReport(BaseModel):
     # test helpers can construct minimal reports; build_report() always
     # populates it for emitted scans.
     reviewer_summary: ReviewerSummary | None = None
+    # v0.22: deterministic capability-change projection (see CapabilityChange
+    # above). Populated after the surface diffs are enriched. Default empty
+    # list so older test helpers / minimal reports keep working.
+    capability_changes: list[CapabilityChange] = Field(default_factory=list)

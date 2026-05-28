@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.21",
+  "report_schema_version": "0.22",
   "run_id": "agents_shipgate_529a14acc6ebdc81",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
@@ -2505,11 +2505,13 @@
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
+    "capability_changes": 0,
     "first_recommended_surface": {
       "kind": "lens",
       "name": "capability_intent_diff",
       "path": "report.misalignments",
       "why": "The capability/intent diff surfaced misalignments between declared agent purpose and observed tool surface; read misalignments[] for the specifics."
     }
-  }
+  },
+  "capability_changes": []
 }

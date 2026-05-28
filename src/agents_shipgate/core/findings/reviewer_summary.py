@@ -516,5 +516,9 @@ def build_reviewer_summary(
         severity_overrides_tier_crossed=severity_overrides_tier_crossed,
         privacy_redactions=privacy_redactions,
         baseline_integrity_issues=baseline_integrity_issues,
+        # v0.22: pure count of the capability-change projection. Read from
+        # report.capability_changes, which final_report.py populates before
+        # calling this builder.
+        capability_changes=len(report.capability_changes),
         first_recommended_surface=pointer,
     )

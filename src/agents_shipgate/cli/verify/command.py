@@ -10,7 +10,7 @@ from agents_shipgate.cli._helpers import _parse_fail_on
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 
-from .orchestrator import run_verify
+from .orchestrator import run_preview, run_verify
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,16 @@ def verify(
             "Omit to scan the checked-out workspace."
         ),
     ),
+    preview: bool = typer.Option(
+        False,
+        "--preview",
+        help=(
+            "Lightweight relevance check: evaluate triggers and report "
+            "whether Shipgate is relevant + what to run next, WITHOUT "
+            "running a scan, requiring a manifest, or writing any files "
+            "beyond the verifier artifacts. Always exits 0."
+        ),
+    ),
     out: Path | None = typer.Option(
         None,
         "--out",
@@ -49,6 +59,11 @@ def verify(
         "text",
         "--format",
         help="Verifier stdout format: text or json. Scan artifacts are fixed.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Shortcut for --format json (the coding-agent surface).",
     ),
     ci_mode: str | None = typer.Option(
         None,
@@ -106,30 +121,41 @@ def verify(
 
     try:
         configure_logging(verbose=verbose)
-        stdout_format = _parse_verify_format(format_)
+        # --json is a shortcut for --format json so the documented coding-agent
+        # commands (verify ... --json) work; it wins over --format when set.
+        stdout_format = "json" if json_output else _parse_verify_format(format_)
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
-        head_ref = head or "HEAD"
-        verifier, _report, exit_code = run_verify(
-            workspace=workspace,
-            config=config,
-            base=base,
-            head=head_ref,
-            archive_head=head is not None,
-            out=out,
-            ci_mode=ci_mode,
-            fail_on=parsed_fail_on,
-            baseline=baseline,
-            baseline_mode=baseline_mode,
-            diff_from=diff_from,
-            policy_packs=policy_packs,
-            plugins_enabled=False if no_plugins else None,
-            strict_plugins=strict_plugins,
-            suggest_patches=suggest_patches,
-            no_heuristics=no_heuristics,
-            verbose=verbose,
-        )
+        if preview:
+            verifier, _report, exit_code = run_preview(
+                workspace=workspace,
+                config=config,
+                base=base,
+                head=head,
+                out=out,
+            )
+        else:
+            head_ref = head or "HEAD"
+            verifier, _report, exit_code = run_verify(
+                workspace=workspace,
+                config=config,
+                base=base,
+                head=head_ref,
+                archive_head=head is not None,
+                out=out,
+                ci_mode=ci_mode,
+                fail_on=parsed_fail_on,
+                baseline=baseline,
+                baseline_mode=baseline_mode,
+                diff_from=diff_from,
+                policy_packs=policy_packs,
+                plugins_enabled=False if no_plugins else None,
+                strict_plugins=strict_plugins,
+                suggest_patches=suggest_patches,
+                no_heuristics=no_heuristics,
+                verbose=verbose,
+            )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
         raise typer.Exit(2) from exc

@@ -16,14 +16,20 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputP
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.report import (
     BaselineDelta,
+    CapabilityChange,
     EvidenceCoverageDecision,
     FailPolicy,
+    Finding,
     ReadinessReport,
     ReleaseDecision,
     ReportSummary,
     ToolSurfaceSummary,
 )
-from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierHumanReview,
+    VerifierNextAction,
+)
 
 runner = CliRunner()
 
@@ -196,6 +202,96 @@ def test_pr_comment_keeps_code_span_values_unescaped() -> None:
     assert "`agents-shipgate-reports/report.md`" in comment
     assert "agents\\-shipgate\\-reports" not in comment
     assert "workflow artifact" in comment
+
+
+def test_pr_comment_blocked_leads_with_capability_changes() -> None:
+    changes = [
+        CapabilityChange(
+            id=f"cap_{i}",
+            change_type="action_added",
+            subject_kind="action",
+            subject=f"stripe.tool_{i}",
+            risk_tags=["financial_write"],
+            release_impact="blocks_release" if i == 0 else "informational",
+            rationale="money-moving action lacks approval and idempotency evidence",
+        )
+        for i in range(7)
+    ]
+    verifier = VerifierArtifact(
+        workspace="/w",
+        config="shipgate.yaml",
+        base_ref="origin/main",
+        trigger={"rationale": "function tool decorator"},
+        base_status="succeeded",
+        head_status="succeeded",
+        mode="advisory",
+        decision="blocked",
+        merge_verdict="blocked",
+        can_merge_without_human=False,
+        human_review=VerifierHumanReview(required=True, why="Approval policy needed."),
+        first_next_action=VerifierNextAction(
+            actor="human",
+            kind="review",
+            command=None,
+            why="A human must decide the approval/idempotency policy.",
+        ),
+        capability_changes=changes,
+        artifacts={
+            "verifier_json": "agents-shipgate-reports/verifier.json",
+            "report_json": "agents-shipgate-reports/report.json",
+        },
+    )
+    report = _report(decision="blocked", exit_code=20)
+
+    comment = render_pr_comment(verifier, report=report)
+
+    # Leads with the merge verdict, then the capability delta.
+    assert comment.splitlines()[1] == "## Agents Shipgate: blocked"
+    assert "This PR changes what the agent can do." in comment
+    assert "### Capability changes" in comment
+    assert "| Impact | Change | Subject | Why |" in comment
+    # At most 5 capability rows are shown (7 supplied).
+    rows = [
+        line
+        for line in comment.splitlines()
+        if line.startswith("| ") and "Impact" not in line
+    ]
+    assert len(rows) == 5
+    assert "blocks release" in comment
+    assert "Can merge without human: `false`" in comment
+    assert "Artifacts:" in comment
+
+
+def test_pr_comment_does_not_dump_raw_finding_evidence() -> None:
+    # The comment must not leak raw values; it only renders the projected
+    # capability rows (subject + rationale) and blocker/check titles, never
+    # finding evidence payloads.
+    report = _report(decision="review_required", exit_code=0)
+    report.findings.append(
+        Finding(
+            id="fp_secret",
+            fingerprint="fps",
+            check_id="SHIP-X",
+            title="finding title",
+            severity="high",
+            category="x",
+            evidence={"raw_value": "TOPSECRET_TOKEN_123"},
+            recommendation="r",
+        )
+    )
+    verifier = VerifierArtifact(
+        workspace="/w",
+        config="shipgate.yaml",
+        trigger={"rationale": "x"},
+        head_status="succeeded",
+        merge_verdict="human_review_required",
+        capability_changes=[],
+        artifacts={},
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "TOPSECRET_TOKEN_123" not in comment
 
 
 def test_verify_missing_base_ref_degrades_to_head_only(
@@ -489,6 +585,168 @@ def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
     assert not old.exists()
     assert new.exists()
     assert newest.exists()
+
+
+# --- merge-verdict projection (T6) -----------------------------------------
+
+
+def test_verify_maps_blocked_decision_to_blocked_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)  # manifest present -> force_run
+    _patch_run_scan(monkeypatch, [], head_exit=0, decision="blocked")
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output  # advisory head_exit=0
+    payload = json.loads(result.output)
+    assert payload["decision"] == "blocked"
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+    assert payload["human_review"]["required"] is True
+    assert payload["first_next_action"]["actor"] == "human"
+    assert payload["mode"] == "advisory"
+
+
+def test_verify_maps_passed_decision_to_mergeable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    _patch_run_scan(monkeypatch, [], head_exit=0, decision="passed")
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "json"],
+    )
+
+    payload = json.loads(result.output)
+    assert payload["merge_verdict"] == "mergeable"
+    assert payload["can_merge_without_human"] is True
+    assert payload["human_review"]["required"] is False
+    assert payload["first_next_action"]["kind"] == "none"
+
+
+def test_verify_skip_is_mergeable_without_human(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--base", "origin/main", "--head", "HEAD", "--format", "json",
+        ],
+    )
+
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "skipped"
+    assert payload["merge_verdict"] == "mergeable"
+    assert payload["can_merge_without_human"] is True
+    assert payload["mode"] == "skipped"
+
+
+def test_verify_scan_failure_yields_unknown_verdict_requiring_human(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+
+    def boom(**_kwargs: Any):
+        raise AgentsShipgateError("scan blew up")
+
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", boom)
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"]
+    )
+
+    assert result.exit_code == 4
+    payload = json.loads(
+        (repo / "agents-shipgate-reports" / "verifier.json").read_text(encoding="utf-8")
+    )
+    assert payload["head_status"] == "failed"
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["human_review"]["required"] is True
+
+
+# --- trust-root fires during verify (T5) -----------------------------------
+
+
+def test_verify_trust_root_touched_when_shipgate_yaml_changes(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    _set_origin_main(repo)
+    # Touch the manifest (a trust root) so the PR diff includes shipgate.yaml.
+    with (repo / "shipgate.yaml").open("a", encoding="utf-8") as handle:
+        handle.write("\n# reviewer-visible tweak\n")
+    _commit_all(repo, "touch manifest")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--base", "origin/main", "--head", "HEAD", "--format", "json",
+        ],
+    )
+
+    assert result.exit_code in {0, 20}, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "succeeded"
+    assert payload["trust_root_touched"] is True
+
+
+# --- preview (T6) ----------------------------------------------------------
+
+
+def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> None:
+    workspace = tmp_path / "fresh"  # not git, no shipgate.yaml
+    workspace.mkdir()
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--format", "json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert payload["merge_verdict"] == "unknown"
+    assert "init" in payload["first_next_action"]["command"]
+    assert (workspace / "agents-shipgate-reports" / "verifier.json").is_file()
+    assert (workspace / "agents-shipgate-reports" / "pr-comment.md").is_file()
+    # preview must not write a manifest or CI
+    assert not (workspace / "shipgate.yaml").exists()
+
+
+def test_verify_json_flag_is_shortcut_for_format_json(tmp_path: Path) -> None:
+    # The documented adoption commands use `verify ... --json`; it must be a
+    # working shortcut for `--format json`, mirroring `trigger --json`.
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)  # stdout is pure JSON
+    assert payload["mode"] == "preview"
+
+
+def test_verify_preview_with_manifest_points_at_verify(tmp_path: Path) -> None:
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    (workspace / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--format", "json"]
+    )
+
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert "verify" in payload["first_next_action"]["command"]
 
 
 def _patch_run_scan(

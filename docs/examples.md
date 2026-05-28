@@ -47,8 +47,8 @@ The canonical fixture writes:
 - `agents-shipgate-reports/report.sarif` when requested or when using the GitHub Action
 
 The JSON output is the stable contract for tools and coding agents. See
-[report-schema.v0.21.json](report-schema.v0.21.json) (current; emitted reports
-carry `report_schema_version: "0.21"`, adding the top-level `heuristics_filter`
-envelope — the audit pass for the new `--no-heuristics` CLI flag — alongside
-v0.20's `reviewer_summary` block; v0.20 frozen at
+[report-schema.v0.22.json](report-schema.v0.22.json) (current; emitted reports
+carry `report_schema_version: "0.22"`, adding the top-level `capability_changes[]`
+field plus a `reviewer_summary.capability_changes` count; v0.21 frozen at
+[report-schema.v0.21.json](report-schema.v0.21.json), v0.20 frozen at
 [report-schema.v0.20.json](report-schema.v0.20.json)).

@@ -10,12 +10,21 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate import __version__
+from agents_shipgate.checks.verify import CHECK_ID as TRUST_ROOT_CHECK_ID
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
-from agents_shipgate.schemas.report import ReadinessReport
-from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierBaseStatus
+from agents_shipgate.schemas.report import AgentSummary, ReadinessReport, ReleaseDecision
+from agents_shipgate.schemas.verification import VerificationContext
+from agents_shipgate.schemas.verifier import (
+    MergeVerdict,
+    VerifierArtifact,
+    VerifierBaseStatus,
+    VerifierHumanReview,
+    VerifierNextAction,
+    map_merge_verdict,
+)
 from agents_shipgate.triggers import evaluate
 
 from .git import archive_tree, diff_context, ensure_git_workspace, git_path, ref_exists, tree_sha
@@ -114,6 +123,7 @@ def run_verify(
         head_status="skipped",
         head_exit_code=0,
         out_dir=out_dir,
+        ci_mode=ci_mode,
     )
 
     if not trigger.get("run_shipgate"):
@@ -135,6 +145,7 @@ def run_verify(
                 head_status="skipped",
                 head_exit_code=0,
                 out_dir=out_dir,
+                ci_mode=ci_mode,
             )
         _write_artifacts(verifier, verifier_path, pr_comment_path, report=None)
         return verifier, None, 0
@@ -195,6 +206,14 @@ def run_verify(
             packet_enabled=True,
             packet_formats=HEAD_PACKET_FORMATS,
             no_heuristics=no_heuristics,
+            # Verify supplies the PR diff context so the trust-root check
+            # (SHIP-VERIFY-TRUST-ROOT-TOUCHED) can fire on the head scan.
+            # Plain `scan` leaves this None and the check stays silent.
+            verification_context=VerificationContext(
+                changed_files=changed_files,
+                diff_text_available=bool(diff_text),
+                trigger_result=trigger,
+            ),
         )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
@@ -233,6 +252,7 @@ def run_verify(
             head_status=head_status,
             head_exit_code=head_exit_code,
             out_dir=out_dir,
+            ci_mode=ci_mode,
         )
         try:
             try:
@@ -415,6 +435,108 @@ def _map_policy_packs(
     return mapped
 
 
+def _merge_verdict(*, decision: str | None, head_status: str) -> MergeVerdict:
+    """Project the gate decision onto a merge verdict.
+
+    A real decision maps via the verifier table. With no decision: a
+    trigger-skip means Shipgate found nothing to gate (mergeable); any
+    other no-decision state (e.g. a head scan that failed before
+    producing a decision) is unknown.
+    """
+    if decision is not None:
+        return map_merge_verdict(decision)
+    return "mergeable" if head_status == "skipped" else "unknown"
+
+
+def _can_merge_without_human(
+    *, merge_verdict: MergeVerdict, release_decision: ReleaseDecision | None
+) -> bool:
+    if merge_verdict != "mergeable":
+        return False
+    if release_decision is None:
+        # Mergeable via trigger-skip: Shipgate was not relevant, nothing
+        # for a human to review.
+        return True
+    if release_decision.evidence_coverage.human_review_recommended:
+        return False
+    return not (release_decision.blockers or release_decision.review_items)
+
+
+def _human_review(
+    *, merge_verdict: MergeVerdict, release_decision: ReleaseDecision | None
+) -> VerifierHumanReview:
+    required = merge_verdict in {
+        "human_review_required",
+        "blocked",
+        "insufficient_evidence",
+        "unknown",
+    }
+    if not required:
+        return VerifierHumanReview(required=False, why=None)
+    why = release_decision.reason if release_decision is not None else None
+    return VerifierHumanReview(
+        required=True,
+        why=why or "A human must review this agent-capability change before merge.",
+    )
+
+
+def _first_next_action(
+    *,
+    merge_verdict: MergeVerdict,
+    human_review_required: bool,
+    agent_summary: AgentSummary | None,
+    reason: str | None,
+) -> VerifierNextAction:
+    if merge_verdict == "mergeable":
+        return VerifierNextAction(
+            actor="coding_agent",
+            kind="none",
+            command=None,
+            why="No agent-capability changes gate this PR; safe to merge.",
+        )
+    actor = "human" if human_review_required else "coding_agent"
+    recommended = (
+        agent_summary.first_recommended_action if agent_summary is not None else None
+    )
+    if recommended is not None:
+        return VerifierNextAction(
+            actor=actor,
+            kind=recommended.kind,
+            command=recommended.command,
+            why=recommended.why,
+        )
+    return VerifierNextAction(
+        actor=actor,
+        kind="review",
+        command=None,
+        why=reason or "Human review required before merge.",
+    )
+
+
+def _verifier_headline(
+    *, report: ReadinessReport | None, merge_verdict: MergeVerdict, head_status: str
+) -> str | None:
+    if report is not None and report.agent_summary is not None:
+        return report.agent_summary.headline
+    if head_status == "skipped":
+        return "No agent-capability changes detected; Shipgate did not need to run."
+    if merge_verdict == "unknown":
+        return "Shipgate could not complete the scan; human review required."
+    return None
+
+
+def _verifier_mode(
+    *, ci_mode: str | None, report: ReadinessReport | None, head_status: str, preview: bool
+) -> str:
+    if preview:
+        return "preview"
+    if report is not None and report.release_decision is not None:
+        return report.release_decision.fail_policy.ci_mode
+    if head_status == "skipped":
+        return "skipped"
+    return ci_mode or "advisory"
+
+
 def _build_verifier(
     *,
     git_root: Path,
@@ -432,10 +554,13 @@ def _build_verifier(
     head_status: str,
     head_exit_code: int,
     out_dir: Path,
+    ci_mode: str | None = None,
+    preview: bool = False,
 ) -> VerifierArtifact:
+    release_decision_model = report.release_decision if report is not None else None
     release_decision = (
-        report.release_decision.model_dump(mode="json")
-        if report is not None and report.release_decision is not None
+        release_decision_model.model_dump(mode="json")
+        if release_decision_model is not None
         else None
     )
     artifacts = _artifact_paths(
@@ -443,6 +568,14 @@ def _build_verifier(
         git_root=git_root,
         include_scan_artifacts=report is not None,
     )
+
+    # --- merge-decision projection (pure read of release_decision) ----------
+    decision = release_decision_model.decision if release_decision_model else None
+    merge_verdict = _merge_verdict(decision=decision, head_status=head_status)
+    human_review = _human_review(
+        merge_verdict=merge_verdict, release_decision=release_decision_model
+    )
+    agent_summary_model = report.agent_summary if report is not None else None
     return VerifierArtifact(
         workspace=str(git_root),
         config=_display_path(config_path, git_root),
@@ -462,14 +595,40 @@ def _build_verifier(
         head_exit_code=head_exit_code,
         release_decision=release_decision,
         agent_summary=(
-            report.agent_summary.model_dump(mode="json")
-            if report is not None and report.agent_summary is not None
+            agent_summary_model.model_dump(mode="json")
+            if agent_summary_model is not None
             else None
         ),
         reviewer_summary=(
             report.reviewer_summary.model_dump(mode="json")
             if report is not None and report.reviewer_summary is not None
             else None
+        ),
+        mode=_verifier_mode(
+            ci_mode=ci_mode, report=report, head_status=head_status, preview=preview
+        ),
+        decision=decision,
+        merge_verdict=merge_verdict,
+        can_merge_without_human=_can_merge_without_human(
+            merge_verdict=merge_verdict, release_decision=release_decision_model
+        ),
+        headline=_verifier_headline(
+            report=report, merge_verdict=merge_verdict, head_status=head_status
+        ),
+        human_review=human_review,
+        first_next_action=_first_next_action(
+            merge_verdict=merge_verdict,
+            human_review_required=human_review.required,
+            agent_summary=agent_summary_model,
+            reason=release_decision_model.reason if release_decision_model else None,
+        ),
+        trust_root_touched=(
+            any(f.check_id == TRUST_ROOT_CHECK_ID for f in report.findings)
+            if report is not None
+            else False
+        ),
+        capability_changes=(
+            list(report.capability_changes) if report is not None else []
         ),
         artifacts=artifacts,
     )
@@ -551,4 +710,98 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
-__all__ = ["run_verify"]
+def run_preview(
+    *,
+    workspace: Path,
+    config: Path,
+    base: str | None,
+    head: str | None,
+    out: Path | None,
+) -> tuple[VerifierArtifact, None, int]:
+    """Lightweight relevance check for ``agents-shipgate verify --preview``.
+
+    Does NOT require git or a manifest, never runs a scan, and never
+    writes ``shipgate.yaml`` or CI. It evaluates the trigger catalog
+    against any available diff and reports whether Shipgate is relevant
+    plus the single install/verify command to run next. Always exits 0.
+    """
+    root = workspace.resolve()
+    config_path = _resolve_under_workspace(root, config)
+    out_dir = _resolve_under_workspace(root, out or DEFAULT_OUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    verifier_path = out_dir / "verifier.json"
+    pr_comment_path = out_dir / "pr-comment.md"
+    manifest_present = config_path.exists()
+
+    changed_files: list[str] = []
+    diff_text = ""
+    notes: list[str] = []
+    if base or head:
+        try:
+            git_root = ensure_git_workspace(root)
+            head_ref = head or "HEAD"
+            if base and ref_exists(git_root, base) and ref_exists(git_root, head_ref):
+                changed_files, diff_text = diff_context(git_root, base, head_ref)
+        except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            notes.append(f"Preview diff unavailable: {exc}")
+
+    trigger = evaluate(
+        paths=changed_files,
+        diff_text=diff_text,
+        manifest_present=manifest_present,
+        user_requested=True,
+    )
+
+    if manifest_present:
+        next_action = VerifierNextAction(
+            actor="coding_agent",
+            kind="command",
+            command="agents-shipgate verify --base origin/main --head HEAD --json",
+            why="Shipgate is already set up here; run verify on the PR diff.",
+        )
+        headline = (
+            "Shipgate is configured; run verify on the PR to get a merge verdict."
+        )
+    else:
+        next_action = VerifierNextAction(
+            actor="coding_agent",
+            kind="command",
+            command=(
+                "agents-shipgate init --workspace . --write --ci "
+                "--agent-instructions=all"
+            ),
+            why="No shipgate.yaml found; initialize Shipgate, then run verify on PRs.",
+        )
+        headline = (
+            "Shipgate is not set up here yet; initialize it to gate "
+            "agent-capability PRs."
+        )
+
+    verifier = VerifierArtifact(
+        workspace=str(root),
+        config=_display_path(config_path, root),
+        base_ref=base,
+        head_ref=head or "HEAD",
+        changed_files=changed_files,
+        diff_text_available=bool(diff_text),
+        trigger=trigger,
+        base_status="not_requested",
+        base_notes=notes,
+        head_status="skipped",
+        head_exit_code=0,
+        mode="preview",
+        merge_verdict="unknown",
+        can_merge_without_human=False,
+        headline=headline,
+        human_review=VerifierHumanReview(required=False, why=None),
+        first_next_action=next_action,
+        artifacts={
+            "verifier_json": _display_path(verifier_path.resolve(), root),
+            "pr_comment": _display_path(pr_comment_path.resolve(), root),
+        },
+    )
+    _write_artifacts(verifier, verifier_path, pr_comment_path, report=None)
+    return verifier, None, 0
+
+
+__all__ = ["run_preview", "run_verify"]

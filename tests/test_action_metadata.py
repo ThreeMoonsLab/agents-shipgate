@@ -42,6 +42,29 @@ def test_action_has_marketplace_metadata_and_outputs():
     } <= set(data["outputs"])
 
 
+def test_action_exposes_verifier_merge_outputs():
+    """v0.22: the merge-decision projection is surfaced as Action outputs,
+    sourced from verifier.json in the report_outputs step."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+
+    assert {
+        "should_run",
+        "trigger_rule_ids",
+        "merge_verdict",
+        "can_merge_without_human",
+        "trust_root_touched",
+        "policy_weakened",
+        "capability_changes_added",
+        "capability_changes_modified",
+        "capability_changes_removed",
+    } <= set(data["outputs"])
+    # The new outputs read verifier.json (not just report.json).
+    assert "verifier_json.open" in text
+    # Existing gating output stays stable (not renamed to merge_verdict).
+    assert "decision" in data["outputs"]
+
+
 def test_action_preserves_reports_before_applying_exit_code():
     text = Path("action.yml").read_text(encoding="utf-8")
 

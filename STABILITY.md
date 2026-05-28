@@ -565,6 +565,61 @@ JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
 the human PR surface. Use `agents-shipgate scan` when you want the manifest's
 full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
 
+`agents-shipgate verify --preview --json` is a lightweight relevance check: it
+runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with
+`mode: "preview"` and a `first_next_action` carrying the install/verify command.
+Use it as the first touch on a repo or PR before committing to a full scan.
+
+`verifier.json` is governed by [`docs/verifier-schema.v0.1.json`](docs/verifier-schema.v0.1.json)
+(`verifier_schema_version` stays `"0.1"` within `0.x`; minor field additions are
+additive). It remains an orchestration artifact: `release_decision.decision` in
+`report.json` is still the only release gate, and every verifier field is either
+a mirror or a deterministic projection of report data. Stable additive fields a
+consumer may read:
+
+- `merge_verdict` — `mergeable` / `human_review_required` /
+  `insufficient_evidence` / `blocked` / `unknown`. A deterministic projection of
+  `release_decision.decision` (`passed`→`mergeable`,
+  `review_required`→`human_review_required`,
+  `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
+  decision→`unknown`). It cannot disagree with the gate. Switch on the enum with
+  an `unknown`/`human_review_required` fallback for unrecognized future values.
+- `can_merge_without_human` — `bool`; whether the PR can merge without human
+  review.
+- `decision` — mirror of `release_decision.decision` (or `null` when no scan
+  ran).
+- `headline` — single-sentence, PR-comment-friendly summary (or `null`).
+- `human_review` — `{required: bool, why: str|null}`.
+- `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
+  The `actor` distinguishes work a coding agent may do mechanically from a
+  decision that requires a human.
+- `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
+  root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
+  policy packs, prompts, baselines, waivers, and the other surfaces listed under
+  the trust-root protection design). Backed by the deterministic
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED` check, whose findings flow through the normal
+  decision engine.
+- `capability_changes[]` — deterministic reviewer-facing projection of the
+  tool/action surface diff. Each row carries `{id, change_type, subject_kind,
+  subject, risk_tags, release_impact, rationale, related_finding_ids, ...}`.
+  `change_type` is snake_case (`action_added`, `action_removed`,
+  `action_modified`, `tool_added`/`tool_removed`/`tool_modified`,
+  `scope_added`/`scope_removed`/`scope_modified`, `approval_policy_removed`, and
+  the trust-root variants in the schema). `release_impact` ∈
+  `{none, informational, review_required, blocks_release, insufficient_evidence}`
+  and mirrors the gate; this block never introduces a finding-independent
+  blocker.
+- `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
+
+`verifier.json` also carries `trigger` (the run/skip evaluation), `base_status`,
+`head_status`, `base_ref`, `head_ref`, `changed_files`, `base_notes`, the full
+embedded `release_decision`, and an `artifacts` map
+(`{verifier_json, pr_comment, report_json, report_markdown, report_sarif,
+packet_json}`). The corresponding GitHub Action outputs are `merge_verdict`,
+`can_merge_without_human`, `trust_root_touched`, and
+`capability_changes_{added,modified,removed}`; the original `decision`,
+`blocker_count`, `review_item_count`, and `ci_would_fail` outputs are preserved.
+
 Successful base reports are cached under git metadata
 (`git rev-parse --git-path agents-shipgate/base-scans/...`), not under the
 working tree or report output directory. The cache is a local-iteration

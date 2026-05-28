@@ -23,3 +23,21 @@ Required behavior (do not skip):
 6. Do **not** run `agents-shipgate baseline save` in this flow — baselining is a separate decision.
 
 Report back: `release_decision.decision` and `reason`, blocker / review-item counts, top 3 active findings by severity, the packet path (`agents-shipgate-reports/packet.md`), and one suggested next step.
+
+## Ongoing PRs
+
+The bootstrap flow above wires Shipgate into the repo. For an ongoing PR that
+changes agent tools, MCP exports, OpenAPI specs, prompts, permissions, policies,
+CI gates, or `shipgate.yaml`, run the verifier instead:
+
+```bash
+agents-shipgate verify --base origin/main --head HEAD --json
+```
+
+Read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
+(a deterministic projection of `release_decision.decision`, which remains the
+gate in `report.json`), then `capability_changes[]`. Do not claim completion when
+`merge_verdict` is `blocked`, `insufficient_evidence`, or
+`human_review_required` unless the user accepted the human-review requirement, and
+never weaken `shipgate.yaml`, Shipgate CI, `AGENTS.md`, policies, baselines, or
+waivers to make Shipgate pass.

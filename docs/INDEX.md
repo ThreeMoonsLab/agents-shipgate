@@ -12,6 +12,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`design-partners.md`](design-partners.md) — early design partner criteria and contact path
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
+- [`use-cases/ai-generated-agent-prs.md`](use-cases/ai-generated-agent-prs.md) — user-facing use case: verify an AI-generated agent PR (merge verdict, capability changes, trust-root protection, GitHub Action wiring)
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
@@ -22,11 +23,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.21.json`](report-schema.v0.21.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.21"`, adding the top-level `heuristics_filter` envelope — the audit pass for the new `--no-heuristics` CLI flag — alongside v0.20's `reviewer_summary` block)
+- [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the top-level `capability_changes[]` field plus a `reviewer_summary.capability_changes` count)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`privacy.md`](privacy.md) and [`report-sensitive-fields.json`](report-sensitive-fields.json) — redaction behavior and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.21.json`](report-schema.v0.21.json) — frozen v0.21 reference schema; pre-v0.22 reports validate against this
 - [`report-schema.v0.20.json`](report-schema.v0.20.json) — frozen v0.20 reference schema; pre-v0.21 reports validate against this
 - [`report-schema.v0.19.json`](report-schema.v0.19.json) — frozen v0.19 reference schema; pre-v0.20 reports validate against this
 - [`report-schema.v0.18.json`](report-schema.v0.18.json) — frozen v0.18 reference schema; pre-v0.19 reports validate against this

@@ -109,6 +109,86 @@ def _matched_diff_tokens(triggers: dict[str, Any], diff_text: str) -> list[str]:
     return sorted(token for token in tokens if token in diff_text)
 
 
+def _contains_detect_returns(pred: Any) -> bool:
+    """Whether a predicate tree contains any ``detect_returns`` leaf.
+
+    Used to decide whether the stop block can be *fully evaluated*: a
+    ``detect_returns`` predicate needs the output of ``agents-shipgate
+    detect``. When that output was not supplied, the stop block is not
+    evaluable and the evaluator must not infer a stop verdict.
+    """
+    if not isinstance(pred, dict):
+        return False
+    if "detect_returns" in pred:
+        return True
+    return any(
+        _contains_detect_returns(nested)
+        for key in ("any_of", "all_of")
+        if key in pred
+        for nested in pred[key]
+    )
+
+
+def _next_action(
+    *,
+    run: bool,
+    dry_run_recommended: bool,
+    skip_reason: str | None,
+    manifest_present: bool,
+    matched: list[dict[str, Any]],
+    default_command: str,
+    rationale: str,
+) -> dict[str, Any]:
+    """Synthesize the single recommended next step from the verdict.
+
+    Deterministic projection of the run/skip decision into an actor-
+    agnostic ``{kind, command, why}``. Adopted repos (a manifest is
+    present) are pointed at ``verify`` — the canonical ongoing-PR gate;
+    un-adopted repos are pointed at the catalog ``detect`` command so a
+    coding agent can bootstrap. ``command`` is ``None`` when no action
+    is warranted.
+    """
+    if run:
+        if manifest_present:
+            return {
+                "kind": "command",
+                "command": "agents-shipgate verify --base origin/main --head HEAD --json",
+                "why": (
+                    "This change affects an agent tool or release-policy "
+                    "surface; verify whether the PR can merge."
+                ),
+            }
+        command = next(
+            (m["command"] for m in matched if m.get("command")), None
+        ) or default_command
+        return {
+            "kind": "command",
+            "command": command,
+            "why": (
+                "This change looks agent-related; detect tool surfaces "
+                "and adopt Shipgate."
+            ),
+        }
+    if dry_run_recommended:
+        command = (
+            "agents-shipgate verify --base origin/main --head HEAD "
+            "--ci-mode advisory --json"
+            if manifest_present
+            else default_command
+        )
+        return {
+            "kind": "command",
+            "command": command,
+            "why": (
+                "A framework/runtime bump can shift the tool surface; run "
+                "an advisory check without writing a manifest."
+            ),
+        }
+    if skip_reason == "stop_conditions":
+        return {"kind": "stop", "command": None, "why": rationale}
+    return {"kind": "none", "command": None, "why": rationale}
+
+
 def _eval_predicate(
     pred: dict[str, Any] | None,
     *,
@@ -211,16 +291,27 @@ def evaluate(
       fired and no ``run_shipgate``/``force_run``/``skip_shipgate``
       rule did. Callers that want to be helpful can propose a
       non-mutating ``scan`` even though ``run_shipgate`` is false.
+    - ``skip`` (bool) — inverse of ``should_run``; convenience for
+      consumers that branch on the skip case.
     - ``skip_reason`` (str|None) — ``None`` when running; otherwise a
       stable token: ``stop_conditions``, ``skip_rule``, ``dry_run_only``
       or ``no_match``.
     - ``stop_conditions_fired`` (bool) — whether the explicit stop
       block held; this beats every rule action.
+    - ``stop_conditions_evaluated`` (bool) — whether the stop block
+      could be fully evaluated. ``False`` when the block references
+      ``detect_returns`` but no ``detect_result`` was supplied; in that
+      case the evaluator never stops (``stop_conditions_fired`` stays
+      ``False``) and the caller knows the stop verdict is unknown rather
+      than "evaluated and did not hold".
     - ``rationale`` (str) — single-sentence explanation.
     - ``matched_rules`` (list) — every rule whose ``when`` clause fired.
     - ``changed_files`` (list) — the input paths, echoed back.
     - ``diff_tokens`` (list) — catalog ``diff_contains`` tokens that
       are present in ``diff_text`` (sorted, de-duplicated).
+    - ``next_action`` (dict) — the single recommended next step as
+      ``{kind, command, why}`` (``kind`` is ``command``/``stop``/
+      ``none``); a deterministic projection of the verdict.
 
     Action precedence (highest first): ``stop_conditions`` → skip;
     ``force_run`` → run (overrides skip; used by manifest-present);
@@ -253,7 +344,15 @@ def evaluate(
 
     stop_block = triggers.get("stop_conditions") or {}
     stop_payload = {k: v for k, v in stop_block.items() if k != "description"}
-    stop_fired = bool(stop_payload) and _eval_predicate(
+    # The stop block can only be trusted when it is fully evaluable. If it
+    # references detect output (detect_returns) but none was supplied, we
+    # cannot conclude "non-agent project" — so we never stop on it, and we
+    # report stop_conditions_evaluated=False so consumers can tell the
+    # difference between "evaluated, did not hold" and "could not evaluate".
+    stop_conditions_evaluated = bool(stop_payload) and (
+        detect_result is not None or not _contains_detect_returns(stop_payload)
+    )
+    stop_fired = stop_conditions_evaluated and _eval_predicate(
         stop_payload,
         paths=paths,
         diff_text=diff_text,
@@ -314,18 +413,32 @@ def evaluate(
 
     # ``should_run`` is a friendlier alias of ``run_shipgate`` (identical
     # value); both are kept so 0.x consumers reading either field agree.
+    next_action = _next_action(
+        run=run,
+        dry_run_recommended=dry_run_recommended,
+        skip_reason=skip_reason,
+        manifest_present=manifest_present,
+        matched=matched,
+        default_command=triggers.get(
+            "default_command", "agents-shipgate detect --workspace . --json"
+        ),
+        rationale=rationale,
+    )
     return {
         "schema_version": triggers.get("schema_version"),
         "should_run": run,
         "run_shipgate": run,
+        "skip": not run,
         "force_run": has_force_run and not stop_fired,
         "dry_run_recommended": dry_run_recommended,
         "skip_reason": skip_reason,
         "stop_conditions_fired": stop_fired,
+        "stop_conditions_evaluated": stop_conditions_evaluated,
         "rationale": rationale,
         "matched_rules": matched,
         "changed_files": list(paths),
         "diff_tokens": _matched_diff_tokens(triggers, diff_text),
+        "next_action": next_action,
     }
 
 
@@ -442,6 +555,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--detect-json",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a saved `agents-shipgate detect --json` result. "
+            "Supplies the detect_result the stop_conditions block needs; "
+            "without it the stop block is reported as not evaluated."
+        ),
+    )
+    parser.add_argument(
         "--list-rules",
         action="store_true",
         help="Print the loaded rule catalog and exit.",
@@ -454,6 +577,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     triggers = load_triggers()
+
+    detect_result: dict[str, Any] | None = None
+    if args.detect_json is not None:
+        try:
+            detect_result = json.loads(
+                Path(args.detect_json).read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            print(
+                f"--detect-json could not be read: {exc}.",
+                file=sys.stderr,
+            )
+            return 2
 
     if args.list_rules:
         if args.json:
@@ -484,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
         paths=paths,
         diff_text=diff_text,
         manifest_present=args.manifest_present,
+        detect_result=detect_result,
         user_requested=args.user_requested,
         triggers=triggers,
     )
@@ -502,6 +639,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {m['id']} [{m['action']}]{cmd}")
             if m.get("rationale"):
                 print(f"      {m['rationale']}")
+    next_action = result["next_action"]
+    if next_action.get("command"):
+        print(f"Next: {next_action['command']}")
     if result["stop_conditions_fired"]:
         print("Stop conditions fired (overriding any matched rules).")
     return 0

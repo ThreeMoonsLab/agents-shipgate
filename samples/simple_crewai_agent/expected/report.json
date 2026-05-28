@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.21",
+  "report_schema_version": "0.22",
   "run_id": "agents_shipgate_75f9c3e73779b880",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
@@ -506,11 +506,13 @@
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
+    "capability_changes": 0,
     "first_recommended_surface": {
       "kind": "release_decision",
       "name": "release_decision",
       "path": "report.release_decision",
       "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
     }
-  }
+  },
+  "capability_changes": []
 }

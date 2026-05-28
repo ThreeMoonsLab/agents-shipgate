@@ -1,4 +1,198 @@
 {
+  "$defs": {
+    "CapabilityChange": {
+      "additionalProperties": false,
+      "description": "One deterministic \"what changed about agent capability?\" row.\n\nProjected from ``action_surface_diff`` / ``tool_surface_diff`` rows and\njoined to ``findings`` + ``release_decision`` for ``release_impact``.\n``release_impact`` mirrors the gate (``release_decision``); this block\nnever introduces a finding-independent blocker.",
+      "properties": {
+        "change_type": {
+          "enum": [
+            "action_added",
+            "action_removed",
+            "action_modified",
+            "tool_added",
+            "tool_removed",
+            "tool_modified",
+            "scope_added",
+            "scope_removed",
+            "scope_modified",
+            "approval_policy_removed",
+            "ci_gate_modified",
+            "shipgate_policy_modified",
+            "agent_instruction_modified",
+            "baseline_modified",
+            "waiver_or_suppression_modified"
+          ],
+          "title": "Change Type",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "provenance_kind": {
+          "default": "static_declaration",
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Finding Ids",
+          "type": "array"
+        },
+        "release_impact": {
+          "default": "none",
+          "enum": [
+            "none",
+            "informational",
+            "review_required",
+            "blocks_release",
+            "insufficient_evidence"
+          ],
+          "title": "Release Impact",
+          "type": "string"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_kind": {
+          "enum": [
+            "tool",
+            "action",
+            "scope",
+            "policy",
+            "ci",
+            "baseline",
+            "agent_instruction",
+            "manifest",
+            "unknown"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "change_type",
+        "subject_kind",
+        "subject",
+        "rationale"
+      ],
+      "title": "CapabilityChange",
+      "type": "object"
+    },
+    "VerifierHumanReview": {
+      "additionalProperties": false,
+      "description": "Whether a human must review before merge, and why.",
+      "properties": {
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "title": "VerifierHumanReview",
+      "type": "object"
+    },
+    "VerifierNextAction": {
+      "additionalProperties": false,
+      "description": "The single recommended next step after verify, with the actor who\nshould take it. ``actor`` distinguishes work a coding agent may do\nmechanically from decisions that require a human.",
+      "properties": {
+        "actor": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "title": "VerifierNextAction",
+      "type": "object"
+    }
+  },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -83,6 +277,18 @@
       "default": null,
       "title": "Base Tree Sha"
     },
+    "can_merge_without_human": {
+      "default": false,
+      "title": "Can Merge Without Human",
+      "type": "boolean"
+    },
+    "capability_changes": {
+      "items": {
+        "$ref": "#/$defs/CapabilityChange"
+      },
+      "title": "Capability Changes",
+      "type": "array"
+    },
     "changed_files": {
       "items": {
         "type": "string"
@@ -94,10 +300,33 @@
       "title": "Config",
       "type": "string"
     },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision"
+    },
     "diff_text_available": {
       "default": false,
       "title": "Diff Text Available",
       "type": "boolean"
+    },
+    "first_next_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierNextAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "head_exit_code": {
       "default": 0,
@@ -131,6 +360,46 @@
       "title": "Head Status",
       "type": "string"
     },
+    "headline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Headline"
+    },
+    "human_review": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierHumanReview"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "merge_verdict": {
+      "default": "unknown",
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown"
+      ],
+      "title": "Merge Verdict",
+      "type": "string"
+    },
+    "mode": {
+      "default": "advisory",
+      "title": "Mode",
+      "type": "string"
+    },
     "release_decision": {
       "anyOf": [
         {
@@ -161,6 +430,11 @@
       "additionalProperties": true,
       "title": "Trigger",
       "type": "object"
+    },
+    "trust_root_touched": {
+      "default": false,
+      "title": "Trust Root Touched",
+      "type": "boolean"
     },
     "verifier_schema_version": {
       "const": "0.1",

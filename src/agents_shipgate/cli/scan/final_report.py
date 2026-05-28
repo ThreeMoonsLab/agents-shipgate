@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents_shipgate.core.findings.capability import build_capability_changes
 from agents_shipgate.core.findings.report_builder import build_report
 from agents_shipgate.core.findings.reviewer_summary import build_reviewer_summary
 from agents_shipgate.core.lenses.capability_intent import apply_capability_diff
@@ -73,6 +74,13 @@ def _build_final_report(
         heuristics_filter=sanitized.heuristics_filter,
     )
     apply_capability_diff(report, sanitized.tools)
+    # v0.22: capability-change projection. Built before reviewer_summary so
+    # its count can read report.capability_changes. Pure read of the
+    # already-computed surface diffs + release_decision; no I/O, no gate.
+    report.capability_changes = build_capability_changes(
+        report=report,
+        findings=sanitized.findings,
+    )
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff
     # has populated misalignments / release_consequence / suggested_scenarios.
     # Building it inside build_report() would project from incomplete state
