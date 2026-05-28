@@ -8,9 +8,16 @@
 # Budgets are deliberately generous — CI hardware varies by ~3x between
 # fast workstations and shared GitHub Actions free-tier runners. The
 # goal is to catch *catastrophic* regressions (a refactor that 2-3x's
-# scan latency) rather than to measure absolute throughput. Tune via
-# `python scripts/run_benchmarks.py --update-budgets-from-median` when
-# you have a stable hardware reference.
+# scan latency) rather than to measure absolute throughput.
+#
+# Tuning procedure (manual; see benchmark/perf/README.md for context):
+#   1. Run on a stable host (ideally CI-class hardware, not a fast laptop):
+#        python scripts/run_benchmarks.py --iterations 10 --json /tmp/bench.json
+#   2. Read the per-scenario `p95_seconds` from /tmp/bench.json.
+#   3. Multiply by ~1.5 for safety headroom and round up to a clean value.
+#   4. Update `budget_seconds` below; PR with the before/after numbers.
+# Never tighten budgets from a single fast measurement — variance matters
+# more than central tendency for a CI gate.
 #
 # Median of the local-dev baseline (single run, MacBook M1) at time
 # of authoring:

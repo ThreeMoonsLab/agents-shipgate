@@ -179,7 +179,10 @@ def test_scenario_within_budget(
             "\n"
             "Action: profile the regression via\n"
             "    python scripts/run_benchmarks.py --scenario "
-            f"{size} --iterations 5 --json\n"
+            f"{size} --iterations 5\n"
+            "(add `--json out.json` if you want a machine-readable\n"
+            "record; the runner prints the per-phase breakdown to\n"
+            "stdout either way.)\n"
             "If the slowdown is intentional (new mandatory work), bump\n"
             "the per-scenario budget in benchmark/perf/budgets.yaml.\n"
         )
