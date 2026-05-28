@@ -1,0 +1,3 @@
+# Historical benchmark runs accrete; don't pollute the repo.
+# The directory itself is kept via README.md.
+run-*.json

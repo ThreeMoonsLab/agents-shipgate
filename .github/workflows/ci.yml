@@ -50,7 +50,21 @@ jobs:
         # headroom for day-to-day movement. The bump catches the next
         # time a refactor lands materially less-covered code without
         # a corresponding test pass.
-        run: python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+        #
+        # Excludes the `perf` marker — the latency budget tests run as
+        # a separate step below (after the main suite finishes so their
+        # timing isn't disturbed by parallel test load).
+        run: python -m pytest -m "not perf" --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+
+      - name: Latency budget
+        # Runs the `benchmark/perf/scenarios/` synthetic scans and
+        # asserts median wallclock stays under the per-scenario budget
+        # in `benchmark/perf/budgets.yaml`. Budgets are deliberately
+        # generous (~10-20x measured local time) so this catches
+        # catastrophic regressions, not noise. On failure the test
+        # output shows a per-phase breakdown via `_perf` — start there
+        # before profiling. See `benchmark/perf/README.md` for tuning.
+        run: python -m pytest tests/test_latency_budget.py -m perf -v
 
       - name: Build package
         run: |

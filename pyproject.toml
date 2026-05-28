@@ -148,6 +148,9 @@ exclude = [
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 addopts = "-q"
+markers = [
+  "perf: latency-budget / benchmark tests. Skip with `pytest -m 'not perf'`.",
+]
 
 [tool.ruff]
 target-version = "py312"

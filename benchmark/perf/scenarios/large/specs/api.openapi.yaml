@@ -1,0 +1,453 @@
+openapi: 3.0.3
+info:
+  title: Benchmark API
+  version: 1.0.0
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes: {}
+paths:
+  /milestone/0:
+    get:
+      operationId: api_search_milestone_0
+      summary: Search milestone
+      description: Search a milestone via the HTTP API.
+      security:
+      - oauth2:
+        - api:milestone:read
+      responses:
+        '200':
+          description: OK
+  /audit/1:
+    get:
+      operationId: api_list_audit_1
+      summary: List audit
+      description: List a audit via the HTTP API.
+      security:
+      - oauth2:
+        - api:audit:read
+      responses:
+        '200':
+          description: OK
+  /alert/2:
+    post:
+      operationId: api_issue_alert_2
+      summary: Issue alert
+      description: Issue a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:write
+      responses:
+        '200':
+          description: OK
+  /task/3:
+    post:
+      operationId: api_create_task_3
+      summary: Create task
+      description: Create a task via the HTTP API.
+      security:
+      - oauth2:
+        - api:task:write
+      responses:
+        '200':
+          description: OK
+  /report/4:
+    get:
+      operationId: api_status_report_4
+      summary: Status report
+      description: Status a report via the HTTP API.
+      security:
+      - oauth2:
+        - api:report:read
+      responses:
+        '200':
+          description: OK
+  /metric/5:
+    get:
+      operationId: api_view_metric_5
+      summary: View metric
+      description: View a metric via the HTTP API.
+      security:
+      - oauth2:
+        - api:metric:read
+      responses:
+        '200':
+          description: OK
+  /key/6:
+    post:
+      operationId: api_create_key_6
+      summary: Create key
+      description: Create a key via the HTTP API.
+      security:
+      - oauth2:
+        - api:key:write
+      responses:
+        '200':
+          description: OK
+  /task/7:
+    get:
+      operationId: api_lookup_task_7
+      summary: Lookup task
+      description: Lookup a task via the HTTP API.
+      security:
+      - oauth2:
+        - api:task:read
+      responses:
+        '200':
+          description: OK
+  /audit/8:
+    get:
+      operationId: api_status_audit_8
+      summary: Status audit
+      description: Status a audit via the HTTP API.
+      security:
+      - oauth2:
+        - api:audit:read
+      responses:
+        '200':
+          description: OK
+  /log/9:
+    post:
+      operationId: api_send_log_9
+      summary: Send log
+      description: Send a log via the HTTP API.
+      security:
+      - oauth2:
+        - api:log:write
+      responses:
+        '200':
+          description: OK
+  /invoice/10:
+    get:
+      operationId: api_lookup_invoice_10
+      summary: Lookup invoice
+      description: Lookup a invoice via the HTTP API.
+      security:
+      - oauth2:
+        - api:invoice:read
+      responses:
+        '200':
+          description: OK
+  /role/11:
+    post:
+      operationId: api_send_role_11
+      summary: Send role
+      description: Send a role via the HTTP API.
+      security:
+      - oauth2:
+        - api:role:write
+      responses:
+        '200':
+          description: OK
+  /alert/12:
+    post:
+      operationId: api_delete_alert_12
+      summary: Delete alert
+      description: Delete a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:write
+      responses:
+        '200':
+          description: OK
+  /subscription/13:
+    post:
+      operationId: api_send_subscription_13
+      summary: Send subscription
+      description: Send a subscription via the HTTP API.
+      security:
+      - oauth2:
+        - api:subscription:write
+      responses:
+        '200':
+          description: OK
+  /key/14:
+    post:
+      operationId: api_charge_key_14
+      summary: Charge key
+      description: Charge a key via the HTTP API.
+      security:
+      - oauth2:
+        - api:key:write
+      responses:
+        '200':
+          description: OK
+  /subscription/15:
+    post:
+      operationId: api_send_subscription_15
+      summary: Send subscription
+      description: Send a subscription via the HTTP API.
+      security:
+      - oauth2:
+        - api:subscription:write
+      responses:
+        '200':
+          description: OK
+  /member/16:
+    get:
+      operationId: api_lookup_member_16
+      summary: Lookup member
+      description: Lookup a member via the HTTP API.
+      security:
+      - oauth2:
+        - api:member:read
+      responses:
+        '200':
+          description: OK
+  /audit/17:
+    post:
+      operationId: api_cancel_audit_17
+      summary: Cancel audit
+      description: Cancel a audit via the HTTP API.
+      security:
+      - oauth2:
+        - api:audit:write
+      responses:
+        '200':
+          description: OK
+  /policy/18:
+    get:
+      operationId: api_get_policy_18
+      summary: Get policy
+      description: Get a policy via the HTTP API.
+      security:
+      - oauth2:
+        - api:policy:read
+      responses:
+        '200':
+          description: OK
+  /team/19:
+    get:
+      operationId: api_status_team_19
+      summary: Status team
+      description: Status a team via the HTTP API.
+      security:
+      - oauth2:
+        - api:team:read
+      responses:
+        '200':
+          description: OK
+  /secret/20:
+    get:
+      operationId: api_get_secret_20
+      summary: Get secret
+      description: Get a secret via the HTTP API.
+      security:
+      - oauth2:
+        - api:secret:read
+      responses:
+        '200':
+          description: OK
+  /scope/21:
+    get:
+      operationId: api_lookup_scope_21
+      summary: Lookup scope
+      description: Lookup a scope via the HTTP API.
+      security:
+      - oauth2:
+        - api:scope:read
+      responses:
+        '200':
+          description: OK
+  /member/22:
+    get:
+      operationId: api_search_member_22
+      summary: Search member
+      description: Search a member via the HTTP API.
+      security:
+      - oauth2:
+        - api:member:read
+      responses:
+        '200':
+          description: OK
+  /policy/23:
+    get:
+      operationId: api_view_policy_23
+      summary: View policy
+      description: View a policy via the HTTP API.
+      security:
+      - oauth2:
+        - api:policy:read
+      responses:
+        '200':
+          description: OK
+  /invoice/24:
+    get:
+      operationId: api_status_invoice_24
+      summary: Status invoice
+      description: Status a invoice via the HTTP API.
+      security:
+      - oauth2:
+        - api:invoice:read
+      responses:
+        '200':
+          description: OK
+  /tag/25:
+    post:
+      operationId: api_send_tag_25
+      summary: Send tag
+      description: Send a tag via the HTTP API.
+      security:
+      - oauth2:
+        - api:tag:write
+      responses:
+        '200':
+          description: OK
+  /alert/26:
+    get:
+      operationId: api_list_alert_26
+      summary: List alert
+      description: List a alert via the HTTP API.
+      security:
+      - oauth2:
+        - api:alert:read
+      responses:
+        '200':
+          description: OK
+  /order/27:
+    get:
+      operationId: api_lookup_order_27
+      summary: Lookup order
+      description: Lookup a order via the HTTP API.
+      security:
+      - oauth2:
+        - api:order:read
+      responses:
+        '200':
+          description: OK
+  /role/28:
+    get:
+      operationId: api_search_role_28
+      summary: Search role
+      description: Search a role via the HTTP API.
+      security:
+      - oauth2:
+        - api:role:read
+      responses:
+        '200':
+          description: OK
+  /key/29:
+    get:
+      operationId: api_search_key_29
+      summary: Search key
+      description: Search a key via the HTTP API.
+      security:
+      - oauth2:
+        - api:key:read
+      responses:
+        '200':
+          description: OK
+  /key/30:
+    get:
+      operationId: api_list_key_30
+      summary: List key
+      description: List a key via the HTTP API.
+      security:
+      - oauth2:
+        - api:key:read
+      responses:
+        '200':
+          description: OK
+  /invoice/31:
+    post:
+      operationId: api_create_invoice_31
+      summary: Create invoice
+      description: Create a invoice via the HTTP API.
+      security:
+      - oauth2:
+        - api:invoice:write
+      responses:
+        '200':
+          description: OK
+  /metric/32:
+    get:
+      operationId: api_status_metric_32
+      summary: Status metric
+      description: Status a metric via the HTTP API.
+      security:
+      - oauth2:
+        - api:metric:read
+      responses:
+        '200':
+          description: OK
+  /invoice/33:
+    post:
+      operationId: api_send_invoice_33
+      summary: Send invoice
+      description: Send a invoice via the HTTP API.
+      security:
+      - oauth2:
+        - api:invoice:write
+      responses:
+        '200':
+          description: OK
+  /report/34:
+    get:
+      operationId: api_status_report_34
+      summary: Status report
+      description: Status a report via the HTTP API.
+      security:
+      - oauth2:
+        - api:report:read
+      responses:
+        '200':
+          description: OK
+  /policy/35:
+    post:
+      operationId: api_charge_policy_35
+      summary: Charge policy
+      description: Charge a policy via the HTTP API.
+      security:
+      - oauth2:
+        - api:policy:write
+      responses:
+        '200':
+          description: OK
+  /thread/36:
+    get:
+      operationId: api_list_thread_36
+      summary: List thread
+      description: List a thread via the HTTP API.
+      security:
+      - oauth2:
+        - api:thread:read
+      responses:
+        '200':
+          description: OK
+  /customer/37:
+    post:
+      operationId: api_send_customer_37
+      summary: Send customer
+      description: Send a customer via the HTTP API.
+      security:
+      - oauth2:
+        - api:customer:write
+      responses:
+        '200':
+          description: OK
+  /role/38:
+    post:
+      operationId: api_send_role_38
+      summary: Send role
+      description: Send a role via the HTTP API.
+      security:
+      - oauth2:
+        - api:role:write
+      responses:
+        '200':
+          description: OK
+  /config/39:
+    post:
+      operationId: api_update_config_39
+      summary: Update config
+      description: Update a config via the HTTP API.
+      security:
+      - oauth2:
+        - api:config:write
+      responses:
+        '200':
+          description: OK

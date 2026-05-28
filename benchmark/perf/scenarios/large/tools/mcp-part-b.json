@@ -1,0 +1,1974 @@
+{
+  "tools": [
+    {
+      "name": "gmail_refund_comment_80",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a comment record via the gmail integration."
+    },
+    {
+      "name": "shopify_status_role_81",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a role record via the shopify integration."
+    },
+    {
+      "name": "internal_cancel_secret_82",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Cancel a secret record via the internal integration."
+    },
+    {
+      "name": "internal_status_payment_83",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a payment record via the internal integration."
+    },
+    {
+      "name": "gmail_remove_metric_84",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Remove a metric record via the gmail integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "gmail:metric:write"
+        ]
+      }
+    },
+    {
+      "name": "zendesk_refund_scope_85",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a scope record via the zendesk integration."
+    },
+    {
+      "name": "zendesk_lookup_task_86",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Lookup a task record via the zendesk integration."
+    },
+    {
+      "name": "gmail_charge_policy_87",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "shopify_issue_invoice_88",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Issue a invoice record via the shopify integration."
+    },
+    {
+      "name": "gmail_cancel_label_89",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Cancel a label record via the gmail integration."
+    },
+    {
+      "name": "stripe_get_scope_90",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a scope record via the stripe integration."
+    },
+    {
+      "name": "stripe_delete_account_91",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Delete a account record via the stripe integration."
+    },
+    {
+      "name": "shopify_refund_session_92",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a session record via the shopify integration."
+    },
+    {
+      "name": "gmail_remove_subscription_93",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Remove a subscription record via the gmail integration."
+    },
+    {
+      "name": "internal_status_label_94",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a label record via the internal integration."
+    },
+    {
+      "name": "stripe_issue_session_95",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Issue a session record via the stripe integration."
+    },
+    {
+      "name": "zendesk_status_thread_96",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a thread record via the zendesk integration."
+    },
+    {
+      "name": "internal_lookup_scope_97",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Lookup a scope record via the internal integration."
+    },
+    {
+      "name": "shopify_view_secret_98",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "View a secret record via the shopify integration."
+    },
+    {
+      "name": "gmail_get_subscription_99",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a subscription record via the gmail integration."
+    },
+    {
+      "name": "gmail_get_scope_100",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a scope record via the gmail integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "gmail:scope:read"
+        ]
+      }
+    },
+    {
+      "name": "shopify_list_user_101",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "List a user record via the shopify integration."
+    },
+    {
+      "name": "github_status_report_102",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a report record via the github integration."
+    },
+    {
+      "name": "gmail_destroy_config_103",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Destroy a config record via the gmail integration."
+    },
+    {
+      "name": "zendesk_get_key_104",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a key record via the zendesk integration."
+    },
+    {
+      "name": "github_status_ticket_105",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a ticket record via the github integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "github:ticket:read"
+        ]
+      }
+    },
+    {
+      "name": "zendesk_update_label_106",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Update a label record via the zendesk integration."
+    },
+    {
+      "name": "github_issue_config_107",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Issue a config record via the github integration."
+    },
+    {
+      "name": "internal_view_alert_108",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "View a alert record via the internal integration."
+    },
+    {
+      "name": "shopify_search_metric_109",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Search a metric record via the shopify integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "shopify:metric:read"
+        ]
+      }
+    },
+    {
+      "name": "shopify_get_secret_110",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a secret record via the shopify integration."
+    },
+    {
+      "name": "gmail_charge_team_111",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Charge a team record via the gmail integration."
+    },
+    {
+      "name": "shopify_search_account_112",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Search a account record via the shopify integration."
+    },
+    {
+      "name": "zendesk_create_payment_113",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "zendesk_get_role_114",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a role record via the zendesk integration."
+    },
+    {
+      "name": "github_refund_user_115",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a user record via the github integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "github:user:write"
+        ]
+      }
+    },
+    {
+      "name": "stripe_refund_order_116",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a order record via the stripe integration."
+    },
+    {
+      "name": "github_update_user_117",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Update a user record via the github integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "github:user:write"
+        ]
+      }
+    },
+    {
+      "name": "shopify_destroy_payment_118",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Destroy a payment record via the shopify integration."
+    },
+    {
+      "name": "zendesk_list_session_119",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "List a session record via the zendesk integration."
+    },
+    {
+      "name": "gmail_status_customer_120",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a customer record via the gmail integration."
+    },
+    {
+      "name": "shopify_refund_tag_121",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a tag record via the shopify integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "shopify:tag:write"
+        ]
+      }
+    },
+    {
+      "name": "shopify_create_policy_122",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Create a policy record via the shopify integration."
+    },
+    {
+      "name": "github_status_member_123",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a member record via the github integration."
+    },
+    {
+      "name": "gmail_refund_ticket_124",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a ticket record via the gmail integration."
+    },
+    {
+      "name": "stripe_update_customer_125",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Update a customer record via the stripe integration."
+    },
+    {
+      "name": "github_delete_thread_126",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Delete a thread record via the github integration."
+    },
+    {
+      "name": "internal_send_metric_127",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Send a metric record via the internal integration."
+    },
+    {
+      "name": "stripe_search_log_128",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Search a log record via the stripe integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "stripe:log:read"
+        ]
+      }
+    },
+    {
+      "name": "github_update_subscription_129",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Update a subscription record via the github integration."
+    },
+    {
+      "name": "zendesk_remove_tag_130",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "shopify_remove_comment_131",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Remove a comment record via the shopify integration."
+    },
+    {
+      "name": "stripe_search_thread_132",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Search a thread record via the stripe integration."
+    },
+    {
+      "name": "zendesk_status_label_133",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a label record via the zendesk integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "zendesk:label:read"
+        ]
+      }
+    },
+    {
+      "name": "gmail_view_audit_134",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "View a audit record via the gmail integration."
+    },
+    {
+      "name": "zendesk_send_metric_135",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Send a metric record via the zendesk integration."
+    },
+    {
+      "name": "gmail_lookup_scope_136",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Lookup a scope record via the gmail integration."
+    },
+    {
+      "name": "github_search_account_137",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Search a account record via the github integration."
+    },
+    {
+      "name": "github_list_subscription_138",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "List a subscription record via the github integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "github:subscription:read"
+        ]
+      }
+    },
+    {
+      "name": "gmail_issue_team_139",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Issue a team record via the gmail integration."
+    },
+    {
+      "name": "shopify_refund_policy_140",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a policy record via the shopify integration."
+    },
+    {
+      "name": "internal_get_message_141",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a message record via the internal integration."
+    },
+    {
+      "name": "zendesk_refund_metric_142",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a metric record via the zendesk integration."
+    },
+    {
+      "name": "shopify_refund_alert_143",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a alert record via the shopify integration."
+    },
+    {
+      "name": "stripe_refund_report_144",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a report record via the stripe integration."
+    },
+    {
+      "name": "shopify_update_order_145",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Update a order record via the shopify integration."
+    },
+    {
+      "name": "zendesk_view_metric_146",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "View a metric record via the zendesk integration."
+    },
+    {
+      "name": "gmail_delete_secret_147",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Delete a secret record via the gmail integration."
+    },
+    {
+      "name": "github_lookup_customer_148",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Lookup a customer record via the github integration."
+    },
+    {
+      "name": "github_send_ticket_149",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Send a ticket record via the github integration."
+    },
+    {
+      "name": "zendesk_status_member_150",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a member record via the zendesk integration."
+    },
+    {
+      "name": "gmail_create_task_151",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Create a task record via the gmail integration."
+    },
+    {
+      "name": "internal_view_user_152",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "View a user record via the internal integration."
+    },
+    {
+      "name": "internal_get_log_153",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a log record via the internal integration.",
+      "auth": {
+        "type": "oauth2",
+        "scopes": [
+          "internal:log:read"
+        ]
+      }
+    },
+    {
+      "name": "shopify_list_milestone_154",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "stripe_refund_policy_155",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 10000
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Refund a policy record via the stripe integration."
+    },
+    {
+      "name": "stripe_get_comment_156",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a comment record via the stripe integration."
+    },
+    {
+      "name": "github_status_user_157",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Status a user record via the github integration."
+    },
+    {
+      "name": "zendesk_list_audit_158",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "List a audit record via the zendesk integration."
+    },
+    {
+      "name": "stripe_get_session_159",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "description": "Get a session record via the stripe integration."
+    }
+  ]
+}
