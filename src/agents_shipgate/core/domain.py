@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.schemas.common import Confidence, parse_confidence
+from agents_shipgate.schemas.surfaces import ActionEffect
 
 
 class AuthInfo(BaseModel):
@@ -96,3 +98,289 @@ class LoadedToolSource(BaseModel):
     source_type: str
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Typed Action / Scope / SideEffect domain types.
+#
+# These are *in-memory* representations used by the action-surface and
+# risk-hint machinery. The canonical wire shapes remain:
+#
+# - ``schemas.surfaces.ActionFact`` for action snapshots (extra="forbid").
+# - ``AuthInfo.scopes: list[str]`` and ``ActionFact.required_scopes:
+#   list[str]`` for scope serialization.
+# - ``ActionFact.effect: ActionEffect`` + ``risk_tags: list[str]`` for
+#   side-effect serialization.
+#
+# Adding these types is purely additive — no field on any wire model
+# changes, and ``report_schema_version`` does not bump.
+# ---------------------------------------------------------------------------
+
+
+# Verb tokens recognized when parsing a scope's verb position. Read/write
+# subsets drive ``Scope.is_read`` / ``Scope.is_write`` without forcing a
+# strict format on user scope strings — unknown verbs leave both as False.
+_SCOPE_VERB_TOKENS: frozenset[str] = frozenset(
+    {
+        "*",
+        "admin",
+        "all",
+        "create",
+        "delete",
+        "destroy",
+        "execute",
+        "get",
+        "list",
+        "manage",
+        "read",
+        "run",
+        "update",
+        "view",
+        "write",
+    }
+)
+_SCOPE_READ_VERBS: frozenset[str] = frozenset({"get", "list", "read", "view"})
+_SCOPE_WRITE_VERBS: frozenset[str] = frozenset(
+    {"admin", "create", "delete", "destroy", "execute", "manage", "run", "update", "write"}
+)
+
+
+class Scope(BaseModel):
+    """Typed view of a permission scope string.
+
+    The canonical wire form is the original ``raw`` string — this type
+    is the in-memory derivation used for matching and least-privilege
+    reasoning. The parser is permissive: it never raises, and unknown
+    shapes fall back to a single-``provider`` form.
+
+    Supported shapes:
+
+    - ``provider:resource:verb``    — Stripe-, AWS-, K8s-style triples.
+    - ``provider:resource``         — GitHub-style ``repo:status``.
+    - ``provider.resource.verb``    — OpenAI / dot-separated APIs.
+    - ``provider:*``                — broad on resource (``Scope.is_broad`` is True).
+    - ``provider:resource:*``       — broad on verb (AWS-style; ``Scope.is_broad`` is True).
+    - ``admin``, ``*``              — broad tokens (no structural parts).
+
+    Wildcard slotting is **position-dependent** — the wildcard occupies
+    whatever slot it would naturally fill by position. ``is_broad()``
+    returns True regardless of which slot it ended up in, and
+    ``is_read()`` / ``is_write()`` always return False for a wildcard
+    verb because ``"*"`` is not a canonical action verb.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    raw: str
+    provider: str | None = None
+    resource: str | None = None
+    verb: str | None = None
+
+    @classmethod
+    def parse(cls, raw: str) -> Scope:
+        """Parse a scope string into typed parts. Never raises."""
+        raw_str = (raw or "").strip()
+        if not raw_str:
+            return cls(raw="")
+        normalized = raw_str.lower()
+        # Broad single-token short-circuits — keep structural parts empty
+        # so least-privilege checks don't try to match by provider.
+        if normalized in {"*", "admin"}:
+            return cls(raw=raw_str)
+        if ":" in raw_str:
+            return cls._from_parts(raw_str, raw_str.split(":"))
+        if "." in raw_str:
+            return cls._from_parts(raw_str, raw_str.split("."))
+        if "/" in raw_str:
+            return cls._from_parts(raw_str, raw_str.split("/"))
+        return cls(raw=raw_str, provider=raw_str)
+
+    @classmethod
+    def _from_parts(cls, raw: str, parts: list[str]) -> Scope:
+        cleaned = [part.strip() for part in parts if part.strip()]
+        if not cleaned:
+            return cls(raw=raw)
+        if len(cleaned) == 1:
+            if cleaned[0] == "*":
+                return cls(raw=raw)
+            return cls(raw=raw, provider=cleaned[0])
+        # Wildcard slotting is position-dependent — the wildcard always
+        # occupies the slot that part would naturally occupy by position:
+        #
+        # - 2-part ``provider:*`` → resource is ``"*"``, verb is ``None``.
+        #   2-part scopes have no canonical verb position, so the trailing
+        #   token is treated as a resource regardless of value.
+        # - 3+-part ``provider:resource:*`` → resource is concrete, verb is
+        #   ``"*"``. This matches AWS IAM / GCP-style wildcards where the
+        #   action axis is the rightmost position (``s3:bucket:*`` means
+        #   "all actions on the bucket").
+        #
+        # In every case ``is_broad()`` returns True via
+        # ``core.heuristics.is_broad_scope`` regardless of which slot the
+        # wildcard ended up in, so least-privilege gating is unaffected
+        # by the slot choice. ``is_read()``/``is_write()`` always return
+        # False for ``verb="*"`` because ``"*"`` is not in the
+        # _SCOPE_READ_VERBS / _SCOPE_WRITE_VERBS sets.
+        if len(cleaned) == 2:
+            if cleaned[-1] == "*":
+                return cls(raw=raw, provider=cleaned[0], resource="*")
+            tail = cleaned[-1].lower()
+            if tail in _SCOPE_VERB_TOKENS:
+                return cls(raw=raw, provider=cleaned[0], verb=cleaned[-1])
+            return cls(raw=raw, provider=cleaned[0], resource=cleaned[-1])
+        # 3+ parts.
+        provider = cleaned[0]
+        if cleaned[-1] == "*":
+            resource = ":".join(cleaned[1:-1]) if len(cleaned) > 2 else None
+            return cls(raw=raw, provider=provider, resource=resource, verb="*")
+        tail = cleaned[-1].lower()
+        if tail in _SCOPE_VERB_TOKENS:
+            resource = ":".join(cleaned[1:-1]) if len(cleaned) > 2 else None
+            return cls(raw=raw, provider=provider, resource=resource, verb=cleaned[-1])
+        return cls(raw=raw, provider=provider, resource=":".join(cleaned[1:]))
+
+    def is_broad(self) -> bool:
+        """True for wildcard / admin-equivalent scope strings.
+
+        Delegates to ``core.heuristics.is_broad_scope`` so manifest-level
+        broad-scope checks and per-scope checks agree on the rule.
+        """
+        return is_broad_scope(self.raw)
+
+    def is_write(self) -> bool:
+        verb = (self.verb or "").lower()
+        return verb in _SCOPE_WRITE_VERBS
+
+    def is_read(self) -> bool:
+        verb = (self.verb or "").lower()
+        return verb in _SCOPE_READ_VERBS
+
+    def __str__(self) -> str:
+        return self.raw
+
+
+# Effect tiers that always count as high-risk regardless of risk-tag set.
+# Mirrors the catalog used by ``core/lenses/action_surface.py`` for
+# severity classification AND the legacy ``core.risk_hints.HIGH_RISK_TAGS``
+# set (the canonical-mapped versions) so the typed ``SideEffect.is_high_risk``
+# never under-reports relative to the legacy ``is_high_risk_tool``
+# predicate. The mapping back to legacy tags:
+#
+# - destructive             ← destructive
+# - external_communication  ← external_write / customer_communication
+# - financial_write         ← financial_action
+# - production_operation    ← infrastructure_change → production_ops
+# - code_execution          ← code_execution
+# - privileged_data_access  ← sensitive_data_access → privileged_data
+# - identity_access         ← (not in legacy HIGH_RISK_TAGS; typed-only
+#                              escalation, strictly more conservative)
+_HIGH_RISK_EFFECTS: frozenset[str] = frozenset(
+    {
+        "code_execution",
+        "destructive",
+        "external_communication",
+        "financial_write",
+        "identity_access",
+        "privileged_data_access",
+        "production_operation",
+    }
+)
+
+
+class SideEffect(BaseModel):
+    """Typed side-effect profile of an Action / Tool.
+
+    Replaces the ``risk_tags: list[str]`` string-bag pattern by capturing
+    each independently-derivable side-effect property in its own field.
+    The flat ``risk_tags`` list remains the wire representation; this
+    type is the in-memory view used by checks and the diff machinery.
+
+    ``effect`` is the canonical effect tier (matches
+    ``schemas.surfaces.ActionEffect``). The remaining boolean fields are
+    structural facts that are independent of the effect tier — a tool
+    can be both ``effect="write"`` and ``handles_sensitive_data=True``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    effect: ActionEffect
+    externally_visible: bool = False
+    handles_sensitive_data: bool = False
+    financial: bool = False
+    code_execution: bool = False
+    reversibility: Literal["reversible", "irreversible", "unknown"] = "unknown"
+    idempotency_known: bool | None = None
+
+    @property
+    def is_high_risk(self) -> bool:
+        """Canonical high-risk classifier for severity / gating.
+
+        Maintains the invariant that
+        ``tool_side_effect(tool).is_high_risk`` is True whenever the
+        legacy ``core.risk_hints.is_high_risk_tool(tool)`` is True.
+        Both ``effect`` and the structural fields contribute so that a
+        tool whose declared effect tier is lower than its
+        ``handles_sensitive_data`` / ``financial`` / ``code_execution``
+        signals still classifies as high-risk.
+        """
+        if self.effect in _HIGH_RISK_EFFECTS:
+            return True
+        return self.financial or self.code_execution or self.handles_sensitive_data
+
+
+class Action(BaseModel):
+    """Typed runtime representation of an Action.
+
+    Mirror of ``schemas.surfaces.ActionFact`` with two upgrades:
+
+    - ``scopes: list[Scope]`` instead of ``list[str]`` — typed view for
+      least-privilege reasoning and broad-scope detection.
+    - ``side_effect: SideEffect`` instead of a string-bag mix of
+      ``effect`` + ``risk_tags`` — typed view for severity logic.
+
+    ``risk_tags`` is retained as a parallel ``list[str]`` so the typed
+    Action serializes cleanly back to the wire ``ActionFact`` shape via
+    ``core.lenses.action_surface.action_to_fact``. Outside the action-
+    surface pipeline, code should prefer ``side_effect`` for branching.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str
+    agent_id: str
+    tool_id: str
+    tool_name: str
+    provider: str
+    source_type: str
+    source_id: str | None = None
+    operation: str
+    side_effect: SideEffect
+    risk_tags: list[str] = Field(default_factory=list)
+    scopes: list[Scope] = Field(default_factory=list)
+    approval_required: bool | None = None
+    approval_threshold: str | None = None
+    safeguard_idempotency: bool | None = None
+    safeguard_audit_log: bool | None = None
+    safeguard_rollback: bool | None = None
+    safeguard_dry_run: bool | None = None
+    evidence_owner: str | None = None
+    evidence_runbook: str | None = None
+    evidence_approval_ticket: str | None = None
+    input_fields: list[str] = Field(default_factory=list)
+    required_input_fields: list[str] = Field(default_factory=list)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    parameters_for_hash: list[dict[str, Any]] = Field(default_factory=list)
+
+    @property
+    def scope_strings(self) -> list[str]:
+        """Wire-format projection of ``scopes`` — preserves user input order."""
+        return [scope.raw for scope in self.scopes]
+
+    @property
+    def has_broad_scope(self) -> bool:
+        return any(scope.is_broad() for scope in self.scopes)
+
+    @property
+    def effect(self) -> ActionEffect:
+        """Convenience alias — matches ``ActionFact.effect``."""
+        return self.side_effect.effect
