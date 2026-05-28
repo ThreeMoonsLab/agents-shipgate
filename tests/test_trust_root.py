@@ -18,6 +18,8 @@ from agents_shipgate.cli.main import app
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.findings.mutations import apply_suppressions
+from agents_shipgate.schemas.manifest import SuppressionConfig
 from agents_shipgate.schemas.verification import VerificationContext
 
 runner = CliRunner()
@@ -162,3 +164,85 @@ def test_scan_without_changed_files_is_unchanged(tmp_path):
         (tmp_path / "wk" / "agents-shipgate-reports" / "report.json").read_text()
     )
     assert [f for f in report["findings"] if f["check_id"] == CHECK_ID] == []
+
+
+# --- Reward-hacking guard: the trust-root finding cannot be silenced -------
+
+
+def test_apply_suppressions_cannot_suppress_trust_root_finding():
+    """Unit: a checks.ignore entry targeting the verify check must NOT
+    flip ``suppressed`` — otherwise a PR could edit shipgate.yaml to
+    silence the very check that flags the edit."""
+    findings = verify_run(_context(changed_files=["shipgate.yaml"]))
+    assert len(findings) == 1
+    apply_suppressions(
+        findings,
+        [SuppressionConfig(check_id=CHECK_ID, reason="make CI green")],
+    )
+    assert findings[0].suppressed is False
+
+
+def test_scan_ignore_entry_does_not_silence_trust_root(tmp_path):
+    """End-to-end: shipgate.yaml adding `checks.ignore` for the trust-root
+    check does not suppress it; the finding stays active and the gate
+    still routes to review_required."""
+    shutil.copytree("samples/clean_read_only_agent", tmp_path / "wk")
+    manifest = tmp_path / "wk" / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text()
+        + "\nchecks:\n  ignore:\n    - check_id: SHIP-VERIFY-TRUST-ROOT-TOUCHED\n"
+        + "      reason: make CI green\n",
+        encoding="utf-8",
+    )
+    changed = tmp_path / "changed.txt"
+    changed.write_text("shipgate.yaml\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["scan", "-c", str(manifest), "--changed-files", str(changed)]
+    )
+    assert result.exit_code == 0, result.stdout
+    report = json.loads(
+        (tmp_path / "wk" / "agents-shipgate-reports" / "report.json").read_text()
+    )
+    verify_findings = [f for f in report["findings"] if f["check_id"] == CHECK_ID]
+    assert len(verify_findings) == 1
+    assert verify_findings[0]["suppressed"] is False
+    assert report["release_decision"]["decision"] == "review_required"
+
+
+def test_scan_severity_override_below_floor_is_rejected(tmp_path):
+    """Weakening the trust-root check below its medium floor via
+    checks.severity_overrides is a hard ConfigError (exit 2), not a
+    silent downgrade."""
+    shutil.copytree("samples/clean_read_only_agent", tmp_path / "wk")
+    manifest = tmp_path / "wk" / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text()
+        + "\nchecks:\n  severity_overrides:\n"
+        + "    SHIP-VERIFY-TRUST-ROOT-TOUCHED: info\n",
+        encoding="utf-8",
+    )
+    changed = tmp_path / "changed.txt"
+    changed.write_text("shipgate.yaml\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["scan", "-c", str(manifest), "--changed-files", str(changed)]
+    )
+    assert result.exit_code == 2, result.stdout
+
+
+def test_scan_changed_files_rejected_for_multi_config(tmp_path):
+    """--changed-files is single-config only: a workspace that resolves
+    more than one manifest must reject it (exit 2) rather than fan the
+    same changed-files list across every manifest."""
+    shutil.copytree("samples/multi_agent_workspace", tmp_path / "wk")
+    manifests = list((tmp_path / "wk").rglob("shipgate.yaml"))
+    assert len(manifests) > 1, "fixture must resolve multiple manifests"
+    changed = tmp_path / "changed.txt"
+    changed.write_text("shipgate.yaml\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["scan", "--workspace", str(tmp_path / "wk"), "--changed-files", str(changed)],
+    )
+    assert result.exit_code == 2, result.stdout

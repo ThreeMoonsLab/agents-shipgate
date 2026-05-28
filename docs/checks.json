@@ -1622,7 +1622,7 @@
         "matched_glob"
       ],
       "fires_when": "A changed file from the verification context matches a trust-root surface glob. Emits nothing on a plain scan (no verification context).",
-      "floor_severity": null,
+      "floor_severity": "medium",
       "id": "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
       "mvp_tier": "lifecycle",
       "rationale": "Trust-root files define the release gate. A coding agent told to make CI pass can weaken the gate instead of fixing the underlying readiness issue (reward hacking); touching a trust root must therefore require human review.",

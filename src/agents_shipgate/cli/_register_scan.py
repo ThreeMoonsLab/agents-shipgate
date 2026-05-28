@@ -218,6 +218,18 @@ def register(app: typer.Typer) -> None:
 
         try:
             config_paths = _resolve_config_paths(config=config, workspace=workspace)
+            if verification_context is not None and len(config_paths) > 1:
+                # --changed-files describes ONE PR's diff against ONE
+                # manifest's trust roots. Fanning the same changed-files
+                # list across every resolved manifest would mis-attribute
+                # a trust-root touch to unrelated manifests (e.g. flag both
+                # a/ and b/ for an edit under a/). Reject rather than guess.
+                raise ConfigError(
+                    "--changed-files is single-config only, but "
+                    f"{len(config_paths)} manifests resolved. Re-run scan "
+                    "against one manifest (-c <path>) when supplying "
+                    "--changed-files."
+                )
             if len(config_paths) == 1:
                 report, exit_code = run_scan(
                     config_path=config_paths[0],
@@ -261,7 +273,6 @@ def register(app: typer.Typer) -> None:
                 packet_formats=parsed_packet_formats,
                 strict_plugins=strict_plugins,
                 no_heuristics=no_heuristics,
-                verification_context=verification_context,
             )
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)

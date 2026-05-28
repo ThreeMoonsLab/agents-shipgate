@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections import Counter
 
-from agents_shipgate.core.check_ids import expands_to_check_id
+from agents_shipgate.core.check_ids import (
+    UNSUPPRESSIBLE_FINDING_CATEGORIES,
+    expands_to_check_id,
+)
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import SuppressionConfig
 from agents_shipgate.schemas.report import (
@@ -18,6 +21,12 @@ def apply_suppressions(
     findings: list[Finding], suppressions: list[SuppressionConfig]
 ) -> list[Finding]:
     for finding in findings:
+        # Trust-root / verify findings are the reward-hacking guard and
+        # cannot be silenced by a manifest checks.ignore entry — a PR that
+        # edits shipgate.yaml to suppress them must NOT pass. See
+        # UNSUPPRESSIBLE_FINDING_CATEGORIES.
+        if finding.category in UNSUPPRESSIBLE_FINDING_CATEGORIES:
+            continue
         match = _matching_suppression(finding, suppressions)
         if match:
             finding.suppressed = True

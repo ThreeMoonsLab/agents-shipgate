@@ -2,6 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+# Reward-hacking guard. Findings in these categories define the release
+# gate's trust spine (trust-root protection). A manifest ``checks.ignore``
+# suppression must NOT be able to hide them — otherwise a coding agent
+# could edit ``shipgate.yaml`` to add ``ignore: SHIP-VERIFY-TRUST-ROOT-
+# TOUCHED`` and silence the very check that flags that edit. Enforced in
+# ``apply_suppressions``; mirrors how baseline-integrity findings are
+# immune (they are appended after suppression runs). Severity weakening
+# of these checks is blocked separately by ``CheckMetadata.floor_severity``.
+# See docs/engineering/ai-coding-workflow-verifier.md §3 (Principle 3) and §5.
+UNSUPPRESSIBLE_FINDING_CATEGORIES: frozenset[str] = frozenset({"verify"})
+
 LEGACY_CHECK_ID_ALIASES: dict[str, tuple[str, ...]] = {
     "SHIP-API-OPERATIONAL-READINESS": (
         "SHIP-API-RETRY-POLICY-MISSING",

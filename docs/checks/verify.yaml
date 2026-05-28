@@ -17,6 +17,7 @@
 checks:
 - id: SHIP-VERIFY-TRUST-ROOT-TOUCHED
   default_severity: medium
+  floor_severity: medium
   mvp_tier: lifecycle
   description: A PR changed a release trust-root file (manifest, shipgate state,
     policy, prompts, the Shipgate CI gate, agent instructions, or a tool-surface
