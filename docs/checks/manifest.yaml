@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING
   default_severity: high
+  mvp_tier: core
   description: Production high-risk tool has no declared owner.
   rationale: High-risk production tools need an accountable owning team for review
     and remediation.
@@ -27,6 +28,7 @@ checks:
   recommendation: Declare an owner for each high-risk production tool.
 - id: SHIP-MANIFEST-STALE-POLICY
   default_severity: medium
+  mvp_tier: hygiene
   description: A policy references a missing tool.
   rationale: Approval, confirmation, and idempotency policies should map to the actual
     release surface.
@@ -38,6 +40,7 @@ checks:
   suggested_patch_kind: remove_pointer
 - id: SHIP-MANIFEST-STALE-RISK-OVERRIDE
   default_severity: medium
+  mvp_tier: hygiene
   description: A risk override references a missing tool.
   rationale: Risk overrides should not outlive the tool they describe.
   fires_when: risk_overrides.tools contains a tool that is not loaded.
@@ -47,6 +50,7 @@ checks:
   suggested_patch_kind: remove_pointer
 - id: SHIP-MANIFEST-STALE-SUPPRESSION
   default_severity: medium
+  mvp_tier: hygiene
   description: A suppression references a missing check or tool.
   rationale: Stale suppressions hide intent and make release review harder to audit.
   fires_when: checks.ignore contains an unknown check_id or a tool name that is not
@@ -60,6 +64,7 @@ checks:
   suggested_patch_kind: remove_pointer
 - id: SHIP-MANIFEST-UNUSED-SCOPE
   default_severity: medium
+  mvp_tier: hygiene
   description: Manifest declares permission scopes unused by loaded tools.
   rationale: Unused permissions weaken least-privilege review and often indicate stale
     config.

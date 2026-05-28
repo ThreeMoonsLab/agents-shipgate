@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Production target includes low-confidence tool extraction.
   rationale: Production promotion should not depend primarily on best-effort SDK inference.
@@ -26,6 +27,7 @@ checks:
   recommendation: Declare those tools through manifest, MCP, or OpenAPI inputs.
 - id: SHIP-INVENTORY-NOT-ENUMERABLE
   default_severity: high
+  mvp_tier: core
   description: Tool surface cannot be enumerated from declared inputs.
   rationale: A release gate must fail closed when it cannot see the agent's tools.
   fires_when: No tools are loaded from required manifest sources.
@@ -34,6 +36,7 @@ checks:
   recommendation: Declare at least one local MCP JSON or OpenAPI tool source.
 - id: SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE
   default_severity: medium
+  mvp_tier: core
   description: Tool surface exceeds the MVP review threshold.
   rationale: Large tool surfaces are harder to reason about during promotion.
   fires_when: The normalized tool count exceeds the built-in threshold.
@@ -43,6 +46,7 @@ checks:
   recommendation: Split or reduce the tool surface before release.
 - id: SHIP-INVENTORY-WILDCARD-TOOLS
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Wildcard or all-tools exposure is declared.
   rationale: Wildcard tools make review and least-privilege reasoning impossible.

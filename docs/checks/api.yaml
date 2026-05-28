@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-API-FUNCTION-SCHEMA-STRICTNESS
   default_severity: high
+  mvp_tier: adapter
   description: OpenAI API function schema is not strict enough for reliable tool calls.
   rationale: Strict schemas reduce ambiguous tool arguments and downstream side-effect
     risk.
@@ -28,6 +29,7 @@ checks:
     risky parameters.
 - id: SHIP-API-OPERATIONAL-READINESS
   default_severity: medium
+  mvp_tier: adapter
   description: Deprecated compatibility alias for the v0.3 OpenAI API operational
     readiness bundle.
   rationale: |-
@@ -40,6 +42,7 @@ checks:
     Migrate suppressions, severity overrides, and baselines to the specific v0.4 SHIP-API-* readiness check IDs.
 - id: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH
   default_severity: high
+  mvp_tier: adapter
   description: Prompt scope contradicts enabled OpenAI API tools.
   rationale: Prompt instructions should match the actual write/high-risk tool surface.
   fires_when: |-
@@ -50,6 +53,7 @@ checks:
     instructions.
 - id: SHIP-API-RETRY-POLICY-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: OpenAI API high-risk flow lacks retry policy metadata.
   rationale: Retries need explicit policy metadata so reviewers can reason about duplicate
     side effects.
@@ -59,6 +63,7 @@ checks:
   recommendation: Declare retry_policy in openai_api.policy_rules or model_config.
 - id: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY
   default_severity: high
+  mvp_tier: adapter
   description: OpenAI API write tool may be retried without idempotency evidence.
   rationale: |-
     Retries against non-idempotent writes can duplicate financial, destructive, or external side effects.
@@ -70,6 +75,7 @@ checks:
     retrying those side effects.
 - id: SHIP-API-STRUCTURED-OUTPUT-READINESS
   default_severity: medium
+  mvp_tier: adapter
   description: OpenAI API structured output schema is missing or under-specified.
   rationale: Downstream release decisions need explicit, structured success/refusal/review
     modeling.
@@ -83,6 +89,7 @@ checks:
     Declare a strict response format with decision/status enums, needs_review/refusal/error fields, and critical fields.
 - id: SHIP-API-TEST-CASES-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: OpenAI API high-risk flow lacks test case metadata.
   rationale: High-risk tool-call flows should have release evidence before promotion.
   fires_when: High-risk OpenAI API tools exist and no test cases are declared.
@@ -91,6 +98,7 @@ checks:
   recommendation: Add simple OpenAI API test cases for high-risk tool-call flows.
 - id: SHIP-API-TIMEOUT-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: OpenAI API high-risk flow lacks timeout metadata.
   rationale: Timeouts define failure behavior and reduce ambiguous tool-call continuation.
   fires_when: High-risk OpenAI API tools exist and no timeout metadata is declared.
@@ -99,6 +107,7 @@ checks:
   recommendation: Declare tool-call timeout metadata for high-risk OpenAI API flows.
 - id: SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: OpenAI API high-risk tool lacks success/failure output modeling.
   rationale: Tool output schemas help release reviewers reason about downstream failure
     handling.
@@ -110,6 +119,7 @@ checks:
     tools.
 - id: SHIP-API-TRACE-APPROVAL-MISSING
   default_severity: medium
+  mvp_tier: evidence
   description: OpenAI API trace sample shows a policy-controlled tool without approval.
   rationale: Trace samples should demonstrate approval behavior for tools that require
     approval.
@@ -122,6 +132,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-API-TRACE-CONFIRMATION-MISSING
   default_severity: medium
+  mvp_tier: evidence
   description: OpenAI API trace sample shows a policy-controlled tool without confirmation.
   rationale: Trace samples should demonstrate explicit confirmation for tools that
     require confirmation.

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import get_args
+from typing import Literal, get_args
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.patches import SuggestedPatchKind
+
+MvpTier = Literal["core", "adapter", "evidence", "lifecycle", "hygiene"]
 
 
 class CheckMetadata(BaseModel):
@@ -19,6 +21,10 @@ class CheckMetadata(BaseModel):
     id: str = Field(validation_alias=AliasChoices("id", "check_id"))
     category: str
     default_severity: Severity
+    # Public triage/display tier for the MVP Tool-Use Readiness story.
+    # This is catalog metadata only: it does not affect severity,
+    # fingerprints, baselines, release decisions, or CI exit behavior.
+    mvp_tier: MvpTier = "hygiene"
     description: str
     rationale: str | None = None
     fires_when: str | None = None

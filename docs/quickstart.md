@@ -59,6 +59,17 @@ This runs against a bundled fixture that intentionally fails several checks,
 so you can confirm the install works and see what a real finding list looks
 like.
 
+## Read the first result
+
+Use `release_decision.decision` as the first signal:
+
+| Decision | Meaning | Next action |
+| --- | --- | --- |
+| `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky tool surface. |
+| `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence; this does not prove the agent is unsafe. | Provide an MCP export, OpenAPI spec, explicit local tool inventory, or broader OpenAI SDK source path, then rerun. |
+| `review_required` | Human review is needed for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
+| `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
+
 ## Second 60 seconds (your real repo)
 
 In a repo containing an agent and its tools, `bootstrap` runs the adoption flow
@@ -95,7 +106,7 @@ Use this decision tree before reading the full manifest schema:
 | `detect` says `is_agent_project: false`, but `suggested_sources` includes MCP or OpenAPI files | Proceed to `init`. MCP/OpenAPI-only repos are valid tool-surface targets even without Python framework detection. |
 | `detect` says `is_agent_project: false`, but `codex_plugin_candidates` is non-empty | Proceed to `init`. Codex plugin repos are valid static plugin-surface targets even without Python framework detection. |
 | `doctor` shows zero tools | Check `tool_sources[].path`, MCP `tools[]`, OpenAPI `paths`, optional source warnings, and dynamic ADK/MCP toolsets. |
-| Tools are created by factories, wrappers, or dynamic ADK/MCP toolsets | Provide an explicit MCP export, OpenAPI spec, or local tool inventory artifact. |
+| Tools are created by factories, wrappers, or dynamic ADK/MCP toolsets | Provide an explicit MCP export, OpenAPI spec, local tool inventory artifact, or a broader OpenAI SDK source directory when tools are static but split across files. |
 | `init --write --json` reports `CHANGE_ME` placeholders | Replace `agent.name` and `agent.declared_purpose` from the prompt, main agent file, or repo README before scanning. |
 | Install fails in a Python 3.10/3.11 project | Install the CLI outside the project env with `pipx` or `uv` using Python 3.12+. |
 | Reports appear in `git status` | Add `agents-shipgate-reports/` to `.gitignore`; reports are local release-review artifacts. |
@@ -107,7 +118,7 @@ already have:
 
 | Source | Use when | Manifest path |
 | --- | --- | --- |
-| OpenAI Agents SDK Python | Tools are defined with `@function_tool` in local Python files. | `tool_sources[].type: openai_agents_sdk` |
+| OpenAI Agents SDK Python | Tools are defined with `@function_tool` in local Python files. | `tool_sources[].type: openai_agents_sdk`; `path` may be one Python file or a directory of files |
 | MCP export | You can export the MCP server's tool list to JSON. | `tool_sources[].type: mcp` |
 | OpenAPI spec | The agent calls HTTP APIs described by OpenAPI 3.x. | `tool_sources[].type: openapi` |
 | Codex plugin package | The repo contains `.codex-plugin/plugin.json` or `.agents/plugins/marketplace.json`. | `tool_sources[].type: codex_plugin` |

@@ -40,9 +40,10 @@ Apache-2.0.
 
 ## One-command quickstart
 
-For a 5-minute first run, scan a bundled fixture and inspect the generated
-report. If you already have [`uv`](https://docs.astral.sh/uv/) installed, this
-is a one-command check with no persistent install:
+For a 5-minute first run, use one of three paths: scan the bundled fixture,
+run the zero-install detector, or initialize Shipgate in your real repo. If you
+already have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is
+a one-command check with no persistent install:
 
 ```bash
 uvx agents-shipgate fixture run support_refund_agent
@@ -69,6 +70,17 @@ Fixture copy at <tempdir>; pass --keep to retain after the run.
 Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
 
 ![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
+
+## How to read your first result
+
+Read `release_decision.decision` first:
+
+| Decision | Meaning | Next step |
+|---|---|---|
+| `blocked` | Active, unaccepted blockers exist. | Fix the blockers or remove the risky tool surface. |
+| `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence. This does not prove the agent is unsafe. | Provide clearer sources such as an MCP export, OpenAPI spec, explicit local tool inventory, or broader OpenAI SDK source path, then rerun. |
+| `review_required` | Human review is needed, often for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
+| `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
 
 ## GitHub Action Marketplace
 
@@ -169,7 +181,8 @@ evidence around them:
 ## Scan your repo
 
 ```bash
-agents-shipgate init --workspace . --write
+agents-shipgate init --workspace . --write --ci --json
+# Replace any CHANGE_ME placeholders reported by init.
 agents-shipgate scan -c shipgate.yaml
 ```
 
@@ -223,7 +236,7 @@ Set `pr_comment: "true"` to post a compact PR summary:
 |---|---|
 | Model Context Protocol (MCP) exports | Supported |
 | OpenAPI 3.x specs | Supported |
-| OpenAI Agents SDK Python entrypoints | Supported |
+| OpenAI Agents SDK Python files/directories | Supported |
 | Anthropic Messages API artifacts | Supported |
 | Google ADK Python and YAML config | Supported |
 | LangChain/LangGraph static Python inputs | Supported |
@@ -234,8 +247,8 @@ Set `pr_comment: "true"` to post a compact PR summary:
 
 ## What it produces
 
-- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents (current schema [v0.21](docs/report-schema.v0.21.json); gating signal is `release_decision.decision`; v0.21 adds the top-level `heuristics_filter` envelope — the audit pass for the new `--no-heuristics` CLI flag — alongside v0.20's `reviewer_summary` block; v0.19 added reviewer-grade dual-source provenance on top of v0.18's privacy audit), SARIF for GitHub code-scanning workflows.
-- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default and governed by [packet schema v0.6](docs/packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
+- **Tool-Use Readiness Report** — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents, SARIF for GitHub code-scanning workflows. The gating signal is `release_decision.decision`; see [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the current JSON contract.
+- **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default; see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
 
 ## Exit codes
 

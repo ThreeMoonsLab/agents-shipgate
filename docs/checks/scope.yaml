@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Tool appears to overlap with a manifest prohibited action.
   rationale: Prohibited actions should not be contradicted by attached tool capabilities.
@@ -28,6 +29,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Write-capable tool contradicts a read-only declared purpose.
   rationale: Declared purpose should constrain the attached tool surface.

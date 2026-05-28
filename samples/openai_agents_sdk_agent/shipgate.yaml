@@ -1,0 +1,32 @@
+version: "0.1"
+
+project:
+  name: openai-agents-sdk-agent
+
+agent:
+  name: support-sdk-assistant
+  sdk:
+    type: openai-agents
+    language: python
+    entrypoint: agents
+    static_extract: true
+    deep_import: false
+  declared_purpose:
+    - look up support cases
+    - draft support replies for human review
+
+environment:
+  target: local
+
+tool_sources:
+  - id: openai_sdk_directory
+    type: openai_agents_sdk
+    path: agents
+    mode: static
+
+checks:
+  ignore:
+    - check_id: SHIP-SCHEMA-FREEFORM-OUTPUT
+      tool: support.render_reply
+      reason: "Fixture keeps a string draft output to exercise SDK extraction."
+

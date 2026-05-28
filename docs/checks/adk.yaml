@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE
   default_severity: high
+  mvp_tier: adapter
   description: Google ADK toolset cannot be statically enumerated.
   rationale: |-
     Release review needs an explicit tool inventory; ADK MCP/OpenAPI toolsets may resolve tools dynamically at runtime.
@@ -28,6 +29,7 @@ checks:
     toolsets.
 - id: SHIP-ADK-EVAL-COVERAGE-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: Google ADK eval coverage is not declared.
   rationale: ADK releases should include response and tool-trajectory eval evidence
     before promotion.
@@ -39,6 +41,7 @@ checks:
   recommendation: Declare ADK eval files for expected responses and tool-use trajectories.
 - id: SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: Google ADK function tool lacks static metadata.
   rationale: Static review depends on descriptions and parameter schemas because user
     ADK code is not imported.
@@ -49,6 +52,7 @@ checks:
   recommendation: Add docstrings, annotations, or explicit local inventory metadata.
 - id: SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING
   default_severity: high
+  mvp_tier: adapter
   description: High-risk Google ADK tools lack static guardrail evidence.
   rationale: Callbacks and plugins are the static ADK surface where release reviewers
     can see guardrail intent.
@@ -60,6 +64,7 @@ checks:
     guardrails.
 - id: SHIP-ADK-LONGRUNNING-CONTRACT-MISSING
   default_severity: high
+  mvp_tier: adapter
   description: Google ADK long-running tool lacks an operation contract.
   rationale: Long-running tools need explicit status and operation-id semantics for
     safe continuation.
@@ -70,6 +75,7 @@ checks:
   recommendation: Document operation id, status/progress fields, and completion behavior.
 - id: SHIP-ADK-MCP-TOOLSET-UNFILTERED
   default_severity: high
+  mvp_tier: adapter
   description: Google ADK McpToolset lacks a static tool filter.
   rationale: Unfiltered MCP toolsets can expose more tools than reviewers expect.
   fires_when: A Google ADK McpToolset has no static tool_filter.

@@ -417,19 +417,25 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     if decision is not None:
         typer.echo(f"Decision: {decision.decision}")
+        if report.agent_summary:
+            typer.echo(f"Summary: {report.agent_summary.headline}")
         typer.echo(f"Reason: {decision.reason}")
         typer.echo(f"Blockers: {len(decision.blockers)}")
         typer.echo(f"Review items: {len(decision.review_items)}")
         ev = decision.evidence_coverage
-        ev_extras: list[str] = []
-        if ev.low_confidence_tool_count:
-            ev_extras.append(f"{ev.low_confidence_tool_count} low-confidence tool(s)")
-        if ev.source_warning_count:
-            ev_extras.append(f"{ev.source_warning_count} source warning(s)")
-        if ev.human_review_recommended:
-            ev_extras.append("human review recommended")
-        suffix = f" ({'; '.join(ev_extras)})" if ev_extras else ""
-        typer.echo(f"Evidence coverage: {ev.level}{suffix}")
+        typer.echo(f"Evidence coverage: {_evidence_coverage_text(ev)}")
+        if decision.decision == "insufficient_evidence":
+            typer.echo(
+                "Improve evidence: provide MCP export, OpenAPI spec, explicit "
+                "local tool inventory, or a broader OpenAI SDK source path; "
+                "then rerun scan."
+            )
+        if report.agent_summary and report.agent_summary.first_recommended_action:
+            action = report.agent_summary.first_recommended_action
+            if action.command:
+                typer.echo(f"Next action: {action.command}")
+            else:
+                typer.echo(f"Next action: {action.why}")
         bd = decision.baseline_delta
         if bd.enabled:
             typer.echo(
@@ -487,12 +493,7 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         typer.echo(f"Tool count: {report.tool_surface.total_tools}")
         typer.echo(f"Source warnings: {len(report.source_warnings)}")
     typer.echo("")
-    top = [
-        finding
-        for finding in report.findings
-        if not finding.suppressed and finding.severity in {"critical", "high"}
-    ]
-    top = sorted(top, key=lambda finding: (SEVERITY_ORDER[finding.severity], finding.check_id))[:5]
+    top = _top_cli_findings(report, limit=3)
     typer.echo("Top findings:")
     if top:
         for finding in top:
@@ -512,6 +513,72 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")
+
+
+def _evidence_coverage_text(evidence) -> str:
+    extras: list[str] = []
+    if evidence.low_confidence_tool_count:
+        extras.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
+    if evidence.source_warning_count:
+        extras.append(f"{evidence.source_warning_count} source warning(s)")
+    if evidence.human_review_recommended:
+        extras.append("human review recommended")
+    suffix = f" ({'; '.join(extras)})" if extras else ""
+    return f"{evidence.level}{suffix}"
+
+
+def _top_cli_findings(report, *, limit: int):
+    active = [finding for finding in report.findings if not finding.suppressed]
+    by_id = {finding.id: finding for finding in active if finding.id}
+    by_fingerprint = {
+        finding.fingerprint: finding for finding in active if finding.fingerprint
+    }
+    selected = []
+    seen: set[str] = set()
+
+    def add_finding(finding) -> None:
+        key = finding.id or finding.fingerprint or f"{finding.check_id}:{finding.title}"
+        if key in seen:
+            return
+        selected.append(finding)
+        seen.add(key)
+
+    if report.release_decision is not None:
+        for item in [
+            *report.release_decision.blockers,
+            *report.release_decision.review_items,
+        ]:
+            finding = (
+                by_id.get(item.id)
+                or by_fingerprint.get(item.fingerprint)
+                or _active_finding_for_item(active, item)
+            )
+            if finding is not None:
+                add_finding(finding)
+            if len(selected) >= limit:
+                return selected
+
+    severity_top = [
+        finding
+        for finding in active
+        if finding.severity in {"critical", "high"}
+    ]
+    severity_top = sorted(
+        severity_top,
+        key=lambda finding: (SEVERITY_ORDER[finding.severity], finding.check_id),
+    )
+    for finding in severity_top:
+        add_finding(finding)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _active_finding_for_item(active_findings, item):
+    for finding in active_findings:
+        if finding.check_id == item.check_id and finding.title == item.title:
+            return finding
+    return None
 
 
 def _tool_surface_diff_has_changes(summary) -> bool:

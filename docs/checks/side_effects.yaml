@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-SIDEFX-IDEMPOTENCY-MISSING
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Risky write tool lacks idempotency evidence; critical when retry is
     known.

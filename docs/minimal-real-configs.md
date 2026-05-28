@@ -10,7 +10,7 @@ For the full manifest field reference, see
 
 | Framework | Reference fixture | Manifest highlight |
 |---|---|---|
-| OpenAI Agents SDK (`@function_tool` Python) | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `agents/refund_agent.py` is the Python entrypoint | `tool_sources[*].type: openai_agents_sdk` with `path: agents/refund_agent.py` |
+| OpenAI Agents SDK (`@function_tool` Python) | [`samples/openai_agents_sdk_agent`](../samples/openai_agents_sdk_agent/) — `agents/` is a directory of static Python tool files | `tool_sources[*].type: openai_agents_sdk` with `path: agents` or a single Python file |
 | MCP export (single agent) | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `.agents-shipgate/mcp-tools.json` | `tool_sources[*].type: mcp` |
 | MCP export (multi-agent monorepo) | [`samples/multi_agent_workspace`](../samples/multi_agent_workspace/) — `support/` and `billing/` each have their own `tools.json` | one `shipgate.yaml` per agent, each with its own `tool_sources` |
 | OpenAPI tool surface | [`samples/support_refund_agent`](../samples/support_refund_agent/) — `specs/support-tools.openapi.yaml` is a real OpenAPI 3.x spec referenced from the fixture's `shipgate.yaml` | `tool_sources[*].type: openapi` with `path: specs/support-tools.openapi.yaml` |

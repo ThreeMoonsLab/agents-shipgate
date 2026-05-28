@@ -238,6 +238,23 @@ Notation: `fail_on` is `release_decision.fail_policy.fail_on` after `ci_mode` re
 
 Concretely: a scan with one baseline-matched critical and zero new findings produces `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"`. Both are correct under their respective contracts. New consumers should read `release_decision.decision`.
 
+#### Evidence-only decision states
+
+Finding blockers take precedence over evidence quality. If
+`release_decision.blockers[]` is non-empty, the decision is `blocked` even when
+the scan also has low-confidence tools or source warnings.
+
+When there are no blockers, `insufficient_evidence` means the static inputs are
+not strong enough for Shipgate to gate release confidently. It does **not**
+prove the agent is unsafe. The decision fires when low-confidence tools are at
+least `max(1, ceil(tool_count × 0.5))`, or when source-loader warnings exceed
+`3`. One to three source warnings without blockers route to `review_required`
+so a human still sees the degraded source coverage.
+
+The intended recovery is to provide clearer local evidence — for example an MCP
+export, OpenAPI spec, explicit local tool inventory, broader OpenAI Agents SDK
+source path, or validation trace — and rerun the scan.
+
 ### Check IDs
 
 Once a check ID ships in a tagged release (`SHIP-POLICY-APPROVAL-MISSING`, `SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING`, etc.), it will not be:
@@ -247,6 +264,14 @@ Once a check ID ships in a tagged release (`SHIP-POLICY-APPROVAL-MISSING`, `SHIP
 - Repurposed (the conditions under which it fires may *narrow* but never broaden in a way that breaks existing suppressions)
 
 New check IDs may be added in any minor release. If your CI pins severities by check ID, expect new checks to surface as new findings.
+
+### Check catalog metadata
+
+`agents-shipgate list-checks --json`, `agents-shipgate explain <CHECK_ID>
+--json`, and `docs/checks.json` expose `CheckMetadata.mvp_tier` for
+display/triage only. Current values are `core`, `adapter`, `evidence`,
+`lifecycle`, and `hygiene`. This field does not affect check execution,
+severity, fingerprints, baselines, `release_decision`, or CI exit behavior.
 
 ### Fingerprint algorithm
 

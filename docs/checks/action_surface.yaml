@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-ACTION-APPROVAL-REMOVED
   default_severity: critical
+  mvp_tier: lifecycle
   floor_severity: high
   description: Action approval policy was removed.
   rationale: Removing approval weakens the release boundary for an existing action.
@@ -26,6 +27,7 @@ checks:
     Restore action_surface.actions[].approval.required: true or document the reviewed exception under action_surface.actions[].evidence.approval_ticket.
 - id: SHIP-ACTION-CONTROL-DOWNGRADE
   default_severity: high
+  mvp_tier: lifecycle
   description: Action declaration weakens an inherited approval or safeguard control.
   rationale: |-
     Manifest-wide approval and safeguard controls are governance requirements; per-action metadata should not silently weaken them.
@@ -40,6 +42,7 @@ checks:
     Keep the inherited action_surface.actions[] approval/safeguard control enabled or remove the weakening declaration.
 - id: SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING
   default_severity: critical
+  mvp_tier: lifecycle
   floor_severity: high
   description: New destructive action lacks approval or rollback controls.
   rationale: Destructive actions need explicit approval and rollback evidence before
@@ -52,6 +55,7 @@ checks:
     destructive action.
 - id: SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED
   default_severity: high
+  mvp_tier: lifecycle
   description: Action declaration weakens the inferred effect.
   rationale: |-
     Per-action metadata should not be able to declare away a higher-risk operation inferred from the tool surface.
@@ -65,6 +69,7 @@ checks:
     Set action_surface.actions[].effect to the inferred operation effect or remove the weaker declaration.
 - id: SHIP-ACTION-EFFECT-ESCALATED
   default_severity: critical
+  mvp_tier: lifecycle
   floor_severity: high
   description: Action effect escalated compared with the base surface.
   rationale: Effect escalation changes what the agent can do in the real world and
@@ -77,6 +82,7 @@ checks:
     Review action_surface.actions[].effect; restore the prior effect or document approval/evidence for the escalation.
 - id: SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING
   default_severity: high
+  mvp_tier: lifecycle
   description: New external communication action lacks audit evidence.
   rationale: External communication changes agent blast radius and should be auditable.
   fires_when: An added external_communication action lacks safeguards.audit_log.
@@ -86,6 +92,7 @@ checks:
   recommendation: Declare safeguards.audit_log for the external communication action.
 - id: SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING
   default_severity: critical
+  mvp_tier: lifecycle
   floor_severity: high
   description: New financial write action lacks required controls.
   rationale: Financial write actions need approval, audit, and idempotency evidence
@@ -98,6 +105,7 @@ checks:
   recommendation: Declare approval.required, safeguards.audit_log, and safeguards.idempotency.
 - id: SHIP-ACTION-POLICY-VIOLATION
   default_severity: high
+  mvp_tier: lifecycle
   floor_severity: medium
   dynamic_default: true
   description: An action-surface policy requirement is not satisfied.
@@ -113,6 +121,7 @@ checks:
     the action.
 - id: SHIP-ACTION-SAFEGUARD-REMOVED
   default_severity: high
+  mvp_tier: lifecycle
   description: Action safeguard was removed.
   rationale: Removing audit, idempotency, rollback, or dry-run safeguards expands
     blast radius.
@@ -123,6 +132,7 @@ checks:
     Restore the removed action_surface.actions[].safeguards field or document the reviewed exception under action_surface.actions[].evidence.
 - id: SHIP-ACTION-UNDECLARED
   default_severity: high
+  mvp_tier: lifecycle
   description: A loaded tool lacks explicit action-surface metadata.
   rationale: Action Surface Diff depends on reviewer-visible action metadata for release
     decisions.
@@ -134,6 +144,7 @@ checks:
   recommendation: Add action_surface.actions metadata for the tool or disable require_explicit_actions.
 - id: SHIP-ACTION-WILDCARD-SCOPE
   default_severity: critical
+  mvp_tier: lifecycle
   floor_severity: high
   description: Action surface includes a wildcard or admin-like scope.
   rationale: Wildcard scopes make action blast radius too broad for deterministic

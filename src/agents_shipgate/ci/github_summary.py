@@ -16,19 +16,34 @@ def write_github_step_summary(report: ReadinessReport) -> None:
     path = Path(summary_path)
     summary = report.summary
     decision = report.release_decision
+    agent_summary = report.agent_summary
+    reviewer_summary = report.reviewer_summary
     formats = ", ".join(sorted(report.generated_reports)) or "configured"
     lines = ["## Agents Shipgate", ""]
     if decision is not None:
         lines.extend(
             [
                 f"Decision: `{decision.decision}`",
+                *(
+                    [f"Summary: {_safe_markdown_text(agent_summary.headline)}"]
+                    if agent_summary
+                    else []
+                ),
                 f"Reason: {decision.reason}",
                 (
                     f"Blockers: {len(decision.blockers)} · "
                     f"Review items: {len(decision.review_items)}"
                 ),
+                f"Evidence coverage: {_evidence_coverage_text(decision.evidence_coverage)}",
             ]
         )
+        if decision.decision == "insufficient_evidence":
+            lines.append(
+                "Improve evidence: provide MCP export, OpenAPI spec, explicit local "
+                "tool inventory, or a broader OpenAI SDK source path; then rerun scan."
+            )
+        if agent_summary and agent_summary.first_recommended_action:
+            lines.append(_agent_next_action_line(agent_summary.first_recommended_action))
         fp = decision.fail_policy
         lines.append(
             f"Fail policy: ci_mode=`{fp.ci_mode}`, "
@@ -51,6 +66,13 @@ def write_github_step_summary(report: ReadinessReport) -> None:
                     f"{'recommended' if summary.human_review_recommended else 'not required'}"
                 ),
             ]
+        )
+    if reviewer_summary and reviewer_summary.first_recommended_surface:
+        surface = reviewer_summary.first_recommended_surface
+        lines.append(
+            "Reviewer start: "
+            f"`{_safe_markdown_text(surface.name)}` — "
+            f"{_safe_markdown_text(surface.why)}"
         )
     lines.extend(
         [
@@ -131,6 +153,24 @@ def write_github_step_summary(report: ReadinessReport) -> None:
     lines.extend(["", f"Generated reports: {formats}.", ""])
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
+
+
+def _evidence_coverage_text(evidence) -> str:
+    extras: list[str] = []
+    if evidence.low_confidence_tool_count:
+        extras.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
+    if evidence.source_warning_count:
+        extras.append(f"{evidence.source_warning_count} source warning(s)")
+    if evidence.human_review_recommended:
+        extras.append("human review recommended")
+    suffix = f" ({'; '.join(extras)})" if extras else ""
+    return f"{evidence.level}{suffix}"
+
+
+def _agent_next_action_line(action) -> str:
+    if action.command:
+        return f"Next action: `{_safe_markdown_text(action.command)}`"
+    return f"Next action: {_safe_markdown_text(action.why)}"
 
 
 def _action_diff_highlights(report: ReadinessReport) -> list[str]:

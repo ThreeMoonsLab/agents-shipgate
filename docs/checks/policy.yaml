@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-POLICY-APPROVAL-MISSING
   default_severity: critical
+  mvp_tier: core
   floor_severity: high
   description: High-risk tool lacks a declared approval policy.
   rationale: High-risk actions need explicit approval before promotion.
@@ -28,6 +29,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-POLICY-CONFIRMATION-MISSING
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Destructive/external/customer-communication tool lacks a confirmation
     policy.
