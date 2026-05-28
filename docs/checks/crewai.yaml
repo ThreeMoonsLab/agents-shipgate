@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
   default_severity: high
+  mvp_tier: adapter
   description: CrewAI tool surface cannot be statically enumerated.
   rationale: |-
     CrewAI exposes ad hoc agent-bound tool lists rather than a consistent toolset abstraction, so the check names the broader tool surface instead of ADK's toolset.
@@ -28,6 +29,7 @@ checks:
     tool lists.
 - id: SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: CrewAI function tool lacks static metadata.
   rationale: |-
     Static review depends on descriptions and parameter schemas because user CrewAI code is not imported.

@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
   default_severity: high
+  mvp_tier: evidence
   description: Local HITL approval trace evidence is missing or incomplete for an
     approval-required tool.
   rationale: |-
@@ -34,6 +35,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING
   default_severity: high
+  mvp_tier: evidence
   description: Local high-risk auto-approval exclusion evidence is missing or incomplete.
   rationale: |-
     High-risk tools that already declare approval policy need separate local evidence that they are excluded from auto-approval review posture; absence of local evidence does not prove the runtime control is absent.
@@ -51,6 +53,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-EVIDENCE-HITL-PROMOTION-CRITERIA-MISSING
   default_severity: high
+  mvp_tier: evidence
   description: Local HITL promotion criteria evidence is missing or incomplete.
   rationale: |-
     A limited auto-approval review posture needs local criteria evidence; Shipgate structures the missing evidence for reviewers but does not certify runtime enforcement.
@@ -68,6 +71,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-EVIDENCE-OVERRIDE-REASON-MISSING
   default_severity: high
+  mvp_tier: evidence
   description: Local HITL override reason evidence is missing or incomplete.
   rationale: |-
     Override, bypass, and auto-approval events need reviewer-visible local reasons for governance review; absence of local evidence does not prove the runtime control is absent.

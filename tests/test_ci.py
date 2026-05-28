@@ -30,8 +30,11 @@ def test_github_step_summary_is_written(monkeypatch, tmp_path):
     # v0.8: lead with release_decision instead of summary.status. The
     # support_refund_agent sample has new criticals → decision=blocked.
     assert "Decision: `blocked`" in summary
+    assert "Summary:" in summary
     assert "Reason:" in summary
     assert "Blockers:" in summary
+    assert "Evidence coverage:" in summary
+    assert "Next action:" in summary
     assert "Fail policy:" in summary
 
 

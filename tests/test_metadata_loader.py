@@ -19,8 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agents_shipgate.checks import _metadata_loader
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _write(dir: Path, name: str, body: str) -> Path:
@@ -68,6 +71,7 @@ checks:
         "docs/checks.md#ship-fake-inventory-x"
     )
     # Defaults flowed through CheckMetadata.
+    assert entry.mvp_tier == "hygiene"
     assert entry.autofix_safe is False
     assert entry.requires_human_review is True
     assert entry.suggested_patch_kind == "manual"
@@ -255,11 +259,13 @@ def test_floor_severity_and_dynamic_default_round_trip(
 checks:
   - id: SHIP-FAKE-POLICY-VIOLATION
     default_severity: high
+    mvp_tier: lifecycle
     floor_severity: medium
     dynamic_default: true
     description: fake dynamic-default check.
   - id: SHIP-FAKE-REMEDIATION
     default_severity: critical
+    mvp_tier: core
     floor_severity: high
     description: fake high-risk check.
     requires_human_review_regardless_of_patch: true
@@ -268,8 +274,27 @@ checks:
     )
     catalog = {c.id: c for c in _metadata_loader.load_check_metadata()}
     swing = catalog["SHIP-FAKE-POLICY-VIOLATION"]
+    assert swing.mvp_tier == "lifecycle"
     assert swing.floor_severity == "medium"
     assert swing.dynamic_default is True
     high_risk = catalog["SHIP-FAKE-REMEDIATION"]
+    assert high_risk.mvp_tier == "core"
     assert high_risk.requires_human_review_regardless_of_patch is True
     assert high_risk.suggested_patch_kind == "remove_pointer"
+
+
+def test_builtin_check_yaml_entries_declare_mvp_tier() -> None:
+    """Built-ins must make the MVP tier explicit.
+
+    Third-party plugins may rely on the CheckMetadata default for
+    compatibility, but the built-in catalog is a product surface and
+    should not inherit this field accidentally.
+    """
+
+    missing: list[str] = []
+    for path in sorted((REPO_ROOT / "docs" / "checks").glob("*.yaml")):
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for row in payload.get("checks", []):
+            if "mvp_tier" not in row:
+                missing.append(f"{path.name}:{row.get('id', '<missing id>')}")
+    assert not missing, "Built-in checks missing mvp_tier: " + ", ".join(missing)

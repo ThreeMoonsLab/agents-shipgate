@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-BASELINE-ENTRY-EXPIRED
   default_severity: high
+  mvp_tier: lifecycle
   description: Baseline entry's review window has expired.
   rationale: |-
     Reviewer-set `provenance.expires` is the renewable consent for accepting technical debt. Past that date the entry needs a fresh review, not a silent extension.
@@ -31,6 +32,7 @@ checks:
     Re-review the accepted debt and either remove the entry, fix the underlying finding, or extend `provenance.expires` with a new reason.
 - id: SHIP-BASELINE-ENTRY-STALE
   default_severity: low
+  mvp_tier: lifecycle
   description: Baseline entry no longer corresponds to an active finding or check
     ID.
   rationale: |-
@@ -47,6 +49,7 @@ checks:
     Remove resolved entries via `agents-shipgate baseline save`, or update deprecated check IDs to their canonical replacements.
 - id: SHIP-BASELINE-INTEGRITY-MISMATCH
   default_severity: critical
+  mvp_tier: lifecycle
   description: Baseline file integrity check failed.
   rationale: |-
     The baseline JSON has been edited outside `agents-shipgate baseline save`, lacks an audit log row, has a malformed audit log row, or references a run_id not present in the audit log. A release gate that accepts silent baseline edits cannot claim to govern technical debt.

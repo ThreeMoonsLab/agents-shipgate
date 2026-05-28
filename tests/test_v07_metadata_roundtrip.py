@@ -7,10 +7,10 @@ contracts on both endpoints should validate against the current schema.
 
 Specifically:
 
-1. ``list-checks --json`` carries non-None ``docs_url``,
+1. ``list-checks --json`` carries non-None ``mvp_tier``, ``docs_url``,
    ``autofix_safe``, ``requires_human_review``, ``suggested_patch_kind``
    for every built-in check.
-2. ``report.json`` carries the same four fields populated for every
+2. ``report.json`` carries the same metadata fields populated for every
    active finding from a real scan against
    ``samples/support_refund_agent``, both with and without
    ``--suggest-patches``.
@@ -54,6 +54,7 @@ REQUIRED_REMEDIATION_KEYS = (
     "suggested_patch_kind",
     "docs_url",
 )
+REQUIRED_CATALOG_KEYS = ("mvp_tier", *REQUIRED_REMEDIATION_KEYS)
 
 
 # --- list-checks --json end-to-end -----------------------------------------
@@ -66,14 +67,14 @@ def test_list_checks_json_carries_remediation_metadata_for_every_check():
     catalog = json.loads(result.output)
     assert catalog, "empty catalog from list-checks --json"
     for entry in catalog:
-        for key in REQUIRED_REMEDIATION_KEYS:
+        for key in REQUIRED_CATALOG_KEYS:
             assert key in entry, (
                 f"{entry['id']} missing remediation key {key!r} in "
                 "list-checks --json"
             )
             assert entry[key] is not None, (
                 f"{entry['id']}.{key} is None in list-checks --json — "
-                "all four fields must be populated for every catalog entry"
+                "all required catalog fields must be populated for every entry"
             )
 
 
@@ -87,7 +88,7 @@ def test_explain_json_carries_remediation_metadata():
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    for key in REQUIRED_REMEDIATION_KEYS:
+    for key in REQUIRED_CATALOG_KEYS:
         assert key in payload, f"explain --json missing {key!r}"
         assert payload[key] is not None, f"explain --json {key!r} is None"
 

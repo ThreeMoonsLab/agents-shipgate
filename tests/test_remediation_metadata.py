@@ -171,7 +171,13 @@ def test_list_checks_json_carries_new_fields():
     keys appear in the per-check JSON dump."""
     for check in _builtin_checks():
         payload = check.model_dump(mode="json")
-        for key in ("autofix_safe", "requires_human_review", "suggested_patch_kind", "docs_url"):
+        for key in (
+            "mvp_tier",
+            "autofix_safe",
+            "requires_human_review",
+            "suggested_patch_kind",
+            "docs_url",
+        ):
             assert key in payload, f"{check.id} JSON dump missing {key!r}"
 
 
@@ -185,6 +191,7 @@ def test_regenerated_checks_json_includes_new_fields():
     catalog = json.loads((REPO_ROOT / "docs" / "checks.json").read_text(encoding="utf-8"))
     by_id = {entry["id"]: entry for entry in catalog["checks"]}
     stale = by_id["SHIP-MANIFEST-STALE-SUPPRESSION"]
+    assert stale["mvp_tier"] == "hygiene"
     assert stale["autofix_safe"] is False
     assert stale["requires_human_review"] is True
     assert stale["suggested_patch_kind"] == "remove_pointer"

@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-SCHEMA-BROAD-FREE-TEXT
   default_severity: high
+  mvp_tier: core
   description: Action-like tool accepts broad free-form input.
   rationale: Broad action/body/update fields increase blast radius for write tools.
   fires_when: A write/action-like tool has free-form command/action/update-style parameters.
@@ -25,6 +26,7 @@ checks:
   recommendation: Constrain the field with structured schema or enums.
 - id: SHIP-SCHEMA-FREEFORM-OUTPUT
   default_severity: medium
+  mvp_tier: evidence
   description: Tool returns free-form string output.
   rationale: Free-form tool output may carry prompt injection into later model context.
   fires_when: A tool output schema is string or an SDK function returns str.
@@ -33,6 +35,7 @@ checks:
   recommendation: Prefer structured output for model-consumed tool results.
 - id: SHIP-SCHEMA-MISSING-BOUNDS
   default_severity: high
+  mvp_tier: core
   description: Risky numeric parameter lacks a maximum bound.
   rationale: Unbounded counts or financial amounts weaken blast-radius control.
   fires_when: A risky numeric parameter lacks a maximum.

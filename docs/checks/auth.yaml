@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-AUTH-MANIFEST-BROAD-SCOPE
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Manifest declares broad permission scopes.
   rationale: Broad manifest scopes weaken least-privilege review.
@@ -26,6 +27,7 @@ checks:
   requires_human_review_regardless_of_patch: true
 - id: SHIP-AUTH-MISSING-SCOPE
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Scope-requiring tool lacks declared auth scopes.
   rationale: Reviewers cannot assess least privilege without scope metadata.
@@ -35,6 +37,7 @@ checks:
   recommendation: Declare scopes in OpenAPI, MCP, or manifest metadata.
 - id: SHIP-AUTH-SCOPE-COVERAGE-MISSING
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Tool-required scopes are not covered by manifest permissions.scopes.
   rationale: The manifest should describe the actual permissions needed by the release.
@@ -48,6 +51,7 @@ checks:
   suggested_patch_kind: append_pointer
 - id: SHIP-AUTH-TOOL-BROAD-SCOPE
   default_severity: high
+  mvp_tier: core
   floor_severity: medium
   description: Tool declares broad auth scopes.
   rationale: Tool-level broad scopes may grant more power than the operation needs.

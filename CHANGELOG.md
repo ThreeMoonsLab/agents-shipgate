@@ -81,6 +81,22 @@
   (space + tab + on negations), trailing-whitespace acceptance, and
   end-to-end through the CLI).
 
+- **MVP readiness polish.** Check metadata now carries public `mvp_tier`
+  triage labels; the OpenAI Agents SDK static extractor can scan a directory of
+  immediate `*.py` files; and CLI / GitHub summaries lead with the
+  baseline-aware decision, headline, evidence coverage, and next action.
+  - `mvp_tier` is metadata only. It does not affect check execution, severity,
+    fingerprints, baselines, `release_decision`, or CI exit behavior.
+  - OpenAI Agents SDK single-file and directory modes now both emit
+    manifest-relative POSIX `source_ref` values. The extractor delegates to the
+    shared Python static helper, so runtime/context parameters named `self`,
+    `cls`, `ctx`, `context`, `config`, `runtime`, `run_manager`, or `callbacks`
+    are omitted from normalized input schemas.
+  - CLI top findings now show the highest-impact 3 active findings, prioritized
+    by release blockers then review items. `list-checks` plain text includes
+    `mvp_tier` as a third tab-separated column; use `--json` for stable
+    programmatic consumption.
+
 - **v0.21 — `--no-heuristics` CLI flag closes the round-3 / round-4 E5
   carryover.** `Finding.provenance_kind` has shipped on every report since
   v0.15 as required+non-nullable wire metadata but had no consumer for

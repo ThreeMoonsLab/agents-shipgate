@@ -449,6 +449,59 @@ def summarize(case_id: str) -> str:
     assert [tool.name for tool in loaded.tools] == ["support.lookup", "summarize"]
 
 
+def test_openai_sdk_static_directory_scans_sorted_python_files(tmp_path):
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "b_tools.py").write_text(
+        """
+from agents import function_tool as ft
+
+@ft(description_override="Render a reply draft.")
+async def render_reply(case_id: str, *, include_private_notes: bool = False) -> str:
+    return ""
+""",
+        encoding="utf-8",
+    )
+    (agents_dir / "a_tools.py").write_text(
+        """
+import agents
+
+@agents.function_tool(name_override="support.lookup_case")
+def lookup_case(config, case_id: str, tags: list[str] | None = None) -> dict:
+    \"\"\"Look up support metadata.\"\"\"
+    return {}
+""",
+        encoding="utf-8",
+    )
+    (agents_dir / "dynamic.py").write_text(
+        """
+def tool_factory():
+    return []
+""",
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(BASE / "shipgate.yaml")
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path="agents"),
+        manifest,
+        tmp_path,
+    )
+
+    assert [tool.name for tool in loaded.tools] == [
+        "support.lookup_case",
+        "render_reply",
+    ]
+    lookup, render = loaded.tools
+    assert lookup.source_ref == "agents/a_tools.py"
+    assert lookup.source_location == "agents/a_tools.py:5"
+    assert [parameter.name for parameter in lookup.parameters] == ["case_id", "tags"]
+    assert lookup.input_schema["properties"]["tags"]["type"] == "array"
+    assert lookup.output_schema["type"] == "object"
+    assert render.source_ref == "agents/b_tools.py"
+    assert render.description == "Render a reply draft."
+
+
 def test_openai_sdk_static_reads_description_override(tmp_path):
     agent_path = tmp_path / "agent.py"
     agent_path.write_text(
@@ -475,6 +528,7 @@ async def faq_lookup_tool(question: str) -> str:
     assert len(loaded.tools) == 1
     assert loaded.tools[0].name == "faq_lookup_tool"
     assert loaded.tools[0].description == "Lookup frequently asked questions."
+    assert loaded.tools[0].source_ref == "agent.py"
 
 
 def test_openai_sdk_static_description_override_takes_precedence_over_docstring(tmp_path):

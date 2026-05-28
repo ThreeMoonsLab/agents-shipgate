@@ -597,6 +597,19 @@ agents-shipgate list-checks --json
 agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING
 ```
 
+The JSON catalog includes `mvp_tier` for display and triage:
+
+| `mvp_tier` | Meaning |
+|---|---|
+| `core` | Core Tool-Use Readiness MVP signal. |
+| `adapter` | Framework or provider-specific readiness signal. |
+| `evidence` | Validation, trace, or HITL evidence signal. |
+| `lifecycle` | Baseline, diff, or action-surface evolution signal. |
+| `hygiene` | Useful quality or maintenance signal, not core MVP positioning. |
+
+`mvp_tier` never changes check execution, severity, fingerprints, baselines,
+`release_decision`, or CI exit behavior.
+
 Third-party packages can register checks through the `agents_shipgate.checks` Python entry-point group. Plugins are disabled by default because loading them imports third-party Python modules. Set `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` to opt in, or pass `--no-plugins` to force them off for a scan or catalog command. Reports include `loaded_plugins` provenance for every third-party check entry point Shipgate discovered — including ones that failed validation. A plugin check should expose a callable with the same `ScanContext -> list[Finding]` shape as built-ins and attach `AGENTS_SHIPGATE_METADATA` as either a `CheckMetadata` instance or a compatible dictionary. Adapter artifacts are available through `context.framework_artifacts` or `context.artifact("openai_api", OpenAIApiArtifacts)`. Legacy `context.*_artifacts` read-only properties remain available for v0.11 plugin compatibility, raise `TypeError` on artifact type mismatch, and are scheduled for removal in v0.12.
 
 **Plugin validation (v0.17+; six gates v0.18+).** Shipgate runs six load-time gates against every entry point — load, signature, metadata, dynamic-default-not-supported (v0.18+), ID-collision, and floor-consistency — before letting it produce findings. Metadata may use either `id` or `check_id` as the identifier key (the alias is symmetric with `Finding.check_id`); both names map to `CheckMetadata.id`. The `dynamic_default_not_supported` gate (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True`: plugins have no path to wire into `core/dynamic_defaults.py:dynamic_check_defaults`, so a swing check would never receive a manifest-effective default and would be silently bypassable. This gate runs **before** `_coerce_metadata` so a plugin declaring `dynamic_default=True` without `floor_severity` lands here under a precise status rather than being mis-classified as `bad_floor`. Plugins that fail validation surface in `loaded_plugins[]` with a non-`valid` `validation_status` and human-readable `validation_errors`, and they do not run. At runtime, findings whose `check_id` does not match the declared plugin metadata are dropped and recorded under `loaded_plugins[].runtime_errors` — a plugin cannot smuggle findings under another check ID. Default behavior is lenient (record failures, continue scanning). Pass `--strict-plugins` to exit non-zero (code 4) when any plugin has a non-`valid` status or non-empty `runtime_errors`. See [STABILITY.md § Trust-model invariants](../STABILITY.md#trust-model-invariants) and [STABILITY.md § Severity-override floor](../STABILITY.md#severity-override-floor) (for the dynamic-default contract) for the full contracts.
@@ -621,7 +634,12 @@ def search_customer(customer_id: str) -> str:
     ...
 ```
 
-The static extractor does not execute user code and intentionally does not detect dynamic wrappers, factory-created tools, `Tool.from_fn()` style objects, runtime imports, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or manifest metadata.
+When `tool_sources[].path` points at a directory, the extractor scans immediate
+`*.py` files in sorted order; it does not recurse into nested packages. The
+static extractor does not execute user code and intentionally does not detect
+dynamic wrappers, factory-created tools, `Tool.from_fn()` style objects, runtime
+imports, or dynamic tool lists. Declare those tools through MCP/OpenAPI inputs or
+manifest metadata.
 
 ## Google ADK Static Extraction
 

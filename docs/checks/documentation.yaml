@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-DOC-MISSING-DESCRIPTION
   default_severity: medium
+  mvp_tier: hygiene
   description: Tool description is missing or too short.
   rationale: Poor tool descriptions increase wrong-tool and reviewer misunderstanding
     risk.

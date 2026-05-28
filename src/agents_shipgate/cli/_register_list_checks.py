@@ -24,5 +24,6 @@ def register(app: typer.Typer) -> None:
             return
         for check in checks:
             typer.echo(
-                f"{check.id}\t{check.default_severity}\t{check.category}\t{check.description}"
+                f"{check.id}\t{check.default_severity}\t{check.mvp_tier}\t"
+                f"{check.category}\t{check.description}"
             )

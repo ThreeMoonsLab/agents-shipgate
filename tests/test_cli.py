@@ -44,8 +44,31 @@ def test_cli_advisory_exits_zero(tmp_path):
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
+    assert "Summary:" in result.output
     assert "Reason:" in result.output
+    assert "Next action:" in result.output
     assert "Fail policy:" in result.output
+
+
+def test_cli_insufficient_evidence_summary_names_evidence_fix(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            "samples/openai_agents_sdk_agent/shipgate.yaml",
+            "--out",
+            str(tmp_path),
+            "--ci-mode",
+            "advisory",
+            "--no-packet",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Decision: insufficient_evidence" in result.output
+    assert "Improve evidence:" in result.output
+    assert "Release ready" not in result.output
 
 
 def test_cli_strict_exits_gate_failure_code(tmp_path):
@@ -367,7 +390,7 @@ def test_cli_explain_json_returns_full_metadata():
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["id"] == "SHIP-POLICY-APPROVAL-MISSING"
-    for key in ("category", "default_severity", "description"):
+    for key in ("category", "default_severity", "mvp_tier", "description"):
         assert key in payload
 
 

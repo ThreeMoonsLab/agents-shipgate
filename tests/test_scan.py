@@ -8,6 +8,7 @@ SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 GOOGLE_ADK_SAMPLE = Path("samples/google_adk_agent/shipgate.yaml")
 OPENAI_API_SAMPLE = Path("samples/simple_openai_api_agent/shipgate.yaml")
 ANTHROPIC_SAMPLE = Path("samples/simple_anthropic_agent/shipgate.yaml")
+OPENAI_SDK_SAMPLE = Path("samples/openai_agents_sdk_agent/shipgate.yaml")
 
 
 def test_sample_scan_generates_reports(tmp_path):
@@ -25,6 +26,28 @@ def test_sample_scan_generates_reports(tmp_path):
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "report.json").exists()
     assert "summary" in (tmp_path / "report.json").read_text(encoding="utf-8")
+
+
+def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
+    report, exit_code = run_scan(
+        config_path=OPENAI_SDK_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert exit_code == 0
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "insufficient_evidence"
+    inventory = {entry["name"]: entry for entry in report.tool_inventory}
+    assert set(inventory) == {"support.lookup_case", "support.render_reply"}
+    assert inventory["support.lookup_case"]["source_ref"] == "agents/case_tools.py"
+    assert inventory["support.render_reply"]["source_ref"] == "agents/reply_tools.py"
+    assert {action.tool_name for action in report.action_surface_facts.actions} == {
+        "support.lookup_case",
+        "support.render_reply",
+    }
 
 
 def test_artifact_registry_refactor_preserves_framework_json_shape(tmp_path):

@@ -21,7 +21,7 @@ agents-shipgate contract --json
 
 In `agents-shipgate-reports/report.json`:
 
-- `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold (at least half of scanned tools are low-confidence — `ceil(N × 0.5)` with a minimum of 1, so 1-of-1 and 1-of-2 trip — or 4+ source-loader warnings); switch on the enum with a `review_required` fallback for unknown future values.
+- `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** Blockers take precedence. If there are no blockers, `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. One to three source warnings without blockers route to `review_required`. `insufficient_evidence` means the scan cannot confidently gate release from the available static evidence; it does not prove the agent is unsafe. Switch on the enum with a `review_required` fallback for unknown future values.
 - `release_decision.blockers[]` — items that block release on this run.
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.
@@ -144,7 +144,7 @@ agents-shipgate explain-finding <FINGERPRINT> \
 
 The payload is the full `Finding` shape (every field on `findings[]` in `report.json`, including `source`, `patches`, `confidence`, `agent_id`, etc.) overlaid with three derived fields:
 
-- `metadata` — full `CheckMetadata` for the check_id (rationale, fires_when, evidence_fields, docs_url) when the check is in the catalog; null for unknown ids (third-party plugins, future checks).
+- `metadata` — full `CheckMetadata` for the check_id (rationale, fires_when, evidence_fields, docs_url, `mvp_tier`) when the check is in the catalog; null for unknown ids (third-party plugins, future checks). `mvp_tier` is display/triage metadata only and never affects gating.
 - `explanation` — a deterministic 3–5 sentence prose summary suitable for direct quotation. Names the affected tool, the severity, the recommended fix, and an action-aware closing sentence keyed to `agent_action`. Same inputs always produce the same output.
 - `source_report` — **absolute** path (always; relative `--from` values are resolved before serialization) to the report file the explanation was sourced from; round-trippable for caching and audit.
 
@@ -159,7 +159,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 - [`docs/report-schema.v0.21.json`](report-schema.v0.21.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
-- [`docs/checks.json`](checks.json) — check catalog.
+- [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also
 

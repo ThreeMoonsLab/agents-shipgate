@@ -34,6 +34,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 | Sample | Purpose |
 | --- | --- |
 | [`support_refund_agent`](support_refund_agent/) | Production-like support/refund agent with MCP, OpenAPI, and SDK tools. |
+| [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction from a directory of Python tools. |
 | [`clean_read_only_agent`](clean_read_only_agent/) | Low-risk read-only fixture for clean scans. |
 | [`simple_openai_api_agent`](simple_openai_api_agent/) | OpenAI Agents API artifacts: prompts, tools, schemas, tests, traces. |
 | [`simple_anthropic_agent`](simple_anthropic_agent/) | Anthropic Messages API tool-use artifacts. |
@@ -51,6 +52,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 
 ```bash
 agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
+agents-shipgate scan --config samples/openai_agents_sdk_agent/shipgate.yaml
 agents-shipgate scan --config samples/clean_read_only_agent/shipgate.yaml
 agents-shipgate scan --config samples/simple_openai_api_agent/shipgate.yaml
 ```

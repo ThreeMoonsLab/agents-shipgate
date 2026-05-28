@@ -16,6 +16,7 @@
 checks:
 - id: SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE
   default_severity: medium
+  mvp_tier: adapter
   description: Codex plugin app connector surface is not statically enumerable.
   rationale: |-
     Connector-backed app capabilities are externally mediated and cannot be proven from local plugin metadata alone.
@@ -30,6 +31,7 @@ checks:
     Treat connector app capabilities as a review item or provide explicit local inventory/policy evidence.
 - id: SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING
   default_severity: high
+  mvp_tier: adapter
   description: Codex plugin component path cannot be loaded.
   rationale: |-
     Release review cannot inspect declared skills, MCP servers, apps, or hooks when component paths are missing or escape the package.
@@ -43,6 +45,7 @@ checks:
   recommendation: Fix component paths so every declared plugin artifact resolves locally.
 - id: SHIP-CODEX-PLUGIN-MARKETPLACE-POLICY-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: Codex plugin marketplace entry lacks policy metadata.
   rationale: |-
     Marketplace installation and authentication policy are part of the release surface coding agents need to review.
@@ -56,6 +59,7 @@ checks:
     the marketplace entry.
 - id: SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE
   default_severity: high
+  mvp_tier: adapter
   description: Codex plugin MCP server is declared but not statically enumerable.
   rationale: |-
     Agents Shipgate does not execute MCP commands, so reviewer-visible tool metadata requires an explicit local inventory.
@@ -69,6 +73,7 @@ checks:
   recommendation: Provide a local MCP tool inventory for the plugin server.
 - id: SHIP-CODEX-PLUGIN-METADATA-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: Codex plugin package metadata is incomplete or ambiguous.
   rationale: Plugin identity needs to be stable before publication or downstream agent
     adoption.
@@ -82,6 +87,7 @@ checks:
   recommendation: Fill required plugin metadata and make plugin names unambiguous.
 - id: SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING
   default_severity: medium
+  mvp_tier: adapter
   description: Codex plugin skill metadata is missing or duplicated.
   rationale: Skill frontmatter is the static routing surface agents use to decide
     whether a skill applies.

@@ -363,8 +363,32 @@ runs:
                     summary_file.write(
                         f"- Decision: `{clean(release_decision.get('decision'))}`\n"
                     )
+                    agent_summary = payload.get("agent_summary") or {}
+                    if agent_summary.get("headline"):
+                        summary_file.write(
+                            f"- Summary: {clean(agent_summary.get('headline'))}\n"
+                        )
                     summary_file.write(f"- Blockers: {blocker_count}\n")
                     summary_file.write(f"- Review items: {review_item_count}\n")
+                    evidence = release_decision.get("evidence_coverage") or {}
+                    ev_parts = []
+                    if evidence.get("low_confidence_tool_count"):
+                        ev_parts.append(
+                            f"{clean(evidence.get('low_confidence_tool_count'))} "
+                            "low-confidence tool(s)"
+                        )
+                    if evidence.get("source_warning_count"):
+                        ev_parts.append(
+                            f"{clean(evidence.get('source_warning_count'))} "
+                            "source warning(s)"
+                        )
+                    if evidence.get("human_review_recommended"):
+                        ev_parts.append("human review recommended")
+                    ev_suffix = f" ({'; '.join(ev_parts)})" if ev_parts else ""
+                    summary_file.write(
+                        f"- Evidence coverage: {clean(evidence.get('level', 'unknown'))}"
+                        f"{ev_suffix}\n"
+                    )
                     summary_file.write(
                         "- Fail policy: "
                         f"would_fail_ci=`{would_fail_ci}` "
@@ -435,6 +459,8 @@ runs:
           const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
           const summary = report.summary || {};
           const decision = report.release_decision || null;
+          const agentSummary = report.agent_summary || null;
+          const reviewerSummary = report.reviewer_summary || null;
           const adk = ((report.frameworks || {}).google_adk) || null;
           const diff = report.tool_surface_diff || {};
           const diffSummary = diff.summary || {};
@@ -448,19 +474,65 @@ runs:
             const text = String(value || "");
             return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
           };
-          const top = (report.findings || [])
-            .filter((finding) => !finding.suppressed && ["critical", "high"].includes(finding.severity))
+          const activeFindings = (report.findings || []).filter((finding) => !finding.suppressed);
+          const byId = new Map(activeFindings.filter((finding) => finding.id).map((finding) => [finding.id, finding]));
+          const byFingerprint = new Map(activeFindings.filter((finding) => finding.fingerprint).map((finding) => [finding.fingerprint, finding]));
+          const sameItem = (finding, item) =>
+            finding.check_id === item.check_id && finding.title === item.title;
+          const topItems = [];
+          const seenTop = new Set();
+          const pushTop = (finding) => {
+            if (!finding) return;
+            const key = finding.id || finding.fingerprint || `${finding.check_id}:${finding.title}`;
+            if (seenTop.has(key)) return;
+            seenTop.add(key);
+            topItems.push(finding);
+          };
+          if (decision) {
+            for (const item of [...(decision.blockers || []), ...(decision.review_items || [])]) {
+              pushTop(byId.get(item.id) || byFingerprint.get(item.fingerprint) || activeFindings.find((finding) => sameItem(finding, item)));
+              if (topItems.length >= 3) break;
+            }
+          }
+          for (const finding of activeFindings.filter((finding) => ["critical", "high"].includes(finding.severity))) {
+            if (topItems.length >= 3) break;
+            pushTop(finding);
+          }
+          const top = topItems
             .slice(0, 3)
             .map((finding, index) => `${index + 1}. ${escapeMarkdown(truncate(finding.title || finding.check_id, 240))}`)
             .join("\n");
+          const evidenceText = (evidence) => {
+            if (!evidence) return "";
+            const extras = [];
+            if (evidence.low_confidence_tool_count) extras.push(`${evidence.low_confidence_tool_count} low-confidence tool(s)`);
+            if (evidence.source_warning_count) extras.push(`${evidence.source_warning_count} source warning(s)`);
+            if (evidence.human_review_recommended) extras.push("human review recommended");
+            return `Evidence coverage: ${evidence.level || "unknown"}${extras.length ? ` (${extras.join("; ")})` : ""}`;
+          };
+          const nextActionLine = agentSummary && agentSummary.first_recommended_action
+            ? (agentSummary.first_recommended_action.command
+              ? `Next action: \`${escapeMarkdown(agentSummary.first_recommended_action.command)}\``
+              : `Next action: ${escapeMarkdown(agentSummary.first_recommended_action.why || "")}`)
+            : "";
+          const reviewerStart = reviewerSummary && reviewerSummary.first_recommended_surface
+            ? `Reviewer start: \`${escapeMarkdown(reviewerSummary.first_recommended_surface.name || "")}\` — ${escapeMarkdown(reviewerSummary.first_recommended_surface.why || "")}`
+            : "";
           const ciModeLine = decision && decision.fail_policy
             ? `CI mode: \`${decision.fail_policy.ci_mode || "advisory"}\` — ${decision.fail_policy.would_fail_ci ? "this PR would fail CI" : "this PR is not blocked by Shipgate"}`
             : "";
           const decisionLines = decision
             ? [
                 `Decision: \`${decision.decision}\``,
+                agentSummary && agentSummary.headline ? `Summary: ${escapeMarkdown(agentSummary.headline)}` : "",
                 `Reason: ${escapeMarkdown(decision.reason || "")}`,
                 `Blockers: ${(decision.blockers || []).length} · Review items: ${(decision.review_items || []).length}`,
+                evidenceText(decision.evidence_coverage),
+                decision.decision === "insufficient_evidence"
+                  ? "Improve evidence: provide MCP export, OpenAPI spec, explicit local tool inventory, or a broader OpenAI SDK source path; then rerun scan."
+                  : "",
+                nextActionLine,
+                reviewerStart,
                 `Fail policy: would_fail_ci=\`${(decision.fail_policy || {}).would_fail_ci ? "true" : "false"}\` (exit ${(decision.fail_policy || {}).exit_code ?? "?"})`,
                 ciModeLine,
               ].filter(Boolean)
