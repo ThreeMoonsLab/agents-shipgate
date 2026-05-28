@@ -149,3 +149,28 @@ def test_trigger_subcommand_human_readable_verdict(tmp_path):
     )
     assert result.exit_code == 0
     assert "Verdict: RUN" in result.stdout
+
+
+def test_trigger_missing_changed_files_exits_2(tmp_path):
+    """An unreadable --changed-files path fails deterministically with a
+    clean exit 2 (config/input error), not a Typer traceback."""
+    result = runner.invoke(
+        app, ["trigger", "--changed-files", str(tmp_path / "nope.txt"), "--json"]
+    )
+    assert result.exit_code == 2
+
+
+def test_trigger_missing_diff_exits_2(tmp_path):
+    result = runner.invoke(
+        app, ["trigger", "--diff", str(tmp_path / "nope.diff"), "--json"]
+    )
+    assert result.exit_code == 2
+
+
+def test_trigger_undecodable_changed_files_exits_2(tmp_path):
+    bad = tmp_path / "bad.bin"
+    bad.write_bytes(b"\xff\xfe\x00not utf-8")
+    result = runner.invoke(
+        app, ["trigger", "--changed-files", str(bad), "--json"]
+    )
+    assert result.exit_code == 2

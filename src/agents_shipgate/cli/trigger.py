@@ -126,8 +126,18 @@ def trigger(
             )
             raise typer.Exit(2) from exc
     else:
-        paths = _read_lines(changed_files)
-        diff_text = diff.read_text(encoding="utf-8") if diff is not None else ""
+        try:
+            paths = _read_lines(changed_files)
+            diff_text = (
+                diff.read_text(encoding="utf-8") if diff is not None else ""
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            typer.echo(
+                f"Could not read trigger input file: {exc}. Check the "
+                "--changed-files / --diff path.",
+                err=True,
+            )
+            raise typer.Exit(2) from exc
 
     if manifest_present is None:
         manifest_present_resolved = (workspace / "shipgate.yaml").is_file()
