@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Verifier PR comment v2 + additive Action outputs.** The GitHub Action now
+  defaults to the verifier workflow (`verify_mode: verify`) and the
+  capability-review PR comment (`pr_comment_style: capability-review`) for the
+  next minor release. The comment starts from
+  `release_decision.decision`, renders a top capability-change table, surfaces
+  trust-root warnings, separates required human/coding-agent work, and links the
+  generated artifacts. The v1 findings-oriented comment remains available for
+  one minor release cycle with `pr_comment_style: findings`.
+  - New Action outputs are additive:
+    `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
+    `trust_root_touched`, `policy_weakened`, `capability_changes_added`,
+    `capability_changes_modified`, and `capability_changes_removed`.
+  - Existing outputs are preserved; `decision` remains the preferred release
+    gating output.
+  - `verifier.json` now includes a derived `capability_review` projection
+    over `report.capability_change` and `report.verifier_summary`. It is
+    reviewer-facing only and cannot disagree with the head scan's
+    `release_decision`.
+
 - **New large-scale sample + asserted latency budget.**
   Adds `samples/large_multi_framework_agent/` — a production-shape retail-ops
   AI assistant with ~65 tools across five tool sources (payments OpenAPI,

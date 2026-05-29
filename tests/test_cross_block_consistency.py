@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.verify.capability_review import build_capability_review
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -93,6 +94,20 @@ def test_capability_delta_summary_equals_capability_change_lengths(tmp_path):
     assert delta.removed == len(cap.removed)
     assert delta.broadened == len(cap.broadened)
     assert delta.narrowed == len(cap.narrowed)
+
+
+def test_pr_capability_review_mirrors_canonical_verifier_blocks(tmp_path):
+    report = _verify_scan(tmp_path)
+    cap = report.capability_change
+    vs = report.verifier_summary
+    review = build_capability_review(report)
+
+    assert review.added == len(cap.added)
+    assert review.modified == len(cap.broadened) + len(cap.narrowed)
+    assert review.removed == len(cap.removed)
+    assert review.trust_root_touched == vs.protected_surface_touched
+    assert review.policy_weakened == vs.policy_weakened
+    assert all(change.change_type != "trust_root_touched" for change in review.top_changes)
 
 
 def test_by_reason_code_sums_to_active_finding_count(tmp_path):

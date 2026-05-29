@@ -100,6 +100,14 @@ def verify(
         "--no-heuristics",
         help="Filter heuristic findings before the head release decision.",
     ),
+    pr_comment_style: str = typer.Option(
+        "capability-review",
+        "--pr-comment-style",
+        help=(
+            "PR comment renderer: capability-review (default) or findings "
+            "(legacy v1 style, available for one minor release cycle)."
+        ),
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
     """Run the canonical ongoing-PR verifier around the existing scan engine."""
@@ -110,6 +118,7 @@ def verify(
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
+        parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
         head_ref = head or "HEAD"
         verifier, _report, exit_code = run_verify(
             workspace=workspace,
@@ -128,6 +137,7 @@ def verify(
             strict_plugins=strict_plugins,
             suggest_patches=suggest_patches,
             no_heuristics=no_heuristics,
+            pr_comment_style=parsed_pr_comment_style,
             verbose=verbose,
         )
     except ConfigError as exc:
@@ -167,6 +177,15 @@ def _parse_verify_format(value: str) -> str:
     if normalized == "json":
         return "json"
     raise ConfigError("--format must be text or json for verify")
+
+
+def _parse_pr_comment_style(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"capability-review", "capability_review"}:
+        return "capability-review"
+    if normalized in {"findings", "v1-findings", "legacy"}:
+        return "findings"
+    raise ConfigError("--pr-comment-style must be capability-review or findings")
 
 
 __all__ = ["verify"]

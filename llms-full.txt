@@ -873,6 +873,14 @@ The remaining v0.22 verifier blocks are reviewer-facing projections / declared i
 New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immune and floor-protected; emit only under `verify` mode): `SHIP-VERIFY-POLICY-WEAKENED` (base-vs-head policy weakened; fail-safe to review when the base is unavailable), `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (suppression/waiver/baseline broadened), `SHIP-VERIFY-CI-GATE-REMOVED` (Shipgate CI workflow deleted), `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (agent-instruction trust root changed; routed to human review), `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (trigger catalog changed). They are ordinary `Finding`s routed through `release_decision` — never a second verdict.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
+For verifier-cycle PR workflows it also exposes additive outputs
+`should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
+`trust_root_touched`, `policy_weakened`, `capability_changes_added`,
+`capability_changes_modified`, and `capability_changes_removed`. These are
+review and routing aids only. `trust_root_touched` and `policy_weakened`
+mirror `verifier_summary`; the capability counts mirror
+`capability_change` (`modified` is `broadened + narrowed`). Keep using
+`decision` as the preferred gating output.
 
 For ongoing PR workflows, prefer:
 
@@ -890,6 +898,12 @@ do not use it as a release verdict. The release gate is still
 must make the base ref available before invocation. Supplying `--head` makes
 verify scan an isolated archive of that ref; omitting it scans the checked-out
 workspace.
+
+The default Action PR comment style for the verifier-cycle minor is
+`capability-review`: decision first, then the top capability changes,
+trust-root warnings, required next steps, and artifact links. Existing adopters
+that need the v1 findings-oriented comment during migration can set
+`pr_comment_style: findings` for one minor release cycle.
 
 ## Read these for release review
 

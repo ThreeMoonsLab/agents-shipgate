@@ -39,7 +39,22 @@ def test_action_has_marketplace_metadata_and_outputs():
         "verifier_json",
         "pr_comment_markdown",
         "exit_code",
+        "should_run",
+        "trigger_action",
+        "trigger_rule_ids",
+        "verifier_verdict",
+        "trust_root_touched",
+        "policy_weakened",
+        "capability_changes_added",
+        "capability_changes_modified",
+        "capability_changes_removed",
     } <= set(data["outputs"])
+    assert data["outputs"]["verifier_verdict"]["description"].startswith(
+        "Verifier convenience verdict. Prefer `decision`"
+    )
+    assert data["inputs"]["verify_mode"]["default"] == "verify"
+    assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
+    assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
 
 
 def test_action_preserves_reports_before_applying_exit_code():
@@ -53,9 +68,13 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "BASELINE: ${{ inputs.baseline }}" in text
     assert "DIFF_FROM: ${{ inputs.diff_from }}" in text
     assert "DIFF_BASE: ${{ inputs.diff_base }}" in text
+    assert "VERIFY_MODE: ${{ inputs.verify_mode }}" in text
     assert "INPUT_HEAD_REF: ${{ inputs.head_ref }}" in text
+    assert "PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}" in text
     assert "verify" in text
+    assert "scan" in text
     assert "--workspace" in text
+    assert "--pr-comment-style" in text
     assert "args+=(--diff-from" in text
     assert "args+=(--base" in text
     assert "args+=(--head" in text
@@ -70,13 +89,15 @@ def test_action_preserves_reports_before_applying_exit_code():
 
 def test_action_step_summary_leads_with_release_decision():
     text = Path("action.yml").read_text(encoding="utf-8")
+    script = Path("scripts/github_action_outputs.py").read_text(encoding="utf-8")
 
-    assert "GITHUB_STEP_SUMMARY" in text
-    assert "## Agents Shipgate" in text
-    assert "Decision:" in text
-    assert "Blockers:" in text
-    assert "Review items:" in text
-    assert "would_fail_ci=" in text
+    assert "scripts/github_action_outputs.py" in text
+    assert "GITHUB_STEP_SUMMARY" in script
+    assert "## Agents Shipgate" in script
+    assert "Decision:" in script
+    assert "Blockers:" in script
+    assert "Review items:" in script
+    assert "would_fail_ci=" in script
 
 
 def test_action_pr_comment_truncates_user_controlled_text():
@@ -138,9 +159,10 @@ def test_action_pr_comment_surfaces_ci_mode():
     is advisory (won't block their PR) or strict (will). Surfacing
     fail_policy.ci_mode in the comment removes that ambiguity."""
     text = Path("action.yml").read_text(encoding="utf-8")
+    script = Path("scripts/github_action_outputs.py").read_text(encoding="utf-8")
 
     assert "pr-comment.md" in text
-    assert "would_fail_ci" in text
+    assert "would_fail_ci" in script
 
 
 def test_marketplace_action_repo_has_ci_and_release_workflows():

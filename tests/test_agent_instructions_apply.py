@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -40,12 +41,13 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 
 
 def _filesystem_is_case_sensitive(path: Path) -> bool:
-    probe = path / ".__case_probe__"
+    probe_name = f".__case_probe_{os.getpid()}__"
+    probe = path / probe_name
     probe.write_bytes(b"x")
     try:
-        return not (path / ".__CASE_PROBE__").exists()
+        return not (path / probe_name.upper()).exists()
     finally:
-        probe.unlink()
+        probe.unlink(missing_ok=True)
 
 
 case_sensitive_fs = pytest.mark.skipif(

@@ -1,4 +1,141 @@
 {
+  "$defs": {
+    "VerifierCapabilityChange": {
+      "additionalProperties": false,
+      "description": "One reviewer-facing capability change projected for verifier output.",
+      "properties": {
+        "change_bucket": {
+          "enum": [
+            "added",
+            "modified",
+            "removed"
+          ],
+          "title": "Change Bucket",
+          "type": "string"
+        },
+        "change_type": {
+          "title": "Change Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "impact": {
+          "default": "informational",
+          "enum": [
+            "blocks_release",
+            "review_required",
+            "insufficient_evidence",
+            "informational",
+            "none"
+          ],
+          "title": "Impact",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Finding Ids",
+          "type": "array"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_kind": {
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "change_type",
+        "change_bucket",
+        "subject_kind",
+        "subject",
+        "rationale"
+      ],
+      "title": "VerifierCapabilityChange",
+      "type": "object"
+    },
+    "VerifierCapabilityReview": {
+      "additionalProperties": false,
+      "description": "Derived capability-review rollup for PR comments and Action outputs.\n\nThis is a projection only. It never gates independently of\n``report.json.release_decision.decision``.",
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "modified": {
+          "default": 0,
+          "title": "Modified",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "top_changes": {
+          "items": {
+            "$ref": "#/$defs/VerifierCapabilityChange"
+          },
+          "title": "Top Changes",
+          "type": "array"
+        },
+        "trust_root_touched": {
+          "default": false,
+          "title": "Trust Root Touched",
+          "type": "boolean"
+        }
+      },
+      "title": "VerifierCapabilityReview",
+      "type": "object"
+    }
+  },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -82,6 +219,9 @@
       ],
       "default": null,
       "title": "Base Tree Sha"
+    },
+    "capability_review": {
+      "$ref": "#/$defs/VerifierCapabilityReview"
     },
     "changed_files": {
       "items": {
