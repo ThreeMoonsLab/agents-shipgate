@@ -56,6 +56,7 @@ from agents_shipgate.schemas.manifest.codex_plugin import (
 from agents_shipgate.schemas.manifest.crewai import CrewAiConfig
 from agents_shipgate.schemas.manifest.environment import EnvironmentConfig
 from agents_shipgate.schemas.manifest.google_adk import GoogleAdkConfig
+from agents_shipgate.schemas.manifest.human_ack import HumanAckDeclaration
 from agents_shipgate.schemas.manifest.langchain import LangChainConfig
 from agents_shipgate.schemas.manifest.n8n import N8nConfig
 from agents_shipgate.schemas.manifest.openai_api import OpenAIApiConfig
@@ -132,6 +133,8 @@ __all__ = [
     "EnvironmentConfig",
     # google_adk
     "GoogleAdkConfig",
+    # human_ack
+    "HumanAckDeclaration",
     # langchain
     "LangChainConfig",
     # n8n

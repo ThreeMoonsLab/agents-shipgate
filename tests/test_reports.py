@@ -38,6 +38,11 @@ REPORT_SCHEMA_V21 = Path("docs/report-schema.v0.21.json")
 CURRENT_REPORT_SCHEMA_VERSION = str(
     ReadinessReport.model_fields["report_schema_version"].default
 )
+# Tracks the live model default so version bumps don't strand these tests
+# on a stale schema file (the failure mode being fixed in v0.22).
+REPORT_SCHEMA_CURRENT = Path(
+    f"docs/report-schema.v{CURRENT_REPORT_SCHEMA_VERSION}.json"
+)
 
 
 def test_sample_markdown_report_matches_golden(tmp_path):
@@ -560,7 +565,7 @@ def test_json_report_validates_against_current_schema(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V21.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_CURRENT.read_text(encoding="utf-8"))
 
     validate(instance=report_json_payload(report), schema=schema)
 
@@ -1038,7 +1043,7 @@ def test_current_schema_rejects_null_release_decision_and_consequence(tmp_path):
         formats=["json"],
         ci_mode="advisory",
     )
-    schema = json.loads(REPORT_SCHEMA_V21.read_text(encoding="utf-8"))
+    schema = json.loads(REPORT_SCHEMA_CURRENT.read_text(encoding="utf-8"))
     payload = report_json_payload(report)
 
     # Sanity: real payload validates.

@@ -1,0 +1,169 @@
+"""SHIP-VERIFY-POLICY-WEAKENED — base-vs-head policy weakening (§5.1 Tier B).
+
+Compares the normalized effective-policy snapshot of the base report
+(via ``--diff-from``) against the head manifest and emits one finding per
+detected weakening:
+
+- ``ci_mode_weakened`` — CI gate moved strict -> advisory.
+- ``fail_on_loosened`` — the fail-on severity set lost a tier
+  (head ⊊ base), i.e. fewer severities now fail CI.
+- ``severity_override_lowered`` — a check's applied severity dropped
+  across a tier boundary versus the base.
+
+If the base snapshot is unavailable (no diff reference, or a pre-v0.22
+base) AND the PR touched a policy/manifest trust root, it emits a single
+``base_snapshot_unavailable`` review-required finding — a reward-hacker
+must not be able to dodge review by breaking the base scan (§5.3: ambiguous
+direction -> review_required, never silent pass).
+
+Weakening is defined as movement toward less review / less blocking. A
+strengthening change (stricter mode, more fail-on severities, raised
+override) emits nothing.
+"""
+
+from __future__ import annotations
+
+from agents_shipgate.checks._verify_common import (
+    SEVERITY_RANK,
+    base_effective_policy,
+    changed_files,
+    head_effective_policy,
+    touched,
+    verification_active,
+    verify_finding,
+)
+from agents_shipgate.core.context import ScanContext
+from agents_shipgate.schemas.report import Finding
+
+CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+
+# Strength of a CI mode — higher blocks more. Unknown modes rank -1 so an
+# unrecognized head mode never reads as "stronger" than a known base.
+_CI_MODE_RANK = {"advisory": 0, "warn": 0, "strict": 1, "block": 1}
+
+# Trust roots whose modification, when the base snapshot is missing,
+# warrants a fail-safe review-required finding.
+_POLICY_SURFACES = (
+    "**/shipgate.yaml",
+    "**/policies/**",
+    "**/.agents-shipgate/**",
+)
+
+
+def run(context: ScanContext) -> list[Finding]:
+    if not verification_active(context):
+        return []
+    base = base_effective_policy(context)
+    head = head_effective_policy(context)
+    if base is None:
+        return _fail_safe(context)
+    return _compare(context, base, head)
+
+
+def _compare(context: ScanContext, base, head) -> list[Finding]:
+    findings: list[Finding] = []
+
+    # 1. ci.mode weakened (strict -> advisory).
+    base_rank = _CI_MODE_RANK.get(base.ci_mode or "", 0)
+    head_rank = _CI_MODE_RANK.get(head.ci_mode or "", 0)
+    if head_rank < base_rank:
+        findings.append(
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title=f"CI mode weakened: {base.ci_mode} -> {head.ci_mode}",
+                severity="high",
+                evidence={
+                    "kind": "ci_mode_weakened",
+                    "base_ci_mode": base.ci_mode,
+                    "head_ci_mode": head.ci_mode,
+                },
+                recommendation=(
+                    "This PR weakens the CI gate mode. A human must review "
+                    "and approve the change; do not weaken the gate to make "
+                    "CI pass."
+                ),
+            )
+        )
+
+    # 2. fail_on loosened (head is a proper subset of base).
+    base_fail = set(base.fail_on)
+    head_fail = set(head.fail_on)
+    dropped = base_fail - head_fail
+    if dropped:
+        findings.append(
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title="Fail-on severity set loosened",
+                severity="high",
+                evidence={
+                    "kind": "fail_on_loosened",
+                    "removed_severities": sorted(
+                        dropped, key=lambda s: (SEVERITY_RANK.get(s, -1), s)
+                    ),
+                    "base_fail_on": list(base.fail_on),
+                    "head_fail_on": list(head.fail_on),
+                },
+                recommendation=(
+                    "This PR removes severities from the CI fail-on set, so "
+                    "fewer findings block release. A human must approve the "
+                    "reduced gate."
+                ),
+            )
+        )
+
+    # 3. severity override lowered across a tier (per check_id).
+    lowered = []
+    for check_id, head_sev in sorted(head.severity_overrides.items()):
+        base_sev = base.severity_overrides.get(check_id)
+        if base_sev is None:
+            continue
+        if SEVERITY_RANK.get(head_sev, -1) < SEVERITY_RANK.get(base_sev, -1):
+            lowered.append((check_id, base_sev, head_sev))
+    for check_id, base_sev, head_sev in lowered:
+        findings.append(
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title=f"Severity override lowered for {check_id}",
+                severity="high",
+                evidence={
+                    "kind": "severity_override_lowered",
+                    "target_check_id": check_id,
+                    "base_severity": base_sev,
+                    "head_severity": head_sev,
+                },
+                recommendation=(
+                    f"This PR lowers the severity of {check_id} from "
+                    f"{base_sev} to {head_sev}. A human must approve the "
+                    "downgrade with a documented reason."
+                ),
+            )
+        )
+
+    return findings
+
+
+def _fail_safe(context: ScanContext) -> list[Finding]:
+    """No base snapshot: emit review-required iff a policy root was touched."""
+    hit = touched(_POLICY_SURFACES, changed_files(context))
+    if not hit:
+        return []
+    return [
+        verify_finding(
+            context,
+            check_id=CHECK_ID,
+            title="Policy change cannot be proven safe (no base snapshot)",
+            severity="medium",
+            evidence={
+                "kind": "base_snapshot_unavailable",
+                "changed_policy_files": hit,
+            },
+            recommendation=(
+                "This PR changes a policy trust root but no base report was "
+                "available to prove the change does not weaken the gate. A "
+                "human must review the effective-policy change directly."
+            ),
+        )
+    ]

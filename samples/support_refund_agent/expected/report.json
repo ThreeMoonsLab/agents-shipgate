@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.21",
+  "report_schema_version": "0.22",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -2880,8 +2880,10 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/tmp/claude-501/tmpa4lg2zvc/report.json",
+    "packet_md": "/private/tmp/claude-501/tmpa4lg2zvc/packet.md",
+    "packet_json": "/private/tmp/claude-501/tmpa4lg2zvc/packet.json",
+    "packet_html": "/private/tmp/claude-501/tmpa4lg2zvc/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3065,7 +3067,9 @@
     "redacted_paths": [],
     "output_surfaces": [
       "json",
-      "markdown"
+      "packet_html",
+      "packet_json",
+      "packet_md"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
@@ -3098,5 +3102,87 @@
       "path": "report.release_decision",
       "why": "Release is blocked; read release_decision.blockers[] for the gating findings."
     }
+  },
+  "capability_change": {
+    "enabled": false,
+    "added": [],
+    "removed": [],
+    "broadened": [],
+    "narrowed": []
+  },
+  "protected_surface_changes": [],
+  "effective_policy": {
+    "ci_mode": "advisory",
+    "fail_on": [],
+    "suppressed_check_ids": [
+      "SHIP-SCHEMA-BROAD-FREE-TEXT"
+    ],
+    "waiver_scopes": [
+      "SHIP-SCHEMA-BROAD-FREE-TEXT:support.search_kb"
+    ],
+    "severity_overrides": {},
+    "baseline_integrity_mode": "warn",
+    "baseline_fingerprints": [],
+    "ci_gate_present": true
+  },
+  "human_ack": {
+    "required": false,
+    "satisfied": true,
+    "acks": [],
+    "outstanding": []
+  },
+  "verifier_summary": {
+    "verdict": "blocked",
+    "by_severity": {
+      "critical": 2,
+      "high": 14,
+      "medium": 2
+    },
+    "by_reason_code": {
+      "SHIP-AUTH-MANIFEST-BROAD-SCOPE": 1,
+      "SHIP-AUTH-SCOPE-COVERAGE-MISSING": 3,
+      "SHIP-INVENTORY-WILDCARD-TOOLS": 1,
+      "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING": 1,
+      "SHIP-MANIFEST-UNUSED-SCOPE": 1,
+      "SHIP-POLICY-APPROVAL-MISSING": 1,
+      "SHIP-POLICY-CONFIRMATION-MISSING": 2,
+      "SHIP-SCHEMA-BROAD-FREE-TEXT": 2,
+      "SHIP-SCHEMA-FREEFORM-OUTPUT": 1,
+      "SHIP-SCHEMA-MISSING-BOUNDS": 1,
+      "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": 2,
+      "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 2
+    },
+    "capability_delta_summary": {
+      "added": 0,
+      "removed": 0,
+      "broadened": 0,
+      "narrowed": 0
+    },
+    "protected_surface_touched": false,
+    "policy_weakened": false,
+    "human_ack_required": false,
+    "human_ack_satisfied": true,
+    "top_reason_codes": [
+      {
+        "reason_code": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-POLICY-APPROVAL-MISSING",
+        "count": 1
+      },
+      {
+        "reason_code": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
+        "count": 3
+      },
+      {
+        "reason_code": "SHIP-POLICY-CONFIRMATION-MISSING",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-SCHEMA-BROAD-FREE-TEXT",
+        "count": 2
+      }
+    ]
   }
 }
