@@ -34,6 +34,7 @@ from .git import (
     git_path,
     ref_exists,
     tree_sha,
+    working_tree_context,
 )
 from .pr_comment import render_pr_comment
 
@@ -109,6 +110,14 @@ def run_verify(
                 f"Base ref {base!r} is not available locally; run with fetch-depth: 0 "
                 "or fetch the base before verify."
             )
+
+    if not archive_head:
+        try:
+            worktree_paths, worktree_diff = working_tree_context(git_root)
+            changed_files = _dedupe_paths([*changed_files, *worktree_paths])
+            diff_text = _join_diff_text(diff_text, worktree_diff)
+        except Exception as exc:  # noqa: BLE001 - local context degrades only.
+            base_notes.append(f"Could not collect working-tree diff context: {exc}")
 
     trigger = evaluate(
         paths=changed_files,
@@ -762,6 +771,16 @@ def _relative_to_workspace(workspace: Path, path: Path, label: str) -> Path:
         return path.resolve().relative_to(workspace)
     except ValueError as exc:
         raise ConfigError(f"{label} must resolve inside --workspace: {path}") from exc
+
+
+def _dedupe_paths(paths: list[str]) -> list[str]:
+    return sorted({path for path in paths if path})
+
+
+def _join_diff_text(left: str, right: str) -> str:
+    if left and right:
+        return f"{left}\n{right}"
+    return left or right
 
 
 def _display_path(path: Path, root: Path) -> str:

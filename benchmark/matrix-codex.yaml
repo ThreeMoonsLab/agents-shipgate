@@ -11,3 +11,4 @@ cells:
   - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: codex}
   - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 01-prepare-for-release, agent: codex}
   - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff, agent: codex}

@@ -23,6 +23,8 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate verify --workspace . --config shipgate.yaml \\
+  --ci-mode advisory --format json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 
@@ -35,9 +37,22 @@ Read `agents-shipgate-reports/report.json` and summarize:
 - safe patches applied
 - findings requiring human review
 
+Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
+`agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
+verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
+edits are scanned; add `--base origin/main --head HEAD` only for committed
+PR/CI verification after making the base ref available.
+`agents-shipgate-reports/verifier.json` explains trigger/base status; it is
+not a second release verdict.
+
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
 changes require human review.
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
+release-visible.
 
 Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on
 stderr.

@@ -5,6 +5,7 @@ Prebuilt prompts for AI coding agents (Claude Code, Codex, Cursor, Aider) workin
 | Prompt | When to use |
 |---|---|
 | [`add-shipgate-to-repo.md`](add-shipgate-to-repo.md) | Bootstrap Agents Shipgate in a repo that doesn't have it yet |
+| [`verify-agent-diff.md`](verify-agent-diff.md) | Run `agents-shipgate verify` before finishing an agent-related PR or local diff |
 | [`fix-top-finding.md`](fix-top-finding.md) | Iterate on a single highest-severity finding |
 | [`recommend-fixes.md`](recommend-fixes.md) | Walk all active findings and surface targeted fix recommendations across the four autofix-policy classes (with optional dry-run + apply for safe patches) |
 | [`stabilize-strict-mode.md`](stabilize-strict-mode.md) | Tune → baseline → promote workflow for going from advisory to strict CI |

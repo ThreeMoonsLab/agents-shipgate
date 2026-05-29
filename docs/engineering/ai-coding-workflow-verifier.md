@@ -738,7 +738,7 @@ Integration tests:
 - GitHub Action advisory mode with `verify`
 - GitHub Action strict mode with `verify`
 - base/head happy path
-- missing base manifest disables diff without changing head gate
+- specified-but-missing base ref exits unknown without a head-only pass
 - old base schema disables unsupported diff surfaces without changing head gate
 - base scan failure disables diff without changing head gate
 - PR comment v2 snapshot

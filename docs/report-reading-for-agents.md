@@ -49,7 +49,38 @@ Once you have the decision, read the supporting fields:
 
 The GitHub Action exposes a subset as outputs (v0.8+): `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`.
 
-### Step 3 · `findings[]`
+### Step 3 · `verifier_summary` (v0.22+)
+
+When present, `verifier_summary` is the one-fetch controller surface for AI
+coding workflows. It is a composition, not a second decision engine:
+`verifier_summary.verdict` mirrors `release_decision.decision` exactly.
+
+Read it for:
+
+- `by_severity` and `by_reason_code` — active-finding histograms.
+- `capability_delta_summary` — counts of added, removed, broadened, and
+  narrowed capability-change members.
+- `protected_surface_touched` — true when verify-mode findings show a
+  trust-root edit.
+- `policy_weakened` — true when policy weakening was detected or failed safe
+  to review.
+- `human_ack_required` / `human_ack_satisfied` — declared human authority
+  state. A coding agent must not synthesize acknowledgement.
+- `top_reason_codes[]` — ranked top-five reason codes for compact summaries.
+
+If `protected_surface_touched`, `policy_weakened`, or
+`human_ack_required` is true, surface the human-review requirement. Do not
+respond by suppressing findings, lowering severity, expanding a baseline, or
+removing Shipgate CI; those are the bypass patterns the verifier checks are
+designed to make visible.
+
+`agents-shipgate verify` also writes
+`agents-shipgate-reports/verifier.json`. Read that file for trigger and
+base-scan orchestration status (`base_status`, `base_notes`, artifact paths),
+but do not use it as a release verdict. The release gate remains
+`report.json.release_decision.decision`.
+
+### Step 4 · `findings[]`
 
 Walk findings only after capturing the gate decision. Filter `suppressed: true` entries; they are kept in the report for traceability but are not active.
 
@@ -77,7 +108,7 @@ agents-shipgate findings --from agents-shipgate-reports/report.json \
 This is not a gate signal. It does not change severity, release decisions,
 fingerprints, baselines, or CI exit codes.
 
-### Step 4 · Per-finding autofix fields (v0.7+)
+### Step 5 · Per-finding autofix fields (v0.7+)
 
 For every active finding, inspect:
 
@@ -88,7 +119,7 @@ For every active finding, inspect:
 
 Use these to decide whether to call `apply-patches --confidence high --apply` or surface the finding for manual review. The full mechanical policy lives in [`autofix-policy.md`](autofix-policy.md). The behavioral boundary — what an agent may *write* about a finding even if it cannot mechanically patch it — lives in [`agent-autofix-boundary.md`](agent-autofix-boundary.md).
 
-### Step 5 · Release Evidence Packet (for human-review framing)
+### Step 6 · Release Evidence Packet (for human-review framing)
 
 Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Read `packet.json` when you need:
 

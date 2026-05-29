@@ -49,6 +49,8 @@ Commands:
 agents-shipgate detect --workspace . --json
 agents-shipgate contract --json
 agents-shipgate init --workspace . --write --ci --json
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 agents-shipgate apply-patches \
   --from agents-shipgate-reports/report.json \
@@ -58,9 +60,22 @@ agents-shipgate apply-patches \
 Always parse `agents-shipgate-reports/report.json`, not Markdown. Use
 `release_decision.decision` as the release signal.
 
+Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
+`agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
+verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
+edits are scanned; add `--base origin/main --head HEAD` only for committed
+PR/CI verification after making the base ref available.
+`agents-shipgate-reports/verifier.json` explains trigger/base status; it is
+not a second release verdict.
+
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
 surface those as human review items.
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
+release-visible.
 
 Before committing, ensure `.gitignore` includes:
 
@@ -125,6 +140,8 @@ For agent tool-surface or release-policy changes, run:
 ```bash
 agents-shipgate detect --workspace . --json
 agents-shipgate contract --json
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
 agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 
@@ -140,6 +157,15 @@ Read `agents-shipgate-reports/report.json` and summarize:
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
 changes require human review.
+
+Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
+`agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
+verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
+edits are scanned; add `--base origin/main --head HEAD` only for committed
+PR/CI verification after making the base ref available. Do not bypass the
+verifier by suppressing findings, lowering severity, expanding baselines or
+waivers, removing Shipgate CI, or weakening agent instructions. Verify-mode
+`SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 ````
 
 ## `.cursor/rules/agents-shipgate.mdc`
@@ -182,11 +208,28 @@ When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
 Default to advisory scans while adopting the gate.
 
+For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
+finishing:
+
+  agents-shipgate verify --workspace . --config shipgate.yaml \
+      --ci-mode advisory --format json
+
+Omit `--base` and `--head` for local pre-commit work so uncommitted edits are
+scanned; add `--base origin/main --head HEAD` only for committed PR/CI
+verification after making the base ref available.
+
 Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
 `release_decision.decision` over legacy severity/status summaries.
+Use `agents-shipgate-reports/verifier.json` only for trigger/base orchestration
+status, not as a second verdict.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
+release-visible.
 
 For one-fetch counts and a deterministic next step, read
 `report.json.agent_summary` (v0.12+): verdict, blocker_count,

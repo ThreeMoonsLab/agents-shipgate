@@ -13,7 +13,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 ## Workflow
 
-1. For relevance decisions, bootstrap, scanning, CI setup, finding fixes, false-positive triage, strict-mode promotion, or version upgrades, read `references/recipes.md`.
+1. For relevance decisions, bootstrap, verifier runs, scanning, CI setup, finding fixes, false-positive triage, strict-mode promotion, or version upgrades, read `references/recipes.md`.
 2. For reading `report.json`, summarizing release decisions, or deciding what may be auto-applied, read `references/report-reading.md`.
 3. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 4. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
@@ -24,6 +24,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 ## Fast Paths
 
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
+- Local agent-related diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
 - Existing manifest: run `agents-shipgate scan -c shipgate.yaml --suggest-patches --format json`.
 - First GitHub CI: copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.
 - Explain one finding: run `agents-shipgate explain-finding <fingerprint> --from agents-shipgate-reports/report.json --json`.
@@ -32,6 +33,8 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 ## Boundaries
 
 - Do not claim a finding is fixed without re-running `agents-shipgate scan` and reporting the new decision/counts.
+- Before finishing an agent-related diff in a repo with `shipgate.yaml`, run `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip verdict.
+- Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 - Do not silently suppress findings. Suppressions require a non-empty `reason`.
 - Do not commit generated reports.
 - Do not edit the upstream `agents-shipgate` check implementation unless the user is working in the Agents Shipgate repo itself.

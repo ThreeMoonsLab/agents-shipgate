@@ -350,7 +350,7 @@ def _static_lint_discovers_relevance(art: CellArtifacts) -> CriterionResult:
 
 
 _ADVISORY_TRIGGER_RE = re.compile(
-    r"\bagents-shipgate\s+(?:scan|init(?:\s+\S+)*?\s+--ci\b)",
+    r"\bagents-shipgate\s+(?:scan|verify|init(?:\s+\S+)*?\s+--ci\b)",
 )
 
 
@@ -358,7 +358,7 @@ def chooses_advisory_first(art: CellArtifacts) -> CriterionResult:
     """Was the first scan / init --ci invocation advisory (not blocking)?
 
     The ``--ci-mode`` choice is only meaningful for commands that set up
-    or run CI gating: ``scan`` and ``init --ci``. ``detect``-only runs
+    or run CI gating: ``scan``, ``verify``, and ``init --ci``. ``detect``-only runs
     have no CI mode to express, so the criterion is N/A there — counting
     detect-only runs as "advisory" inflates rubric points for cells that
     never actually faced the choice.
@@ -421,17 +421,19 @@ def replaces_change_me(art: CellArtifacts) -> CriterionResult:
     )
 
 
-_SCAN_INVOKED_RE = re.compile(r"\bagents-shipgate\s+scan\b")
+_REPORT_PRODUCING_RE = re.compile(
+    r"\bagents-shipgate\s+(?:scan\b|verify\b(?![^\n]*\s--preview\b))"
+)
 
 
-def _scan_was_invoked(art: CellArtifacts) -> bool:
-    """Did the agent actually run ``agents-shipgate scan``?
+def _report_producing_command_was_invoked(art: CellArtifacts) -> bool:
+    """Did the agent actually run a command that should produce report.json?
 
     ``detect``/``init``/``doctor`` do not produce ``report.json``; gating
     report-dependent criteria on any ``agents-shipgate`` command would
     false-fail a detect-only run.
     """
-    return bool(_SCAN_INVOKED_RE.search(_commands_text(art)))
+    return bool(_REPORT_PRODUCING_RE.search(_commands_text(art)))
 
 
 def parses_report_json(art: CellArtifacts) -> CriterionResult:
@@ -448,11 +450,11 @@ def parses_report_json(art: CellArtifacts) -> CriterionResult:
             severity="info",
             signal="Agent read or piped the JSON report.",
         )
-    if not _scan_was_invoked(art):
+    if not _report_producing_command_was_invoked(art):
         return CriterionResult(
             status="n_a",
             severity="info",
-            signal="`agents-shipgate scan` never invoked; no report.json to read.",
+            signal="No `agents-shipgate scan` or `agents-shipgate verify` run; no report.json to read.",
         )
     return CriterionResult(
         status="fail",
@@ -463,11 +465,11 @@ def parses_report_json(art: CellArtifacts) -> CriterionResult:
 
 def uses_release_decision(art: CellArtifacts) -> CriterionResult:
     summary = art.summary_text()
-    if not _scan_was_invoked(art):
+    if not _report_producing_command_was_invoked(art):
         return CriterionResult(
             status="n_a",
             severity="warn",
-            signal="`agents-shipgate scan` never invoked; no release_decision to surface.",
+            signal="No `agents-shipgate scan` or `agents-shipgate verify` run; no release_decision to surface.",
         )
     if RELEASE_DECISION_RE.search(summary) and DECISION_VALUE_RE.search(summary):
         return CriterionResult(
@@ -891,6 +893,7 @@ DETECTORS: dict[str, Callable[[CellArtifacts], CriterionResult]] = {
     "runs_init": _runs_verb("init"),
     "runs_doctor": _runs_verb("doctor"),
     "runs_scan": _runs_verb("scan"),
+    "runs_verify": _runs_verb("verify"),
     "replaces_change_me": replaces_change_me,
     "parses_report_json": parses_report_json,
     "uses_release_decision": uses_release_decision,

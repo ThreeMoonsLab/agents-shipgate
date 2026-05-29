@@ -1,10 +1,12 @@
 # v1 adoption-harness matrix.
 #
-# - 24 paid Claude-Code cells: 4 archetypes × 3 variants ({00, 10, 40}) × 2
-#   prompts ({01-prepare-for-release, 04-docs-only-negative}). The 40 cells
+# - 28 paid Claude-Code cells: 4 archetypes × variants {00, 10} × 2 prompts
+#   ({01-prepare-for-release, 04-docs-only-negative}), plus 4 archetypes ×
+#   variant {40} × 3 prompts ({01, 04, 05-verify-agent-diff}). The 40 cells
 #   omit the docs-only-negative overlay because TRIGGER-EXISTING-MANIFEST-
 #   PRESENT defines force_run, which is incompatible with the "not noisy"
-#   exit criterion.
+#   exit criterion; the 05 cells specifically measure whether agents run
+#   `agents-shipgate verify` on an opted-in agent-related diff prompt.
 #
 # - 12 free cursor-static cells: 4 archetypes × {00-no-hints,
 #   30-cursor-rule (positive), 30-cursor-rule + 60-docs-only-negative}.
@@ -44,12 +46,16 @@ cells:
   # because TRIGGER-EXISTING-MANIFEST-PRESENT defines force_run.
   - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
   - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff,   agent: claude-code, model: claude-opus-4-7}
   - {archetype: mcp-only,          variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
   - {archetype: mcp-only,          variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: mcp-only,          variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff,   agent: claude-code, model: claude-opus-4-7}
   - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
   - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openapi-only,      variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff,   agent: claude-code, model: claude-opus-4-7}
   - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
   - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 04-docs-only-negative,  agent: claude-code, model: claude-opus-4-7}
+  - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff,   agent: claude-code, model: claude-opus-4-7}
 
   # ----- cursor-static parallels (free, activation-only) -----------------
   # The static driver lints the Cursor rule against the canonical snippet

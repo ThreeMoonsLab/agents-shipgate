@@ -38,6 +38,10 @@ Review this PR; it changes tool definitions and permissions.
 ```
 
 ```text
+Before you finish, verify this agent-related diff and summarize the release decision.
+```
+
+```text
 Improve tool-use reliability and release readiness before deployment.
 ```
 
@@ -70,6 +74,11 @@ Run at least these variants:
 | Uses `release_decision.decision` and summarizes blockers/review items | 15 |
 | Adds advisory CI when appropriate | 10 |
 | Respects safe autofix and human-review boundaries | 10 |
+
+For opted-in repos (`shipgate.yaml` present), the harness also records whether
+the agent ran `agents-shipgate verify` before finishing an agent-related diff.
+This is an informational detector today (`runs_verify`) and is the primary
+signal for M5/M6 adoption work.
 
 Acceptance target for the adoption package: the target-repo snippet and
 workflow variants should score materially higher than the no-hints variant.

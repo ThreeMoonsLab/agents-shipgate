@@ -3,12 +3,14 @@
   "target": "claude-code-skill",
   "prior_render_sha256": {
     "SKILL.md": [
-      "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019"
+      "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019",
+      "5ab92f77352ea31ad03c28e1d596b20ada24fa4176a5e0b0b38990e4a00fb5bb"
     ]
   },
   "bootstrap_legacy_sha256": {
     "SKILL.md": [
-      "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9"
+      "b17c53d9905f46b196be38e98cf71e53da6779e3a4f426ecff14f2b0f238aba9",
+      "cd33a7c1d2efe003c54c5c2a270ccde7230349e19e9241dba87cb4bbd5f8ceea"
     ],
     "prompts/add-shipgate-to-repo.md": [
       "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
@@ -33,6 +35,9 @@
     ],
     "prompts/upgrade-shipgate-version.md": [
       "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
+    ],
+    "prompts/verify-agent-diff.md": [
+      "5e4e98af540c91da8e243570d3ee411c929f3099727805f990ea0aca3245ff37"
     ],
     "ci-recipes/advisory-pr-comment.yml": [
       "c3756c86f52cf00a594b3fe38179b66e0f07dc8c52b98b9e76f4a15939901c77"

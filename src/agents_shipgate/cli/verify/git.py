@@ -55,6 +55,25 @@ def diff_context(workspace: Path, base: str, head: str) -> tuple[list[str], str]
     return paths, body.stdout
 
 
+def working_tree_context(workspace: Path) -> tuple[list[str], str]:
+    """Return uncommitted changed paths and tracked-file diff text.
+
+    ``git diff HEAD`` includes staged and unstaged tracked changes. Untracked
+    file paths are included for trigger/check context, but their contents are
+    intentionally not read into the diff body.
+    """
+
+    names = _run_git(workspace, ["diff", "HEAD", "--name-only"])
+    body = _run_git(workspace, ["diff", "HEAD"])
+    paths = [line for line in names.stdout.splitlines() if line.strip()]
+    untracked = _run_git(workspace, ["ls-files", "--others", "--exclude-standard"])
+    for line in untracked.stdout.splitlines():
+        stripped = line.strip()
+        if stripped and stripped not in paths:
+            paths.append(stripped)
+    return paths, body.stdout
+
+
 def archive_tree(workspace: Path, ref: str, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     archive = _run_git(
@@ -99,4 +118,5 @@ __all__ = [
     "git_path",
     "ref_exists",
     "tree_sha",
+    "working_tree_context",
 ]
