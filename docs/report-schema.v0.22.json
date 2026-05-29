@@ -863,7 +863,7 @@
     },
     "CapabilityChangeMember": {
       "additionalProperties": false,
-      "description": "One capability member in a base\u2192head delta.\n\nCarries enough to identify the capability \u2014 ``tool`` plus the\n``action`` and ``scope`` it concerns \u2014 and, for ``broadened`` /\n``narrowed`` directions, the ``before_scope`` / ``after_scope`` so a\nreviewer can see exactly how the scope moved. Membership changes\n(``added`` / ``removed``) leave the before/after scope fields ``None``.\n\nA deterministic ``id`` (supplied by the later-phase classifier; empty\ninstances simply omit the list entirely) keeps the member stable\nacross runs for byte-equivalent output.",
+      "description": "One capability member in a base\u2192head delta.\n\nCarries enough to identify the capability \u2014 ``tool`` plus the\n``action`` and ``scope`` it concerns \u2014 and, for ``broadened`` /\n``narrowed`` directions, the ``before_scope`` / ``after_scope`` so a\nreviewer can see exactly how the scope moved. Membership changes\n(``added`` / ``removed``) leave the before/after scope fields ``None``.\n\nA deterministic ``id`` supplied by the capability-change builder keeps\nthe member stable across runs for byte-equivalent output.",
       "properties": {
         "action": {
           "anyOf": [
@@ -2273,7 +2273,7 @@
     },
     "HumanAck": {
       "additionalProperties": false,
-      "description": "Human-acknowledgement state block (Decision 4 shape).\n\n``required`` is set by a later-phase classifier when a change needs\ndeclared human authority; ``satisfied`` is ``True`` when every\nrequired acknowledgement is present. ``acks`` lists the declared\nentries; ``outstanding`` lists the surfaces still needing one.\n\nPhase A default is the deterministic empty shape: not required, and\ntherefore satisfied, with both lists empty.",
+      "description": "Human-acknowledgement state block (Decision 4 shape).\n\n``required`` is set by the human-ack builder when a trust-root\nweakening finding needs declared human authority; ``satisfied`` is\n``True`` when every required acknowledgement is present. ``acks``\nlists the declared entries; ``outstanding`` lists the surfaces still\nneeding one. The default empty shape is not required and therefore\nsatisfied.",
       "properties": {
         "acks": {
           "items": {
@@ -4609,7 +4609,7 @@
     },
     "VerifierSummary": {
       "additionalProperties": false,
-      "description": "Top-level verifier composition alias (Decision 5 shape).\n\nA byte-stable projection bundling the release verdict, finding counts,\nthe capability delta summary, and trust-root / acknowledgement flags\nfor one-fetch controller consumption. Composition only \u2014 it cannot\nintroduce a finding-independent blocker, and ``verdict`` MUST mirror\n``release_decision.decision`` (Principle 2; enforced by a property\ntest). Parallels ``agent_summary`` / ``reviewer_summary``.\n\n``top_reason_codes`` is capped at the top five (ranked severity desc,\ncount desc, code asc) \u2014 but the capping/ranking is a later-phase\nconcern; Phase A serializes whatever list it is given.",
+      "description": "Top-level verifier composition alias (Decision 5 shape).\n\nA byte-stable projection bundling the release verdict, finding counts,\nthe capability delta summary, and trust-root / acknowledgement flags\nfor one-fetch controller consumption. Composition only \u2014 it cannot\nintroduce a finding-independent blocker, and ``verdict`` MUST mirror\n``release_decision.decision`` (Principle 2; enforced by a property\ntest). Parallels ``agent_summary`` / ``reviewer_summary``.\n\n``top_reason_codes`` is capped at the top five by the builder, ranked\nseverity desc, count desc, then reason code asc.",
       "properties": {
         "by_reason_code": {
           "additionalProperties": {

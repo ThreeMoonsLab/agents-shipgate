@@ -1,8 +1,7 @@
-"""Pin the v0.22 verifier report blocks (Phase A shape + invariants).
+"""Pin the v0.22 verifier report blocks (shape + invariants).
 
-Phase A ships five additive top-level blocks as deterministic
-EMPTY/DEFAULT instances (the later-phase classifiers/composition fill
-them with real values):
+v0.22 ships five additive top-level blocks as deterministic projections
+with stable empty/default shapes when no evidence is available:
 
 - ``capability_change`` (CapabilityChangeBlock)
 - ``protected_surface_changes`` (list[ProtectedSurfaceChange])
@@ -12,7 +11,7 @@ them with real values):
 
 This file pins:
 - the closed enum surfaces of the new models,
-- the deterministic default values the Phase A builders emit,
+- the deterministic default values the builders emit,
 - byte-stable serialization (sorted lists),
 - the §8 invariant ``verifier_summary.verdict == release_decision.decision``
   (Principle 2 — the verifier summary cannot derive an independent verdict),
@@ -141,7 +140,7 @@ def test_capability_release_impact_enum_is_closed():
     }
 
 
-# --- Phase A default builders -----------------------------------------------
+# --- Default builders --------------------------------------------------------
 
 
 def test_phase_a_blocks_are_empty_defaults():

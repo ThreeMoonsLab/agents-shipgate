@@ -645,8 +645,8 @@ class ReadinessReport(BaseModel):
     # reviewer/agent summaries + capability delta). All are reviewer-facing
     # projections / inputs — none introduces a new release gate
     # (``release_decision.decision`` remains the only gate). Emitted as
-    # deterministic EMPTY/DEFAULT instances until the later-phase
-    # classifiers/composition fill them; older consumers ignore them.
+    # deterministic projections or empty/default shapes when no evidence
+    # exists; older consumers ignore them.
     report_schema_version: str = "0.22"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
@@ -748,7 +748,7 @@ class ReadinessReport(BaseModel):
         default_factory=list
     )
     # v0.22: normalized effective-policy snapshot. A semantic (not text)
-    # view of the policy surface so a later-phase comparator can answer
+    # view of the policy surface so the verify comparator can answer
     # "was the gate weakened?". Always present on emitted scans
     # (deterministic default shape). Optional in Python for older
     # fixtures.

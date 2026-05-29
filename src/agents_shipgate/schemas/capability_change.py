@@ -16,11 +16,11 @@ verifier (see docs/engineering/ai-coding-workflow-verifier.md §7, §8):
   context. ``verdict`` always mirrors ``release_decision.decision``
   (Principle 2 — it cannot derive an independent verdict).
 
-Phase A scope: define the typed shapes with deterministic serialization
-and wire deterministic EMPTY/DEFAULT instances into the report. The
-classifier/composition logic that *fills* these blocks with real values
-is later-phase work; the types here just carry whatever they are given
-and serialize it byte-stably (sorted lists, fixed key order).
+The report builders populate these blocks as deterministic projections
+from already-computed scan facts, findings, manifest policy, and declared
+human acknowledgement entries. Empty/default shapes are still emitted
+when the corresponding input surface has no evidence (for example, a
+plain scan with no base diff), so consumers can rely on stable keys.
 
 Determinism contract: every list these models hold is emitted in sorted
 order via the ``sorted_*`` helpers / model validators below, and every
@@ -87,9 +87,8 @@ class CapabilityChangeMember(BaseModel):
     reviewer can see exactly how the scope moved. Membership changes
     (``added`` / ``removed``) leave the before/after scope fields ``None``.
 
-    A deterministic ``id`` (supplied by the later-phase classifier; empty
-    instances simply omit the list entirely) keeps the member stable
-    across runs for byte-equivalent output.
+    A deterministic ``id`` supplied by the capability-change builder keeps
+    the member stable across runs for byte-equivalent output.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -301,13 +300,12 @@ class HumanAckEntry(BaseModel):
 class HumanAck(BaseModel):
     """Human-acknowledgement state block (Decision 4 shape).
 
-    ``required`` is set by a later-phase classifier when a change needs
-    declared human authority; ``satisfied`` is ``True`` when every
-    required acknowledgement is present. ``acks`` lists the declared
-    entries; ``outstanding`` lists the surfaces still needing one.
-
-    Phase A default is the deterministic empty shape: not required, and
-    therefore satisfied, with both lists empty.
+    ``required`` is set by the human-ack builder when a trust-root
+    weakening finding needs declared human authority; ``satisfied`` is
+    ``True`` when every required acknowledgement is present. ``acks``
+    lists the declared entries; ``outstanding`` lists the surfaces still
+    needing one. The default empty shape is not required and therefore
+    satisfied.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -376,9 +374,8 @@ class VerifierSummary(BaseModel):
     ``release_decision.decision`` (Principle 2; enforced by a property
     test). Parallels ``agent_summary`` / ``reviewer_summary``.
 
-    ``top_reason_codes`` is capped at the top five (ranked severity desc,
-    count desc, code asc) — but the capping/ranking is a later-phase
-    concern; Phase A serializes whatever list it is given.
+    ``top_reason_codes`` is capped at the top five by the builder, ranked
+    severity desc, count desc, then reason code asc.
     """
 
     model_config = ConfigDict(extra="forbid")

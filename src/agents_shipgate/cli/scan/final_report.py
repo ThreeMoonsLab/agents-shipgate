@@ -91,15 +91,13 @@ def _build_final_report(
         findings=sanitized.findings,
         report=report,
     )
-    # v0.22 (verifier cycle, P2/M3): wire the new top-level verifier
-    # blocks as deterministic EMPTY/DEFAULT instances. These are
-    # reviewer-facing projections / inputs — none introduces a new
-    # release gate. The later-phase classifiers/composition fill them
-    # with real values; Phase A only guarantees the report builds and
-    # validates against the v0.22 schema. Order matters: the capability
-    # delta, protected surfaces, effective policy, and human-ack blocks
-    # are built first, then verifier_summary is composed last so it can
-    # mirror release_decision.decision and the human_ack flags.
+    # v0.22 (verifier cycle, P2/M3): build the new top-level verifier
+    # blocks as deterministic projections. They are reviewer-facing inputs
+    # and summaries only; release_decision.decision remains the sole gate.
+    # Order matters: the capability delta, protected surfaces, effective
+    # policy, and human-ack blocks are built first, then verifier_summary is
+    # composed last so it can mirror release_decision.decision and the
+    # human_ack flags.
     report.capability_change = build_capability_change(report)
     report.protected_surface_changes = build_protected_surface_changes(report)
     report.effective_policy = build_effective_policy_snapshot(
