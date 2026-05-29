@@ -23,6 +23,9 @@ override) emits nothing.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
+from agents_shipgate.checks._metadata_loader import load_check_metadata
 from agents_shipgate.checks._verify_common import (
     SEVERITY_RANK,
     base_effective_policy,
@@ -113,11 +116,26 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
             )
         )
 
-    # 3. severity override lowered across a tier (per check_id).
+    # 3. effective severity lowered across a tier (per check_id).
+    # Compare effective applied severity, not just explicit override text:
+    # adding a downgrade (default high -> override medium), lowering an
+    # existing override, and removing a hardening override (override critical
+    # -> default medium) are all policy weakening.
+    defaults = _catalog_default_severities()
     lowered = []
-    for check_id, head_sev in sorted(head.severity_overrides.items()):
-        base_sev = base.severity_overrides.get(check_id)
-        if base_sev is None:
+    check_ids = set(base.severity_overrides) | set(head.severity_overrides)
+    for check_id in sorted(check_ids):
+        base_sev = _effective_severity(
+            check_id,
+            base.severity_overrides,
+            defaults,
+        )
+        head_sev = _effective_severity(
+            check_id,
+            head.severity_overrides,
+            defaults,
+        )
+        if base_sev is None or head_sev is None:
             continue
         if SEVERITY_RANK.get(head_sev, -1) < SEVERITY_RANK.get(base_sev, -1):
             lowered.append((check_id, base_sev, head_sev))
@@ -143,6 +161,19 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
         )
 
     return findings
+
+
+@lru_cache(maxsize=1)
+def _catalog_default_severities() -> dict[str, str]:
+    return {entry.id: entry.default_severity for entry in load_check_metadata()}
+
+
+def _effective_severity(
+    check_id: str,
+    overrides: dict[str, str],
+    defaults: dict[str, str],
+) -> str | None:
+    return overrides.get(check_id) or defaults.get(check_id)
 
 
 def _fail_safe(context: ScanContext) -> list[Finding]:

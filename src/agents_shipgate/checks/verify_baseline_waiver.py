@@ -93,11 +93,38 @@ def run(context: ScanContext) -> list[Finding]:
             )
         )
 
+    findings.extend(
+        baseline_expansion_findings(
+            context,
+            base,
+            head_baseline_fingerprints=head.baseline_fingerprints,
+        )
+    )
+
+    return findings
+
+
+def baseline_expansion_findings(
+    context: ScanContext,
+    base,
+    *,
+    head_baseline_fingerprints: list[str],
+) -> list[Finding]:
+    """Build baseline-expansion findings after head baseline matching.
+
+    The ordinary check pass runs before ``apply_baseline`` has assigned
+    ``Finding.baseline_status``. The scan pipeline calls this helper after
+    baseline matching with the head accepted-debt fingerprints so the
+    comparison is real base-vs-head accepted debt rather than an empty
+    pre-match placeholder.
+    """
+    if not verification_active(context) or base is None:
+        return []
     new_baseline = sorted(
-        set(head.baseline_fingerprints) - set(base.baseline_fingerprints)
+        set(head_baseline_fingerprints) - set(base.baseline_fingerprints)
     )
     if new_baseline:
-        findings.append(
+        return [
             verify_finding(
                 context,
                 check_id=CHECK_ID,
@@ -113,6 +140,5 @@ def run(context: ScanContext) -> list[Finding]:
                     "baseline entries are intentional."
                 ),
             )
-        )
-
-    return findings
+        ]
+    return []

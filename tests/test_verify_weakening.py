@@ -126,15 +126,35 @@ def test_policy_weakened_severity_override_lowered():
     base = EffectivePolicy(
         ci_mode=head.ci_mode,
         fail_on=head.fail_on,
-        severity_overrides={"SHIP-POLICY-APPROVAL-MISSING": "critical"},
+        severity_overrides={"SHIP-DOC-MISSING-DESCRIPTION": "critical"},
     )
-    # Head has no override (or a lower one) for that check -> lowered.
     findings = verify_policy.run(_context(base_policy=base))
-    # Only fires if head severity rank < base; head has no override so the
-    # check is skipped (no head entry to compare). Assert it does NOT
-    # false-positive when head lacks the override entirely.
     kinds = {f.evidence.get("kind") for f in findings}
-    assert "severity_override_lowered" not in kinds
+    assert "severity_override_lowered" in kinds
+    lowered = [
+        f for f in findings if f.evidence.get("kind") == "severity_override_lowered"
+    ]
+    assert lowered[0].evidence["base_severity"] == "critical"
+    assert lowered[0].evidence["head_severity"] == "medium"
+
+
+def test_policy_weakened_new_downgrade_override_uses_catalog_default():
+    from agents_shipgate.schemas.manifest import SeverityOverrideEntry
+
+    manifest = _manifest()
+    manifest.checks.severity_overrides["SHIP-AUTH-MANIFEST-BROAD-SCOPE"] = (
+        SeverityOverrideEntry(severity="medium")
+    )
+    head = build_effective_policy_snapshot(manifest)
+    base = EffectivePolicy(ci_mode=head.ci_mode, fail_on=head.fail_on)
+    findings = verify_policy.run(_context(base_policy=base, manifest=manifest))
+    lowered = [
+        f for f in findings if f.evidence.get("kind") == "severity_override_lowered"
+    ]
+    assert lowered
+    assert lowered[0].evidence["target_check_id"] == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
+    assert lowered[0].evidence["base_severity"] == "high"
+    assert lowered[0].evidence["head_severity"] == "medium"
 
 
 def test_policy_weakened_strengthening_emits_nothing():
@@ -218,6 +238,49 @@ def test_waiver_no_expansion_emits_nothing():
     )
     findings = verify_baseline_waiver.run(_context(base_policy=base))
     assert findings == []
+
+
+def test_baseline_expansion_compares_after_baseline_matching(tmp_path):
+    from agents_shipgate.cli.scan import run_scan
+    from agents_shipgate.core.baseline import write_baseline
+
+    base_report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "base",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(
+        base_report,
+        baseline_path,
+        audit_log_path=tmp_path / "baseline-audit.log",
+    )
+
+    head_report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path / "head",
+        formats=["json"],
+        ci_mode="advisory",
+        baseline_path=baseline_path,
+        diff_from_path=tmp_path / "base" / "report.json",
+        verification_context=VerificationContext(
+            changed_files=[".agents-shipgate/baseline.json"]
+        ),
+        packet_enabled=False,
+    )
+
+    baseline_findings = [
+        f
+        for f in head_report.findings
+        if f.check_id == "SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED"
+        and f.evidence.get("kind") == "baseline_expanded"
+    ]
+    assert baseline_findings
+    assert set(baseline_findings[0].evidence["added_fingerprints"]) == {
+        f.fingerprint for f in head_report.findings if f.baseline_status == "matched"
+    }
 
 
 # --- SHIP-VERIFY-CI-GATE-REMOVED -------------------------------------------
