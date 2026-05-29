@@ -15,6 +15,7 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierBaseStatus
 from agents_shipgate.triggers import evaluate
 
@@ -165,6 +166,7 @@ def run_verify(
             git_root=git_root,
             base=base,
             config_relative=config_relative,
+            baseline_path=baseline_path,
             policy_packs=policy_pack_paths or [],
             plugins_enabled=plugins_enabled,
             no_heuristics=no_heuristics,
@@ -210,6 +212,11 @@ def run_verify(
             packet_enabled=True,
             packet_formats=HEAD_PACKET_FORMATS,
             no_heuristics=no_heuristics,
+            verification_context=VerificationContext(
+                changed_files=changed_files,
+                diff_text_available=bool(diff_text),
+                trigger_result=trigger,
+            ),
         )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
@@ -275,6 +282,7 @@ def _prepare_base_report(
     git_root: Path,
     base: str,
     config_relative: Path,
+    baseline_path: Path | None,
     policy_packs: list[Path],
     plugins_enabled: bool | None,
     no_heuristics: bool,
@@ -290,6 +298,7 @@ def _prepare_base_report(
         base_tree=base_tree,
         config_relative=config_relative,
         git_root=git_root,
+        baseline_path=baseline_path,
         policy_packs=policy_packs,
         plugins_enabled=plugins_enabled,
         no_heuristics=no_heuristics,
@@ -324,7 +333,11 @@ def _prepare_base_report(
                     formats=["json"],
                     ci_mode="advisory",
                     fail_on=None,
-                    baseline_path=None,
+                    baseline_path=_map_optional_tree_path(
+                        git_root=git_root,
+                        tree_dir=base_tree_dir,
+                        path=baseline_path,
+                    ),
                     diff_from_path=None,
                     baseline_mode="new-findings",
                     policy_pack_paths=_map_policy_packs(
@@ -363,6 +376,7 @@ def _cache_report_path(
     base_tree: str,
     config_relative: Path,
     git_root: Path,
+    baseline_path: Path | None,
     policy_packs: list[Path],
     plugins_enabled: bool | None,
     no_heuristics: bool,
@@ -372,6 +386,11 @@ def _cache_report_path(
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
+        "baseline": (
+            _display_path(baseline_path.resolve(), git_root)
+            if baseline_path is not None
+            else None
+        ),
         "policy_packs": [
             _display_path(path.resolve(), git_root) for path in policy_packs
         ],
@@ -434,6 +453,22 @@ def _map_policy_packs(
         else:
             mapped.append(tree_dir / relative)
     return mapped
+
+
+def _map_optional_tree_path(
+    *,
+    git_root: Path,
+    tree_dir: Path,
+    path: Path | None,
+) -> Path | None:
+    if path is None:
+        return None
+    candidate = _resolve_under_workspace(git_root, path)
+    try:
+        relative = candidate.relative_to(git_root)
+    except ValueError:
+        return candidate
+    return tree_dir / relative
 
 
 def _build_verifier(

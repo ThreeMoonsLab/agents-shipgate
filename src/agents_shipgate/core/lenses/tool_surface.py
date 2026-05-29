@@ -18,6 +18,7 @@ from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 from agents_shipgate.schemas.baseline import BaselineFile
+from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     PolicyToolEntry,
@@ -64,6 +65,12 @@ class ToolSurfaceDiffReference:
     findings: list[ToolSurfaceFindingDeltaItem] | None = None
     notes: tuple[str, ...] = ()
     action_notes: tuple[str, ...] = ()
+    # M3 (v0.22): the base report's normalized effective-policy snapshot,
+    # carried so the Tier B SHIP-VERIFY-* weakening/expansion checks can
+    # compare base-vs-head policy without re-reading the file. None when
+    # the reference is a baseline (no policy snapshot) or a pre-v0.22
+    # report that predates the block.
+    effective_policy: EffectivePolicy | None = None
 
 
 def build_tool_surface_facts(
@@ -857,6 +864,9 @@ def _reference_from_report_payload(
         ],
         notes=tuple(notes),
         action_notes=tuple(action_notes),
+        # Present on v0.22+ base reports; None for older bases (the
+        # weakening checks degrade safely when it is absent).
+        effective_policy=report.effective_policy,
     )
 
 
