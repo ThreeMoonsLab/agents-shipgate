@@ -19,6 +19,7 @@ from agents_shipgate.core.domain import (
     Agent,
     Tool,
 )
+from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
@@ -61,6 +62,11 @@ class ScanContext:
     # None, verify/trust-root checks emit nothing and plain ``scan``
     # behavior is unchanged. See ``schemas/verification.py``.
     verification: VerificationContext | None = None
+    # Optional ``--diff-from`` base reference (a prior report.json /
+    # baseline). The Tier B SHIP-VERIFY-* weakening checks read its
+    # ``raw["effective_policy"]`` to compare base-vs-head policy. None for
+    # plain scans with no base — those comparison checks degrade safely.
+    diff_reference: ToolSurfaceDiffReference | None = None
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

@@ -23,6 +23,11 @@ from agents_shipgate.checks import (
     schema,
     side_effects,
     verify,
+    verify_agent_instructions,
+    verify_baseline_waiver,
+    verify_ci_gate,
+    verify_policy,
+    verify_trigger_drift,
 )
 from agents_shipgate.checks._metadata_loader import load_check_metadata
 from agents_shipgate.checks.plugin_validation import (
@@ -54,6 +59,14 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     codex_plugin.run,
     n8n.run,
     verify.run,
+    # M3 (v0.22): Tier B trust-root weakening checks. All category
+    # "verify" (suppression-immune + floor-protected) and gated on a
+    # VerificationContext — they emit nothing on a plain scan.
+    verify_policy.run,
+    verify_baseline_waiver.run,
+    verify_ci_gate.run,
+    verify_agent_instructions.run,
+    verify_trigger_drift.run,
 ]
 
 

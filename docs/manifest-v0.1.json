@@ -887,6 +887,42 @@
       "title": "GoogleAdkConfig",
       "type": "object"
     },
+    "HumanAckDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_surface": {
+          "title": "Affected Surface",
+          "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "owner": {
+          "title": "Owner",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "affected_surface",
+        "owner",
+        "reason"
+      ],
+      "title": "HumanAckDeclaration",
+      "type": "object"
+    },
     "LangChainConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1667,6 +1703,13 @@
         }
       ],
       "default": null
+    },
+    "human_ack": {
+      "items": {
+        "$ref": "#/$defs/HumanAckDeclaration"
+      },
+      "title": "Human Ack",
+      "type": "array"
     },
     "langchain": {
       "anyOf": [

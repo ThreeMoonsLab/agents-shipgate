@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from agents_shipgate.checks.baseline_integrity import build_findings as build_integrity_findings
+from agents_shipgate.checks.verify_baseline_waiver import baseline_expansion_findings
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
@@ -24,6 +25,7 @@ from agents_shipgate.core.lenses.action_surface import (
     compute_action_surface_diff,
     enrich_action_surface_diff_with_source,
 )
+from agents_shipgate.core.lenses.effective_policy import accepted_debt_fingerprints
 from agents_shipgate.core.lenses.tool_surface import (
     build_tool_surface_facts,
     compute_tool_surface_diff,
@@ -233,6 +235,13 @@ def _sanitize_for_output(
             stats=privacy_stats,
             path="baseline",
         )
+        _append_baseline_expansion_findings(
+            diffs=diffs,
+            decision=decision,
+            public_findings=public_findings,
+            privacy_stats=privacy_stats,
+            plugins_enabled=plugins_enabled,
+        )
         _append_baseline_integrity_findings(
             manifest=manifest,
             baseline_path=baseline_path,
@@ -394,6 +403,42 @@ def _public_tool_surfaces(
         public_tool_surface_diff, _tool_source_index(public_tools)
     )
     return public_tool_surface_facts, public_tool_surface_diff
+
+
+def _append_baseline_expansion_findings(
+    *,
+    diffs: _DiffReferences,
+    decision: _ChecksDecision,
+    public_findings: list,
+    privacy_stats,
+    plugins_enabled: bool | None,
+) -> None:
+    """Append verify baseline-expansion findings after baseline matching.
+
+    ``SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED`` needs the head accepted-debt
+    set, which only exists after ``apply_baseline`` has marked public findings
+    with ``baseline_status="matched"``. Keep this as a normal Finding before
+    ``build_report`` so the existing release decision engine remains the gate.
+    """
+    base_policy = (
+        getattr(diffs.diff_reference, "effective_policy", None)
+        if diffs.diff_reference is not None
+        else None
+    )
+    findings = baseline_expansion_findings(
+        decision.context,
+        base_policy,
+        head_baseline_fingerprints=accepted_debt_fingerprints(public_findings),
+    )
+    if not findings:
+        return
+
+    public_findings.extend(sanitize_findings(findings, stats=privacy_stats))
+    assign_finding_ids(public_findings)
+    annotate_remediation(
+        public_findings,
+        _check_metadata_lookup(plugins_enabled=plugins_enabled),
+    )
 
 
 def _append_baseline_integrity_findings(

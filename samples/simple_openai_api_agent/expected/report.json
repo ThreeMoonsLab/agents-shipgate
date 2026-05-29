@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.21",
+  "report_schema_version": "0.22",
   "run_id": "agents_shipgate_529a14acc6ebdc81",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
@@ -2405,8 +2405,10 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/tmp/claude-501/tmpkkxh0vit/report.json",
+    "packet_md": "/private/tmp/claude-501/tmpkkxh0vit/packet.md",
+    "packet_json": "/private/tmp/claude-501/tmpkkxh0vit/packet.json",
+    "packet_html": "/private/tmp/claude-501/tmpkkxh0vit/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2478,7 +2480,9 @@
     "redacted_paths": [],
     "output_surfaces": [
       "json",
-      "markdown"
+      "packet_html",
+      "packet_json",
+      "packet_md"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
@@ -2511,5 +2515,83 @@
       "path": "report.misalignments",
       "why": "The capability/intent diff surfaced misalignments between declared agent purpose and observed tool surface; read misalignments[] for the specifics."
     }
+  },
+  "capability_change": {
+    "enabled": false,
+    "added": [],
+    "removed": [],
+    "broadened": [],
+    "narrowed": []
+  },
+  "protected_surface_changes": [],
+  "effective_policy": {
+    "ci_mode": "advisory",
+    "fail_on": [],
+    "suppressed_check_ids": [],
+    "waiver_scopes": [],
+    "severity_overrides": {},
+    "baseline_integrity_mode": "warn",
+    "baseline_fingerprints": [],
+    "ci_gate_present": true
+  },
+  "human_ack": {
+    "required": false,
+    "satisfied": true,
+    "acks": [],
+    "outstanding": []
+  },
+  "verifier_summary": {
+    "verdict": "review_required",
+    "by_severity": {
+      "high": 15,
+      "medium": 5
+    },
+    "by_reason_code": {
+      "SHIP-API-FUNCTION-SCHEMA-STRICTNESS": 2,
+      "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH": 2,
+      "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY": 2,
+      "SHIP-API-STRUCTURED-OUTPUT-READINESS": 1,
+      "SHIP-API-TIMEOUT-MISSING": 1,
+      "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING": 1,
+      "SHIP-API-TRACE-APPROVAL-MISSING": 1,
+      "SHIP-AUTH-MISSING-SCOPE": 2,
+      "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING": 2,
+      "SHIP-SCHEMA-BROAD-FREE-TEXT": 1,
+      "SHIP-SCHEMA-MISSING-BOUNDS": 1,
+      "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": 2,
+      "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 2
+    },
+    "capability_delta_summary": {
+      "added": 0,
+      "removed": 0,
+      "broadened": 0,
+      "narrowed": 0
+    },
+    "protected_surface_touched": false,
+    "policy_weakened": false,
+    "human_ack_required": false,
+    "human_ack_satisfied": true,
+    "top_reason_codes": [
+      {
+        "reason_code": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-AUTH-MISSING-SCOPE",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
+        "count": 2
+      }
+    ]
   }
 }

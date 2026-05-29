@@ -4,6 +4,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents_shipgate.schemas.capability_change import (
+    CapabilityChangeBlock,
+    EffectivePolicy,
+    HumanAck,
+    ProtectedSurfaceChange,
+    VerifierSummary,
+)
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.common import (
     AgentAction,
@@ -629,7 +636,18 @@ class ReadinessReport(BaseModel):
     # (manifest YAML path + line) for high-risk findings whose
     # triggering evidence also lives in the manifest. Old consumers
     # ignore the new fields.
-    report_schema_version: str = "0.21"
+    # v0.22 (verifier cycle, P2/M3): additive top-level blocks for the AI
+    # coding workflow verifier — ``capability_change`` (diff-derived
+    # capability delta), ``protected_surface_changes`` (touched trust
+    # roots), ``effective_policy`` (normalized policy snapshot),
+    # ``human_ack`` (declared human-acknowledgement state), and
+    # ``verifier_summary`` (composition alias over release_decision +
+    # reviewer/agent summaries + capability delta). All are reviewer-facing
+    # projections / inputs — none introduces a new release gate
+    # (``release_decision.decision`` remains the only gate). Emitted as
+    # deterministic projections or empty/default shapes when no evidence
+    # exists; older consumers ignore them.
+    report_schema_version: str = "0.22"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -714,3 +732,37 @@ class ReadinessReport(BaseModel):
     # test helpers can construct minimal reports; build_report() always
     # populates it for emitted scans.
     reviewer_summary: ReviewerSummary | None = None
+    # v0.22 (verifier cycle, P2/M3): the diff-derived capability delta,
+    # grouped into added/removed/broadened/narrowed member lists. A
+    # reviewer-facing projection over action_surface_diff /
+    # tool_surface_diff — it never gates on its own. Always present on
+    # emitted scans (deterministic empty/disabled shape when no base diff
+    # is available). Optional at the Python level for older test helpers.
+    capability_change: CapabilityChangeBlock | None = None
+    # v0.22: touched protected paths/policies (trust roots). Tier A
+    # trust-root protection records *which* protected surface a PR
+    # touched; the ordinary SHIP-VERIFY-* findings are what gate. Always
+    # present on emitted scans (empty list when no verification context /
+    # no trust root touched). Optional in Python for older fixtures.
+    protected_surface_changes: list[ProtectedSurfaceChange] = Field(
+        default_factory=list
+    )
+    # v0.22: normalized effective-policy snapshot. A semantic (not text)
+    # view of the policy surface so the verify comparator can answer
+    # "was the gate weakened?". Always present on emitted scans
+    # (deterministic default shape). Optional in Python for older
+    # fixtures.
+    effective_policy: EffectivePolicy | None = None
+    # v0.22: declared human-acknowledgement state. Within the static
+    # boundary acknowledgement can only be declared evidence, never
+    # inferred. Default shape is not-required / satisfied with empty
+    # lists. Always present on emitted scans; Optional in Python for
+    # older fixtures.
+    human_ack: HumanAck | None = None
+    # v0.22: top-level verifier composition alias. Byte-stable projection
+    # bundling the release verdict, finding counts, capability-delta
+    # summary, and trust-root / acknowledgement flags. ``verdict`` always
+    # mirrors ``release_decision.decision`` (Principle 2 — one decision
+    # engine). Always present on emitted scans; Optional in Python for
+    # older fixtures.
+    verifier_summary: VerifierSummary | None = None
