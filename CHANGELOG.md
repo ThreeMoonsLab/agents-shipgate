@@ -16,8 +16,9 @@
     `capability_changes_modified`, and `capability_changes_removed`.
   - Existing outputs are preserved; `decision` remains the preferred release
     gating output.
-  - `verifier.json` now includes a derived `capability_review` projection.
-    It is reviewer-facing only and cannot disagree with the head scan's
+  - `verifier.json` now includes a derived `capability_review` projection
+    over `report.capability_change` and `report.verifier_summary`. It is
+    reviewer-facing only and cannot disagree with the head scan's
     `release_decision`.
 
 - **New large-scale sample + asserted latency budget.**

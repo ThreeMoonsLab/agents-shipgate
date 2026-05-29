@@ -9,7 +9,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierCapabilityReview,
 )
 
-from .capability_review import TRUST_ROOT_CHECK_ID, build_capability_review
+from .capability_review import TRUST_ROOT_CHECK_ID
 
 STICKY_MARKER = "<!-- agents-shipgate-pr-comment -->"
 _ESCAPE_RE = re.compile(r"([\\\[\]\(\)`*_{}#+\-.!|>])")
@@ -163,10 +163,7 @@ def _capability_review(
     verifier: VerifierArtifact,
     report: ReadinessReport,
 ) -> VerifierCapabilityReview:
-    review = verifier.capability_review
-    if review.top_changes or review.added or review.modified or review.removed:
-        return review
-    return build_capability_review(report)
+    return verifier.capability_review
 
 
 def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
@@ -198,15 +195,23 @@ def _trust_root_warning_lines(
     review: VerifierCapabilityReview,
     report: ReadinessReport,
 ) -> list[str]:
-    warnings = [
-        finding
-        for finding in report.findings
-        if not finding.suppressed and finding.check_id == TRUST_ROOT_CHECK_ID
-    ]
-    if not warnings and not review.policy_weakened:
+    protected_rows = list(report.protected_surface_changes)
+    fallback_warnings = []
+    if not protected_rows and review.trust_root_touched:
+        fallback_warnings = [
+            finding
+            for finding in report.findings
+            if not finding.suppressed and finding.check_id == TRUST_ROOT_CHECK_ID
+        ]
+    if not protected_rows and not fallback_warnings and not review.policy_weakened:
         return []
     lines = ["", "### Trust-root warnings"]
-    for finding in warnings[:5]:
+    for row in protected_rows[:5]:
+        lines.append(
+            "- "
+            f"{_code(row.path)} ({_escape(row.kind)}): human review is required."
+        )
+    for finding in fallback_warnings[: max(0, 5 - len(protected_rows))]:
         evidence = finding.evidence or {}
         path = evidence.get("changed_file") or finding.title
         trust_root_class = evidence.get("trust_root_class") or "trust root"
@@ -218,7 +223,7 @@ def _trust_root_warning_lines(
         lines.append(
             "- Release policy weakening was detected; a human must approve the change."
         )
-    if warnings or review.policy_weakened:
+    if protected_rows or fallback_warnings or review.policy_weakened:
         lines.append(
             "- Do not suppress findings, lower severity, or edit evidence just to make CI pass."
         )

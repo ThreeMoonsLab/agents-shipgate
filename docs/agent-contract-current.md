@@ -47,8 +47,10 @@ For verifier-cycle PR workflows it also exposes additive outputs
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
 `trust_root_touched`, `policy_weakened`, `capability_changes_added`,
 `capability_changes_modified`, and `capability_changes_removed`. These are
-review and routing aids only. Keep using `decision` as the preferred gating
-output.
+review and routing aids only. `trust_root_touched` and `policy_weakened`
+mirror `verifier_summary`; the capability counts mirror
+`capability_change` (`modified` is `broadened + narrowed`). Keep using
+`decision` as the preferred gating output.
 
 For ongoing PR workflows, prefer:
 

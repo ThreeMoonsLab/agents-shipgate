@@ -10,10 +10,18 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify.capability_review import build_capability_review
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.capability_change import (
+    CapabilityChangeBlock,
+    CapabilityChangeMember,
+    ProtectedSurfaceChange,
+    VerifierCapabilityDeltaSummary,
+    VerifierSummary,
+)
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -245,11 +253,40 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
             recommendation="Human review required.",
         ),
     ]
+    report.capability_change = CapabilityChangeBlock(
+        enabled=True,
+        added=[
+            CapabilityChangeMember(
+                id="cap-refund",
+                direction="added",
+                subject_kind="action",
+                tool="stripe.create_refund",
+                action="refund",
+                release_impact="blocks_release",
+                rationale="Action added: stripe.create_refund",
+                related_finding_ids=["F-action"],
+            )
+        ],
+    )
+    report.protected_surface_changes = [
+        ProtectedSurfaceChange(
+            path="shipgate.yaml",
+            kind="manifest",
+            related_finding_ids=["F-trust"],
+        )
+    ]
+    report.verifier_summary = VerifierSummary(
+        verdict="blocked",
+        capability_delta_summary=VerifierCapabilityDeltaSummary(added=1),
+        protected_surface_touched=True,
+        policy_weakened=False,
+    )
     verifier = VerifierArtifact(
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
         head_status="succeeded",
+        capability_review=build_capability_review(report),
         artifacts={
             "report_json": "agents-shipgate-reports/report.json",
             "packet_json": "agents-shipgate-reports/packet.json",
@@ -260,6 +297,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     comment = render_pr_comment(verifier, report=report)
 
     assert "## Agents Shipgate: blocked" in comment
+    assert "Capability changes: +1, 0 modified, -0" in comment
     assert "### Capability changes" in comment
     assert "| blocks release | action added | `stripe.create_refund` |" in comment
     assert "### Trust-root warnings" in comment
