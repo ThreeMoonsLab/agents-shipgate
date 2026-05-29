@@ -58,7 +58,7 @@ jobs:
         # The static adapter invariant lint runs in its own fail-fast
         # step above, so keep it out of the coverage pass to avoid
         # doing the same AST sweep twice on every PR.
-        run: python -m pytest -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+        run: python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
       - name: Latency budget
         # Runs the `benchmark/perf/scenarios/` synthetic scans and
