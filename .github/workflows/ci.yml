@@ -54,7 +54,11 @@ jobs:
         # Excludes the `perf` marker — the latency budget tests run as
         # a separate step below (after the main suite finishes so their
         # timing isn't disturbed by parallel test load).
-        run: python -m pytest -m "not perf" --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+        #
+        # The static adapter invariant lint runs in its own fail-fast
+        # step above, so keep it out of the coverage pass to avoid
+        # doing the same AST sweep twice on every PR.
+        run: python -m pytest -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
       - name: Latency budget
         # Runs the `benchmark/perf/scenarios/` synthetic scans and

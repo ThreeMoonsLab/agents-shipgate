@@ -56,8 +56,8 @@ def run_verify(
     strict_plugins: bool,
     suggest_patches: bool,
     no_heuristics: bool,
-    pr_comment_style: str,
     verbose: bool,
+    pr_comment_style: str = "capability-review",
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
     config_path = _resolve_under_workspace(git_root, config)
