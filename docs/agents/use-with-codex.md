@@ -63,6 +63,37 @@ Open Codex in the project and run two checks:
 
 If both pass, the repo has the Codex adoption surface installed.
 
+## Verify An Agent PR
+
+On any PR that changes agent tools, MCP exports, OpenAPI specs, prompts,
+permissions, policies, CI gates, or `shipgate.yaml`, Codex should run the
+verifier before claiming the work is done:
+
+```bash
+agents-shipgate verify --base origin/main --head HEAD --json
+```
+
+Then read `agents-shipgate-reports/verifier.json` and **lead with
+`merge_verdict`** (`mergeable` / `human_review_required` /
+`insufficient_evidence` / `blocked` / `unknown`). It is a deterministic
+projection of `release_decision.decision`, which remains the gate in
+`agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
+next to see the highest-signal tool/action access changes, and check
+`trust_root_touched`.
+
+Codex must not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user has
+explicitly accepted the human-review requirement. When `first_next_action.actor`
+is `human` — approval, confirmation, idempotency, broad-scope, prohibited-action,
+or acknowledgement decisions — Codex surfaces the item for a person rather than
+resolving it.
+
+And Codex must **never** weaken `shipgate.yaml`, the Shipgate CI workflow,
+`AGENTS.md`, policy packs, baselines, waivers, or suppressions just to make
+Shipgate pass — that edit is itself a trust-root change the gate will flag. See
+[`../use-cases/ai-generated-agent-prs.md`](../use-cases/ai-generated-agent-prs.md)
+for the full PR-verification walkthrough.
+
 ## What The Skill Covers
 
 The Codex skill is intentionally smaller than the Claude Code skill bundle.

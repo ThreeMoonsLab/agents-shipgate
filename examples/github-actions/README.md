@@ -84,9 +84,10 @@ the v1 findings-oriented comment while updating downstream automation.
 For PR review diffs, set `diff_base: target`. The action delegates to
 `agents-shipgate verify`, which never fetches. Use `fetch-depth: 0` on
 `actions/checkout` or fetch the base ref in an earlier step; otherwise verify
-records `base_status` and runs a head-only gate. `base_ref` and `head_ref` may
-be set explicitly for clearer PR wiring. When `head_ref` is set, verify scans
-an isolated archive of that ref; otherwise it scans the checked-out workspace.
+records `merge_verdict: "unknown"`, skips the head-only scan, and exits 2.
+`base_ref` and `head_ref` may be set explicitly for clearer PR wiring. When
+`head_ref` is set, verify scans an isolated archive of that ref; otherwise it
+scans the checked-out workspace.
 Existing `diff_base` / `diff_from` workflows keep working.
 
 Rollout note for the verifier-cycle minor: the Action defaults are
@@ -94,7 +95,8 @@ Rollout note for the verifier-cycle minor: the Action defaults are
 are additive and old outputs remain stable; keep using `decision` as the
 preferred gating output. The additive verifier outputs are:
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
-`trust_root_touched`, `policy_weakened`, `capability_changes_added`,
+`merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
+`policy_weakened`, `capability_changes_added`,
 `capability_changes_modified`, and `capability_changes_removed`.
 The verifier flags mirror `verifier_summary`; the capability counts mirror
 `capability_change` (`modified` is `broadened + narrowed`).

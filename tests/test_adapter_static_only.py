@@ -237,7 +237,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=367,
+        line=480,
         snippet="subprocess.run(names_cmd, **run_kwargs)",
         rationale=(
             "git-diff change-name pass: ``git diff --name-only "
@@ -249,7 +249,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=368,
+        line=481,
         snippet="subprocess.run(body_cmd, **run_kwargs)",
         rationale=(
             "git-diff body pass: ``git diff base...HEAD`` for full "
@@ -260,7 +260,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=373,
+        line=486,
         snippet=(
             "subprocess.run(['git', 'ls-files', '--others', "
             "'--exclude-standard'], **run_kwargs)"
@@ -1249,7 +1249,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
 
     Confirms that ``triggers.py`` has THREE distinct
     ``subprocess.run`` AllowedException entries (one per call site at
-    lines 367, 368, 373), not one blanket entry that permits all
+    lines 480, 481, 486), not one blanket entry that permits all
     occurrences. Same for ``cli/discovery/artifacts.py`` (two call
     sites at 361 and 377). Adding a fourth ``subprocess.run`` to
     ``triggers.py`` must require adding a new ALLOWED_EXCEPTIONS entry.
@@ -1269,7 +1269,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     assert len(triggers_subprocess_run) == 3, (
         f"Expected 3 distinct AllowedException entries for "
         f"triggers.py subprocess.run calls (one per call site at "
-        f"lines 367, 368, 373), got {len(triggers_subprocess_run)}. "
+        f"lines 480, 481, 486), got {len(triggers_subprocess_run)}. "
         f"Per-call-site pinning is the structural fix for the "
         f"P1 review finding — each subprocess.run call must have "
         f"its own entry with line + snippet pinning."

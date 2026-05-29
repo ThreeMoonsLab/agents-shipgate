@@ -81,6 +81,15 @@ def trigger(
             "auto-detected under --workspace."
         ),
     ),
+    detect_json: Path | None = typer.Option(
+        None,
+        "--detect-json",
+        help=(
+            "Path to a saved `agents-shipgate detect --json` result. "
+            "Supplies the detect_result the stop_conditions block needs; "
+            "without it stop_conditions_evaluated is reported false."
+        ),
+    ),
     user_requested: bool = typer.Option(
         False,
         "--user-requested",
@@ -144,10 +153,23 @@ def trigger(
     else:
         manifest_present_resolved = manifest_present
 
+    detect_result: dict | None = None
+    if detect_json is not None:
+        try:
+            detect_result = json.loads(detect_json.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            typer.echo(
+                f"--detect-json could not be read: {exc}. Check the path "
+                "and that it holds `agents-shipgate detect --json` output.",
+                err=True,
+            )
+            raise typer.Exit(2) from exc
+
     result = evaluate(
         paths=paths,
         diff_text=diff_text,
         manifest_present=manifest_present_resolved,
+        detect_result=detect_result,
         user_requested=user_requested,
         triggers=triggers,
     )
@@ -168,6 +190,9 @@ def trigger(
             typer.echo(f"  - {match['id']} [{match['action']}]{command}")
     if result["diff_tokens"]:
         typer.echo(f"Diff tokens: {', '.join(result['diff_tokens'])}")
+    next_action = result["next_action"]
+    if next_action.get("command"):
+        typer.echo(f"Next: {next_action['command']}")
     if result["stop_conditions_fired"]:
         typer.echo("Stop conditions fired (overriding any matched rules).")
 

@@ -134,6 +134,70 @@
       },
       "title": "VerifierCapabilityReview",
       "type": "object"
+    },
+    "VerifierHumanReview": {
+      "additionalProperties": false,
+      "description": "Whether a human must review before merge, and why.",
+      "properties": {
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "title": "VerifierHumanReview",
+      "type": "object"
+    },
+    "VerifierNextAction": {
+      "additionalProperties": false,
+      "description": "Single recommended next step after verify.",
+      "properties": {
+        "actor": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "title": "VerifierNextAction",
+      "type": "object"
     }
   },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.1.json",
@@ -220,6 +284,11 @@
       "default": null,
       "title": "Base Tree Sha"
     },
+    "can_merge_without_human": {
+      "default": false,
+      "title": "Can Merge Without Human",
+      "type": "boolean"
+    },
     "capability_review": {
       "$ref": "#/$defs/VerifierCapabilityReview"
     },
@@ -234,10 +303,33 @@
       "title": "Config",
       "type": "string"
     },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision"
+    },
     "diff_text_available": {
       "default": false,
       "title": "Diff Text Available",
       "type": "boolean"
+    },
+    "first_next_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierNextAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "head_exit_code": {
       "default": 0,
@@ -269,6 +361,46 @@
         "failed"
       ],
       "title": "Head Status",
+      "type": "string"
+    },
+    "headline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Headline"
+    },
+    "human_review": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierHumanReview"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "merge_verdict": {
+      "default": "unknown",
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown"
+      ],
+      "title": "Merge Verdict",
+      "type": "string"
+    },
+    "mode": {
+      "default": "advisory",
+      "title": "Mode",
       "type": "string"
     },
     "release_decision": {

@@ -80,6 +80,44 @@ def test_verify_trigger_skip_writes_lightweight_artifacts(tmp_path: Path) -> Non
     assert payload["base_status"] == "skipped"
 
 
+def test_verify_missing_base_without_manifest_is_unknown_not_mergeable(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "base")
+    (repo / "tools.json").write_text(
+        '{"tools":[{"name":"delete_files","description":"Delete files."}]}\n',
+        encoding="utf-8",
+    )
+    _commit_all(repo, "head")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["base_status"] == "ref_missing"
+    assert payload["head_status"] == "failed"
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+    assert not (repo / "agents-shipgate-reports" / "report.json").exists()
+
+
 def test_verify_non_git_workspace_exits_config_error(tmp_path: Path) -> None:
     workspace = tmp_path / "not-git"
     workspace.mkdir()
@@ -307,7 +345,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "[packet.json](agents-shipgate-reports/packet.json)" in comment
 
 
-def test_verify_missing_base_ref_degrades_to_head_only(
+def test_verify_missing_base_ref_is_unknown_not_head_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo = _repo_with_manifest(tmp_path)
@@ -329,12 +367,14 @@ def test_verify_missing_base_ref_degrades_to_head_only(
         ],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
     assert payload["base_status"] == "ref_missing"
-    assert payload["release_decision"]["decision"] == "passed"
-    assert len(calls) == 1
-    assert calls[0]["diff_from_path"] is None
+    assert payload["head_status"] == "failed"
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+    assert payload["release_decision"] is None
+    assert calls == []
 
 
 def test_verify_base_missing_manifest_disables_diff_only(
@@ -598,6 +638,98 @@ def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
     assert not old.exists()
     assert new.exists()
     assert newest.exists()
+
+
+def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> None:
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--format", "json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert payload["merge_verdict"] == "unknown"
+    assert "init" in payload["first_next_action"]["command"]
+    assert (workspace / "agents-shipgate-reports" / "verifier.json").is_file()
+    assert not (workspace / "shipgate.yaml").exists()
+
+
+def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert payload["trigger"]["should_run"] is False
+    assert payload["first_next_action"]["kind"] == "none"
+    assert payload["first_next_action"]["command"] is None
+
+
+def test_verify_preview_missing_base_reports_uncertainty(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert payload["first_next_action"]["kind"] == "fetch_base"
+    assert "could not inspect" in payload["first_next_action"]["why"]
+    assert payload["base_notes"]
+
+
+def test_verify_json_flag_is_shortcut_for_format_json(tmp_path: Path) -> None:
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
 
 
 def _patch_run_scan(

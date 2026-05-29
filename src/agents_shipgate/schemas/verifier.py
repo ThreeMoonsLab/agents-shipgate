@@ -16,6 +16,13 @@ VerifierBaseStatus = Literal[
     "succeeded",
 ]
 VerifierHeadStatus = Literal["skipped", "succeeded", "failed"]
+MergeVerdict = Literal[
+    "mergeable",
+    "human_review_required",
+    "insufficient_evidence",
+    "blocked",
+    "unknown",
+]
 CapabilityChangeBucket = Literal["added", "modified", "removed"]
 CapabilityReleaseImpact = Literal[
     "blocks_release",
@@ -24,6 +31,40 @@ CapabilityReleaseImpact = Literal[
     "informational",
     "none",
 ]
+
+_DECISION_TO_VERDICT: dict[str, MergeVerdict] = {
+    "passed": "mergeable",
+    "review_required": "human_review_required",
+    "insufficient_evidence": "insufficient_evidence",
+    "blocked": "blocked",
+}
+
+
+def map_merge_verdict(decision: str | None) -> MergeVerdict:
+    """Project ``release_decision.decision`` onto a merge verdict."""
+    if decision is None:
+        return "unknown"
+    return _DECISION_TO_VERDICT.get(decision, "human_review_required")
+
+
+class VerifierNextAction(BaseModel):
+    """Single recommended next step after verify."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor: Literal["coding_agent", "human"] = "human"
+    kind: str = "review"
+    command: str | None = None
+    why: str = ""
+
+
+class VerifierHumanReview(BaseModel):
+    """Whether a human must review before merge, and why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: bool = False
+    why: str | None = None
 
 
 class VerifierCapabilityChange(BaseModel):
@@ -91,15 +132,26 @@ class VerifierArtifact(BaseModel):
     capability_review: VerifierCapabilityReview = Field(
         default_factory=VerifierCapabilityReview
     )
+    mode: str = "advisory"
+    decision: str | None = None
+    merge_verdict: MergeVerdict = "unknown"
+    can_merge_without_human: bool = False
+    headline: str | None = None
+    human_review: VerifierHumanReview | None = None
+    first_next_action: VerifierNextAction | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [
     "CapabilityChangeBucket",
     "CapabilityReleaseImpact",
+    "MergeVerdict",
     "VerifierArtifact",
     "VerifierBaseStatus",
     "VerifierCapabilityChange",
     "VerifierCapabilityReview",
     "VerifierHeadStatus",
+    "VerifierHumanReview",
+    "VerifierNextAction",
+    "map_merge_verdict",
 ]

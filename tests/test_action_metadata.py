@@ -43,6 +43,8 @@ def test_action_has_marketplace_metadata_and_outputs():
         "trigger_action",
         "trigger_rule_ids",
         "verifier_verdict",
+        "merge_verdict",
+        "can_merge_without_human",
         "trust_root_touched",
         "policy_weakened",
         "capability_changes_added",
@@ -55,6 +57,32 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert data["inputs"]["verify_mode"]["default"] == "verify"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
+
+
+def test_action_exposes_verifier_merge_outputs():
+    """v0.22: the merge-decision projection is surfaced as Action outputs,
+    sourced from verifier.json in the report_outputs step."""
+    text = Path("action.yml").read_text(encoding="utf-8")
+    script = Path("scripts/github_action_outputs.py").read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+
+    assert {
+        "should_run",
+        "trigger_rule_ids",
+        "merge_verdict",
+        "can_merge_without_human",
+        "trust_root_touched",
+        "policy_weakened",
+        "capability_changes_added",
+        "capability_changes_modified",
+        "capability_changes_removed",
+    } <= set(data["outputs"])
+    # The new outputs read verifier.json (not just report.json).
+    assert "verifier_payload = _load_json(verifier_json)" in script
+    assert '"merge_verdict": merge_verdict' in script
+    assert '"can_merge_without_human"' in script
+    # Existing gating output stays stable (not renamed to merge_verdict).
+    assert "decision" in data["outputs"]
 
 
 def test_action_preserves_reports_before_applying_exit_code():

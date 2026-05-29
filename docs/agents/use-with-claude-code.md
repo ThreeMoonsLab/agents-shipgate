@@ -67,6 +67,36 @@ Open Claude Code in the project. Two checks:
 
 If `/shipgate` runs the bootstrap end-to-end, you are done. The first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and produces `agents-shipgate-reports/report.json`.
 
+## Verify an agent PR
+
+The bootstrap flow above wires Shipgate into a repo. The ongoing-PR command is
+`verify`. On any PR that changes agent tools, MCP exports, OpenAPI specs,
+prompts, permissions, policies, CI gates, or `shipgate.yaml`, Claude Code should
+run it before reporting the change as complete:
+
+```bash
+agents-shipgate verify --base origin/main --head HEAD --json
+```
+
+Then read `agents-shipgate-reports/verifier.json` and **lead with
+`merge_verdict`** (`mergeable` / `human_review_required` /
+`insufficient_evidence` / `blocked` / `unknown`) — a deterministic projection of
+`release_decision.decision`, which stays the gate in
+`agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
+next for the highest-signal tool/action access changes, and check
+`trust_root_touched`.
+
+Do **not** claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user has
+explicitly accepted the human-review requirement. When `first_next_action.actor`
+is `human`, surface the item for a person — approval, confirmation, idempotency,
+broad-scope, and prohibited-action evidence cannot be synthesized.
+
+Never weaken `shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`, policy
+packs, baselines, waivers, or suppressions merely to make Shipgate pass; that
+edit is itself a trust-root change the gate flags. The full walkthrough is in
+[`../use-cases/ai-generated-agent-prs.md`](../use-cases/ai-generated-agent-prs.md).
+
 ## What the skill knows about
 
 The `agents-shipgate` skill routes to bundled recipes (relative paths inside the skill directory):

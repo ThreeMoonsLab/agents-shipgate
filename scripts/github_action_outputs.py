@@ -72,6 +72,9 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         verifier_payload,
     )
     verifier_verdict = _verifier_verdict(release_decision, verifier_summary, verifier_payload)
+    merge_verdict = verifier_payload.get("merge_verdict") or _merge_verdict(
+        verifier_verdict
+    )
 
     return {
         "status": summary.get("status", ""),
@@ -107,6 +110,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
             if isinstance(rule, dict) and rule.get("id")
         ),
         "verifier_verdict": verifier_verdict,
+        "merge_verdict": merge_verdict,
+        "can_merge_without_human": str(
+            bool(verifier_payload.get("can_merge_without_human"))
+        ).lower(),
         "trust_root_touched": str(trust_root_touched).lower(),
         "policy_weakened": str(policy_weakened).lower(),
         "capability_changes_added": capability_added,
@@ -306,6 +313,20 @@ def _verifier_verdict(
         return "skipped"
     if head_status == "failed":
         return "failed"
+    return ""
+
+
+def _merge_verdict(verdict: object) -> str:
+    if verdict == "passed":
+        return "mergeable"
+    if verdict == "review_required":
+        return "human_review_required"
+    if verdict in {"blocked", "insufficient_evidence"}:
+        return str(verdict)
+    if verdict in {"skipped", "mergeable"}:
+        return "mergeable"
+    if verdict:
+        return "unknown"
     return ""
 
 
