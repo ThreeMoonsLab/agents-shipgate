@@ -38,6 +38,10 @@ inputs:
     required: false
     default: ""
     description: Set to target to use the locally available pull request base branch for diff.
+  verify_mode:
+    required: false
+    default: verify
+    description: "Verifier mode for the Action. Supported values: verify (default) or scan for legacy direct-scan execution."
   base_ref:
     required: false
     default: ""
@@ -70,6 +74,10 @@ inputs:
     required: false
     default: "false"
     description: Post a short PR comment when running on pull_request.
+  pr_comment_style:
+    required: false
+    default: capability-review
+    description: "PR comment renderer. Supported values: capability-review (default) or findings for the legacy v1 findings comment."
   github_token:
     required: false
     default: ""
@@ -154,6 +162,33 @@ outputs:
   actions_removed:
     description: Number of actions removed by Action Surface Diff.
     value: ${{ steps.report_outputs.outputs.actions_removed }}
+  should_run:
+    description: Trigger evaluator should_run value from verifier.json (`true`/`false`).
+    value: ${{ steps.report_outputs.outputs.should_run }}
+  trigger_action:
+    description: Final trigger action (`force_run`, `run_shipgate`, `skip_shipgate`, `dry_run`, or `none`).
+    value: ${{ steps.report_outputs.outputs.trigger_action }}
+  trigger_rule_ids:
+    description: Comma-separated trigger rule IDs that matched.
+    value: ${{ steps.report_outputs.outputs.trigger_rule_ids }}
+  verifier_verdict:
+    description: Verifier convenience verdict. Prefer `decision` for gating.
+    value: ${{ steps.report_outputs.outputs.verifier_verdict }}
+  trust_root_touched:
+    description: Whether an active verify finding touched a release trust root (`true`/`false`).
+    value: ${{ steps.report_outputs.outputs.trust_root_touched }}
+  policy_weakened:
+    description: Whether an active verifier policy-weakening finding was detected (`true`/`false`).
+    value: ${{ steps.report_outputs.outputs.policy_weakened }}
+  capability_changes_added:
+    description: Number of added capability-review changes.
+    value: ${{ steps.report_outputs.outputs.capability_changes_added }}
+  capability_changes_modified:
+    description: Number of modified capability-review changes.
+    value: ${{ steps.report_outputs.outputs.capability_changes_modified }}
+  capability_changes_removed:
+    description: Number of removed capability-review changes.
+    value: ${{ steps.report_outputs.outputs.capability_changes_removed }}
 
 runs:
   using: composite
@@ -185,6 +220,7 @@ runs:
         BASELINE_MODE: ${{ inputs.baseline_mode }}
         DIFF_FROM: ${{ inputs.diff_from }}
         DIFF_BASE: ${{ inputs.diff_base }}
+        VERIFY_MODE: ${{ inputs.verify_mode }}
         INPUT_BASE_REF: ${{ inputs.base_ref }}
         INPUT_HEAD_REF: ${{ inputs.head_ref }}
         BASE_REF: ${{ github.base_ref }}
@@ -192,15 +228,32 @@ runs:
         POLICY_PACKS: ${{ inputs.policy_packs }}
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
+        PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}
       run: |
-        args=(
-          verify
-          --workspace "."
-          --config "${CONFIG}"
-          --ci-mode "${CI_MODE}"
-          --out "${OUTPUT_DIR}"
-          --format json
-        )
+        if [ "${VERIFY_MODE}" = "verify" ]; then
+          args=(
+            verify
+            --workspace "."
+            --config "${CONFIG}"
+            --ci-mode "${CI_MODE}"
+            --out "${OUTPUT_DIR}"
+            --format json
+            --pr-comment-style "${PR_COMMENT_STYLE}"
+          )
+        elif [ "${VERIFY_MODE}" = "scan" ]; then
+          args=(
+            scan
+            --config "${CONFIG}"
+            --ci-mode "${CI_MODE}"
+            --out "${OUTPUT_DIR}"
+            --format markdown,json,sarif
+            --packet-format json
+          )
+        else
+          echo "verify_mode must be 'verify' or 'scan'." >&2
+          echo "exit_code=2" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
         if [ -n "${FAIL_ON}" ]; then
           args+=(--fail-on "${FAIL_ON}")
         fi
@@ -210,15 +263,17 @@ runs:
         if [ -n "${DIFF_FROM}" ]; then
           args+=(--diff-from "${DIFF_FROM}")
         fi
-        resolved_base_ref="${INPUT_BASE_REF}"
-        if [ -z "${resolved_base_ref}" ] && [ "${DIFF_BASE}" = "target" ] && [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
-          resolved_base_ref="origin/${BASE_REF}"
-        fi
-        if [ -n "${resolved_base_ref}" ]; then
-          args+=(--base "${resolved_base_ref}")
-        fi
-        if [ -n "${INPUT_HEAD_REF}" ]; then
-          args+=(--head "${INPUT_HEAD_REF}")
+        if [ "${VERIFY_MODE}" = "verify" ]; then
+          resolved_base_ref="${INPUT_BASE_REF}"
+          if [ -z "${resolved_base_ref}" ] && [ "${DIFF_BASE}" = "target" ] && [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${BASE_REF}" ]; then
+            resolved_base_ref="origin/${BASE_REF}"
+          fi
+          if [ -n "${resolved_base_ref}" ]; then
+            args+=(--base "${resolved_base_ref}")
+          fi
+          if [ -n "${INPUT_HEAD_REF}" ]; then
+            args+=(--head "${INPUT_HEAD_REF}")
+          fi
         fi
         if [ -n "${POLICY_PACKS}" ]; then
           while IFS= read -r policy_pack; do
@@ -253,6 +308,8 @@ runs:
         report_sarif = output_dir / "report.sarif"
         verifier_json = output_dir / "verifier.json"
         pr_comment_markdown = output_dir / "pr-comment.md"
+        payload = {}
+        verifier_payload = {}
         summary = {}
         baseline = {}
         adk_surface = {}
@@ -274,6 +331,9 @@ runs:
                 diff_summary = tool_surface_diff.get("summary") or {}
                 action_surface_diff = payload.get("action_surface_diff") or {}
                 action_diff_summary = action_surface_diff.get("summary") or {}
+        if verifier_json.exists():
+            with verifier_json.open(encoding="utf-8") as handle:
+                verifier_payload = json.load(handle)
 
         def clean(value: object) -> str:
             # `value or ""` would emit 0 as "", which breaks workflow
@@ -281,6 +341,69 @@ runs:
             # as empty; stringify everything else (including 0 and False).
             text = "" if value is None else str(value)
             return text.replace("\r", "").replace("\n", "")
+
+        def bool_clean(value: object) -> str:
+            if isinstance(value, bool):
+                return str(value).lower()
+            return clean(value)
+
+        def trigger_action(trigger: dict) -> str:
+            if trigger.get("stop_conditions_fired"):
+                return "skip_shipgate"
+            if trigger.get("force_run"):
+                return "force_run"
+            if trigger.get("should_run") or trigger.get("run_shipgate"):
+                return "run_shipgate"
+            if trigger.get("dry_run_recommended"):
+                return "dry_run"
+            if trigger.get("skip_reason") in {"skip_rule", "stop_conditions"}:
+                return "skip_shipgate"
+            if trigger:
+                return "none"
+            return ""
+
+        active_findings = [
+            finding
+            for finding in (payload.get("findings") or [])
+            if not finding.get("suppressed")
+        ]
+        policy_weakening_ids = {
+            "SHIP-VERIFY-POLICY-WEAKENED",
+            "SHIP-VERIFY-CI-GATE-REMOVED",
+            "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED",
+            "SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED",
+            "SHIP-VERIFY-TRIGGER-CATALOG-DRIFT",
+        }
+        trigger = verifier_payload.get("trigger") or {}
+        matched_rules = trigger.get("matched_rules") or []
+        capability_review = verifier_payload.get("capability_review") or {}
+        fallback_capability_added = (
+            int(action_diff_summary.get("actions_added") or 0)
+            + int(diff_summary.get("tools_added") or 0)
+            + int(diff_summary.get("new_scopes") or 0)
+            + int(diff_summary.get("controls_added") or 0)
+        )
+        fallback_capability_modified = (
+            int(action_diff_summary.get("actions_modified") or 0)
+            + int(diff_summary.get("tools_changed") or 0)
+            + int(diff_summary.get("metadata_changes") or 0)
+            + int(diff_summary.get("policy_drift_items") or 0)
+        )
+        fallback_capability_removed = (
+            int(action_diff_summary.get("actions_removed") or 0)
+            + int(diff_summary.get("tools_removed") or 0)
+            + int(diff_summary.get("removed_scopes") or 0)
+            + int(diff_summary.get("controls_removed") or 0)
+        )
+        verifier_verdict = release_decision.get("decision")
+        if not verifier_verdict:
+            head_status = verifier_payload.get("head_status")
+            if head_status == "skipped":
+                verifier_verdict = "skipped"
+            elif head_status == "failed":
+                verifier_verdict = "failed"
+            else:
+                verifier_verdict = ""
 
         values = {
             "status": summary.get("status", ""),
@@ -308,6 +431,41 @@ runs:
             "actions_added": action_diff_summary.get("actions_added", 0),
             "actions_modified": action_diff_summary.get("actions_modified", 0),
             "actions_removed": action_diff_summary.get("actions_removed", 0),
+            "should_run": bool_clean(trigger.get("should_run", trigger.get("run_shipgate", ""))),
+            "trigger_action": trigger_action(trigger),
+            "trigger_rule_ids": ",".join(
+                clean(rule.get("id"))
+                for rule in matched_rules
+                if isinstance(rule, dict) and rule.get("id")
+            ),
+            "verifier_verdict": verifier_verdict,
+            "trust_root_touched": str(
+                bool(
+                    capability_review.get("trust_root_touched")
+                    or any(
+                        finding.get("check_id") == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+                        for finding in active_findings
+                    )
+                )
+            ).lower(),
+            "policy_weakened": str(
+                bool(
+                    capability_review.get("policy_weakened")
+                    or any(
+                        finding.get("check_id") in policy_weakening_ids
+                        for finding in active_findings
+                    )
+                )
+            ).lower(),
+            "capability_changes_added": capability_review.get(
+                "added", fallback_capability_added
+            ),
+            "capability_changes_modified": capability_review.get(
+                "modified", fallback_capability_modified
+            ),
+            "capability_changes_removed": capability_review.get(
+                "removed", fallback_capability_removed
+            ),
         }
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for key, value in values.items():

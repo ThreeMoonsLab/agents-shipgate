@@ -18,10 +18,16 @@ from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
     FailPolicy,
+    Finding,
     ReadinessReport,
     ReleaseDecision,
     ReportSummary,
     ToolSurfaceSummary,
+)
+from agents_shipgate.schemas.surfaces import (
+    ActionSurfaceChange,
+    ActionSurfaceDiff,
+    ActionSurfaceDiffSummary,
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
@@ -189,13 +195,78 @@ def test_pr_comment_keeps_code_span_values_unescaped() -> None:
         },
     )
 
-    comment = render_pr_comment(verifier, report=None)
+    comment = render_pr_comment(verifier, report=None, style="findings")
 
     assert "`cache_hit`" in comment
     assert "cache\\_hit" not in comment
     assert "`agents-shipgate-reports/report.md`" in comment
     assert "agents\\-shipgate\\-reports" not in comment
     assert "workflow artifact" in comment
+
+
+def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() -> None:
+    report = _report(decision="blocked", exit_code=20)
+    report.action_surface_diff = ActionSurfaceDiff(
+        enabled=True,
+        summary=ActionSurfaceDiffSummary(actions_added=1, blocking_findings=1),
+        added=[
+            ActionSurfaceChange(
+                type="ACTION_ADDED",
+                action_id="refund",
+                tool_name="stripe.create_refund",
+                operation="create_refund",
+                severity="critical",
+                reason="Action added: stripe.create_refund",
+            )
+        ],
+    )
+    report.findings = [
+        Finding(
+            id="F-action",
+            check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+            title="refund action lacks controls",
+            severity="critical",
+            category="action_surface",
+            tool_name="stripe.create_refund",
+            evidence={"action_id": "refund"},
+            recommendation="Declare approval and idempotency.",
+            blocks_release=True,
+        ),
+        Finding(
+            id="F-trust",
+            check_id="SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+            title="Release trust root touched: shipgate.yaml",
+            severity="medium",
+            category="verify",
+            evidence={
+                "changed_file": "shipgate.yaml",
+                "trust_root_class": "manifest",
+            },
+            recommendation="Human review required.",
+        ),
+    ]
+    verifier = VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        head_status="succeeded",
+        artifacts={
+            "report_json": "agents-shipgate-reports/report.json",
+            "packet_json": "agents-shipgate-reports/packet.json",
+            "verifier_json": "agents-shipgate-reports/verifier.json",
+        },
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "## Agents Shipgate: blocked" in comment
+    assert "### Capability changes" in comment
+    assert "| blocks release | action added | `stripe.create_refund` |" in comment
+    assert "### Trust-root warnings" in comment
+    assert "`shipgate.yaml` (manifest): human review is required." in comment
+    assert "Do not suppress findings, lower severity, or edit evidence" in comment
+    assert "### Artifacts" in comment
+    assert "[packet.json](agents-shipgate-reports/packet.json)" in comment
 
 
 def test_verify_missing_base_ref_degrades_to_head_only(

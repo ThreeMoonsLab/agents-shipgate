@@ -3,13 +3,91 @@ from __future__ import annotations
 import re
 
 from agents_shipgate.schemas.report import Finding, ReadinessReport
-from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierCapabilityChange,
+    VerifierCapabilityReview,
+)
+
+from .capability_review import TRUST_ROOT_CHECK_ID, build_capability_review
 
 STICKY_MARKER = "<!-- agents-shipgate-pr-comment -->"
 _ESCAPE_RE = re.compile(r"([\\\[\]\(\)`*_{}#+\-.!|>])")
+_IMPACT_LABELS = {
+    "blocks_release": "blocks release",
+    "insufficient_evidence": "insufficient evidence",
+    "review_required": "review required",
+    "informational": "informational",
+    "none": "none",
+}
 
 
 def render_pr_comment(
+    verifier: VerifierArtifact,
+    *,
+    report: ReadinessReport | None,
+    style: str = "capability-review",
+) -> str:
+    if style == "findings":
+        return _render_findings_comment(verifier, report=report)
+    return _render_capability_review_comment(verifier, report=report)
+
+
+def _render_capability_review_comment(
+    verifier: VerifierArtifact,
+    *,
+    report: ReadinessReport | None,
+) -> str:
+    visible_verdict = _visible_verdict(verifier, report)
+    lines = [STICKY_MARKER, f"## Agents Shipgate: {visible_verdict}", ""]
+    lines.append(
+        f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}"
+    )
+    if verifier.base_status != "not_requested":
+        base = verifier.base_ref or "(none)"
+        lines.append(f"Base diff: `{base}` -> `{verifier.base_status}`")
+        for note in verifier.base_notes[:2]:
+            lines.append(f"- {_escape(note)}")
+
+    if report is None or report.release_decision is None:
+        lines.append("")
+        if verifier.head_status == "skipped":
+            lines.append("No Shipgate scan was required for this diff.")
+        else:
+            lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
+        lines.extend(_artifact_lines(verifier))
+        return _truncate("\n".join(lines), 6000)
+
+    decision = report.release_decision
+    review = _capability_review(verifier, report)
+    lines.extend(
+        [
+            "",
+            f"Decision: `{decision.decision}`",
+            f"Reason: {_escape(decision.reason)}",
+            (
+                "Capability changes: "
+                f"+{review.added}, {review.modified} modified, "
+                f"-{review.removed}"
+            ),
+            (
+                "Fail policy: "
+                f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
+                f"(exit {decision.fail_policy.exit_code})"
+            ),
+        ]
+    )
+    if report.agent_summary and report.agent_summary.headline:
+        lines.append(f"Summary: {_escape(report.agent_summary.headline)}")
+
+    lines.extend(_capability_change_table(review))
+    lines.extend(_trust_root_warning_lines(review, report))
+    lines.extend(_required_before_merge_lines(report, review))
+    lines.extend(_artifact_lines(verifier))
+    return _truncate("\n".join(lines), 6000)
+
+
+def _render_findings_comment(
     verifier: VerifierArtifact,
     *,
     report: ReadinessReport | None,
@@ -29,7 +107,7 @@ def render_pr_comment(
         else:
             lines.append("")
             lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
-        lines.extend(_artifact_lines(verifier))
+        lines.extend(_artifact_lines(verifier, links=False))
         return _truncate("\n".join(lines), 6000)
 
     decision = report.release_decision
@@ -66,8 +144,118 @@ def render_pr_comment(
             lines.append(f"{index}. {_escape(finding.title or finding.check_id)}")
     else:
         lines.append("No critical or high findings.")
-    lines.extend(_artifact_lines(verifier))
+    lines.extend(_artifact_lines(verifier, links=False))
     return _truncate("\n".join(lines), 6000)
+
+
+def _visible_verdict(
+    verifier: VerifierArtifact,
+    report: ReadinessReport | None,
+) -> str:
+    if report is not None and report.release_decision is not None:
+        return report.release_decision.decision
+    if verifier.head_status == "skipped":
+        return "skipped"
+    return "failed"
+
+
+def _capability_review(
+    verifier: VerifierArtifact,
+    report: ReadinessReport,
+) -> VerifierCapabilityReview:
+    review = verifier.capability_review
+    if review.top_changes or review.added or review.modified or review.removed:
+        return review
+    return build_capability_review(report)
+
+
+def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
+    lines = ["", "### Capability changes"]
+    if not review.top_changes:
+        lines.append("No capability changes were detected by the enabled diff surfaces.")
+        for note in review.notes[:2]:
+            lines.append(f"- {_escape(note)}")
+        return lines
+
+    lines.extend(
+        [
+            "| Impact | Change | Subject | Why |",
+            "|---|---|---|---|",
+        ]
+    )
+    for change in review.top_changes[:5]:
+        lines.append(
+            "| "
+            f"{_table_cell(_impact(change))} | "
+            f"{_table_cell(_humanize_change(change.change_type))} | "
+            f"{_table_cell(_code(change.subject))} | "
+            f"{_table_cell(change.rationale)} |"
+        )
+    return lines
+
+
+def _trust_root_warning_lines(
+    review: VerifierCapabilityReview,
+    report: ReadinessReport,
+) -> list[str]:
+    warnings = [
+        finding
+        for finding in report.findings
+        if not finding.suppressed and finding.check_id == TRUST_ROOT_CHECK_ID
+    ]
+    if not warnings and not review.policy_weakened:
+        return []
+    lines = ["", "### Trust-root warnings"]
+    for finding in warnings[:5]:
+        evidence = finding.evidence or {}
+        path = evidence.get("changed_file") or finding.title
+        trust_root_class = evidence.get("trust_root_class") or "trust root"
+        lines.append(
+            "- "
+            f"{_code(path)} ({_escape(trust_root_class)}): human review is required."
+        )
+    if review.policy_weakened:
+        lines.append(
+            "- Release policy weakening was detected; a human must approve the change."
+        )
+    if warnings or review.policy_weakened:
+        lines.append(
+            "- Do not suppress findings, lower severity, or edit evidence just to make CI pass."
+        )
+    return lines
+
+
+def _required_before_merge_lines(
+    report: ReadinessReport,
+    review: VerifierCapabilityReview,
+) -> list[str]:
+    lines = ["", "### Required before merge"]
+    items: list[str] = []
+    if review.trust_root_touched or review.policy_weakened:
+        items.append("Human: review the release-gate or policy change before merge.")
+    if report.agent_summary and report.agent_summary.first_recommended_action:
+        action = report.agent_summary.first_recommended_action
+        detail = action.why
+        if action.command:
+            detail = f"{detail} Command: `{action.command}`"
+        actor = "Coding agent" if action.kind == "command" else "Human"
+        items.append(f"{actor}: {detail}")
+    if not items:
+        if report.release_decision.decision == "passed":
+            items.append("No Shipgate release action is required.")
+        else:
+            items.append(report.release_decision.reason)
+    for index, item in enumerate(items[:5], start=1):
+        lines.append(f"{index}. {_escape(item)}")
+    return lines
+
+
+def _impact(change: VerifierCapabilityChange) -> str:
+    return _IMPACT_LABELS.get(change.impact, change.impact)
+
+
+def _humanize_change(value: str) -> str:
+    return value.replace("_", " ")
 
 
 def _diff_lines(report: ReadinessReport) -> list[str]:
@@ -112,23 +300,59 @@ def _top_findings(findings: list[Finding]) -> list[Finding]:
     return sorted(active, key=lambda item: (severities[item.severity], item.check_id))[:3]
 
 
-def _artifact_lines(verifier: VerifierArtifact) -> list[str]:
+def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[str]:
     artifacts = verifier.artifacts
     if not artifacts:
         return []
-    lines = [
-        "",
-        "Artifacts:",
-        "Available in the `agents-shipgate-reports` workflow artifact.",
-    ]
-    for key in ("report_markdown", "report_json", "report_sarif", "packet_json", "verifier_json"):
+    if not links:
+        lines = [
+            "",
+            "Artifacts:",
+            "Available in the `agents-shipgate-reports` workflow artifact.",
+        ]
+        for key in (
+            "report_markdown",
+            "report_json",
+            "report_sarif",
+            "packet_json",
+            "verifier_json",
+        ):
+            if key in artifacts:
+                lines.append(f"- `{artifacts[key]}`")
+        return lines
+
+    lines = ["", "### Artifacts"]
+    lines.append("Available in the `agents-shipgate-reports` workflow artifact.")
+    for key in (
+        "report_markdown",
+        "report_json",
+        "report_sarif",
+        "packet_json",
+        "verifier_json",
+        "pr_comment",
+    ):
         if key in artifacts:
-            lines.append(f"- `{artifacts[key]}`")
+            label = key.replace("_", ".")
+            lines.append(f"- [{label}]({_escape_link(artifacts[key])})")
     return lines
 
 
 def _escape(value: object) -> str:
     return _ESCAPE_RE.sub(r"\\\1", str(value or ""))
+
+
+def _table_cell(value: object) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+
+
+def _code(value: object) -> str:
+    text = str(value or "").replace("`", "")
+    return f"`{text}`"
+
+
+def _escape_link(value: object) -> str:
+    text = str(value or "")
+    return text.replace(")", "%29").replace(" ", "%20")
 
 
 def _truncate(value: str, limit: int) -> str:

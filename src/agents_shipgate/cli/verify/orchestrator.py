@@ -18,7 +18,15 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierBaseStatus
 from agents_shipgate.triggers import evaluate
 
-from .git import archive_tree, diff_context, ensure_git_workspace, git_path, ref_exists, tree_sha
+from .capability_review import build_capability_review
+from .git import (
+    archive_tree,
+    diff_context,
+    ensure_git_workspace,
+    git_path,
+    ref_exists,
+    tree_sha,
+)
 from .pr_comment import render_pr_comment
 
 HEAD_FORMATS = ["markdown", "json", "sarif"]
@@ -47,6 +55,7 @@ def run_verify(
     strict_plugins: bool,
     suggest_patches: bool,
     no_heuristics: bool,
+    pr_comment_style: str,
     verbose: bool,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
@@ -136,7 +145,13 @@ def run_verify(
                 head_exit_code=0,
                 out_dir=out_dir,
             )
-        _write_artifacts(verifier, verifier_path, pr_comment_path, report=None)
+        _write_artifacts(
+            verifier,
+            verifier_path,
+            pr_comment_path,
+            report=None,
+            pr_comment_style=pr_comment_style,
+        )
         return verifier, None, 0
 
     if diff_from is not None:
@@ -236,7 +251,13 @@ def run_verify(
         )
         try:
             try:
-                _write_artifacts(verifier, verifier_path, pr_comment_path, report=report)
+                _write_artifacts(
+                    verifier,
+                    verifier_path,
+                    pr_comment_path,
+                    report=report,
+                    pr_comment_style=pr_comment_style,
+                )
             except Exception:
                 if scan_error is None:
                     raise
@@ -471,6 +492,7 @@ def _build_verifier(
             if report is not None and report.reviewer_summary is not None
             else None
         ),
+        capability_review=build_capability_review(report) if report is not None else {},
         artifacts=artifacts,
     )
 
@@ -505,6 +527,7 @@ def _write_artifacts(
     pr_comment_path: Path,
     *,
     report: ReadinessReport | None,
+    pr_comment_style: str,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     verifier_path.write_text(
@@ -512,7 +535,7 @@ def _write_artifacts(
         encoding="utf-8",
     )
     pr_comment_path.write_text(
-        render_pr_comment(verifier, report=report),
+        render_pr_comment(verifier, report=report, style=pr_comment_style),
         encoding="utf-8",
     )
     # Keep report.json as the authoritative artifact, but validate the

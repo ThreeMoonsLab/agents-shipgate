@@ -862,6 +862,12 @@ In `agents-shipgate-reports/report.json`:
 - `heuristics_filter` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Always present, even when the flag is unset (`enabled: False` with zero counts), so the report shape is stable. Carries `enabled: bool`, `excluded_provenance_kinds: list[str]` (`["keyword_heuristic", "regex_heuristic"]`), `filtered_finding_count: int`, and `filtered_by_kind: dict[str, int]` (per-kind breakdown). When `enabled: True`, findings whose `provenance_kind` is in the excluded list have been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision was built — they remain in `findings[]` for transparency but no longer gate release. The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved when they overlap with the filter. Useful for security/GRC reviewers who want declared-only findings.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
+For verifier-cycle PR workflows it also exposes additive outputs
+`should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
+`trust_root_touched`, `policy_weakened`, `capability_changes_added`,
+`capability_changes_modified`, and `capability_changes_removed`. These are
+review and routing aids only. Keep using `decision` as the preferred gating
+output.
 
 For ongoing PR workflows, prefer:
 
@@ -879,6 +885,12 @@ do not use it as a release verdict. The release gate is still
 must make the base ref available before invocation. Supplying `--head` makes
 verify scan an isolated archive of that ref; omitting it scans the checked-out
 workspace.
+
+The default Action PR comment style for the verifier-cycle minor is
+`capability-review`: decision first, then the top capability changes,
+trust-root warnings, required next steps, and artifact links. Existing adopters
+that need the v1 findings-oriented comment during migration can set
+`pr_comment_style: findings` for one minor release cycle.
 
 ## Read these for release review
 
