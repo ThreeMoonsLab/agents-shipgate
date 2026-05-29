@@ -103,6 +103,11 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
+| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier); fail-safe to review when the base is unavailable. |
+| `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
+| `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
+| `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
+| `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` | medium | The PR changes the trigger catalog that decides when Shipgate runs; routed to human review to rule out gate evasion. |
 
 ## Check Details
 
@@ -588,6 +593,62 @@ The finding fires only when a verification context (changed files) is
 supplied (`agents-shipgate scan --changed-files ...` or, later, `verify`);
 a plain `scan` emits nothing. It is one ordinary `Finding` at `medium`
 severity routed through `release_decision` — never a second verdict.
+
+### SHIP-VERIFY-POLICY-WEAKENED
+
+Tier B trust-root protection: instead of classifying *which* files
+changed, it compares the normalized effective-policy snapshot of the base
+report (supplied via `--diff-from`) against the head manifest and fires
+when the gate moved toward *less* review or *less* blocking — CI mode
+downgraded (e.g. `strict` → `advisory`), the fail-on severity set lost a
+tier, or a check's severity override dropped across a tier boundary. The
+comparison is semantic, not a text diff, so it is robust to reformatting.
+
+When no base snapshot is available (no `--diff-from`, or a pre-v0.22 base)
+but the PR touched a policy/manifest trust root, the check fails safe to a
+single `medium` review-required finding rather than passing silently — a
+reward-hacker must not be able to dodge review by breaking the base scan.
+Category `verify` (suppression-immune, floor `high`); never a second
+verdict.
+
+### SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED
+
+Tier B: detects a PR that broadens what the gate forgives — a new entry in
+`checks.ignore`, a widened waiver scope (e.g. one tool widened to `*`), or
+a larger accepted-debt baseline — by a base-vs-head superset comparison of
+the effective-policy snapshot. Suppressing or baselining a finding instead
+of fixing it is a classic reward hack; this makes the expansion
+release-visible. Requires a base snapshot (touching the files alone is
+already covered by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`). Category `verify`,
+floor `high`.
+
+### SHIP-VERIFY-CI-GATE-REMOVED
+
+Tier B: fires when, in verify mode, a Shipgate CI workflow path
+(`.github/workflows/agents-shipgate.yml`/`.yaml`) appears in the changed
+files **and** that file no longer exists on disk — i.e. the PR deleted the
+gate. Detectable without a base snapshot. Emitted at `critical` (floor
+`high`): removing CI enforcement from an opted-in repo is the strongest
+weakening signal in the family.
+
+### SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED
+
+Tier B: agent-instruction files (`AGENTS.md`, `CLAUDE.md`, `.claude/`,
+`.cursor/rules/`, `.agents/skills/`, `.codex/`, `SKILL.md`) tell coding
+agents how to behave around the gate. Shipgate is static and makes no NLP
+judgement, so it cannot prove semantic weakening from text — per Principle
+3 ("prompts are not controls"), any verify-mode change to these trust
+roots is routed to human review at `medium`. Deterministic on changed-file
+membership; the human confirms no gate-protecting instruction was removed.
+
+### SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
+
+Tier B: the trigger catalog (`docs/triggers.json` or an
+`.agents-shipgate` trigger config) decides *when* Shipgate runs. Editing
+it can carve out paths so the gate stops firing — a gate-evasion one level
+up from suppressing findings. Fires on changed-file membership in verify
+mode at `medium`; the human confirms the change does not create a path
+that evades the release gate.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 

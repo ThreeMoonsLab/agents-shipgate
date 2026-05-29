@@ -5,7 +5,6 @@ from .agent_summary import (
     _top_active_finding,
     build_agent_summary,
 )
-from .capability import build_capability_changes, top_capability_changes
 from .constants import FINGERPRINT_EXCLUDED_EVIDENCE_KEYS, SEVERITY_ORDER
 from .identity import (
     _canonicalize_for_fingerprint,
@@ -50,6 +49,12 @@ from .summaries import (
     summarize_tool_surface,
     tool_inventory,
 )
+from .verifier_blocks import (
+    build_capability_change,
+    build_human_ack,
+    build_protected_surface_changes,
+    build_verifier_summary,
+)
 
 __all__ = [
     "FINGERPRINT_EXCLUDED_EVIDENCE_KEYS",
@@ -81,9 +86,12 @@ __all__ = [
     "apply_suppressions",
     "assign_finding_ids",
     "build_agent_summary",
-    "build_capability_changes",
+    "build_capability_change",
+    "build_human_ack",
+    "build_protected_surface_changes",
     "build_report",
     "build_reviewer_summary",
+    "build_verifier_summary",
     "dedupe_findings",
     "derive_agent_action",
     "finding_fingerprint",
@@ -92,5 +100,4 @@ __all__ = [
     "summarize_findings",
     "summarize_tool_surface",
     "tool_inventory",
-    "top_capability_changes",
 ]

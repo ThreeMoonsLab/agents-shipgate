@@ -21,7 +21,7 @@ from agents_shipgate.core.findings import (
 )
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.common import ProvenanceKind
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import Finding, ReadinessReport
 
 SAMPLES = [
     Path("samples/support_refund_agent/shipgate.yaml"),
@@ -30,7 +30,10 @@ SAMPLES = [
     Path("samples/simple_crewai_agent/shipgate.yaml"),
 ]
 
-CURRENT_SCHEMA = Path("docs/report-schema.v0.22.json")
+CURRENT_SCHEMA = Path(
+    "docs/report-schema.v"
+    f"{ReadinessReport.model_fields['report_schema_version'].default}.json"
+)
 
 
 def test_provenance_kind_enum_values():

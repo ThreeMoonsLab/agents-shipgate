@@ -79,6 +79,11 @@ def _run_checks_and_decide(
         action_surface_facts=action_surface_facts,
         manifest_positions=manifest_positions,
         verification=verification_context,
+        # M3: expose the --diff-from base report so the Tier B
+        # SHIP-VERIFY-* weakening/expansion checks can compare base-vs-head
+        # effective policy. None for plain scans (no base) — those checks
+        # degrade safely and emit nothing.
+        diff_reference=diffs.diff_reference,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(

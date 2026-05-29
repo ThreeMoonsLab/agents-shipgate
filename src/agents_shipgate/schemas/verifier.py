@@ -4,8 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agents_shipgate.schemas.report import CapabilityChange
-
 VerifierBaseStatus = Literal[
     "not_requested",
     "skipped",
@@ -18,11 +16,6 @@ VerifierBaseStatus = Literal[
     "succeeded",
 ]
 VerifierHeadStatus = Literal["skipped", "succeeded", "failed"]
-
-# v0.1 (additive): the merge-oriented projection of the release gate. This is
-# NOT a second decision engine — every value below is a deterministic read of
-# ``release_decision.decision`` (the source of truth). ``unknown`` models the
-# case where no decision exists (a head scan that failed before producing one).
 MergeVerdict = Literal[
     "mergeable",
     "human_review_required",
@@ -30,10 +23,15 @@ MergeVerdict = Literal[
     "blocked",
     "unknown",
 ]
+CapabilityChangeBucket = Literal["added", "modified", "removed"]
+CapabilityReleaseImpact = Literal[
+    "blocks_release",
+    "review_required",
+    "insufficient_evidence",
+    "informational",
+    "none",
+]
 
-# release_decision.decision -> merge_verdict. Unrecognized future decisions
-# map defensively to human_review_required; a missing decision is the caller's
-# concern (see _merge_verdict in the orchestrator), not this table.
 _DECISION_TO_VERDICT: dict[str, MergeVerdict] = {
     "passed": "mergeable",
     "review_required": "human_review_required",
@@ -43,21 +41,14 @@ _DECISION_TO_VERDICT: dict[str, MergeVerdict] = {
 
 
 def map_merge_verdict(decision: str | None) -> MergeVerdict:
-    """Project ``release_decision.decision`` onto a merge verdict.
-
-    ``None`` (no decision was produced) -> ``unknown``. A recognized
-    decision maps per :data:`_DECISION_TO_VERDICT`; any unrecognized
-    future decision is treated conservatively as human review required.
-    """
+    """Project ``release_decision.decision`` onto a merge verdict."""
     if decision is None:
         return "unknown"
     return _DECISION_TO_VERDICT.get(decision, "human_review_required")
 
 
 class VerifierNextAction(BaseModel):
-    """The single recommended next step after verify, with the actor who
-    should take it. ``actor`` distinguishes work a coding agent may do
-    mechanically from decisions that require a human."""
+    """Single recommended next step after verify."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -76,16 +67,46 @@ class VerifierHumanReview(BaseModel):
     why: str | None = None
 
 
+class VerifierCapabilityChange(BaseModel):
+    """One reviewer-facing capability change projected for verifier output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    change_type: str
+    change_bucket: CapabilityChangeBucket
+    subject_kind: str
+    subject: str
+    impact: CapabilityReleaseImpact = "informational"
+    rationale: str
+    source_path: str | None = None
+    source_start_line: int | None = None
+    related_finding_ids: list[str] = Field(default_factory=list)
+
+
+class VerifierCapabilityReview(BaseModel):
+    """Derived capability-review rollup for PR comments and Action outputs.
+
+    This is a projection only. It never gates independently of
+    ``report.json.release_decision.decision``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    added: int = 0
+    modified: int = 0
+    removed: int = 0
+    trust_root_touched: bool = False
+    policy_weakened: bool = False
+    top_changes: list[VerifierCapabilityChange] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class VerifierArtifact(BaseModel):
     """Machine-readable artifact emitted by ``agents-shipgate verify``.
 
-    Carries an orchestration record (workspace/base/head/status) AND a
-    merge-oriented projection layer (``merge_verdict``,
-    ``can_merge_without_human``, ``capability_changes`` …). The projection
-    layer is the coding-agent surface: read it to answer "can this PR
-    merge?". It never disagrees with the gate — every projected field is a
-    deterministic read of ``report.json.release_decision.decision``, which
-    remains the source of truth.
+    This is an orchestration record only. The release gate remains
+    ``report.json.release_decision.decision`` from the head scan.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -108,9 +129,9 @@ class VerifierArtifact(BaseModel):
     release_decision: dict[str, Any] | None = None
     agent_summary: dict[str, Any] | None = None
     reviewer_summary: dict[str, Any] | None = None
-    # --- v0.1 additive: merge-decision projection layer --------------------
-    # All defaulted so the skip path and direct test constructors keep
-    # working; all are pure projections of release_decision.
+    capability_review: VerifierCapabilityReview = Field(
+        default_factory=VerifierCapabilityReview
+    )
     mode: str = "advisory"
     decision: str | None = None
     merge_verdict: MergeVerdict = "unknown"
@@ -118,15 +139,17 @@ class VerifierArtifact(BaseModel):
     headline: str | None = None
     human_review: VerifierHumanReview | None = None
     first_next_action: VerifierNextAction | None = None
-    trust_root_touched: bool = False
-    capability_changes: list[CapabilityChange] = Field(default_factory=list)
     artifacts: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [
+    "CapabilityChangeBucket",
+    "CapabilityReleaseImpact",
     "MergeVerdict",
     "VerifierArtifact",
     "VerifierBaseStatus",
+    "VerifierCapabilityChange",
+    "VerifierCapabilityReview",
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",

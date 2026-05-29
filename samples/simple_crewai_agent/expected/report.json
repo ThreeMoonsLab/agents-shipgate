@@ -401,8 +401,10 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/tmp/claude-501/tmp909b2zp4/report.json",
+    "packet_md": "/private/tmp/claude-501/tmp909b2zp4/packet.md",
+    "packet_json": "/private/tmp/claude-501/tmp909b2zp4/packet.json",
+    "packet_html": "/private/tmp/claude-501/tmp909b2zp4/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -479,7 +481,9 @@
     "redacted_paths": [],
     "output_surfaces": [
       "json",
-      "markdown"
+      "packet_html",
+      "packet_json",
+      "packet_md"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
@@ -506,7 +510,6 @@
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
-    "capability_changes": 0,
     "first_recommended_surface": {
       "kind": "release_decision",
       "name": "release_decision",
@@ -514,5 +517,44 @@
       "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
     }
   },
-  "capability_changes": []
+  "capability_change": {
+    "enabled": false,
+    "added": [],
+    "removed": [],
+    "broadened": [],
+    "narrowed": []
+  },
+  "protected_surface_changes": [],
+  "effective_policy": {
+    "ci_mode": "advisory",
+    "fail_on": [],
+    "suppressed_check_ids": [],
+    "waiver_scopes": [],
+    "severity_overrides": {},
+    "baseline_integrity_mode": "warn",
+    "baseline_fingerprints": [],
+    "ci_gate_present": true
+  },
+  "human_ack": {
+    "required": false,
+    "satisfied": true,
+    "acks": [],
+    "outstanding": []
+  },
+  "verifier_summary": {
+    "verdict": "insufficient_evidence",
+    "by_severity": {},
+    "by_reason_code": {},
+    "capability_delta_summary": {
+      "added": 0,
+      "removed": 0,
+      "broadened": 0,
+      "narrowed": 0
+    },
+    "protected_surface_touched": false,
+    "policy_weakened": false,
+    "human_ack_required": false,
+    "human_ack_satisfied": true,
+    "top_reason_codes": []
+  }
 }

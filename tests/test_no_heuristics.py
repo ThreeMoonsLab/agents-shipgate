@@ -37,6 +37,7 @@ from agents_shipgate.schemas.common import ProvenanceKind, Severity
 from agents_shipgate.schemas.report import (
     NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS,
     Finding,
+    ReadinessReport,
 )
 
 SUPPORT_REFUND_FIXTURE = Path("samples/support_refund_agent/shipgate.yaml")
@@ -351,11 +352,13 @@ def test_v21_schema_requires_heuristics_filter_and_rejects_null(tmp_path) -> Non
     import pytest as _pytest
 
     repo_root = Path(__file__).resolve().parent.parent
-    # Validate the heuristics_filter contract against the CURRENT schema; it
-    # is additive across versions, so the v0.21 guarantees still hold while a
-    # freshly emitted payload (now carrying capability_changes) validates.
+    # Read the shipped schema minor from the live model so this
+    # current-schema conformance test tracks a version bump automatically.
+    current_schema_file = (
+        f"report-schema.v{ReadinessReport.model_fields['report_schema_version'].default}.json"
+    )
     schema = json.loads(
-        (repo_root / "docs" / "report-schema.v0.22.json").read_text("utf-8")
+        (repo_root / "docs" / current_schema_file).read_text("utf-8")
     )
 
     # Top-level required list pins the field.

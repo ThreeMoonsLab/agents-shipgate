@@ -1,47 +1,36 @@
 {
   "$defs": {
-    "CapabilityChange": {
+    "VerifierCapabilityChange": {
       "additionalProperties": false,
-      "description": "One deterministic \"what changed about agent capability?\" row.\n\nProjected from ``action_surface_diff`` / ``tool_surface_diff`` rows and\njoined to ``findings`` + ``release_decision`` for ``release_impact``.\n``release_impact`` mirrors the gate (``release_decision``); this block\nnever introduces a finding-independent blocker.",
+      "description": "One reviewer-facing capability change projected for verifier output.",
       "properties": {
-        "change_type": {
+        "change_bucket": {
           "enum": [
-            "action_added",
-            "action_removed",
-            "action_modified",
-            "tool_added",
-            "tool_removed",
-            "tool_modified",
-            "scope_added",
-            "scope_removed",
-            "scope_modified",
-            "approval_policy_removed",
-            "ci_gate_modified",
-            "shipgate_policy_modified",
-            "agent_instruction_modified",
-            "baseline_modified",
-            "waiver_or_suppression_modified"
+            "added",
+            "modified",
+            "removed"
           ],
-          "title": "Change Type",
+          "title": "Change Bucket",
           "type": "string"
         },
-        "confidence": {
-          "default": "medium",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "title": "Confidence",
+        "change_type": {
+          "title": "Change Type",
           "type": "string"
         },
         "id": {
           "title": "Id",
           "type": "string"
         },
-        "provenance_kind": {
-          "default": "static_declaration",
-          "title": "Provenance Kind",
+        "impact": {
+          "default": "informational",
+          "enum": [
+            "blocks_release",
+            "review_required",
+            "insufficient_evidence",
+            "informational",
+            "none"
+          ],
+          "title": "Impact",
           "type": "string"
         },
         "rationale": {
@@ -53,25 +42,6 @@
             "type": "string"
           },
           "title": "Related Finding Ids",
-          "type": "array"
-        },
-        "release_impact": {
-          "default": "none",
-          "enum": [
-            "none",
-            "informational",
-            "review_required",
-            "blocks_release",
-            "insufficient_evidence"
-          ],
-          "title": "Release Impact",
-          "type": "string"
-        },
-        "risk_tags": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Risk Tags",
           "type": "array"
         },
         "source_path": {
@@ -103,17 +73,6 @@
           "type": "string"
         },
         "subject_kind": {
-          "enum": [
-            "tool",
-            "action",
-            "scope",
-            "policy",
-            "ci",
-            "baseline",
-            "agent_instruction",
-            "manifest",
-            "unknown"
-          ],
           "title": "Subject Kind",
           "type": "string"
         }
@@ -121,11 +80,59 @@
       "required": [
         "id",
         "change_type",
+        "change_bucket",
         "subject_kind",
         "subject",
         "rationale"
       ],
-      "title": "CapabilityChange",
+      "title": "VerifierCapabilityChange",
+      "type": "object"
+    },
+    "VerifierCapabilityReview": {
+      "additionalProperties": false,
+      "description": "Derived capability-review rollup for PR comments and Action outputs.\n\nThis is a projection only. It never gates independently of\n``report.json.release_decision.decision``.",
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "modified": {
+          "default": 0,
+          "title": "Modified",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "top_changes": {
+          "items": {
+            "$ref": "#/$defs/VerifierCapabilityChange"
+          },
+          "title": "Top Changes",
+          "type": "array"
+        },
+        "trust_root_touched": {
+          "default": false,
+          "title": "Trust Root Touched",
+          "type": "boolean"
+        }
+      },
+      "title": "VerifierCapabilityReview",
       "type": "object"
     },
     "VerifierHumanReview": {
@@ -155,7 +162,7 @@
     },
     "VerifierNextAction": {
       "additionalProperties": false,
-      "description": "The single recommended next step after verify, with the actor who\nshould take it. ``actor`` distinguishes work a coding agent may do\nmechanically from decisions that require a human.",
+      "description": "Single recommended next step after verify.",
       "properties": {
         "actor": {
           "default": "human",
@@ -282,12 +289,8 @@
       "title": "Can Merge Without Human",
       "type": "boolean"
     },
-    "capability_changes": {
-      "items": {
-        "$ref": "#/$defs/CapabilityChange"
-      },
-      "title": "Capability Changes",
-      "type": "array"
+    "capability_review": {
+      "$ref": "#/$defs/VerifierCapabilityReview"
     },
     "changed_files": {
       "items": {
@@ -430,11 +433,6 @@
       "additionalProperties": true,
       "title": "Trigger",
       "type": "object"
-    },
-    "trust_root_touched": {
-      "default": false,
-      "title": "Trust Root Touched",
-      "type": "boolean"
     },
     "verifier_schema_version": {
       "const": "0.1",

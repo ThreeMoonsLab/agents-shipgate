@@ -33,3 +33,101 @@ checks:
   - matched_glob
   recommendation: Have a human review the trust-root change before merge; do not
     weaken the gate to pass CI.
+- id: SHIP-VERIFY-POLICY-WEAKENED
+  default_severity: high
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR's effective release policy is weaker than the base report's
+    (CI mode downgraded, fail-on severity set loosened, or a check's severity
+    override lowered across a tier).
+  rationale: Comparing the normalized base-vs-head policy snapshot catches a coding
+    agent that makes CI pass by weakening the gate rather than fixing the finding.
+    When no base snapshot is available but a policy trust root was touched, the
+    check fails safe to a review-required finding instead of silently passing.
+  fires_when: A VerificationContext is present and the base report's
+    effective_policy is weaker than the head manifest's; or, with no base
+    snapshot, a policy/manifest trust root was changed.
+  evidence_fields:
+  - kind
+  - base_ci_mode
+  - head_ci_mode
+  - removed_severities
+  - target_check_id
+  - base_severity
+  - head_severity
+  recommendation: A human must review and approve the policy change; do not weaken
+    the release gate to make CI pass.
+- id: SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED
+  default_severity: high
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR broadens what the gate forgives — a new suppression in
+    checks.ignore, a widened waiver scope, or a larger accepted-debt baseline —
+    versus the base report.
+  rationale: Expanding suppressions, waivers, or the baseline is a reward-hacking
+    move that hides findings instead of fixing them. A base-vs-head superset
+    comparison of the effective-policy snapshot makes the expansion release-visible.
+  fires_when: A VerificationContext and a base effective-policy snapshot are both
+    present and the head suppression set, waiver scopes, or baseline fingerprints
+    are a proper superset of the base.
+  evidence_fields:
+  - kind
+  - added_check_ids
+  - added_scopes
+  - added_fingerprints
+  recommendation: A human must confirm each new suppression, waiver, or baseline
+    entry is justified; do not suppress findings to make CI pass.
+- id: SHIP-VERIFY-CI-GATE-REMOVED
+  default_severity: critical
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR deletes the Shipgate CI workflow from an opted-in repo, which
+    would stop the release gate from running.
+  rationale: Removing CI enforcement is the bluntest gate-bypass. Detecting a
+    changed-and-now-absent workflow file makes the removal a release signal even
+    without a base scan.
+  fires_when: A VerificationContext is present, a Shipgate CI workflow path is in
+    the changed files, and that file no longer exists on disk.
+  evidence_fields:
+  - kind
+  - removed_workflow_files
+  recommendation: A human must approve removing Shipgate CI enforcement; do not
+    delete the gate to make CI pass.
+- id: SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR edits agent-instruction trust roots (AGENTS.md, CLAUDE.md,
+    .cursor/rules, skills, etc.) and Shipgate cannot statically prove the
+    instructions were not weakened.
+  rationale: Prompts are not controls (Principle 3); a static tool cannot judge
+    whether instruction text was weakened, so any change is routed to human review
+    rather than silently trusted.
+  fires_when: A VerificationContext is present and a changed file matches an
+    agent-instruction trust-root glob.
+  evidence_fields:
+  - kind
+  - changed_instruction_files
+  recommendation: A human must review the agent-instruction change and confirm no
+    gate-protecting instruction was removed or softened.
+- id: SHIP-VERIFY-TRIGGER-CATALOG-DRIFT
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR changes the trigger catalog (docs/triggers.json or an
+    .agents-shipgate trigger config) that decides when Shipgate runs.
+  rationale: Editing the trigger catalog can carve out paths so the gate stops
+    firing on the very changes that matter — a gate-evasion one level up from
+    suppressing findings.
+  fires_when: A VerificationContext is present and a changed file matches a
+    trigger-catalog path.
+  evidence_fields:
+  - kind
+  - changed_trigger_files
+  recommendation: A human must confirm the trigger change does not create a path
+    that evades the release gate.

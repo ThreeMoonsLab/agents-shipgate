@@ -813,30 +813,93 @@
       "title": "BaselineSummary",
       "type": "object"
     },
-    "CapabilityChange": {
+    "CapabilityChangeBlock": {
       "additionalProperties": false,
-      "description": "One deterministic \"what changed about agent capability?\" row.\n\nProjected from ``action_surface_diff`` / ``tool_surface_diff`` rows and\njoined to ``findings`` + ``release_decision`` for ``release_impact``.\n``release_impact`` mirrors the gate (``release_decision``); this block\nnever introduces a finding-independent blocker.",
+      "description": "The diff-derived capability delta, grouped by direction.\n\nReviewer-facing projection over ``action_surface_diff`` /\n``tool_surface_diff`` (roadmap \u00a77.1). Four member lists \u2014\n``added`` / ``removed`` / ``broadened`` / ``narrowed`` \u2014 plus\n``enabled`` (mirrors the surface-diff enabled flag: ``False`` when no\nbase is available, so the block is a stable empty shape rather than\nabsent). Never gates on its own.",
       "properties": {
-        "change_type": {
-          "enum": [
-            "action_added",
-            "action_removed",
-            "action_modified",
-            "tool_added",
-            "tool_removed",
-            "tool_modified",
-            "scope_added",
-            "scope_removed",
-            "scope_modified",
-            "approval_policy_removed",
-            "ci_gate_modified",
-            "shipgate_policy_modified",
-            "agent_instruction_modified",
-            "baseline_modified",
-            "waiver_or_suppression_modified"
+        "added": {
+          "items": {
+            "$ref": "#/$defs/CapabilityChangeMember"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "broadened": {
+          "items": {
+            "$ref": "#/$defs/CapabilityChangeMember"
+          },
+          "title": "Broadened",
+          "type": "array"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "narrowed": {
+          "items": {
+            "$ref": "#/$defs/CapabilityChangeMember"
+          },
+          "title": "Narrowed",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "$ref": "#/$defs/CapabilityChangeMember"
+          },
+          "title": "Removed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "added",
+        "broadened",
+        "enabled",
+        "narrowed",
+        "removed"
+      ],
+      "title": "CapabilityChangeBlock",
+      "type": "object"
+    },
+    "CapabilityChangeMember": {
+      "additionalProperties": false,
+      "description": "One capability member in a base\u2192head delta.\n\nCarries enough to identify the capability \u2014 ``tool`` plus the\n``action`` and ``scope`` it concerns \u2014 and, for ``broadened`` /\n``narrowed`` directions, the ``before_scope`` / ``after_scope`` so a\nreviewer can see exactly how the scope moved. Membership changes\n(``added`` / ``removed``) leave the before/after scope fields ``None``.\n\nA deterministic ``id`` supplied by the capability-change builder keeps\nthe member stable across runs for byte-equivalent output.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Change Type",
-          "type": "string"
+          "default": null,
+          "title": "Action"
+        },
+        "after_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Scope"
+        },
+        "before_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Scope"
         },
         "confidence": {
           "default": "medium",
@@ -848,16 +911,34 @@
           "title": "Confidence",
           "type": "string"
         },
+        "direction": {
+          "enum": [
+            "added",
+            "removed",
+            "broadened",
+            "narrowed"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
         "id": {
           "title": "Id",
           "type": "string"
         },
         "provenance_kind": {
-          "default": "static_declaration",
-          "title": "Provenance Kind",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provenance Kind"
         },
         "rationale": {
+          "default": "",
           "title": "Rationale",
           "type": "string"
         },
@@ -869,7 +950,7 @@
           "type": "array"
         },
         "release_impact": {
-          "default": "none",
+          "default": "informational",
           "enum": [
             "none",
             "informational",
@@ -887,7 +968,7 @@
           "title": "Risk Tags",
           "type": "array"
         },
-        "source_path": {
+        "scope": {
           "anyOf": [
             {
               "type": "string"
@@ -897,25 +978,10 @@
             }
           ],
           "default": null,
-          "title": "Source Path"
-        },
-        "source_start_line": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Source Start Line"
-        },
-        "subject": {
-          "title": "Subject",
-          "type": "string"
+          "title": "Scope"
         },
         "subject_kind": {
+          "default": "unknown",
           "enum": [
             "tool",
             "action",
@@ -929,16 +995,29 @@
           ],
           "title": "Subject Kind",
           "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
         }
       },
       "required": [
+        "action",
+        "after_scope",
+        "before_scope",
+        "confidence",
+        "direction",
         "id",
-        "change_type",
+        "provenance_kind",
+        "rationale",
+        "related_finding_ids",
+        "release_impact",
+        "risk_tags",
+        "scope",
         "subject_kind",
-        "subject",
-        "rationale"
+        "tool"
       ],
-      "title": "CapabilityChange",
+      "title": "CapabilityChangeMember",
       "type": "object"
     },
     "CapabilityFact": {
@@ -1709,6 +1788,88 @@
       "title": "DeclaredIntention",
       "type": "object"
     },
+    "EffectivePolicy": {
+      "additionalProperties": false,
+      "description": "Normalized effective-policy snapshot block (roadmap \u00a75.3).\n\nA semantic \u2014 not text \u2014 view of the release policy surface, so the\nbase-vs-head comparator can answer \"was the gate weakened?\" without a\ntext diff. Every field is derived deterministically from the manifest\n(plus, for ``baseline_fingerprints``, the accepted-debt findings), and\nevery list/dict is emitted in sorted order so two builds of the same\nmanifest serialize byte-identically.\n\nFields are chosen so the weakening / expansion classifiers can answer\nthe \u00a75.3 questions by set/rank comparison rather than counting:\n\n- ``ci_mode`` \u2014 was the CI gate weakened (strict -> advisory)?\n- ``fail_on`` \u2014 was the fail-on severity set loosened (head \u2282 base)?\n- ``severity_overrides`` \u2014 was a check's severity lowered across a tier?\n- ``suppressed_check_ids`` \u2014 was a blocking check newly suppressed?\n- ``waiver_scopes`` \u2014 was a waiver scope expanded (head \u228b base)?\n- ``baseline_fingerprints`` \u2014 was the accepted-debt baseline expanded?\n- ``baseline_integrity_mode`` \u2014 was baseline tamper-checking weakened?\n- ``ci_gate_present`` \u2014 was Shipgate CI removed from an opted-in repo?",
+      "properties": {
+        "baseline_fingerprints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Baseline Fingerprints",
+          "type": "array"
+        },
+        "baseline_integrity_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Integrity Mode"
+        },
+        "ci_gate_present": {
+          "default": true,
+          "title": "Ci Gate Present",
+          "type": "boolean"
+        },
+        "ci_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Mode"
+        },
+        "fail_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "severity_overrides": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Severity Overrides",
+          "type": "object"
+        },
+        "suppressed_check_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suppressed Check Ids",
+          "type": "array"
+        },
+        "waiver_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Waiver Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "baseline_fingerprints",
+        "baseline_integrity_mode",
+        "ci_gate_present",
+        "ci_mode",
+        "fail_on",
+        "severity_overrides",
+        "suppressed_check_ids",
+        "waiver_scopes"
+      ],
+      "title": "EffectivePolicy",
+      "type": "object"
+    },
     "EvidenceCoverageDecision": {
       "properties": {
         "human_review_recommended": {
@@ -2110,6 +2271,95 @@
       "title": "HeuristicsFilter",
       "type": "object"
     },
+    "HumanAck": {
+      "additionalProperties": false,
+      "description": "Human-acknowledgement state block (Decision 4 shape).\n\n``required`` is set by the human-ack builder when a trust-root\nweakening finding needs declared human authority; ``satisfied`` is\n``True`` when every required acknowledgement is present. ``acks``\nlists the declared entries; ``outstanding`` lists the surfaces still\nneeding one. The default empty shape is not required and therefore\nsatisfied.",
+      "properties": {
+        "acks": {
+          "items": {
+            "$ref": "#/$defs/HumanAckEntry"
+          },
+          "title": "Acks",
+          "type": "array"
+        },
+        "outstanding": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Outstanding",
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "satisfied": {
+          "default": true,
+          "title": "Satisfied",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "acks",
+        "outstanding",
+        "required",
+        "satisfied"
+      ],
+      "title": "HumanAck",
+      "type": "object"
+    },
+    "HumanAckEntry": {
+      "additionalProperties": false,
+      "description": "One declared human-acknowledgement record.\n\nWithin the static boundary acknowledgement can only be *declared*\nevidence (roadmap \u00a75.4) \u2014 never inferred. An entry names the human\n``owner``, the ``reason``, an optional ``expires`` date (copied\nverbatim from the source, never generated), and the\n``affected_surface`` the ack covers.",
+      "properties": {
+        "affected_surface": {
+          "title": "Affected Surface",
+          "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "owner": {
+          "title": "Owner",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "affected_surface",
+        "expires",
+        "owner",
+        "reason",
+        "source"
+      ],
+      "title": "HumanAckEntry",
+      "type": "object"
+    },
     "LoadedPolicyPack": {
       "properties": {
         "id": {
@@ -2330,6 +2580,48 @@
         "sensitive_field_inventory_version"
       ],
       "title": "PrivacyAudit",
+      "type": "object"
+    },
+    "ProtectedSurfaceChange": {
+      "additionalProperties": false,
+      "description": "One touched protected path / policy surface (trust root).\n\nTier A trust-root protection (roadmap \u00a75.1/\u00a75.2) records *which*\nprotected surface a PR touched. ``path`` is the changed file; ``kind``\nis the classifier bucket it matched (e.g. ``manifest``, ``ci_gate``,\n``policy``); ``glob`` is the matched pattern. ``related_finding_ids``\nlinks to the ordinary ``SHIP-VERIFY-*`` findings that gate.",
+      "properties": {
+        "glob": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Glob"
+        },
+        "kind": {
+          "default": "unknown",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Finding Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "glob",
+        "kind",
+        "path",
+        "related_finding_ids"
+      ],
+      "title": "ProtectedSurfaceChange",
       "type": "object"
     },
     "RedactedPathSummary": {
@@ -2683,11 +2975,6 @@
         "baseline_integrity_issues": {
           "default": 0,
           "title": "Baseline Integrity Issues",
-          "type": "integer"
-        },
-        "capability_changes": {
-          "default": 0,
-          "title": "Capability Changes",
           "type": "integer"
         },
         "capability_misalignments": {
@@ -4264,6 +4551,134 @@
       ],
       "title": "ToolSurfaceToolFact",
       "type": "object"
+    },
+    "VerifierCapabilityDeltaSummary": {
+      "additionalProperties": false,
+      "description": "Counts of the capability delta, by direction.\n\nEqual by construction to the lengths of the matching\n``CapabilityChangeBlock`` member lists (roadmap \u00a78 required test:\nreviewer/verifier capability counts equal the underlying rollup).",
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "broadened": {
+          "default": 0,
+          "title": "Broadened",
+          "type": "integer"
+        },
+        "narrowed": {
+          "default": 0,
+          "title": "Narrowed",
+          "type": "integer"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "broadened",
+        "narrowed",
+        "removed"
+      ],
+      "title": "VerifierCapabilityDeltaSummary",
+      "type": "object"
+    },
+    "VerifierReasonCodeCount": {
+      "additionalProperties": false,
+      "description": "One ``(reason_code, count)`` pair for the verifier summary.\n\nA list of these (rather than a dict) keeps the ordering explicit and\nbyte-stable; the builder sorts them deterministically.",
+      "properties": {
+        "count": {
+          "default": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "reason_code"
+      ],
+      "title": "VerifierReasonCodeCount",
+      "type": "object"
+    },
+    "VerifierSummary": {
+      "additionalProperties": false,
+      "description": "Top-level verifier composition alias (Decision 5 shape).\n\nA byte-stable projection bundling the release verdict, finding counts,\nthe capability delta summary, and trust-root / acknowledgement flags\nfor one-fetch controller consumption. Composition only \u2014 it cannot\nintroduce a finding-independent blocker, and ``verdict`` MUST mirror\n``release_decision.decision`` (Principle 2; enforced by a property\ntest). Parallels ``agent_summary`` / ``reviewer_summary``.\n\n``top_reason_codes`` is capped at the top five by the builder, ranked\nseverity desc, count desc, then reason code asc.",
+      "properties": {
+        "by_reason_code": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Reason Code",
+          "type": "object"
+        },
+        "by_severity": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Severity",
+          "type": "object"
+        },
+        "capability_delta_summary": {
+          "$ref": "#/$defs/VerifierCapabilityDeltaSummary"
+        },
+        "human_ack_required": {
+          "default": false,
+          "title": "Human Ack Required",
+          "type": "boolean"
+        },
+        "human_ack_satisfied": {
+          "default": true,
+          "title": "Human Ack Satisfied",
+          "type": "boolean"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "protected_surface_touched": {
+          "default": false,
+          "title": "Protected Surface Touched",
+          "type": "boolean"
+        },
+        "top_reason_codes": {
+          "items": {
+            "$ref": "#/$defs/VerifierReasonCodeCount"
+          },
+          "title": "Top Reason Codes",
+          "type": "array"
+        },
+        "verdict": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "insufficient_evidence",
+            "passed"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "by_reason_code",
+        "by_severity",
+        "capability_delta_summary",
+        "human_ack_required",
+        "human_ack_satisfied",
+        "policy_weakened",
+        "protected_surface_touched",
+        "top_reason_codes",
+        "verdict"
+      ],
+      "title": "VerifierSummary",
+      "type": "object"
     }
   },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.22.json",
@@ -4322,12 +4737,8 @@
       ],
       "default": null
     },
-    "capability_changes": {
-      "items": {
-        "$ref": "#/$defs/CapabilityChange"
-      },
-      "title": "Capability Changes",
-      "type": "array"
+    "capability_change": {
+      "$ref": "#/$defs/CapabilityChangeBlock"
     },
     "capability_facts": {
       "items": {
@@ -4353,6 +4764,9 @@
       },
       "title": "Declared Intentions",
       "type": "array"
+    },
+    "effective_policy": {
+      "$ref": "#/$defs/EffectivePolicy"
     },
     "environment": {
       "additionalProperties": true,
@@ -4432,6 +4846,9 @@
     "heuristics_filter": {
       "$ref": "#/$defs/HeuristicsFilter"
     },
+    "human_ack": {
+      "$ref": "#/$defs/HumanAck"
+    },
     "loaded_adapters": {
       "items": {
         "additionalProperties": true,
@@ -4505,6 +4922,13 @@
       "title": "Project",
       "type": "object"
     },
+    "protected_surface_changes": {
+      "items": {
+        "$ref": "#/$defs/ProtectedSurfaceChange"
+      },
+      "title": "Protected Surface Changes",
+      "type": "array"
+    },
     "recommended_actions": {
       "items": {
         "type": "string"
@@ -4571,6 +4995,9 @@
     },
     "tool_surface_facts": {
       "$ref": "#/$defs/ToolSurfaceFacts"
+    },
+    "verifier_summary": {
+      "$ref": "#/$defs/VerifierSummary"
     }
   },
   "required": [
@@ -4578,14 +5005,17 @@
     "action_surface_facts",
     "agent",
     "agent_summary",
+    "capability_change",
     "capability_facts",
     "codex_plugin_surface",
     "declared_intentions",
+    "effective_policy",
     "environment",
     "findings",
     "frameworks",
     "generated_reports",
     "heuristics_filter",
+    "human_ack",
     "loaded_adapters",
     "loaded_plugins",
     "loaded_policy_packs",
@@ -4593,6 +5023,7 @@
     "policy_audit",
     "privacy_audit",
     "project",
+    "protected_surface_changes",
     "recommended_actions",
     "release_consequence",
     "release_decision",
@@ -4606,7 +5037,8 @@
     "tool_inventory",
     "tool_surface",
     "tool_surface_diff",
-    "tool_surface_facts"
+    "tool_surface_facts",
+    "verifier_summary"
   ],
   "title": "Agents Shipgate Readiness Report v0.22",
   "type": "object"

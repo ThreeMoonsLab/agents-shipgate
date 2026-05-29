@@ -77,8 +77,8 @@ Then read `agents-shipgate-reports/verifier.json` and **lead with
 `merge_verdict`** (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`). It is a deterministic
 projection of `release_decision.decision`, which remains the gate in
-`agents-shipgate-reports/report.json`. Read `capability_changes[]` next to see
-exactly what tool/action access the diff added, removed, or modified, and check
+`agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
+next to see the highest-signal tool/action access changes, and check
 `trust_root_touched`.
 
 Codex must not claim completion when `merge_verdict` is `blocked`,

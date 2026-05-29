@@ -158,7 +158,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "privacy_audit",
         "heuristics_filter",
         "reviewer_summary",
-        "capability_changes",
+        # v0.22 verifier-cycle blocks (additive).
+        "capability_change",
+        "protected_surface_changes",
+        "effective_policy",
+        "human_ack",
+        "verifier_summary",
     ]
 
     packet = EvidencePacket(

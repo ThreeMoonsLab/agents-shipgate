@@ -75,11 +75,28 @@ findings can feed those fields through `findings[].blocks_release`.
 
 Verifier artifacts: `verifier_json` points at `verifier.json`, and
 `pr_comment_markdown` points at the Markdown body the action posts to PRs.
+The default PR comment style is `capability-review`: it leads with
+`release_decision.decision`, then shows a top capability-change table,
+trust-root warnings, required next steps, and artifact links. For one minor
+release cycle, existing adopters can set `pr_comment_style: findings` to keep
+the v1 findings-oriented comment while updating downstream automation.
 
 For PR review diffs, set `diff_base: target`. The action delegates to
 `agents-shipgate verify`, which never fetches. Use `fetch-depth: 0` on
 `actions/checkout` or fetch the base ref in an earlier step; otherwise verify
-records `base_status` and runs a head-only gate. `base_ref` and `head_ref` may
-be set explicitly for clearer PR wiring. When `head_ref` is set, verify scans
-an isolated archive of that ref; otherwise it scans the checked-out workspace.
+records `merge_verdict: "unknown"`, skips the head-only scan, and exits 2.
+`base_ref` and `head_ref` may be set explicitly for clearer PR wiring. When
+`head_ref` is set, verify scans an isolated archive of that ref; otherwise it
+scans the checked-out workspace.
 Existing `diff_base` / `diff_from` workflows keep working.
+
+Rollout note for the verifier-cycle minor: the Action defaults are
+`verify_mode: verify` and `pr_comment_style: capability-review`. New outputs
+are additive and old outputs remain stable; keep using `decision` as the
+preferred gating output. The additive verifier outputs are:
+`should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
+`merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
+`policy_weakened`, `capability_changes_added`,
+`capability_changes_modified`, and `capability_changes_removed`.
+The verifier flags mirror `verifier_summary`; the capability counts mirror
+`capability_change` (`modified` is `broadened + narrowed`).

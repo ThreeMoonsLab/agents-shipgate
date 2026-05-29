@@ -140,17 +140,16 @@ def test_scenario_codex_adds_refund_tool_blocks(tmp_path: Path) -> None:
     assert payload["head_status"] == "succeeded"
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
-    assert payload["trust_root_touched"] is False
+    assert payload["capability_review"]["trust_root_touched"] is False
     # The top capability change references the money-moving refund action.
     refund_adds = [
         c
-        for c in payload["capability_changes"]
+        for c in payload["capability_review"]["top_changes"]
         if "refund" in c["subject"] and c["change_type"] == "action_added"
     ]
-    assert refund_adds, payload["capability_changes"]
+    assert refund_adds, payload["capability_review"]["top_changes"]
     change = refund_adds[0]
-    assert "financial_write" in change["risk_tags"]
-    assert change["release_impact"] == "blocks_release"
+    assert change["impact"] == "blocks_release"
 
 
 def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(
@@ -169,7 +168,7 @@ def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(
 
     payload = _verify(repo)
 
-    assert payload["trust_root_touched"] is True
+    assert payload["capability_review"]["trust_root_touched"] is True
 
 
 def test_scenario_docs_only_no_shipgate_skips(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from agents_shipgate.schemas.manifest.codex_plugin import CodexPluginsConfig
 from agents_shipgate.schemas.manifest.crewai import CrewAiConfig
 from agents_shipgate.schemas.manifest.environment import EnvironmentConfig
 from agents_shipgate.schemas.manifest.google_adk import GoogleAdkConfig
+from agents_shipgate.schemas.manifest.human_ack import HumanAckDeclaration
 from agents_shipgate.schemas.manifest.langchain import LangChainConfig
 from agents_shipgate.schemas.manifest.n8n import N8nConfig
 from agents_shipgate.schemas.manifest.openai_api import OpenAIApiConfig
@@ -54,6 +55,11 @@ class AgentsShipgateManifest(BaseModel):
     ci: CiConfig = Field(default_factory=CiConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+    # v0.22 (verifier cycle): declared human acknowledgements of trust-root
+    # weakening (roadmap §5.4). Empty by default. Each entry is *declared*
+    # evidence — never inferred — and editing this list in shipgate.yaml is
+    # itself a trust-root change (SHIP-VERIFY-TRUST-ROOT-TOUCHED).
+    human_ack: list[HumanAckDeclaration] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_sources_and_scope_text(self) -> AgentsShipgateManifest:
@@ -134,3 +140,7 @@ class AgentsShipgateManifest(BaseModel):
     def acknowledge_overrides(self) -> list[OverrideAcknowledgement]:
         """v0.17 (M1): list of explicit override acknowledgements."""
         return self.checks.acknowledge_overrides
+
+    def human_ack_declarations(self) -> list[HumanAckDeclaration]:
+        """v0.22: declared human acknowledgements of trust-root weakening."""
+        return self.human_ack

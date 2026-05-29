@@ -59,8 +59,8 @@ refunds." It adds `stripe.create_refund` to the tool surface and opens a PR.
 
 `agents-shipgate verify --base origin/main --head HEAD --json` produces:
 
-- a `capability_changes[]` row with `change_type: action_added`,
-  `subject: stripe.create_refund`, and risk tags for money movement;
+- a `capability_review.top_changes[]` row for `stripe.create_refund`, with an
+  impact derived from the tool/action surface diff;
 - findings that `stripe.create_refund` lacks a declared approval policy and lacks
   idempotency evidence, both `blocks_release: true`;
 - `merge_verdict: blocked` (projected from `release_decision.decision: blocked`);
@@ -80,7 +80,7 @@ readiness issue, its patch removes a blocker by editing `shipgate.yaml`.
 `SHIP-VERIFY-TRUST-ROOT-TOUCHED`. The result:
 
 - `trust_root_touched: true`;
-- a `capability_changes[]` row for the shipgate-policy change;
+- a `capability_review.top_changes[]` row for the Shipgate policy change;
 - a review-required finding, so `merge_verdict` is at best
   `human_review_required` and `can_merge_without_human` is `false`;
 - `first_next_action` names a **human**: a reviewer must confirm the policy
@@ -187,13 +187,11 @@ Read `agents-shipgate-reports/verifier.json` in this order:
    decision→`unknown`). Also read `can_merge_without_human`, `headline`, and
    `human_review.{required, why}`, plus `first_next_action.{actor, kind, command,
    why}` — the actor distinguishes coding-agent work from human-only work.
-2. **`capability_changes[]`** — what tool/action access changed, before any
-   generic finding. Each row carries `change_type` (snake_case, e.g.
-   `action_added`, `tool_modified`, `approval_policy_removed`), `subject_kind`,
-   `subject`, `risk_tags`, `release_impact`
-   (`none`/`informational`/`review_required`/`blocks_release`/
-   `insufficient_evidence`), `rationale`, and `related_finding_ids`. Also check
-   `trust_root_touched`.
+2. **`capability_review`** — what tool/action access changed, before any generic
+   finding. It carries `trust_root_touched`, `policy_weakened`, capability
+   change counts, and `top_changes[]` rows with `{id, title, impact, rationale,
+   related_finding_ids}`. Also check the underlying `capability_change` block
+   when you need the full grouped diff.
 3. **`release_decision`** — the full embedded release decision. Its `decision`
    field is the gate; `merge_verdict` cannot disagree with it. For the complete
    field index (blockers, review items, contribution rules, fail policy), see

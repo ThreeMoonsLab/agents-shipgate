@@ -260,6 +260,20 @@ def build_report_schema() -> tuple[Path, str]:
             # with test helpers; emitted scans always populate it via
             # build_report() → build_reviewer_summary().
             "reviewer_summary",
+            # v0.22 (verifier cycle, P2/M3): the five new verifier blocks.
+            # Optional in Python for back-compat with test helpers;
+            # emitted scans always populate them (deterministic
+            # empty/default instances in Phase A) via
+            # _build_final_report() → build_*. Required + non-nullable on
+            # the wire so consumers can read them without an existence
+            # check. ``protected_surface_changes`` is a plain list (always
+            # present, may be empty); the other four are single blocks
+            # tightened to a direct $ref below.
+            "capability_change",
+            "protected_surface_changes",
+            "effective_policy",
+            "human_ack",
+            "verifier_summary",
         ]
     )
     # Preserve version constants. Pydantic emits these as plain strings
@@ -305,6 +319,18 @@ def build_report_schema() -> tuple[Path, str]:
     # ``reviewer_summary.first_recommended_surface`` without a null
     # check on the block itself.
     properties["reviewer_summary"] = {"$ref": "#/$defs/ReviewerSummary"}
+    # v0.22 (verifier cycle, P2/M3): same tightening for the four
+    # single-block verifier fields. Pydantic emits `anyOf: [Block, null]`
+    # for the Optional Python fields; on the wire every emitted report
+    # carries a real block (deterministic empty/default in Phase A),
+    # never null. The const + non-nullable form lets consumers read e.g.
+    # ``verifier_summary.verdict`` without a null check.
+    # ``protected_surface_changes`` is a plain list field, so it keeps the
+    # Pydantic array schema and only needs the required-key pin above.
+    properties["capability_change"] = {"$ref": "#/$defs/CapabilityChangeBlock"}
+    properties["effective_policy"] = {"$ref": "#/$defs/EffectivePolicy"}
+    properties["human_ack"] = {"$ref": "#/$defs/HumanAck"}
+    properties["verifier_summary"] = {"$ref": "#/$defs/VerifierSummary"}
 
     # Preserve nested v0.5 required lists. Pydantic auto-generation marks
     # only fields without defaults as required, but consumers depend on
@@ -464,6 +490,83 @@ def build_report_schema() -> tuple[Path, str]:
     if "LoadedPolicyPack" in defs:
         defs["LoadedPolicyPack"]["required"] = sorted(
             ["id", "name", "path", "rule_count"]
+        )
+    # v0.22 (verifier cycle, P2/M3): pin the verifier-block contracts.
+    # Every field of every block is populated on emitted scans (the
+    # Phase A default builders set them all), so all fields belong in the
+    # required list even though Pydantic auto-required only includes the
+    # no-default fields. Nullable-but-required-as-key fields (the scope
+    # before/after on a capability member, ack expiry/source, the
+    # effective-policy ci_mode) keep the key present with a null value.
+    if "CapabilityChangeMember" in defs:
+        defs["CapabilityChangeMember"]["required"] = sorted(
+            [
+                "id",
+                "direction",
+                "subject_kind",
+                "tool",
+                "action",
+                "scope",
+                "before_scope",
+                "after_scope",
+                "risk_tags",
+                "release_impact",
+                "provenance_kind",
+                "confidence",
+                "rationale",
+                "related_finding_ids",
+            ]
+        )
+    if "CapabilityChangeBlock" in defs:
+        defs["CapabilityChangeBlock"]["required"] = sorted(
+            ["enabled", "added", "removed", "broadened", "narrowed"]
+        )
+    if "ProtectedSurfaceChange" in defs:
+        defs["ProtectedSurfaceChange"]["required"] = sorted(
+            ["path", "kind", "glob", "related_finding_ids"]
+        )
+    if "EffectivePolicy" in defs:
+        defs["EffectivePolicy"]["required"] = sorted(
+            [
+                "ci_mode",
+                "fail_on",
+                "suppressed_check_ids",
+                "waiver_scopes",
+                "severity_overrides",
+                "baseline_integrity_mode",
+                "baseline_fingerprints",
+                "ci_gate_present",
+            ]
+        )
+    if "HumanAckEntry" in defs:
+        defs["HumanAckEntry"]["required"] = sorted(
+            ["owner", "reason", "affected_surface", "expires", "source"]
+        )
+    if "HumanAck" in defs:
+        defs["HumanAck"]["required"] = sorted(
+            ["required", "satisfied", "acks", "outstanding"]
+        )
+    if "VerifierCapabilityDeltaSummary" in defs:
+        defs["VerifierCapabilityDeltaSummary"]["required"] = sorted(
+            ["added", "removed", "broadened", "narrowed"]
+        )
+    if "VerifierReasonCodeCount" in defs:
+        defs["VerifierReasonCodeCount"]["required"] = sorted(
+            ["reason_code", "count"]
+        )
+    if "VerifierSummary" in defs:
+        defs["VerifierSummary"]["required"] = sorted(
+            [
+                "verdict",
+                "by_severity",
+                "by_reason_code",
+                "capability_delta_summary",
+                "protected_surface_touched",
+                "policy_weakened",
+                "human_ack_required",
+                "human_ack_satisfied",
+                "top_reason_codes",
+            ]
         )
 
     # v0.8 release_decision: pin required keys so consumers can rely on

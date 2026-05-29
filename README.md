@@ -17,10 +17,6 @@
 
 <!-- Canonical tagline: Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. -->
 
-Built for AI coding workflows: when Claude Code, Codex, Cursor, or a human
-changes an agent's tool access, Agents Shipgate turns the diff into a
-deterministic merge verdict.
-
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
 Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
@@ -74,45 +70,6 @@ Fixture copy at <tempdir>; pass --keep to retain after the run.
 Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
 
 ![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
-
-The fixture run above is the fastest no-setup demo. To gate a real PR — for
-example one a coding agent just wrote — use the verify quickstart below.
-
-## Verify an AI-generated agent PR
-
-When Claude Code, Codex, Cursor, or a human opens a PR that changes what your
-agent can do, turn the diff into a deterministic merge verdict:
-
-```bash
-pipx install agents-shipgate
-agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
-agents-shipgate verify --base origin/main --head HEAD --json
-```
-
-- `verify --preview` is a lightweight relevance check — no scan, no manifest
-  required, exits 0. It tells you whether this PR is worth gating and prints the
-  next recommended action (`none` for irrelevant diffs, `detect`/`init` for
-  relevant unconfigured repos, or `verify` for configured repos).
-- `init --write --ci --agent-instructions=all` writes `shipgate.yaml`, the
-  advisory CI workflow, and the agent-instruction surfaces (`AGENTS.md`,
-  `CLAUDE.md`, the Cursor rule, and the PR template) so the gate is wired for
-  both humans and coding agents.
-- `verify --base origin/main --head HEAD` runs the authoritative head scan with
-  diff context and writes `agents-shipgate-reports/verifier.json` plus
-  `pr-comment.md` alongside the standard report artifacts. If the requested diff
-  cannot be inspected, verify emits `merge_verdict: unknown` and exits 2.
-
-Read [`agents-shipgate-reports/verifier.json`](docs/verifier-schema.v0.1.json)
-first: `merge_verdict` (`mergeable` / `human_review_required` /
-`insufficient_evidence` / `blocked` / `unknown`) is the headline, and
-`capability_changes[]` lists exactly what tool/action access the PR adds, removes,
-or modifies. `verifier.json` is a deterministic projection — the underlying gate
-is `release_decision.decision`, which lives in
-`agents-shipgate-reports/report.json`. Read `report.json` next for the full
-finding detail. See [Verify an AI-generated agent
-PR](docs/use-cases/ai-generated-agent-prs.md) for the end-to-end use case,
-GitHub Action wiring, and what coding agents may fix versus what requires a human.
 
 ## How to read your first result
 
@@ -326,7 +283,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.22"`). v0.22 adds the top-level `capability_changes[]` field plus a `reviewer_summary.capability_changes` count; v0.21 added the top-level `heuristics_filter` envelope — the audit pass for the `--no-heuristics` CLI flag — alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.22"`). v0.22 adds the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -514,7 +471,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.22"` (additive over v0.21's `heuristics_filter`, adding the top-level `capability_changes[]` field plus a `reviewer_summary.capability_changes` count) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.22"` (additive over v0.21's `heuristics_filter`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary`) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -556,9 +513,9 @@ jobs:
 
 Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action now delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If the base ref is missing locally, verify records `base_status` in `verifier.json`, emits `merge_verdict: unknown`, and exits 2.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
 
-Outputs: `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Prefer `decision` and `ci_would_fail` over legacy `status` for new release gates.
+Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Prefer `merge_verdict`, `decision`, and `ci_would_fail` over legacy `status` for new release gates.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 
@@ -587,7 +544,6 @@ below are the canonical contract; the marketing pages are sized for first-time
 readers and AI search ingest.
 
 - [Tool-Use Readiness release gate category](docs/category.md)
-- [Verify an AI-generated agent PR (use case)](docs/use-cases/ai-generated-agent-prs.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)

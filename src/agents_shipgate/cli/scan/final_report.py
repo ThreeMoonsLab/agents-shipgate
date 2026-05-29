@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents_shipgate.core.findings.capability import build_capability_changes
 from agents_shipgate.core.findings.report_builder import build_report
 from agents_shipgate.core.findings.reviewer_summary import build_reviewer_summary
+from agents_shipgate.core.findings.verifier_blocks import (
+    build_capability_change,
+    build_human_ack,
+    build_protected_surface_changes,
+    build_verifier_summary,
+)
 from agents_shipgate.core.lenses.capability_intent import apply_capability_diff
+from agents_shipgate.core.lenses.effective_policy import (
+    accepted_debt_fingerprints,
+    build_effective_policy_snapshot,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport
@@ -74,13 +83,6 @@ def _build_final_report(
         heuristics_filter=sanitized.heuristics_filter,
     )
     apply_capability_diff(report, sanitized.tools)
-    # v0.22: capability-change projection. Built before reviewer_summary so
-    # its count can read report.capability_changes. Pure read of the
-    # already-computed surface diffs + release_decision; no I/O, no gate.
-    report.capability_changes = build_capability_changes(
-        report=report,
-        findings=sanitized.findings,
-    )
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff
     # has populated misalignments / release_consequence / suggested_scenarios.
     # Building it inside build_report() would project from incomplete state
@@ -89,5 +91,20 @@ def _build_final_report(
         findings=sanitized.findings,
         report=report,
     )
+    # v0.22 (verifier cycle, P2/M3): build the new top-level verifier
+    # blocks as deterministic projections. They are reviewer-facing inputs
+    # and summaries only; release_decision.decision remains the sole gate.
+    # Order matters: the capability delta, protected surfaces, effective
+    # policy, and human-ack blocks are built first, then verifier_summary is
+    # composed last so it can mirror release_decision.decision and the
+    # human_ack flags.
+    report.capability_change = build_capability_change(report)
+    report.protected_surface_changes = build_protected_surface_changes(report)
+    report.effective_policy = build_effective_policy_snapshot(
+        sanitized.manifest,
+        baseline_fingerprints=accepted_debt_fingerprints(report.findings),
+    )
+    report.human_ack = build_human_ack(report, sanitized.manifest)
+    report.verifier_summary = build_verifier_summary(report)
     public_report_payload = report_json_payload(report)
     return report, public_report_payload

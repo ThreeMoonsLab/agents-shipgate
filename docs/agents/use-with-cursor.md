@@ -70,8 +70,8 @@ Read `agents-shipgate-reports/verifier.json` and **lead with `merge_verdict`**
 (`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /
 `unknown`). It is a deterministic projection of `release_decision.decision`,
 which stays the gate in `agents-shipgate-reports/report.json`. Read
-`capability_changes[]` next for what tool/action access the diff changed, and
-check `trust_root_touched`.
+`capability_review.top_changes[]` next for the highest-signal tool/action access
+changes, and check `trust_root_touched`.
 
 Cursor must not claim the change is complete when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
