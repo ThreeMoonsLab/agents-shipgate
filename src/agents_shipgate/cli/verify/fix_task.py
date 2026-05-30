@@ -12,6 +12,8 @@ cannot invent its way past it.
 
 from __future__ import annotations
 
+import shlex
+
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
@@ -46,39 +48,59 @@ def build_fix_task(
     Returns ``None`` when there is nothing to fix (mergeable, or no head
     release decision to reason about).
     """
-    if (
-        merge_verdict == "mergeable"
-        or report is None
-        or report.release_decision is None
-        or capability_review is None
-    ):
+    if merge_verdict == "mergeable":
         return None
 
-    gating = _gating_findings(report)
     verification_command = _verification_command(base_ref, head_ref)
 
-    # Authority gap — a coding agent must not invent its way past these.
-    authority = (
-        capability_review.policy_weakened
-        or capability_review.trust_root_touched
-        or merge_verdict in {"insufficient_evidence", "unknown"}
-        or not gating
-        or any(finding.requires_human_review for finding in gating)
-    )
-    if authority:
+    # No completed head decision (scan skipped/failed → ``unknown``) but the PR
+    # is not mergeable: there are no findings to route on, so fail closed to a
+    # human who must investigate why the scan did not complete. Emitting a task
+    # here (rather than None) keeps the contract uniform — every non-mergeable
+    # verdict carries a fix_task.
+    if report is None or report.release_decision is None or capability_review is None:
         return VerifierFixTask(
             actor="human",
             safe_to_attempt=False,
-            instructions=_human_instructions(report, capability_review, gating),
+            instructions=[
+                "Shipgate could not produce a release decision for this PR; a "
+                "human must investigate why the scan did not complete and "
+                "re-run before merge."
+            ],
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
             verification_command=verification_command,
         )
 
-    # Mechanical gap — every gating finding is autofix_safe.
+    gating = _gating_findings(report)
+
+    # The coding-agent route is the only non-human outcome and it MUST fail
+    # closed: every gating finding has to be explicitly mechanical
+    # (``autofix_safe is True`` AND ``requires_human_review is False``). A
+    # finding whose routing fields are ``None``/``False`` — stale, plugin, or
+    # legacy — is treated as an authority gap and never silently marked
+    # agent-safe.
+    mechanical = bool(gating) and all(
+        finding.autofix_safe is True and finding.requires_human_review is False
+        for finding in gating
+    )
+    authority_escalation = (
+        capability_review.policy_weakened
+        or capability_review.trust_root_touched
+        or merge_verdict in {"insufficient_evidence", "unknown"}
+    )
+    if mechanical and not authority_escalation:
+        return VerifierFixTask(
+            actor="coding_agent",
+            safe_to_attempt=True,
+            instructions=_mechanical_instructions(gating),
+            forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
+            verification_command=verification_command,
+        )
+
     return VerifierFixTask(
-        actor="coding_agent",
-        safe_to_attempt=True,
-        instructions=_mechanical_instructions(gating),
+        actor="human",
+        safe_to_attempt=False,
+        instructions=_human_instructions(report, capability_review, gating),
         forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
         verification_command=verification_command,
     )
@@ -120,11 +142,9 @@ def _human_instructions(
             "A human must review the touched release trust root (manifest, CI "
             "gate, agent instructions, or trigger catalog) before merge."
         )
-    out.extend(
-        finding.recommendation
-        for finding in gating
-        if finding.requires_human_review and finding.recommendation
-    )
+    # List every gating finding's recommendation — a human-routed task owns the
+    # whole decision, including findings whose routing fields were ambiguous.
+    out.extend(finding.recommendation for finding in gating if finding.recommendation)
     return _dedupe_cap(out)
 
 
@@ -143,8 +163,11 @@ def _dedupe_cap(items: list[str]) -> list[str]:
 
 
 def _verification_command(base_ref: str | None, head_ref: str) -> str:
-    base = base_ref or "origin/main"
-    head = head_ref or "HEAD"
+    # Refs come from CLI / GitHub branch inputs and a valid git ref may contain
+    # shell metacharacters (e.g. ``;``); quote them so the emitted command is
+    # safe to run when an agent or human copies it verbatim.
+    base = shlex.quote(base_ref or "origin/main")
+    head = shlex.quote(head_ref or "HEAD")
     return f"agents-shipgate verify --base {base} --head {head} --json"
 
 

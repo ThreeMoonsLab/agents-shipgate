@@ -251,7 +251,7 @@ def _required_before_merge_lines(
         for index, instruction in enumerate(fix_task.instructions[:6], start=1):
             lines.append(f"{index}. {_escape(instruction)}")
         if fix_task.verification_command:
-            lines.append(f"Then re-verify: `{fix_task.verification_command}`")
+            lines.append(f"Then re-verify: {_code(fix_task.verification_command)}")
         return lines
     items: list[str] = []
     if review.trust_root_touched or review.policy_weakened:

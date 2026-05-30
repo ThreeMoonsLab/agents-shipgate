@@ -16,6 +16,8 @@ from pydantic import ValidationError
 from agents_shipgate.cli.verify.fix_task import build_fix_task
 from agents_shipgate.cli.verify.orchestrator import _first_next_action
 from agents_shipgate.schemas.report import (
+    AgentSummary,
+    AgentSummaryAction,
     BaselineDelta,
     EvidenceCoverageDecision,
     FailPolicy,
@@ -270,3 +272,129 @@ def test_human_fix_task_unsafe_is_valid() -> None:
 
 def test_coding_agent_fix_task_safe_is_valid() -> None:
     VerifierFixTask(actor="coding_agent", safe_to_attempt=True)
+
+
+# --- Fail-closed routing (review feedback) ----------------------------------
+
+
+def test_finding_with_unknown_routing_fields_fails_closed_to_human() -> None:
+    # autofix_safe / requires_human_review default to None on stale, plugin, or
+    # legacy findings; an unresolved finding must never be marked agent-safe.
+    f = Finding(
+        id="F1",
+        check_id="SHIP-TEST",
+        title="legacy finding",
+        severity="medium",
+        category="action_surface",
+        evidence={},
+        recommendation="Investigate.",
+        blocks_release=False,
+        # autofix_safe and requires_human_review left at their None defaults.
+    )
+    task = _fix_task(_report(decision="review_required", findings=[f], review_items=[f]))
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+
+
+def test_finding_autofix_false_routes_to_human() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=False)
+    task = _fix_task(_report(decision="review_required", findings=[f], review_items=[f]))
+    assert task is not None
+    assert task.actor == "human"
+
+
+def test_unknown_verdict_without_report_emits_human_fix_task() -> None:
+    # No head report (scan failed → unknown) still yields a human fix_task so
+    # the contract is uniform: every non-mergeable verdict carries one.
+    task = build_fix_task(
+        None,
+        merge_verdict="unknown",
+        capability_review=None,
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+    assert task.verification_command is not None
+
+
+def test_mergeable_without_report_has_no_fix_task() -> None:
+    assert (
+        build_fix_task(
+            None,
+            merge_verdict="mergeable",
+            capability_review=None,
+            base_ref="origin/main",
+            head_ref="HEAD",
+        )
+        is None
+    )
+
+
+def test_verification_command_quotes_shell_metacharacters() -> None:
+    # ';' is a valid git ref character, so an unquoted command would be
+    # injectable when an agent or human runs the suggested string.
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    task = _fix_task(
+        _report(decision="blocked", findings=[f], blockers=[f]),
+        head_ref="foo;rm -rf /",
+    )
+    assert task is not None
+    assert task.verification_command is not None
+    assert "--head foo;rm" not in task.verification_command
+    assert "'foo;rm -rf /'" in task.verification_command
+
+
+# --- first_next_action / fix_task coherence ---------------------------------
+
+
+def test_first_next_action_ignores_recommendation_that_contradicts_fix_task() -> None:
+    # fix_task says the coding agent can act, but the agent summary points a
+    # human at a review surface (info kind). The next-action must follow the
+    # fix_task, not borrow the contradictory recommendation.
+    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    task = _fix_task(
+        _report(decision="review_required", findings=[mech], review_items=[mech])
+    )
+    summary = AgentSummary(
+        verdict="review_required",
+        headline="h",
+        first_recommended_action=AgentSummaryAction(
+            kind="info", command=None, why="A human must look at this."
+        ),
+    )
+    action = _first_next_action(
+        merge_verdict="human_review_required",
+        fix_task=task,
+        agent_summary=summary,
+        reason="r",
+    )
+    assert action.actor == "coding_agent"
+    assert action.why != "A human must look at this."
+    assert action.command == task.verification_command
+
+
+def test_first_next_action_borrows_consistent_recommendation() -> None:
+    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    task = _fix_task(
+        _report(decision="review_required", findings=[mech], review_items=[mech])
+    )
+    summary = AgentSummary(
+        verdict="review_required",
+        headline="h",
+        first_recommended_action=AgentSummaryAction(
+            kind="command",
+            command="agents-shipgate apply-patches --confidence high --apply",
+            why="Apply the safe manifest patches.",
+        ),
+    )
+    action = _first_next_action(
+        merge_verdict="human_review_required",
+        fix_task=task,
+        agent_summary=summary,
+        reason="r",
+    )
+    assert action.actor == "coding_agent"
+    assert action.command == "agents-shipgate apply-patches --confidence high --apply"
