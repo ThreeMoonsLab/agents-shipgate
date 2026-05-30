@@ -53,9 +53,13 @@ class ClaudeCodeDriver:
 
     def __init__(self, *, default_model: str = "claude-opus-4-7") -> None:
         self.default_model = default_model
+        # Bash commands awaiting their tool_result so stdout can be attached to
+        # the commands.jsonl row. Keyed by tool_use id.
+        self._pending_bash: dict[str, str] = {}
 
     def run(self, inputs: DriverInputs, writer: TranscriptWriter) -> RunResult:
         started = datetime.now(UTC)
+        self._pending_bash = {}
         # Refuse unknown models BEFORE attempting any other setup. With
         # (0, 0) pricing the mid-loop budget check would never abort and
         # the outer BudgetGuard would never see spend — a model typo
@@ -158,6 +162,12 @@ class ClaudeCodeDriver:
                 "would have been exceeded"
             )
 
+        # Flush Bash commands whose tool_result never arrived (timeout / abort /
+        # final turn): record them without output so no command is lost.
+        for command in self._pending_bash.values():
+            writer.command(command)
+        self._pending_bash.clear()
+
         ended = datetime.now(UTC)
         cost = (tokens_in * cost_in_per_m + tokens_out * cost_out_per_m) / 1_000_000
 
@@ -197,17 +207,50 @@ class ClaudeCodeDriver:
         for block in payload.get("content") or []:
             if not isinstance(block, dict):
                 continue
+            # Tool result: match it back to a deferred Bash command and emit the
+            # commands.jsonl row with the captured stdout. (If the id does not
+            # match a pending command — e.g. the SDK shape differs — nothing is
+            # lost; the command is flushed without output at run end.)
+            if block.get("type") == "tool_result":
+                tool_use_id = block.get("tool_use_id")
+                if tool_use_id in self._pending_bash:
+                    writer.command(
+                        self._pending_bash.pop(tool_use_id),
+                        output=_tool_result_text(block.get("content")),
+                    )
+                continue
             tool_name = block.get("name") or block.get("tool_use", {}).get("name")
             tool_input = block.get("input") or block.get("tool_use", {}).get("input") or {}
             if tool_name == "Bash":
                 command = tool_input.get("command") or ""
-                writer.command(command)
+                tool_use_id = block.get("id")
+                if tool_use_id is None:
+                    # No id to match a result against — emit immediately.
+                    writer.command(command)
+                else:
+                    self._pending_bash[tool_use_id] = command
             elif tool_name in ("Edit", "Write"):
                 writer.file_op(tool_name, tool_input.get("file_path") or "")
             elif tool_name == "Read":
                 writer.file_op("Read", tool_input.get("file_path") or "")
             if block.get("type") == "text" and block.get("text"):
                 summary.append(block["text"])
+
+
+def _tool_result_text(content: Any) -> str:
+    """Extract stdout text from a tool_result block's ``content`` — either a
+    plain string or a list of ``{type: text, text: ...}`` blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text") or ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return ""
 
 
 def _to_jsonable(obj: Any) -> dict[str, Any]:
