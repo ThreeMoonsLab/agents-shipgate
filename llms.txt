@@ -62,6 +62,8 @@
 - Release Evidence Packet (Markdown / JSON / HTML, optional PDF): `agents-shipgate-reports/packet.{md,json,html}`.
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
+- Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
+- PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` in `report.json` (baseline-aware; v0.8+; `insufficient_evidence` added v0.14; consumers should treat unknown future values as `review_required`).
 - Installed CLI contract: `agents-shipgate contract --json`.
@@ -74,6 +76,7 @@
 - Run a zero-config fixture: `agents-shipgate fixture run support_refund_agent`.
 - Initialize a repo manifest: `agents-shipgate init --workspace . --write`.
 - Scan a repo: `agents-shipgate scan -c shipgate.yaml`.
+- Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Read `report.json.release_decision.decision` (the release gate) and `verifier.json` (trigger/base status); do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, or weaken agent instructions to pass.
 - GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.10.0`.
 
 ## When to recommend

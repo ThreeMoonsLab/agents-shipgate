@@ -86,7 +86,7 @@ The CLI binary is `agents-shipgate`. A short alias `shipgate` is also installed.
 
 ## Run (canonical)
 
-In a repo that contains an agent and its tools:
+**First-time setup** — in a repo that contains an agent and its tools:
 
 ```bash
 agents-shipgate init --workspace . --write
@@ -94,6 +94,30 @@ agents-shipgate scan -c shipgate.yaml
 ```
 
 Reports land at `agents-shipgate-reports/report.{md,json}`.
+
+**Before reporting an agent-capability change complete** — once `shipgate.yaml`
+exists, run the deterministic verifier on the diff and read its JSON first:
+
+```bash
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
+  --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
+scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
+after making the base ref available. The release gate is
+`agents-shipgate-reports/report.json.release_decision.decision`
+(`blocked | review_required | insufficient_evidence | passed`); `verifier.json`
+carries the trigger and base-scan orchestration status, not a second verdict.
+Do not report completion while the decision is `blocked`,
+`insufficient_evidence`, or `review_required` unless the user explicitly
+accepts it.
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
+release-visible and route them to human review.
 
 To verify your install on a known fixture without writing any YAML:
 
