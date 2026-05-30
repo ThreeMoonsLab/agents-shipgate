@@ -1,0 +1,272 @@
+"""PR-B contract: deterministic fix_task routing (mechanical vs authority).
+
+`fix_task` is the single repair instruction a verify run hands to whoever
+acts next. Its routing is a pure projection of the head scan — never a model
+judgment — and the split is the product's core safety boundary: a coding
+agent may fix mechanical gaps, but an authority gap (approval/idempotency
+evidence it cannot prove, a weakened policy, a touched trust root, degraded
+evidence) must route to a human so the agent cannot invent its way to green.
+"""
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from agents_shipgate.cli.verify.fix_task import build_fix_task
+from agents_shipgate.cli.verify.orchestrator import _first_next_action
+from agents_shipgate.schemas.report import (
+    BaselineDelta,
+    EvidenceCoverageDecision,
+    FailPolicy,
+    Finding,
+    ReadinessReport,
+    ReleaseDecision,
+    ReleaseDecisionItem,
+    ReportSummary,
+    ToolSurfaceSummary,
+)
+from agents_shipgate.schemas.verifier import (
+    VerifierCapabilityReview,
+    VerifierFixTask,
+    map_merge_verdict,
+)
+
+
+def _finding(
+    fid: str,
+    *,
+    requires_human_review: bool,
+    autofix_safe: bool,
+    recommendation: str = "Add the missing control.",
+    severity: str = "medium",
+    blocks_release: bool = False,
+) -> Finding:
+    return Finding(
+        id=fid,
+        check_id="SHIP-TEST",
+        title=f"finding {fid}",
+        severity=severity,  # type: ignore[arg-type]
+        category="action_surface",
+        evidence={},
+        recommendation=recommendation,
+        blocks_release=blocks_release,
+        requires_human_review=requires_human_review,
+        autofix_safe=autofix_safe,
+    )
+
+
+def _item(finding: Finding) -> ReleaseDecisionItem:
+    return ReleaseDecisionItem(
+        id=finding.id,
+        check_id=finding.check_id,
+        severity=finding.severity,
+        title=finding.title,
+    )
+
+
+def _report(*, decision: str, findings, blockers=(), review_items=()) -> ReadinessReport:
+    return ReadinessReport(
+        run_id="r",
+        project={"name": "p"},
+        agent={"name": "a"},
+        environment={"target": "local"},
+        summary=ReportSummary(status="clean"),
+        release_decision=ReleaseDecision(
+            decision=decision,  # type: ignore[arg-type]
+            reason="2 findings require review.",
+            blockers=[_item(f) for f in blockers],
+            review_items=[_item(f) for f in review_items],
+            evidence_coverage=EvidenceCoverageDecision(
+                level="static",
+                human_review_recommended=False,
+                source_warning_count=0,
+                low_confidence_tool_count=0,
+            ),
+            baseline_delta=BaselineDelta(enabled=False),
+            fail_policy=FailPolicy(
+                ci_mode="advisory",
+                fail_on=["critical"],
+                new_findings_only=False,
+                would_fail_ci=False,
+                exit_code=0,
+            ),
+        ),
+        tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+        findings=list(findings),
+    )
+
+
+def _review(*, policy_weakened=False, trust_root_touched=False) -> VerifierCapabilityReview:
+    return VerifierCapabilityReview(
+        policy_weakened=policy_weakened, trust_root_touched=trust_root_touched
+    )
+
+
+def _fix_task(report, *, capability_review=None, base_ref="origin/main", head_ref="HEAD"):
+    decision = report.release_decision.decision
+    return build_fix_task(
+        report,
+        merge_verdict=map_merge_verdict(decision),
+        capability_review=capability_review or _review(),
+        base_ref=base_ref,
+        head_ref=head_ref,
+    )
+
+
+# --- Routing ----------------------------------------------------------------
+
+
+def test_mergeable_has_no_fix_task() -> None:
+    report = _report(decision="passed", findings=[])
+    assert (
+        build_fix_task(
+            report,
+            merge_verdict="mergeable",
+            capability_review=_review(),
+            base_ref="origin/main",
+            head_ref="HEAD",
+        )
+        is None
+    )
+
+
+def test_mechanical_review_routes_to_coding_agent() -> None:
+    f = _finding(
+        "F1",
+        requires_human_review=False,
+        autofix_safe=True,
+        recommendation="Add an owner field from CODEOWNERS.",
+    )
+    task = _fix_task(_report(decision="review_required", findings=[f], review_items=[f]))
+    assert task is not None
+    assert task.actor == "coding_agent"
+    assert task.safe_to_attempt is True
+    assert "Add an owner field from CODEOWNERS." in task.instructions
+
+
+def test_authority_review_routes_to_human() -> None:
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    task = _fix_task(_report(decision="review_required", findings=[f], review_items=[f]))
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+
+
+def test_blocked_but_mechanical_routes_by_autofix_not_verdict() -> None:
+    # Routing is by the per-finding autofix_safe signal, not the verdict label.
+    f = _finding(
+        "F1",
+        requires_human_review=False,
+        autofix_safe=True,
+        severity="critical",
+        blocks_release=True,
+    )
+    task = _fix_task(_report(decision="blocked", findings=[f], blockers=[f]))
+    assert task is not None
+    assert task.actor == "coding_agent"
+
+
+def test_policy_weakened_forces_human_even_when_mechanical() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    task = _fix_task(
+        _report(decision="review_required", findings=[f], review_items=[f]),
+        capability_review=_review(policy_weakened=True),
+    )
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+    assert any("self-approve" in line for line in task.instructions)
+
+
+def test_trust_root_touched_forces_human_even_when_mechanical() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    task = _fix_task(
+        _report(decision="review_required", findings=[f], review_items=[f]),
+        capability_review=_review(trust_root_touched=True),
+    )
+    assert task is not None
+    assert task.actor == "human"
+
+
+def test_insufficient_evidence_forces_human() -> None:
+    task = _fix_task(_report(decision="insufficient_evidence", findings=[]))
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+
+
+# --- Instructions / guardrails / verification -------------------------------
+
+
+def test_forbidden_shortcuts_and_verification_command_present() -> None:
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    task = _fix_task(
+        _report(decision="blocked", findings=[f], blockers=[f]),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    assert task.verification_command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+    assert task.forbidden_shortcuts
+    assert any("suppress" in shortcut for shortcut in task.forbidden_shortcuts)
+
+
+def test_instructions_are_deduped_and_capped() -> None:
+    findings = [
+        _finding(f"F{i}", requires_human_review=True, autofix_safe=False, recommendation="Same rec.")
+        for i in range(8)
+    ]
+    task = _fix_task(_report(decision="blocked", findings=findings, blockers=findings))
+    assert task is not None
+    assert task.instructions.count("Same rec.") == 1
+    assert len(task.instructions) <= 5
+
+
+# --- Consistency with first_next_action -------------------------------------
+
+
+def test_first_next_action_actor_matches_fix_task() -> None:
+    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    mech_task = _fix_task(
+        _report(decision="review_required", findings=[mech], review_items=[mech])
+    )
+    assert (
+        _first_next_action(
+            merge_verdict="human_review_required",
+            fix_task=mech_task,
+            agent_summary=None,
+            reason="r",
+        ).actor
+        == "coding_agent"
+    )
+
+    auth = _finding("F2", requires_human_review=True, autofix_safe=False)
+    auth_task = _fix_task(_report(decision="blocked", findings=[auth], blockers=[auth]))
+    assert (
+        _first_next_action(
+            merge_verdict="blocked",
+            fix_task=auth_task,
+            agent_summary=None,
+            reason="r",
+        ).actor
+        == "human"
+    )
+
+
+# --- VerifierFixTask schema validator (anti-reward-hacking) ------------------
+
+
+def test_human_fix_task_cannot_be_agent_safe() -> None:
+    with pytest.raises(ValidationError):
+        VerifierFixTask(actor="human", safe_to_attempt=True)
+
+
+def test_human_fix_task_unsafe_is_valid() -> None:
+    VerifierFixTask(actor="human", safe_to_attempt=False)
+
+
+def test_coding_agent_fix_task_safe_is_valid() -> None:
+    VerifierFixTask(actor="coding_agent", safe_to_attempt=True)
