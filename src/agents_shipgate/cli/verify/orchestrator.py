@@ -20,6 +20,7 @@ from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierArtifact,
     VerifierBaseStatus,
+    VerifierFixTask,
     VerifierHumanReview,
     VerifierNextAction,
     merge_verdict_for,
@@ -27,6 +28,7 @@ from agents_shipgate.schemas.verifier import (
 from agents_shipgate.triggers import evaluate
 
 from .capability_review import build_capability_review
+from .fix_task import build_fix_task
 from .git import (
     archive_tree,
     diff_context,
@@ -546,7 +548,7 @@ def _human_review(
 def _first_next_action(
     *,
     merge_verdict: MergeVerdict,
-    human_review_required: bool,
+    fix_task: VerifierFixTask | None,
     agent_summary: AgentSummary | None,
     reason: str | None,
 ) -> VerifierNextAction:
@@ -557,17 +559,40 @@ def _first_next_action(
             command=None,
             why="No agent-capability changes gate this PR; safe to merge.",
         )
-    actor = "human" if human_review_required else "coding_agent"
+    # The fix_task is the single repair contract; the headline next-step must
+    # not contradict it. Borrow the agent summary's concrete action (e.g. an
+    # apply-patches command) only when its implied actor agrees with the
+    # fix_task routing — otherwise derive the pointer from the fix_task so that
+    # actor, command, and why all come from one source.
+    actor = fix_task.actor if fix_task is not None else "human"
     recommended = (
         agent_summary.first_recommended_action if agent_summary is not None else None
     )
     if recommended is not None:
-        return VerifierNextAction(
-            actor=actor,
-            kind=recommended.kind,
-            command=recommended.command,
-            why=recommended.why,
+        # The PR comment infers a recommendation's actor the same way: a
+        # runnable command implies the coding agent, an info note a human.
+        recommended_actor = "coding_agent" if recommended.kind == "command" else "human"
+        if fix_task is None or recommended_actor == actor:
+            return VerifierNextAction(
+                actor=actor,
+                kind=recommended.kind,
+                command=recommended.command,
+                why=recommended.why,
+            )
+    if fix_task is not None:
+        why = (
+            fix_task.instructions[0]
+            if fix_task.instructions
+            else (reason or "Human review required before merge.")
         )
+        if actor == "coding_agent":
+            return VerifierNextAction(
+                actor=actor,
+                kind="command",
+                command=fix_task.verification_command,
+                why=why,
+            )
+        return VerifierNextAction(actor=actor, kind="review", command=None, why=why)
     return VerifierNextAction(
         actor=actor,
         kind="review",
@@ -641,6 +666,14 @@ def _build_verifier(
         merge_verdict=merge_verdict, release_decision=release_decision_model
     )
     agent_summary_model = report.agent_summary if report is not None else None
+    capability_review = build_capability_review(report) if report is not None else None
+    fix_task = build_fix_task(
+        report,
+        merge_verdict=merge_verdict,
+        capability_review=capability_review,
+        base_ref=base,
+        head_ref=head,
+    )
     return VerifierArtifact(
         workspace=str(git_root),
         config=_display_path(config_path, git_root),
@@ -669,7 +702,7 @@ def _build_verifier(
             if report is not None and report.reviewer_summary is not None
             else None
         ),
-        capability_review=build_capability_review(report) if report is not None else {},
+        capability_review=capability_review if capability_review is not None else {},
         mode=_verifier_mode(
             ci_mode=ci_mode,
             report=report,
@@ -690,10 +723,11 @@ def _build_verifier(
         human_review=human_review,
         first_next_action=_first_next_action(
             merge_verdict=merge_verdict,
-            human_review_required=human_review.required,
+            fix_task=fix_task,
             agent_summary=agent_summary_model,
             reason=release_decision_model.reason if release_decision_model else None,
         ),
+        fix_task=fix_task,
         artifacts=artifacts,
     )
 

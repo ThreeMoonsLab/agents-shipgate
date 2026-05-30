@@ -7,6 +7,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityChange,
     VerifierCapabilityReview,
+    VerifierFixTask,
 )
 
 from .capability_review import TRUST_ROOT_CHECK_ID
@@ -82,7 +83,7 @@ def _render_capability_review_comment(
 
     lines.extend(_capability_change_table(review))
     lines.extend(_trust_root_warning_lines(review, report))
-    lines.extend(_required_before_merge_lines(report, review))
+    lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
     lines.extend(_artifact_lines(verifier))
     return _truncate("\n".join(lines), 6000)
 
@@ -233,8 +234,25 @@ def _trust_root_warning_lines(
 def _required_before_merge_lines(
     report: ReadinessReport,
     review: VerifierCapabilityReview,
+    fix_task: VerifierFixTask | None = None,
 ) -> list[str]:
     lines = ["", "### Required before merge"]
+    # When verify produced a fix_task it is the authoritative repair contract;
+    # render it verbatim so the human surface and verifier.json never tell
+    # different stories about who acts next and whether it is safe.
+    if fix_task is not None:
+        who = "Coding agent" if fix_task.actor == "coding_agent" else "Human"
+        safety = (
+            "safe for the coding agent to attempt"
+            if fix_task.safe_to_attempt
+            else "human authority required — a coding agent must not self-resolve"
+        )
+        lines.append(f"Actor: {who} ({safety}).")
+        for index, instruction in enumerate(fix_task.instructions[:6], start=1):
+            lines.append(f"{index}. {_escape(instruction)}")
+        if fix_task.verification_command:
+            lines.append(f"Then re-verify: {_code(fix_task.verification_command)}")
+        return lines
     items: list[str] = []
     if review.trust_root_touched or review.policy_weakened:
         items.append("Human: review the release-gate or policy change before merge.")

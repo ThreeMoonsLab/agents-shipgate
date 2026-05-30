@@ -96,6 +96,39 @@ class VerifierHumanReview(BaseModel):
     why: str | None = None
 
 
+class VerifierFixTask(BaseModel):
+    """The single repair task a verify run hands to whoever acts next.
+
+    Routing is deterministic and projected from the head scan — never an LLM
+    judgment. ``coding_agent`` + ``safe_to_attempt=True`` means the gating
+    gaps are mechanical (every gating finding is ``autofix_safe``): the agent
+    may fix them and re-run ``verification_command``. ``human`` +
+    ``safe_to_attempt=False`` means an authority gap a coding agent must not
+    invent its way past — missing approval/idempotency evidence, a weakened
+    policy, or a touched trust root. ``forbidden_shortcuts`` are the
+    reward-hacking moves that are never acceptable for either actor.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor: Literal["coding_agent", "human"]
+    safe_to_attempt: bool
+    instructions: list[str] = Field(default_factory=list)
+    forbidden_shortcuts: list[str] = Field(default_factory=list)
+    verification_command: str | None = None
+
+    @model_validator(mode="after")
+    def _human_tasks_are_never_agent_safe(self) -> VerifierFixTask:
+        # The anti-reward-hacking guarantee: an authority gap routed to a
+        # human can never be marked safe for a coding agent to attempt.
+        if self.actor == "human" and self.safe_to_attempt:
+            raise ValueError(
+                "VerifierFixTask with actor='human' must have "
+                "safe_to_attempt=False (authority gaps are not agent-safe)."
+            )
+        return self
+
+
 class VerifierCapabilityChange(BaseModel):
     """One reviewer-facing capability change projected for verifier output."""
 
@@ -168,6 +201,7 @@ class VerifierArtifact(BaseModel):
     headline: str | None = None
     human_review: VerifierHumanReview | None = None
     first_next_action: VerifierNextAction | None = None
+    fix_task: VerifierFixTask | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -209,6 +243,7 @@ __all__ = [
     "VerifierBaseStatus",
     "VerifierCapabilityChange",
     "VerifierCapabilityReview",
+    "VerifierFixTask",
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",
