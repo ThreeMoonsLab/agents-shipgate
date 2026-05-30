@@ -20,6 +20,7 @@ from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierArtifact,
     VerifierBaseStatus,
+    VerifierCapabilityReview,
     VerifierFixTask,
     VerifierHumanReview,
     VerifierNextAction,
@@ -536,10 +537,39 @@ def _can_merge_without_human(
     return not (release_decision.blockers or release_decision.review_items)
 
 
+def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> str | None:
+    """The explicit self-approval prohibition when this PR edits the rules that
+    evaluate it.
+
+    A coding agent must never silently self-approve a change to its own release
+    gate (reward hacking). When the head scan flags a weakened policy or a
+    touched trust root, that prohibition is surfaced as the verifier headline
+    and the human-review reason — not left implicit in a fix_task instruction.
+    """
+    if capability_review is None:
+        return None
+    if capability_review.policy_weakened:
+        return (
+            "This PR weakens the release policy that evaluates it; a coding "
+            "agent cannot self-approve that change — a human must review it."
+        )
+    if capability_review.trust_root_touched:
+        return (
+            "This PR edits a release trust root (the manifest, CI gate, agent "
+            "instructions, or trigger catalog used to evaluate it); a coding "
+            "agent cannot self-approve that change — a human must review it."
+        )
+    return None
+
+
 def _human_review(
-    *, merge_verdict: MergeVerdict, release_decision: ReleaseDecision | None
+    *,
+    merge_verdict: MergeVerdict,
+    release_decision: ReleaseDecision | None,
+    capability_review: VerifierCapabilityReview | None = None,
 ) -> VerifierHumanReview:
-    required = merge_verdict in {
+    note = _self_approval_note(capability_review)
+    required = note is not None or merge_verdict in {
         "human_review_required",
         "blocked",
         "insufficient_evidence",
@@ -547,10 +577,14 @@ def _human_review(
     }
     if not required:
         return VerifierHumanReview(required=False, why=None)
-    why = release_decision.reason if release_decision is not None else None
+    # A self-approval prohibition is the most important reason a human is
+    # needed; surface it ahead of the generic release-decision reason.
+    reason = release_decision.reason if release_decision is not None else None
     return VerifierHumanReview(
         required=True,
-        why=why or "A human must review this agent-capability change before merge.",
+        why=note
+        or reason
+        or "A human must review this agent-capability change before merge.",
     )
 
 
@@ -611,8 +645,17 @@ def _first_next_action(
 
 
 def _verifier_headline(
-    *, report: ReadinessReport | None, merge_verdict: MergeVerdict, head_status: str
+    *,
+    report: ReadinessReport | None,
+    merge_verdict: MergeVerdict,
+    head_status: str,
+    capability_review: VerifierCapabilityReview | None = None,
 ) -> str | None:
+    # An agent editing the rules that evaluate its own change must see the
+    # self-approval prohibition first, ahead of the generic scan headline.
+    note = _self_approval_note(capability_review)
+    if note is not None:
+        return note
     if report is not None and report.agent_summary is not None:
         return report.agent_summary.headline
     if head_status == "skipped":
@@ -671,11 +714,13 @@ def _build_verifier(
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
-    human_review = _human_review(
-        merge_verdict=merge_verdict, release_decision=release_decision_model
-    )
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
+    human_review = _human_review(
+        merge_verdict=merge_verdict,
+        release_decision=release_decision_model,
+        capability_review=capability_review,
+    )
     fix_task = build_fix_task(
         report,
         merge_verdict=merge_verdict,
@@ -728,6 +773,7 @@ def _build_verifier(
             report=report,
             merge_verdict=merge_verdict,
             head_status=head_status,
+            capability_review=capability_review,
         ),
         human_review=human_review,
         first_next_action=_first_next_action(
