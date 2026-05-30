@@ -34,8 +34,8 @@ Proceed when `is_agent_project: true`, `suggested_sources` is non-empty,
 ## Parse outputs from JSON, not stdout
 
 Always read `agents-shipgate-reports/report.json` rather than scraping the
-markdown report. The current report schema is `docs/report-schema.v0.20.json`
-and emitted reports carry `report_schema_version: "0.20"`.
+markdown report. The current report schema is `docs/report-schema.v0.22.json`
+and emitted reports carry `report_schema_version: "0.22"`.
 
 For release gating, lead with `release_decision.decision`. It is baseline-aware
 and may be `"blocked"`, `"review_required"`, `"insufficient_evidence"`, or
@@ -53,6 +53,20 @@ agents-shipgate apply-patches \
 
 Do not auto-assert approval, confirmation, idempotency, broad-scope, or
 prohibited-action policy decisions. Surface those as human review items.
+
+For an ongoing PR, prefer the verifier and read its JSON before reporting the
+work complete:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+The release gate is `report.json.release_decision.decision`; `verifier.json`
+carries trigger and base-scan status, not a second verdict. Do not bypass the
+verifier by suppressing findings, lowering severity, expanding baselines or
+waivers, removing Shipgate CI, or weakening agent instructions. Verify-mode
+`SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 
 ## Frequently-used command surface
 

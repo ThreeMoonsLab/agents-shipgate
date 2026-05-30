@@ -62,6 +62,7 @@
   },
   "binaries": ["agents-shipgate", "shipgate"],
   "quickstart": "agents-shipgate init --workspace . --write && agents-shipgate scan -c shipgate.yaml",
+  "verify": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
   "fixture_run": "agents-shipgate fixture run support_refund_agent",
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
