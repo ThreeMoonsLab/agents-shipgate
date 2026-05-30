@@ -526,8 +526,15 @@ def _map_optional_tree_path(
 
 
 def _can_merge_without_human(
-    *, merge_verdict: MergeVerdict, release_decision: ReleaseDecision | None
+    *,
+    merge_verdict: MergeVerdict,
+    release_decision: ReleaseDecision | None,
+    capability_review: VerifierCapabilityReview | None = None,
 ) -> bool:
+    # A self-approval change can never clear its own gate, even in the
+    # defensive case where the verdict was somehow not human-routed.
+    if _self_approval_note(capability_review) is not None:
+        return False
     if merge_verdict != "mergeable":
         return False
     if release_decision is None:
@@ -594,13 +601,22 @@ def _first_next_action(
     fix_task: VerifierFixTask | None,
     agent_summary: AgentSummary | None,
     reason: str | None,
+    capability_review: VerifierCapabilityReview | None = None,
 ) -> VerifierNextAction:
-    if merge_verdict == "mergeable":
+    self_approval = _self_approval_note(capability_review)
+    if merge_verdict == "mergeable" and self_approval is None:
         return VerifierNextAction(
             actor="coding_agent",
             kind="none",
             command=None,
             why="No agent-capability changes gate this PR; safe to merge.",
+        )
+    if self_approval is not None and fix_task is None:
+        # Defensive self-approval path (e.g. a 'mergeable' verdict that still
+        # carries a self-approval note): a human must review — never emit the
+        # "safe to merge" action.
+        return VerifierNextAction(
+            actor="human", kind="review", command=None, why=self_approval
         )
     # The fix_task is the single repair contract; the headline next-step must
     # not contradict it. Borrow the agent summary's concrete action (e.g. an
@@ -768,6 +784,7 @@ def _build_verifier(
         can_merge_without_human=_can_merge_without_human(
             merge_verdict=merge_verdict,
             release_decision=release_decision_model,
+            capability_review=capability_review,
         ),
         headline=_verifier_headline(
             report=report,
@@ -781,6 +798,7 @@ def _build_verifier(
             fix_task=fix_task,
             agent_summary=agent_summary_model,
             reason=release_decision_model.reason if release_decision_model else None,
+            capability_review=capability_review,
         ),
         fix_task=fix_task,
         artifacts=artifacts,
