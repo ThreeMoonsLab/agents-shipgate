@@ -33,6 +33,7 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 |---|---|
 | Decide whether Shipgate should run at all (apply `docs/triggers.json` against the PR) | [`prompts/decide-shipgate-relevance.md`](prompts/decide-shipgate-relevance.md) |
 | Bootstrap a repo (install, init, scan, report) | [`prompts/add-shipgate-to-repo.md`](prompts/add-shipgate-to-repo.md) |
+| Verify an agent-related PR or local diff before finishing | [`prompts/verify-agent-diff.md`](prompts/verify-agent-diff.md) |
 | Add Shipgate to CI for the first time (advisory, PR comment) | See "First-time CI setup" below; copy [`ci-recipes/advisory-pr-comment.yml`](ci-recipes/advisory-pr-comment.yml) |
 | Fix the highest-severity finding | [`prompts/fix-top-finding.md`](prompts/fix-top-finding.md) |
 | Recommend fixes across all active findings | [`prompts/recommend-fixes.md`](prompts/recommend-fixes.md) |
@@ -45,7 +46,9 @@ Always:
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
 2. Parse `agents-shipgate-reports/report.json` (stable contract), not the markdown.
-3. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
+3. Before finishing an agent-related local diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`, or report the exact `agents-shipgate trigger` skip verdict. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
+4. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
+5. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
 
 ## First-time CI setup (advisory)
 
@@ -77,6 +80,8 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 - Do not run `agents-shipgate baseline save` until the user has reviewed the initial findings; baselining ratchets in noise.
 - Do not enable strict CI as the first CI step. Always start advisory.
 - Do not modify checks in `agents-shipgate`'s own source — that's upstream repo work.
+- Do not weaken Shipgate trust roots to make a verifier run pass. Policy, baseline,
+  waiver, CI, trigger-catalog, and agent-instruction changes require human review.
 
 ## If something errors out
 

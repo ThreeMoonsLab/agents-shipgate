@@ -36,6 +36,37 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate apply-patches \
 
 If `init` reports placeholders, replace `CHANGE_ME` values from repo context before scanning. If `shipgate.yaml` already exists, edit it rather than overwriting it.
 
+## Verify An Agent-Related Diff
+
+Use this before finishing a PR or local change that touches an agent tool
+surface, prompts, policies, permissions, Shipgate CI, or other protected
+release surfaces.
+
+```bash
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
+  --workspace . --base origin/main --head HEAD --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
+  --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+For local pre-commit work, omit `--head` and omit `--base` unless the base ref
+exists locally so `verify` scans the checked-out working tree, including
+uncommitted edits. In committed PR or CI contexts, add
+`--base origin/main --head HEAD` after making the base ref available. If you
+pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
+
+Read `agents-shipgate-reports/report.json` first. Use
+`release_decision.decision` as the gate. Use `verifier_summary` only as a
+composition summary: its `verdict` mirrors `release_decision.decision` and it
+adds counts for protected-surface touches, policy weakening, human
+acknowledgement, and top reason codes.
+
+Do not bypass the verifier. Do not suppress findings, lower severity, expand
+baselines or waivers, remove Shipgate CI, or weaken agent instructions to make
+the run pass. Verify-mode `SHIP-VERIFY-*` findings route those trust-root
+changes to human review.
+
 ## First-Time CI
 
 Use advisory mode only. Copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.

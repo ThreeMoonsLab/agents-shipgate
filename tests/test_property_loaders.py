@@ -26,6 +26,7 @@ paths.
 from __future__ import annotations
 
 import json
+import keyword
 from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
@@ -50,7 +51,10 @@ from agents_shipgate.schemas.manifest import (
 TOOL_NAMES = st.from_regex(r"[A-Za-z][A-Za-z0-9._-]{0,24}", fullmatch=True)
 
 # Python identifiers (no dots; constrained for AST loader tests).
-PY_IDENTIFIERS = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,20}", fullmatch=True)
+PY_IDENTIFIERS = st.from_regex(
+    r"[A-Za-z_][A-Za-z0-9_]{0,20}",
+    fullmatch=True,
+).filter(lambda value: not keyword.iskeyword(value))
 
 # Free-form text the loaders treat opaquely. Mix of ASCII + low Unicode
 # to catch any naive bytes-vs-str assumption inside the loaders.

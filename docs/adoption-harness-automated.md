@@ -127,7 +127,7 @@ rubric score.
 |---|---|---|
 | `discovers_relevance` | warn | Did the agent invoke Shipgate (or correctly skip it on a negative-control cell)? |
 | `chooses_advisory_first` | warn | First `scan`/`init --ci` did not use `--ci-mode=blocking`. |
-| `runs_detect` / `runs_init` / `runs_doctor` / `runs_scan` | info | Each agents-shipgate subcommand present in commands stream. |
+| `runs_detect` / `runs_init` / `runs_doctor` / `runs_scan` / `runs_verify` | info | Each agents-shipgate subcommand present in commands stream. `verify` is the preferred signal for ongoing agent-related diffs in repos that already have `shipgate.yaml`. |
 | `replaces_change_me` | **blocker** | No `CHANGE_ME` literal left in `shipgate.yaml`. |
 | `parses_report_json` | info | Agent read `agents-shipgate-reports/report.json`. |
 | `uses_release_decision` | warn | Final summary mentions `release_decision` and a value. |
@@ -150,6 +150,7 @@ for real Cursor runs.
 | Failure | Fix destination |
 |---|---|
 | Agent ignores Shipgate on `10-agents-md` (tool-PR prompt) | Strengthen wording in `docs/target-repo-agent-snippets.md` AGENTS.md block; the renderer in `src/agents_shipgate/cli/discovery/agent_instructions/renderers/` lifts from there. |
+| Agent modifies an agent-related diff but never runs `verify` on an opted-in repo | Strengthen Codex/Claude/Cursor "before finishing" guidance and the `verify-agent-diff` recipe. |
 | Scan invoked without `--ci-mode advisory` | Make advisory the default in the snippet example; consider `init --write` defaulting workflow to advisory. |
 | Agent parses Markdown report not JSON | Add `agent_summary` excerpt to the snippet; have `src/agents_shipgate/cli/scan/` print "Parse the JSON report at …" hint in agent mode. |
 | `CHANGE_ME` left in `shipgate.yaml` | CLI fix in `src/agents_shipgate/cli/_register_init.py`. Add diagnostic in `src/agents_shipgate/cli/diagnostics.py`. |

@@ -1,0 +1,438 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from agents_shipgate.cli.install_hooks import (
+    HOOK_SCRIPT_RELATIVE_PATH,
+    SETTINGS_RELATIVE_PATH,
+    render_or_install_hooks,
+)
+from agents_shipgate.cli.main import app
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+runner = CliRunner()
+
+
+def test_install_hooks_dry_run_does_not_write(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "install-hooks",
+            "--workspace",
+            str(tmp_path),
+            "--target",
+            "claude-code",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["settings_status"] == "would_write"
+    assert payload["script_status"] == "would_write"
+    assert payload["hooks"] == [
+        {
+            "event": "PostToolUse",
+            "matcher": "Edit|Write|MultiEdit",
+            "purpose": "cheap trigger check after file-editing tools",
+        },
+        {
+            "event": "Stop",
+            "purpose": "full verify at relevant completion boundaries",
+        },
+    ]
+    assert not (tmp_path / SETTINGS_RELATIVE_PATH).exists()
+    assert not (tmp_path / HOOK_SCRIPT_RELATIVE_PATH).exists()
+
+
+def test_install_hooks_write_merges_and_is_idempotent(tmp_path: Path) -> None:
+    settings = tmp_path / SETTINGS_RELATIVE_PATH
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "echo existing",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    first = render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    assert first.settings_status == "written"
+    assert first.script_status == "written"
+
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    post_groups = data["hooks"]["PostToolUse"]
+    assert any(group["matcher"] == "Bash" for group in post_groups)
+    shipgate_groups = [
+        group
+        for group in post_groups
+        if group["hooks"][0].get("args", [None, None])[1] == "trigger"
+    ]
+    assert len(shipgate_groups) == 1
+    assert data["hooks"]["Stop"][0]["hooks"][0]["args"][1] == "verify"
+    assert "--head" not in data["hooks"]["Stop"][0]["hooks"][0]["args"]
+    assert "matcher" not in data["hooks"]["Stop"][0]
+    assert data["hooks"]["Stop"][0]["hooks"][0]["command"] == "python3"
+    assert (tmp_path / HOOK_SCRIPT_RELATIVE_PATH).is_file()
+
+    second = render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    assert second.settings_status == "unchanged"
+    assert second.script_status == "unchanged"
+
+
+def test_install_hooks_rejects_unknown_target(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["install-hooks", "--workspace", str(tmp_path), "--target", "codex", "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert "Unsupported hook target" in result.output
+
+
+def test_generated_post_tool_hook_emits_trigger_context(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    (tmp_path / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+    event = {
+        "hook_event_name": "PostToolUse",
+        "cwd": str(tmp_path),
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(tmp_path / "shipgate.yaml")},
+    }
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} -m agents_shipgate"
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH),
+            "trigger",
+        ],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "Agents Shipgate trigger matched" in context
+    assert "agents-shipgate verify" in context
+    assert "Do not bypass the verifier" in context
+
+
+def test_generated_post_tool_hook_ignores_irrelevant_docs_edit(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    (tmp_path / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("docs\n", encoding="utf-8")
+    event = {
+        "hook_event_name": "PostToolUse",
+        "cwd": str(tmp_path),
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(tmp_path / "README.md")},
+    }
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} -m agents_shipgate"
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH),
+            "trigger",
+        ],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_generated_post_tool_hook_matches_untracked_diff_tokens(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    (tmp_path / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+    agent = tmp_path / "agent.py"
+    agent.write_text(
+        "from agents import function_tool\n\n@function_tool\ndef lookup() -> str:\n"
+        "    return ''\n",
+        encoding="utf-8",
+    )
+    event = {
+        "hook_event_name": "PostToolUse",
+        "cwd": str(tmp_path),
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(agent)},
+    }
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} -m agents_shipgate"
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH),
+            "trigger",
+        ],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "Agents Shipgate trigger matched" in (
+        payload["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_generated_stop_hook_advisory_uses_system_message(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text("require approval\n", encoding="utf-8")
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = str(tmp_path / "missing-shipgate")
+
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "systemMessage" in payload
+    assert "hookSpecificOutput" not in payload
+    assert "could not evaluate the local trigger" in payload["systemMessage"]
+
+
+def test_generated_stop_hook_skips_clean_opted_in_repo(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert not log.exists()
+
+
+def test_generated_stop_hook_verifies_worktree_once_without_head(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text("require approval\n", encoding="utf-8")
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+
+    first = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+    second = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    trigger_entries = [entry for entry in entries if entry[0] == "trigger"]
+    verify_entries = [entry for entry in entries if entry[0] == "verify"]
+    assert len(trigger_entries) == 2
+    assert len(verify_entries) == 1
+    verify_args = verify_entries[0]
+    assert "--head" not in verify_args
+    assert "--base" not in verify_args
+    assert "--no-manifest-present" in trigger_entries[0]
+
+
+def _init_repo(path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "shipgate@example.test"],
+        cwd=path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Shipgate Test"],
+        cwd=path,
+        check=True,
+    )
+    (path / "shipgate.yaml").write_text(
+        "version: '0.1'\nagent:\n  name: test\n  declared_purpose: test\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _fake_shipgate_cli(path: Path) -> Path:
+    script = path.parent / f"{path.name}-fake_shipgate.py"
+    script.write_text(
+        """
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+log = Path(sys.argv[1])
+args = sys.argv[2:]
+with log.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(args) + "\\n")
+
+if args and args[0] == "trigger":
+    print(json.dumps({"should_run": True, "rationale": "test trigger matched"}))
+    raise SystemExit(0)
+if args and args[0] == "verify":
+    print(json.dumps({
+        "release_decision": {
+            "decision": "passed",
+            "blockers": [],
+            "review_items": [],
+        },
+        "base_status": "not_requested",
+    }))
+    raise SystemExit(0)
+raise SystemExit(2)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return script

@@ -1,10 +1,9 @@
 {
   "schema_version": 1,
   "target": "codex-skill",
-  "prior_render_sha256": {},
-  "bootstrap_legacy_sha256": {
+  "prior_render_sha256": {
     "SKILL.md": [
-      "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a"
+      "920b60dcfeacb5eac55936d82f31796eb9a88bcec0e910fa56c278018c597772"
     ],
     "references/recipes.md": [
       "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210"
@@ -12,11 +11,29 @@
     "references/report-reading.md": [
       "75a655059f3d45db365c744b0ff82d1c9d69c3638acacf640fd667ae87260d05"
     ],
+    "agents/openai.yaml": [
+      "4d94a724336e5d36a2769630495f341007580e4dee306bc42a1aeca1af9e867b"
+    ]
+  },
+  "bootstrap_legacy_sha256": {
+    "SKILL.md": [
+      "59ec0a31f9747acf569f731561236ff4ef6d8734b614edfa04ea6ff10043f21a",
+      "172953980ebe71faf76aba03236c7c1264f1d90098855ba20a81831f1de77045"
+    ],
+    "references/recipes.md": [
+      "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210",
+      "df1f84508c11e83d4df3a0f5ffdcc56096bec616682fb74739f675700f1c392a"
+    ],
+    "references/report-reading.md": [
+      "75a655059f3d45db365c744b0ff82d1c9d69c3638acacf640fd667ae87260d05",
+      "a916129229f7220936c0d861a60291dd62d14f42808f04e0123377d649df4bc0"
+    ],
     "assets/advisory-pr-comment.yml": [
       "d4005102df70a627d3883334e827c4bc7527a35a2278573699e18a43afed3bcb"
     ],
     "agents/openai.yaml": [
-      "4d94a724336e5d36a2769630495f341007580e4dee306bc42a1aeca1af9e867b"
+      "4d94a724336e5d36a2769630495f341007580e4dee306bc42a1aeca1af9e867b",
+      "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
     ]
   }
 }

@@ -48,6 +48,14 @@ Open Cursor in the project. Two checks:
 
 1. Open `shipgate.yaml` (or any matching tool source — an MCP/OpenAPI spec, a tools JSON, a `.py` file in the agent) in the editor and start a chat. Confirm Cursor shows the `agents-shipgate` rule as auto-attached in the rule list.
 2. In the same chat, with the matching file still in context (open in the editor or referenced via `@filename`), ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate." Cursor should run `agents-shipgate detect --workspace . --json` per the rule and proceed to the canonical 4-call flow.
+3. In a repo that already has `shipgate.yaml`, ask Cursor to finish an
+   agent-tool change. Cursor should run
+   `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
+
+   Add `--base origin/main --head HEAD` only for committed PR/CI verification
+   after making the base ref available. Omit both for local pre-commit work so
+   uncommitted edits are scanned.
+   or report the exact `agents-shipgate trigger` skip verdict.
 
 The rule's `alwaysApply: false` setting means it only fires when a matching file is in chat context. A chat with no matching file referenced will not auto-attach the rule — that is the intended behavior, not a bug.
 
@@ -114,6 +122,11 @@ Cursor must follow the same boundary as any other agent driving Shipgate:
 Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For the right order to read `report.json`, see [`report-reading-for-agents.md`](../report-reading-for-agents.md) — read `release_decision.decision` first.
 
 For the stable CLI / JSON contract, see [`STABILITY.md`](../../STABILITY.md).
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions to make a run pass. Verify-mode `SHIP-VERIFY-*` checks make those
+trust-root edits release-visible and route them to human review.
 
 ---
 

@@ -8,7 +8,25 @@ Always read `agents-shipgate-reports/report.json`. Do not scrape Markdown.
 2. `release_decision.blockers[]`: items blocking release.
 3. `release_decision.review_items[]`: accepted debt or human-review items.
 4. `agent_summary`: one-fetch summary with `headline`, counts, safe patches, human-review needs, and `first_recommended_action`.
-5. `findings[]`: detailed evidence, source, severity, and remediation.
+5. `verifier_summary`: one-fetch verifier composition for PR controllers. Its `verdict` mirrors `release_decision.decision`; use it for protected-surface, policy-weakening, human-ack, and reason-code rollups, never as a second gate.
+6. `findings[]`: detailed evidence, source, severity, and remediation.
+
+## Verifier Summary
+
+When `report_schema_version` is `0.22` or newer, read
+`verifier_summary` after `release_decision`:
+
+- `verdict`: exact mirror of `release_decision.decision`.
+- `protected_surface_touched`: true when verify-mode `SHIP-VERIFY-*`
+  findings show a trust-root edit.
+- `policy_weakened`: true when the normalized policy surface moved toward
+  less review, less blocking, or less evidence.
+- `human_ack_required` / `human_ack_satisfied`: declared human-acknowledgement
+  state; a coding agent must not synthesize acknowledgement.
+- `top_reason_codes[]`: ranked reason-code counts for concise summaries.
+
+This block is a deterministic projection. It cannot introduce a blocker that
+is not already present in `findings[]` and `release_decision`.
 
 ## Per-Finding Action
 

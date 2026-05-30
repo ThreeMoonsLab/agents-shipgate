@@ -167,6 +167,99 @@ def test_init_on_existing_manifest_variant_trips_blocker(repo_tmp_path: Path) ->
     assert sc.criteria["runs_init"].status == "n_a"
 
 
+def test_verify_counts_as_report_producing_command(repo_tmp_path: Path) -> None:
+    """An opted-in verifier scenario should get report-reading credit from
+    `agents-shipgate verify`, not only from the older scan command."""
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="40-shipgate-yaml",
+        negative_overlay=None,
+        prompt="05-verify-agent-diff",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    (redacted / "transcript.jsonl").write_text("", encoding="utf-8")
+    (redacted / "commands.jsonl").write_text(
+        '{"command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory"}\n'
+        '{"command": "python -m json.tool agents-shipgate-reports/report.json"}\n',
+        encoding="utf-8",
+    )
+    (redacted / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text(
+        "release_decision.decision is review_required.",
+        encoding="utf-8",
+    )
+    (redacted / "final.diff").write_text("", encoding="utf-8")
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    art = CellArtifacts(
+        cell=cell,
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    now = datetime.now(UTC)
+    sc = score_cell(
+        cell=cell,
+        artifacts=art,
+        started_at=now,
+        ended_at=now,
+        run_id="r",
+        artifacts_dir_rel="x",
+    )
+    assert sc.criteria["runs_verify"].status == "pass"
+    assert sc.criteria["parses_report_json"].status == "pass"
+    assert sc.criteria["uses_release_decision"].status == "pass"
+
+
+def test_verify_preview_does_not_count_as_report_producing(repo_tmp_path: Path) -> None:
+    cell = Cell(
+        archetype="openai-agents-sdk",
+        variant="40-shipgate-yaml",
+        negative_overlay=None,
+        prompt="05-verify-agent-diff",
+        agent="claude-code",
+        model="claude-opus-4-7",
+    )
+    redacted = repo_tmp_path / "redacted"
+    redacted.mkdir(parents=True, exist_ok=True)
+    (redacted / "transcript.jsonl").write_text("", encoding="utf-8")
+    (redacted / "commands.jsonl").write_text(
+        '{"command": "agents-shipgate verify --preview --workspace ."}\n',
+        encoding="utf-8",
+    )
+    (redacted / "file_ops.jsonl").write_text("", encoding="utf-8")
+    (redacted / "summary.md").write_text("", encoding="utf-8")
+    (redacted / "final.diff").write_text("", encoding="utf-8")
+    workspace = repo_tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    art = CellArtifacts(
+        cell=cell,
+        artifacts_dir=repo_tmp_path,
+        redacted_dir=redacted,
+        pre_workspace_files={},
+        post_workspace_files={},
+        fs_diff=FsDiff(added=[], removed=[], changed=[]),
+        workspace_dir=workspace,
+    )
+    now = datetime.now(UTC)
+    sc = score_cell(
+        cell=cell,
+        artifacts=art,
+        started_at=now,
+        ended_at=now,
+        run_id="r",
+        artifacts_dir_rel="x",
+    )
+
+    assert sc.criteria["parses_report_json"].status == "n_a"
+
+
 def test_docs_only_noise_visible_via_agent_proposed_field(repo_tmp_path: Path) -> None:
     """Pins round-twelve finding P1.2: docs-only-negative cells force
     runs_init/runs_scan to N/A, so the aggregate must use the

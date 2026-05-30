@@ -60,6 +60,14 @@ Open Codex in the project and run two checks:
    summarize the release decision." Codex should read
    `agents-shipgate-reports/report.json`, not Markdown, and lead with
    `release_decision.decision`.
+3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
+   agent-tool change. Before its final response, Codex should run
+   `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
+
+   Add `--base origin/main --head HEAD` only for committed PR/CI verification
+   after making the base ref available. Omit both for local pre-commit work so
+   uncommitted edits are scanned.
+   or report the exact `agents-shipgate trigger` skip verdict.
 
 If both pass, the repo has the Codex adoption surface installed.
 
@@ -112,6 +120,10 @@ Codex must preserve the same safety boundary as every other agent:
   `.gitignore`.
 - It must not invent approval, confirmation, idempotency, broad-scope,
   prohibited-action, or runtime-trace evidence.
+- It must not bypass the verifier by suppressing findings, lowering severity,
+  expanding baselines or waivers, removing Shipgate CI, or weakening agent
+  instructions. Verify-mode `SHIP-VERIFY-*` checks route those trust-root
+  changes to human review.
 
 For Claude Code, see [`use-with-claude-code.md`](use-with-claude-code.md).
 For Cursor, see [`use-with-cursor.md`](use-with-cursor.md).

@@ -21,6 +21,7 @@ from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_pac
 from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
 from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
+from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.trigger import trigger as _trigger_command
@@ -92,6 +93,13 @@ app.command(
         "base scan, and one authoritative head scan."
     ),
 )(_verify_command)
+app.command(
+    "install-hooks",
+    help=(
+        "Install advisory local coding-agent hooks. Currently supports "
+        "--target claude-code."
+    ),
+)(_install_hooks_command)
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)

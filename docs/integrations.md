@@ -111,6 +111,31 @@ fans static findings out into concrete sandbox/adversarial validation steps.
 Baseline-matched findings remain in this export because they are accepted
 debt, not resolved risk.
 
+## Claude Code hooks (local advisory)
+
+After `agents-shipgate verify` and CI are working, install project-scoped
+Claude Code hooks for faster local feedback:
+
+```bash
+agents-shipgate install-hooks --target claude-code --write
+```
+
+The installer writes `.claude/settings.json` and
+`.claude/hooks/agents-shipgate.py`. The PostToolUse hook runs a cheap
+`agents-shipgate trigger` check after `Edit|Write|MultiEdit` so Claude Code
+gets immediate context when an edit touches an agent-related surface. It
+evaluates the edited paths without the manifest-present force-run rule, so
+irrelevant docs edits do not produce a nudge just because the repo is opted in.
+The Stop hook runs full `agents-shipgate verify` only when the working tree or
+current branch has a relevant change that has not already been checked.
+
+These hooks are advisory local feedback. They may soft-block a Claude Code Stop
+when the verifier itself returns findings, but local setup failures such as a
+missing CLI or unavailable base ref are surfaced as context. They are not a
+trust boundary and not a replacement for CI. CI should continue to run the
+GitHub Action or an equivalent `agents-shipgate verify` command, and CI's
+`report.json.release_decision.decision` remains authoritative.
+
 ## GitLab CI
 
 First-class GitLab CI recipes live in [`../examples/gitlab-ci/`](../examples/gitlab-ci/):

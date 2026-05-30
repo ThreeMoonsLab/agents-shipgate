@@ -9,7 +9,7 @@ Two pieces of agent-facing surface ship with this repo. Drop them into your own 
 
 The skill is named `agents-shipgate`, not `shipgate`, on purpose: Claude Code lets a skill with the same name as a command preempt it, which would silently bypass the `/shipgate` slash command. Keeping the names distinct lets users invoke the slash command explicitly **and** lets the skill auto-trigger on relevant phrases.
 
-The skill bundles all six [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
+The skill bundles the [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
 
 ## Install in your agent project
 
@@ -25,6 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/
 mkdir -p .claude/skills/agents-shipgate
 for f in SKILL.md \
          prompts/add-shipgate-to-repo.md \
+         prompts/verify-agent-diff.md \
          prompts/fix-top-finding.md \
          prompts/recommend-fixes.md \
          prompts/triage-false-positive.md \
@@ -65,7 +66,25 @@ Open Claude Code in the project. Two checks:
 1. Type `/shipgate` and confirm the command shows up. It should run the bootstrap flow (slash command, NOT the skill).
 2. In a fresh chat, ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate" — the `agents-shipgate` skill should auto-trigger.
 
-If `/shipgate` runs the bootstrap end-to-end, you are done. The first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and produces `agents-shipgate-reports/report.json`.
+If `/shipgate` runs the bootstrap end-to-end, the first path is working. The
+first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and
+produces `agents-shipgate-reports/report.json`.
+
+For ongoing PRs, type `/shipgate verify`. Claude Code should read
+`prompts/verify-agent-diff.md`, run:
+
+```bash
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
+  --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+Add `--base origin/main --head HEAD` only for committed PR/CI verification
+after making the base ref available. Omit both for local pre-commit work so
+uncommitted edits are scanned.
+
+It should then summarize `report.json.release_decision.decision`,
+`verifier_summary` trust-root flags, and `verifier.json.base_status`.
 
 ## Verify an agent PR
 
@@ -102,6 +121,7 @@ edit is itself a trust-root change the gate flags. The full walkthrough is in
 The `agents-shipgate` skill routes to bundled recipes (relative paths inside the skill directory):
 
 - Bootstrap a repo → `prompts/add-shipgate-to-repo.md`
+- Verify an agent-related PR or local diff → `prompts/verify-agent-diff.md`
 - First-time CI (advisory PR comment) → `ci-recipes/advisory-pr-comment.yml`
 - Fix the top finding → `prompts/fix-top-finding.md`
 - Recommend fixes across all findings → `prompts/recommend-fixes.md`
@@ -110,6 +130,24 @@ The `agents-shipgate` skill routes to bundled recipes (relative paths inside the
 - Upgrade the version → `prompts/upgrade-shipgate-version.md`
 
 For the stable CLI / JSON contract the skill relies on, see [`STABILITY.md`](../../STABILITY.md).
+
+## Optional Claude Code hooks
+
+After the verifier CLI and CI are already working, you can install local
+Claude Code hooks:
+
+```bash
+agents-shipgate install-hooks --target claude-code --write
+```
+
+The hooks are advisory local feedback. They run a cheap trigger check after
+`Edit|Write|MultiEdit`, ignoring the manifest-present force-run rule so
+irrelevant docs edits do not nudge every turn. At `Stop`, they run full
+`agents-shipgate verify` only when the working tree or current branch has a
+relevant change that has not already been checked. Local setup failures such
+as a missing CLI or unavailable base ref are surfaced as context, not as the
+release gate. CI remains authoritative, and changing the hook files or other
+Shipgate trust roots is itself visible to verify-mode `SHIP-VERIFY-*` checks.
 
 ## Codex / Cursor / Aider
 
