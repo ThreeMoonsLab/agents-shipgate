@@ -35,7 +35,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agents_shipgate.schemas.common import Confidence
+from agents_shipgate.schemas.common import Confidence, ReleaseDecisionStatus
 
 # --- Capability change -------------------------------------------------------
 
@@ -327,12 +327,11 @@ class HumanAck(BaseModel):
 
 # --- Verifier summary --------------------------------------------------------
 
-VerifierVerdict = Literal[
-    "blocked",
-    "review_required",
-    "insufficient_evidence",
-    "passed",
-]
+# Back-compat alias for the canonical verdict vocabulary. ``VerifierSummary.verdict``
+# MUST mirror ``release_decision.decision`` (Principle 2), so it reuses the exact
+# same ``ReleaseDecisionStatus`` enum rather than re-spelling it. Kept as a named
+# alias because callers and tests import ``VerifierVerdict`` directly.
+VerifierVerdict = ReleaseDecisionStatus
 
 
 class VerifierCapabilityDeltaSummary(BaseModel):

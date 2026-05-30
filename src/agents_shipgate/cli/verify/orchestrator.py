@@ -22,7 +22,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierBaseStatus,
     VerifierHumanReview,
     VerifierNextAction,
-    map_merge_verdict,
+    merge_verdict_for,
 )
 from agents_shipgate.triggers import evaluate
 
@@ -513,12 +513,6 @@ def _map_optional_tree_path(
     return tree_dir / relative
 
 
-def _merge_verdict(*, decision: str | None, head_status: str) -> MergeVerdict:
-    if decision is not None:
-        return map_merge_verdict(decision)
-    return "mergeable" if head_status == "skipped" else "unknown"
-
-
 def _can_merge_without_human(
     *, merge_verdict: MergeVerdict, release_decision: ReleaseDecision | None
 ) -> bool:
@@ -642,7 +636,7 @@ def _build_verifier(
         include_scan_artifacts=report is not None,
     )
     decision = release_decision_model.decision if release_decision_model else None
-    merge_verdict = _merge_verdict(decision=decision, head_status=head_status)
+    merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
     human_review = _human_review(
         merge_verdict=merge_verdict, release_decision=release_decision_model
     )

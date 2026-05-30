@@ -17,6 +17,7 @@ from agents_shipgate.schemas.common import (
     BaselineStatus,
     Confidence,
     ProvenanceKind,
+    ReleaseDecisionStatus,
     Severity,
     SourceReference,
 )
@@ -149,14 +150,11 @@ class BaselineSummary(BaseModel):
 
 
 # v0.8: release_decision block — see docs/STABILITY.md for the
-# divergence contract with summary.status (which stays baseline-blind
-# for backwards compatibility).
-ReleaseDecisionStatus = Literal[
-    "blocked",
-    "review_required",
-    "insufficient_evidence",
-    "passed",
-]
+# divergence contract with summary.status (which stays baseline-blind for
+# backwards compatibility). The ``ReleaseDecisionStatus`` verdict vocabulary
+# is now defined once in schemas/common.py and imported above, so the report
+# summaries, ReleaseConsequence, and the verifier projection all share the
+# exact same enum (one decision engine — no re-spelling, no drift).
 
 
 class ReleaseDecisionItem(BaseModel):
@@ -386,12 +384,7 @@ class AgentSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    verdict: Literal[
-        "blocked",
-        "review_required",
-        "insufficient_evidence",
-        "passed",
-    ]
+    verdict: ReleaseDecisionStatus
     headline: str
     blocker_count: int = 0
     review_item_count: int = 0
@@ -464,15 +457,11 @@ class ReviewerSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Mirror the release verdict for at-a-glance context. Same enum as
-    # ``AgentSummary.verdict`` so a downstream consumer can switch on
-    # either block without re-deriving.
-    verdict: Literal[
-        "blocked",
-        "review_required",
-        "insufficient_evidence",
-        "passed",
-    ]
+    # Mirror the release verdict for at-a-glance context. The exact same
+    # ``ReleaseDecisionStatus`` alias as ``AgentSummary.verdict`` and
+    # ``release_decision.decision`` so a downstream consumer can switch on
+    # any block without re-deriving — and the vocabulary cannot drift.
+    verdict: ReleaseDecisionStatus
     headline: str
 
     # Per-lens activity counts. Each is the cheapest "did this lens

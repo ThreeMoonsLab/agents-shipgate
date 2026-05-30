@@ -7,6 +7,19 @@ from pydantic import BaseModel, ConfigDict
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Confidence = Literal["low", "medium", "high"]
 BaselineStatus = Literal["new", "matched", "resolved"]
+# The canonical release-verdict vocabulary — the ONE enum the whole system
+# gates on. ``build_release_decision()`` is the only place that computes it;
+# every other "verdict"/"decision" field (AgentSummary, ReviewerSummary,
+# VerifierSummary, ReleaseConsequence) re-uses this exact alias so the
+# vocabulary can never be re-spelled or drift out of lockstep. The
+# agent-facing ``MergeVerdict`` (schemas/verifier.py) is a deterministic
+# projection of this via ``map_merge_verdict()``.
+ReleaseDecisionStatus = Literal[
+    "blocked",
+    "review_required",
+    "insufficient_evidence",
+    "passed",
+]
 # v0.15: per-finding provenance kind. Independent of `confidence` —
 # `confidence` records how sure a rule is; `provenance_kind` records
 # *what kind of rule fired* (and what artifact it inspected). Lets

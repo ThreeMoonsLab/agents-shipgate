@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from agents_shipgate.schemas.common import ReleaseDecisionStatus
 
 VerifierBaseStatus = Literal[
     "not_requested",
@@ -32,7 +34,14 @@ CapabilityReleaseImpact = Literal[
     "none",
 ]
 
-_DECISION_TO_VERDICT: dict[str, MergeVerdict] = {
+# The projection from the canonical release verdict (``ReleaseDecisionStatus``,
+# the ONE thing ``build_release_decision`` computes) onto the agent-facing
+# ``MergeVerdict``. Keyed with ``ReleaseDecisionStatus`` so a key that is not a
+# real release status is a type error, and covered by a totality test
+# (tests/test_verdict_contract.py) so adding a release status without a mapping
+# fails CI rather than silently falling back. This dict is the only bridge
+# between the two vocabularies.
+_DECISION_TO_VERDICT: dict[ReleaseDecisionStatus, MergeVerdict] = {
     "passed": "mergeable",
     "review_required": "human_review_required",
     "insufficient_evidence": "insufficient_evidence",
@@ -41,10 +50,30 @@ _DECISION_TO_VERDICT: dict[str, MergeVerdict] = {
 
 
 def map_merge_verdict(decision: str | None) -> MergeVerdict:
-    """Project ``release_decision.decision`` onto a merge verdict."""
+    """Project ``release_decision.decision`` onto a merge verdict.
+
+    ``None`` (no head scan / no decision) is ``unknown``. A decision string
+    outside the canonical vocabulary fails safe to ``human_review_required``
+    rather than ``mergeable`` — an unrecognized verdict must never auto-pass.
+    """
     if decision is None:
         return "unknown"
-    return _DECISION_TO_VERDICT.get(decision, "human_review_required")
+    return _DECISION_TO_VERDICT.get(decision, "human_review_required")  # type: ignore[arg-type]
+
+
+def merge_verdict_for(*, decision: str | None, head_status: str) -> MergeVerdict:
+    """Single authority for deriving a ``MergeVerdict`` for a verify run.
+
+    When the head scan produced a ``release_decision`` the verdict is a pure
+    projection of it (``map_merge_verdict``). With no decision the verdict
+    reflects *why*: a skipped head (Shipgate had nothing to gate) is
+    ``mergeable``; any other no-decision state (scan failed, or not yet run)
+    is ``unknown``. Centralized here so the orchestrator — or any future
+    caller — cannot invent a second, inconsistent rule.
+    """
+    if decision is not None:
+        return map_merge_verdict(decision)
+    return "mergeable" if head_status == "skipped" else "unknown"
 
 
 class VerifierNextAction(BaseModel):
@@ -141,6 +170,36 @@ class VerifierArtifact(BaseModel):
     first_next_action: VerifierNextAction | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def _verdict_projects_release_decision(self) -> VerifierArtifact:
+        """Lock the one-decision-engine contract structurally.
+
+        Whenever a head ``release_decision`` is present, the agent-facing
+        ``merge_verdict`` and the convenience ``decision`` copy MUST be exact
+        projections of it — never an independently computed second opinion.
+        Construction-time enforcement makes an inconsistent artifact
+        impossible to emit. (No release_decision — skipped / failed / preview
+        — is left unconstrained: there is no substrate to project.)
+        """
+        if self.release_decision is None:
+            return self
+        substrate = self.release_decision.get("decision")
+        if self.decision != substrate:
+            raise ValueError(
+                "VerifierArtifact.decision must equal "
+                "release_decision['decision'] (one decision engine): "
+                f"{self.decision!r} != {substrate!r}"
+            )
+        expected = map_merge_verdict(substrate)
+        if self.merge_verdict != expected:
+            raise ValueError(
+                "VerifierArtifact.merge_verdict must be the projection of "
+                f"release_decision['decision']={substrate!r} via "
+                f"map_merge_verdict (expected {expected!r}, got "
+                f"{self.merge_verdict!r})"
+            )
+        return self
+
 
 __all__ = [
     "CapabilityChangeBucket",
@@ -154,4 +213,5 @@ __all__ = [
     "VerifierHumanReview",
     "VerifierNextAction",
     "map_merge_verdict",
+    "merge_verdict_for",
 ]
