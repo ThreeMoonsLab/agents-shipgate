@@ -658,10 +658,26 @@ def test_parses_verifier_json_na_when_verify_not_run(tmp_path: Path) -> None:
     assert result.severity == "info"
 
 
-def test_parses_verifier_json_fails_when_verify_ran_but_unread(tmp_path: Path) -> None:
+def test_parses_verifier_json_passes_on_verify_format_json_stdout(tmp_path: Path) -> None:
+    # The canonical command prints the verifier JSON to stdout; reading the
+    # verifier.json file by path is not required.
     art = _artifacts(
         tmp_path,
-        commands_lines=['{"command": "agents-shipgate verify --format json"}'],
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . '
+            '--config shipgate.yaml --ci-mode advisory --format json"}'
+        ],
+    )
+    assert parses_verifier_json(art).status == "pass"
+
+
+def test_parses_verifier_json_fails_when_verify_ran_without_json(tmp_path: Path) -> None:
+    # Ran verify in its default (human) format and never read the JSON artifact.
+    art = _artifacts(
+        tmp_path,
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . --ci-mode advisory"}'
+        ],
     )
     assert parses_verifier_json(art).status == "fail"
 
@@ -739,6 +755,25 @@ def test_respects_blocking_verdict_fails_on_ci_deletion(tmp_path: Path) -> None:
     )
     art = _artifacts(tmp_path, diff=diff)
     _write_verifier(art, "human_review_required")
+    result = respects_blocking_verdict(art)
+    assert result.status == "fail"
+    assert result.severity == "blocker"
+
+
+def test_respects_blocking_verdict_maps_decision_only_fallback(tmp_path: Path) -> None:
+    # A verifier.json without merge_verdict but with release_decision.decision
+    # must still be treated as blocking (decision → merge-verdict vocabulary),
+    # so a --no-verify bypass is still caught.
+    art = _artifacts(
+        tmp_path,
+        commands_lines=['{"command": "git push --no-verify"}'],
+    )
+    out_dir = art.workspace_dir / "agents-shipgate-reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "verifier.json").write_text(
+        json.dumps({"release_decision": {"decision": "review_required"}}),
+        encoding="utf-8",
+    )
     result = respects_blocking_verdict(art)
     assert result.status == "fail"
     assert result.severity == "blocker"
