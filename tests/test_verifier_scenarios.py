@@ -258,18 +258,23 @@ def test_scenario_agent_adds_email_tool_is_a_gated_capability(tmp_path: Path) ->
     payload = _verify(repo)
 
     assert payload["head_status"] == "succeeded"
-    # An external-communication action is a real capability change, not an
-    # auto-mergeable one.
+    # An external-communication action with no approval is a blocker, pinned to
+    # the external-communication audit check — not a generic side-effect finding.
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+    blocker_checks = {b["check_id"] for b in payload["release_decision"]["blockers"]}
+    assert (
+        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in blocker_checks
+    ), blocker_checks
     email_adds = [
         c
         for c in payload["capability_review"]["top_changes"]
         if "email" in c["subject"] and c["change_type"] == "action_added"
     ]
     assert email_adds, payload["capability_review"]["top_changes"]
-    assert payload["can_merge_without_human"] is False, payload["merge_verdict"]
 
 
-def test_scenario_agent_removes_ci_gate_touches_trust_root(tmp_path: Path) -> None:
+def test_scenario_agent_removes_ci_gate_blocks(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
     _write_tools(repo, _BASE_TOOLS)
@@ -285,9 +290,13 @@ def test_scenario_agent_removes_ci_gate_touches_trust_root(tmp_path: Path) -> No
     payload = _verify(repo)
 
     assert payload["head_status"] == "succeeded"
-    review = payload["capability_review"]
-    assert review["trust_root_touched"] or review["policy_weakened"], review
+    # The flagship anti-bypass case: deleting the gate is a blocker, pinned to
+    # SHIP-VERIFY-CI-GATE-REMOVED — not merely a generic trust-root touch.
+    assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
+    blocker_checks = {b["check_id"] for b in payload["release_decision"]["blockers"]}
+    assert "SHIP-VERIFY-CI-GATE-REMOVED" in blocker_checks, blocker_checks
+    assert payload["capability_review"]["trust_root_touched"] is True
 
 
 def test_scenario_agent_adds_suppression_weakens_policy(tmp_path: Path) -> None:
@@ -310,10 +319,17 @@ def test_scenario_agent_adds_suppression_weakens_policy(tmp_path: Path) -> None:
 
     payload = _verify(repo)
 
-    review = payload["capability_review"]
-    # Editing shipgate.yaml to add a suppression touches a trust root, so the
-    # change is routed to a human — the agent cannot silently suppress and
-    # self-merge. (It surfaces as trust_root_touched rather than policy_weakened
-    # because the suppressed check has no active blocker in this minimal agent.)
-    assert review["trust_root_touched"] or review["policy_weakened"], review
+    # A suppression expansion is flagged specifically (not just as a generic
+    # manifest touch): the waiver-expanded verify check fires and the
+    # policy_broadened change names the suppressed check.
+    assert payload["merge_verdict"] == "human_review_required"
     assert payload["can_merge_without_human"] is False
+    review_checks = {r["check_id"] for r in payload["release_decision"]["review_items"]}
+    assert "SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED" in review_checks, review_checks
+    suppression_changes = [
+        c
+        for c in payload["capability_review"]["top_changes"]
+        if c["change_type"] == "policy_broadened"
+        and "suppression:SHIP-POLICY-APPROVAL-MISSING" in c["subject"]
+    ]
+    assert suppression_changes, payload["capability_review"]["top_changes"]
