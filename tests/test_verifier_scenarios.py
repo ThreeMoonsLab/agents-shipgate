@@ -203,3 +203,133 @@ def test_scenario_docs_only_with_shipgate_yaml_force_runs(tmp_path: Path) -> Non
     assert payload["trigger"]["should_run"] is True
     assert payload["trigger"]["force_run"] is True
     assert payload["head_status"] == "succeeded"
+
+
+# --- Additional capability-transition scenarios -----------------------------
+
+# An external-communication action with no approval/idempotency controls.
+_EMAIL_TOOL = {
+    "name": "messaging.send_customer_email",
+    "description": "Send an email to a customer's email address.",
+    "annotations": {"readOnlyHint": False},
+    "inputSchema": {
+        "type": "object",
+        "required": ["to", "subject", "body"],
+        "properties": {
+            "to": {"type": "string"},
+            "subject": {"type": "string"},
+            "body": {"type": "string"},
+        },
+    },
+    "auth": {"type": "oauth2", "scopes": ["email:send"]},
+}
+
+_WORKFLOW = """\
+name: agents-shipgate
+on: [pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+"""
+
+
+def _write_workflow(repo: Path) -> None:
+    wf = repo / ".github" / "workflows" / "agents-shipgate.yml"
+    wf.parent.mkdir(parents=True, exist_ok=True)
+    wf.write_text(_WORKFLOW, encoding="utf-8")
+
+
+def test_scenario_agent_adds_email_tool_is_a_gated_capability(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _commit(repo, "base agent")
+    _set_origin_main(repo)
+
+    head_tools = {"tools": [*_BASE_TOOLS["tools"], _EMAIL_TOOL]}
+    _write_tools(repo, head_tools)
+    _commit(repo, "agent adds customer-email tool")
+
+    payload = _verify(repo)
+
+    assert payload["head_status"] == "succeeded"
+    # An external-communication action with no approval is a blocker, pinned to
+    # the external-communication audit check — not a generic side-effect finding.
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+    blocker_checks = {b["check_id"] for b in payload["release_decision"]["blockers"]}
+    assert (
+        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in blocker_checks
+    ), blocker_checks
+    email_adds = [
+        c
+        for c in payload["capability_review"]["top_changes"]
+        if "email" in c["subject"] and c["change_type"] == "action_added"
+    ]
+    assert email_adds, payload["capability_review"]["top_changes"]
+
+
+def test_scenario_agent_removes_ci_gate_blocks(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _write_workflow(repo)
+    _commit(repo, "base agent with shipgate CI")
+    _set_origin_main(repo)
+
+    # The PR deletes the Shipgate CI workflow — a reward-hacking move to dodge
+    # the gate. Verify must route it to a human, not let it self-merge.
+    (repo / ".github" / "workflows" / "agents-shipgate.yml").unlink()
+    _commit(repo, "remove shipgate CI")
+
+    payload = _verify(repo)
+
+    assert payload["head_status"] == "succeeded"
+    # The flagship anti-bypass case: deleting the gate is a blocker, pinned to
+    # SHIP-VERIFY-CI-GATE-REMOVED — not merely a generic trust-root touch.
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+    blocker_checks = {b["check_id"] for b in payload["release_decision"]["blockers"]}
+    assert "SHIP-VERIFY-CI-GATE-REMOVED" in blocker_checks, blocker_checks
+    assert payload["capability_review"]["trust_root_touched"] is True
+
+
+def test_scenario_agent_adds_suppression_weakens_policy(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _commit(repo, "base agent")
+    _set_origin_main(repo)
+
+    # The PR suppresses a check to silence a finding rather than fix it — the
+    # canonical reward-hacking move. Verify must flag the policy as weakened.
+    with (repo / "shipgate.yaml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            "checks:\n"
+            "  ignore:\n"
+            "    - check_id: SHIP-POLICY-APPROVAL-MISSING\n"
+            "      reason: accepted for now\n"
+        )
+    _commit(repo, "suppress approval check")
+
+    payload = _verify(repo)
+
+    # A suppression expansion is flagged specifically (not just as a generic
+    # manifest touch): the waiver-expanded verify check fires and the
+    # policy_broadened change names the suppressed check.
+    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["can_merge_without_human"] is False
+    review_checks = {r["check_id"] for r in payload["release_decision"]["review_items"]}
+    assert "SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED" in review_checks, review_checks
+    suppression_changes = [
+        c
+        for c in payload["capability_review"]["top_changes"]
+        if c["change_type"] == "policy_broadened"
+        and "suppression:SHIP-POLICY-APPROVAL-MISSING" in c["subject"]
+    ]
+    assert suppression_changes, payload["capability_review"]["top_changes"]
