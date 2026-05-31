@@ -147,7 +147,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           config: shipgate.yaml
           ci_mode: advisory

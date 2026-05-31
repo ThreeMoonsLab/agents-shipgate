@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-05-31
+
 - **Verifier PR comment v2 + additive Action outputs.** The GitHub Action now
   defaults to the verifier workflow (`verify_mode: verify`) and the
   capability-review PR comment (`pr_comment_style: capability-review`) for the

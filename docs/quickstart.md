@@ -178,7 +178,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
