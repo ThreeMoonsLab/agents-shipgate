@@ -1,7 +1,8 @@
 # Concepts
 
-The mental model behind Agents Shipgate, a local-first, static Tool-Use
-Readiness release gate for AI agent tool surfaces.
+The mental model behind Agents Shipgate, the deterministic merge gate for
+AI-generated agent capability changes — a local-first, static Tool-Use
+Readiness review.
 
 For the product-level definition of a Tool-Use Readiness release gate, see
 [`category.md`](category.md). For the agent-facing

@@ -1,9 +1,10 @@
 # Verify an AI-Generated Agent PR
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces. Built for AI coding workflows: when Claude Code, Codex,
-Cursor, or a human changes an agent's tool access, Agents Shipgate turns the diff
-into a deterministic merge verdict.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review. Built for
+AI coding workflows: when Claude Code, Codex, Cursor, or a human changes an
+agent's tool access, Agents Shipgate turns the diff into a deterministic merge
+verdict.
 
 This page is the end-to-end use case for that workflow. For the deeper
 engineering rationale and roadmap, see

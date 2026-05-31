@@ -14,8 +14,9 @@ from agents_shipgate.core.disclaimers import (
 HITL_RUNTIME_CONTROL_DISCLAIMER = _HITL_RUNTIME_CONTROL_DISCLAIMER
 
 PACKET_NON_PROOF_HEADLINE = (
-    "Agents Shipgate is an advisory, local-first, static Tool-Use Readiness "
-    "release gate for AI agent tool surfaces. The packet below is derived from "
+    "Agents Shipgate is an advisory tool: the deterministic merge gate for "
+    "AI-generated agent capability changes, run as a local-first, static "
+    "Tool-Use Readiness review. The packet below is derived from "
     "a scan; it does not, by itself, prove the following properties:"
 )
 

@@ -181,7 +181,7 @@ def register(app: typer.Typer) -> None:
         ),
         verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
     ) -> None:
-        """Run the local-first, static Tool-Use Readiness release gate for AI agent tool surfaces."""
+        """Run the deterministic merge gate for AI-generated agent capability changes."""
         # Parse CLI options first, in their own try block. ConfigError raised
         # here is about flag values, not the manifest — emitting a manifest
         # diagnostic ("edit shipgate.yaml") would route the agent to the

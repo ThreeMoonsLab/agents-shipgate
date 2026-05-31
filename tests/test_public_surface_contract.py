@@ -128,12 +128,10 @@ DO_NOT_USE_CONTEXT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 POSITIONING_PHRASE = (
-    "Local-first, static Tool-Use Readiness release gate for "
-    "AI agent tool surfaces"
+    "The deterministic merge gate for AI-generated agent capability changes"
 )
 POSITIONING_SCAN_DOCSTRING = (
-    "local-first, static Tool-Use Readiness release gate for "
-    "AI agent tool surfaces"
+    "the deterministic merge gate for AI-generated agent capability changes"
 )
 POSITIONING_SURFACES = (
     "README.md",
@@ -1442,8 +1440,8 @@ def test_primary_surfaces_use_mvp_wedge_positioning(relpath):
 def test_scan_help_uses_tool_use_readiness_positioning():
     text = _normalize_ws(_read("src/agents_shipgate/cli/_register_scan.py"))
     assert POSITIONING_SCAN_DOCSTRING.lower() in text.lower(), (
-        "scan command docstring must use the local-first, static Tool-Use "
-        "Readiness release gate positioning."
+        "scan command docstring must use the canonical merge-gate "
+        "positioning phrase."
     )
 
 

@@ -40,10 +40,10 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "9ce82bdc41f2e1ea28c7fec3aaeec0137efeacf8986b66a9ac0e3eccc5abd834"
+        "e1713eecbbb1538987b7bf2cbe90bcdac9c4491f250105b6c68e788c81d49de3"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "1ea69b1d3d418080c76540fff3b20044f70ed6787418eb5e4d3d39e036b34014"
+        "c19c03db48a5be3b002b385f9df09781e5fe32197d0dd924691f041ebe54d518"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
         "8fab0595326b127fb1678828fd9b15c63cbe98f0229aad5bb87d47030e4b9ca6"
@@ -75,7 +75,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "367ef145ef928912cc517149e61b0efe413e740680787ef13441a6abd55b4647"
+        "bfd89761a2266ab89bc686a85fdd7700b0b915d5a8b133fafae16bb758d3272e"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
         "b5d90a1b02ebcc5bbc1c25015722508bc6d1ffde4bf28a470df88bb195c56aec"

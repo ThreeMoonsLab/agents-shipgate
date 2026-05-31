@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme-header-dark.png">
-    <img src="assets/readme-header.png" alt="Agents Shipgate · local-first, static Tool-Use Readiness release gate for AI agent tool surfaces" width="100%">
+    <img src="assets/readme-header.png" alt="Agents Shipgate · the deterministic merge gate for AI-generated agent capability changes" width="100%">
   </picture>
 </p>
 
@@ -13,9 +13,13 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.**
+**Your coding agent changed what your AI agent can do — Agents Shipgate tells you whether it can merge.**
 
-<!-- Canonical tagline: Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. -->
+**The deterministic merge gate for AI-generated agent capability changes.**
+
+Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+
+<!-- Canonical tagline: The deterministic merge gate for AI-generated agent capability changes. -->
 
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
@@ -40,10 +44,21 @@ Apache-2.0.
 
 ## One-command quickstart
 
-For a 5-minute first run, use one of three paths: scan the bundled fixture,
-run the zero-install detector, or initialize Shipgate in your real repo. If you
-already have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is
-a one-command check with no persistent install:
+The core loop is verify-first: when a PR changes what your agent can do, run the
+deterministic verifier on the diff and read its merge verdict before you merge.
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+The release gate is `agents-shipgate-reports/report.json` →
+`release_decision.decision` (`blocked | review_required | insufficient_evidence | passed`).
+No `shipgate.yaml` yet? Run `agents-shipgate init --workspace . --write` first.
+
+Want a 5-minute first run with zero setup? Scan the bundled fixture. If you
+already have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is a
+one-command check with no persistent install:
 
 ```bash
 uvx agents-shipgate fixture run support_refund_agent
@@ -294,8 +309,9 @@ Once an AI agent can refund, email, cancel, deploy, or modify a record, every to
 
 Agents Shipgate produces a deterministic answer to that question, before promotion.
 
-The current product promise is deliberately narrow: a local-first, static
-Tool-Use Readiness release gate. Broader lifecycle ideas are future roadmap
+The current product promise is deliberately narrow: a deterministic, local-first,
+static merge gate for AI-generated agent capability changes — the Tool-Use
+Readiness review run at PR time. Broader lifecycle ideas are future roadmap
 work, not claims this scanner makes today.
 
 ## Findings Gallery

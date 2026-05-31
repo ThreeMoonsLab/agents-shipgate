@@ -18,10 +18,10 @@ agent-readable README. The highest-return work is not broad SEO hygiene. It is
 tightening the category story around **agent release readiness** while keeping
 the product wedge narrow: **Tool-Use Readiness** for AI agent tool surfaces.
 
-The current product promise should remain:
+The current product promise is:
 
-> Agents Shipgate is a local-first, static Tool-Use Readiness release gate for
-> AI agent tool surfaces.
+> Agents Shipgate is the deterministic merge gate for AI-generated agent
+> capability changes — a local-first, static Tool-Use Readiness review.
 
 The market-facing expansion should be:
 

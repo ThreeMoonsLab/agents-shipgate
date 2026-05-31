@@ -29,7 +29,7 @@ from agents_shipgate.cli.verify import verify as _verify_command
 
 app = typer.Typer(
     name="agents-shipgate",
-    help="Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.",
+    help="The deterministic merge gate for AI-generated agent capability changes.",
     no_args_is_help=True,
     invoke_without_command=True,
 )

@@ -1,6 +1,6 @@
 # agents-shipgate
 
-> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. CLI and GitHub Action. Apache-2.0.
+> The deterministic merge gate for AI-generated agent capability changes. CLI and GitHub Action. Apache-2.0.
 
 ## Identity
 
@@ -18,7 +18,7 @@
 
 ## What it is
 
-- Agents Shipgate is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
+- Agents Shipgate is the deterministic merge gate for AI-generated agent capability changes.
 - Agents Shipgate reads `shipgate.yaml` plus declared local tool sources.
 - Agents Shipgate writes deterministic findings as Markdown, JSON, and SARIF.
 - Agents Shipgate fits the release-gate slot for tool-using AI agents.

@@ -3,7 +3,8 @@
   "target": "codex-skill",
   "prior_render_sha256": {
     "SKILL.md": [
-      "920b60dcfeacb5eac55936d82f31796eb9a88bcec0e910fa56c278018c597772"
+      "920b60dcfeacb5eac55936d82f31796eb9a88bcec0e910fa56c278018c597772",
+      "367ef145ef928912cc517149e61b0efe413e740680787ef13441a6abd55b4647"
     ],
     "references/recipes.md": [
       "df5110bfa05eeabd9b918d8902b5c054fa547d1155be61ef6e7d7d63378bf210"

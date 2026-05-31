@@ -7,8 +7,9 @@ short, citable description of Agents Shipgate.
 ## What Agents Shipgate is
 
 Agents Shipgate is an open-source CLI and GitHub Action from Three Moons Lab.
-It is a local-first, static Tool-Use Readiness release gate for AI agent tool
-surfaces. It reads a `shipgate.yaml` manifest plus declared local tool sources,
+It is the deterministic merge gate for AI-generated agent capability changes —
+a local-first, static Tool-Use Readiness review. It reads a `shipgate.yaml`
+manifest plus declared local tool sources,
 then writes deterministic Tool-Use Readiness Reports as Markdown, JSON, and
 SARIF.
 

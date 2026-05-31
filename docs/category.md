@@ -4,8 +4,9 @@ A **Tool-Use Readiness release gate** is a local-first, static pre-flight
 check that runs before an agent is promoted to staging, production-like, or
 production environments.
 
-Agents Shipgate is a local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces. It focuses on what tools are attached, what schemas
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes: the local-first, static Tool-Use Readiness review that runs
+at PR time. It focuses on what tools are attached, what schemas
 they expose, what scopes they require, what policies the manifest declares,
 and which release risks need human review.
 

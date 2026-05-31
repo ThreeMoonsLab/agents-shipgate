@@ -1,8 +1,9 @@
 # Agents Shipgate Overview
 
-Agents Shipgate is a local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces. It reads `shipgate.yaml` plus declared local tool
-sources and writes a Tool-Use Readiness Report as Markdown, JSON, and SARIF.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review. It reads
+`shipgate.yaml` plus declared local tool sources and writes a Tool-Use
+Readiness Report as Markdown, JSON, and SARIF.
 
 Use it when an agent can call tools that refund, email, cancel, deploy, modify
 records, read sensitive data, or change infrastructure. The scanner runs before

@@ -16,8 +16,8 @@ def render_block() -> str:
     """Return the inner content (between markers) for CLAUDE.md."""
     return f"""## Agents Shipgate
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review.
 
 For agent tool-surface or release-policy changes, run:
 
