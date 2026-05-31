@@ -1,14 +1,14 @@
 ---
-description: Bootstrap or verify agents-shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces
+description: Bootstrap or verify agents-shipgate as the deterministic merge gate for AI-generated agent capability changes
 ---
 
 Arguments: `$ARGUMENTS`
 
 If the arguments include `verify`, run the ongoing-PR verifier flow. Otherwise
 run the agents-shipgate bootstrap flow on the current repo: install the CLI,
-add a local-first, static Tool-Use Readiness release gate for AI agent tool
-surfaces, generate `shipgate.yaml`, fill in placeholders, run a scan, and
-surface the top findings from the JSON report.
+add the deterministic merge gate for AI-generated agent capability changes (a
+local-first, static Tool-Use Readiness review), generate `shipgate.yaml`, fill
+in placeholders, run a scan, and surface the top findings from the JSON report.
 
 The canonical, self-contained instructions live in the bundled prompt files.
 For bootstrap, read `prompts/add-shipgate-to-repo.md`. For verifier runs, read

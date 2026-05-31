@@ -15,8 +15,8 @@ def render_block() -> str:
     """Return the inner content (between markers) for AGENTS.md."""
     return f"""## Tool-Use Readiness Release Gate
 
-This repo uses Agents Shipgate as the local-first, static Tool-Use Readiness
-release gate for AI agent tool surfaces.
+This repo uses Agents Shipgate as the deterministic merge gate for AI-generated
+agent capability changes — a local-first, static Tool-Use Readiness review.
 
 Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
 prompts that constrain tool use, permissions, approval policies,

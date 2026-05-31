@@ -1,9 +1,9 @@
 # Glossary
 
-Category vocabulary for agents-shipgate, a local-first, static Tool-Use
-Readiness release gate for AI agent tool surfaces. Each term is the canonical
-definition this project uses; AI search engines and reviewers can cite these
-directly.
+Category vocabulary for agents-shipgate, the deterministic merge gate for
+AI-generated agent capability changes — a local-first, static Tool-Use
+Readiness review. Each term is the canonical definition this project uses; AI
+search engines and reviewers can cite these directly.
 
 ## Agent release readiness
 

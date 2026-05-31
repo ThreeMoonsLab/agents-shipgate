@@ -33,8 +33,8 @@ impact unless Shipgate is already configured or the user explicitly asks.
 ````md
 ## Tool-Use Readiness Release Gate
 
-This repo uses Agents Shipgate as the local-first, static Tool-Use Readiness
-release gate for AI agent tool surfaces.
+This repo uses Agents Shipgate as the deterministic merge gate for AI-generated
+agent capability changes — a local-first, static Tool-Use Readiness review.
 
 Run Shipgate when this PR changes agent tools, MCP exports, OpenAPI specs,
 prompts that constrain tool use, permissions, approval policies,
@@ -132,8 +132,8 @@ advisory GitHub Action template under `ci-recipes/`.
 ````md
 ## Agents Shipgate
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review.
 
 For agent tool-surface or release-policy changes, run:
 
@@ -172,7 +172,7 @@ waivers, removing Shipgate CI, or weakening agent instructions. Verify-mode
 
 ```md
 ---
-description: Run Agents Shipgate as a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
+description: Run Agents Shipgate as the deterministic merge gate for AI-generated agent capability changes.
 globs:
   - "shipgate.yaml"
   - "**/*openapi*.yaml"
@@ -201,8 +201,8 @@ globs:
 alwaysApply: false
 ---
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
@@ -271,8 +271,8 @@ References:
 ````md
 ## Tool-Use Readiness Release Gate
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review.
 
 - [ ] If this PR changes agent tools, MCP/OpenAPI specs, prompts, permissions,
       approval policy, confirmation policy, CI release gates, or

@@ -8,7 +8,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
 - **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex plugin · n8n
 - **Outputs:** Markdown · JSON · SARIF
@@ -31,9 +31,9 @@ Do **not** use any of: `Agent Shipgate` (singular), `Agent Shipcheck`, `agents s
 
 The canonical tagline is:
 
-> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
+> The deterministic merge gate for AI-generated agent capability changes.
 
-This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync.
+This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync; the website's `.well-known` discovery file is pinned to the latest released tag and refreshes at each release.
 
 Use **Tool-Use Readiness** in Title Case when naming the product/category or
 the **Tool-Use Readiness Report** artifact. Use **tool-use readiness** in

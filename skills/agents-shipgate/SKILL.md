@@ -1,11 +1,11 @@
 ---
 name: agents-shipgate
-description: Use when the user wants to add a local-first, static Tool-Use Readiness release gate for an AI agent's tool surface, run agents-shipgate scans, fix or triage Shipgate findings, add Shipgate to CI, or interpret a shipgate report. Triggers on phrases like "add shipgate", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/report.json", "fix shipgate finding".
+description: Use when the user wants to add the deterministic merge gate for AI-generated agent capability changes (a local-first, static Tool-Use Readiness review) to an AI agent's tool surface, run agents-shipgate scans, fix or triage Shipgate findings, add Shipgate to CI, or interpret a shipgate report. Triggers on phrases like "add shipgate", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/report.json", "fix shipgate finding".
 ---
 
 # agents-shipgate skill
 
-`agents-shipgate` is a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic findings as Markdown, JSON, and SARIF.
+`agents-shipgate` is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic findings as Markdown, JSON, and SARIF.
 
 It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry by default. Static analysis only; audited exceptions are pinned in `tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`.
 

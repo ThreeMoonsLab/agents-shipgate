@@ -5,9 +5,9 @@ and AI search engines (ChatGPT, Claude, Perplexity, Google AI Overviews).
 
 ## What is agents-shipgate?
 
-agents-shipgate is a local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces. It is a CLI and GitHub Action. Open source,
-Apache-2.0.
+agents-shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review. It is a
+CLI and GitHub Action. Open source, Apache-2.0.
 
 ## What is agent release readiness?
 

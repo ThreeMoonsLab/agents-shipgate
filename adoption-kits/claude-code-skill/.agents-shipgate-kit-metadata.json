@@ -4,7 +4,8 @@
   "prior_render_sha256": {
     "SKILL.md": [
       "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019",
-      "5ab92f77352ea31ad03c28e1d596b20ada24fa4176a5e0b0b38990e4a00fb5bb"
+      "5ab92f77352ea31ad03c28e1d596b20ada24fa4176a5e0b0b38990e4a00fb5bb",
+      "9ce82bdc41f2e1ea28c7fec3aaeec0137efeacf8986b66a9ac0e3eccc5abd834"
     ]
   },
   "bootstrap_legacy_sha256": {

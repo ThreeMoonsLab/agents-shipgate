@@ -1,7 +1,8 @@
 # Design Partners
 
-Three Moons Lab is looking for early design partners who are shipping
-tool-using AI agents and want a repeatable release-readiness review before
+Three Moons Lab is looking for early design partners who ship tool-using AI
+agents — often with coding agents like Claude Code, Codex, or Cursor — and want
+a deterministic merge gate on every AI-generated agent-capability change before
 production-like permissions are granted.
 
 ## Good Fit
@@ -42,6 +43,9 @@ Three Moons Lab asks for:
   explicitly approved.
 
 ## Contact
+
+The fastest way to start: bring us one AI-generated PR that changes what your
+agent can do, and we'll turn it into a deterministic merge verdict together.
 
 Email `help@threemoonslab.com` with the subject `Agents Shipgate design partner
 review`.

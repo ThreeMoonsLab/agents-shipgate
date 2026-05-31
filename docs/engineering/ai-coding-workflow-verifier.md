@@ -8,15 +8,15 @@ Scope: product direction, architecture constraints, roadmap, and acceptance crit
 
 ## 1. North star
 
-Agents Shipgate is already a local-first, static Tool-Use Readiness release gate for AI agent tool surfaces. The next product step is not to become a broader scanner. The next step is to become the deterministic verifier that must pass when Claude Code, Codex, Cursor, or a human produces an agent-related diff.
+Agents Shipgate is the deterministic merge gate for AI-generated agent capability changes — today delivered as a local-first, static Tool-Use Readiness review. The next product step is not to become a broader scanner. The next step is to make that merge gate the deterministic verifier that must pass when Claude Code, Codex, Cursor, or a human produces an agent-related diff.
 
 North-star sentence:
 
 > When a coding agent changes what an AI agent can do, Agents Shipgate deterministically identifies the capability delta, applies release policy, explains the decision, and tells the coding agent or human reviewer the next safe action.
 
-Keep the canonical category sentence:
+Keep the canonical tagline:
 
-> Local-first, static Tool-Use Readiness release gate for AI agent tool surfaces.
+> The deterministic merge gate for AI-generated agent capability changes.
 
 Add this sentence when the verifier loop ships:
 

@@ -12,8 +12,8 @@ def render_block() -> str:
     """Return the inner content (between markers) for the PR template."""
     return """## Tool-Use Readiness Release Gate
 
-Agents Shipgate is the local-first, static Tool-Use Readiness release gate for
-AI agent tool surfaces.
+Agents Shipgate is the deterministic merge gate for AI-generated agent
+capability changes — a local-first, static Tool-Use Readiness review.
 
 - [ ] If this PR changes agent tools, MCP/OpenAPI specs, prompts, permissions,
       approval policy, confirmation policy, CI release gates, or
