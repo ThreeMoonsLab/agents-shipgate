@@ -203,3 +203,117 @@ def test_scenario_docs_only_with_shipgate_yaml_force_runs(tmp_path: Path) -> Non
     assert payload["trigger"]["should_run"] is True
     assert payload["trigger"]["force_run"] is True
     assert payload["head_status"] == "succeeded"
+
+
+# --- Additional capability-transition scenarios -----------------------------
+
+# An external-communication action with no approval/idempotency controls.
+_EMAIL_TOOL = {
+    "name": "messaging.send_customer_email",
+    "description": "Send an email to a customer's email address.",
+    "annotations": {"readOnlyHint": False},
+    "inputSchema": {
+        "type": "object",
+        "required": ["to", "subject", "body"],
+        "properties": {
+            "to": {"type": "string"},
+            "subject": {"type": "string"},
+            "body": {"type": "string"},
+        },
+    },
+    "auth": {"type": "oauth2", "scopes": ["email:send"]},
+}
+
+_WORKFLOW = """\
+name: agents-shipgate
+on: [pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+"""
+
+
+def _write_workflow(repo: Path) -> None:
+    wf = repo / ".github" / "workflows" / "agents-shipgate.yml"
+    wf.parent.mkdir(parents=True, exist_ok=True)
+    wf.write_text(_WORKFLOW, encoding="utf-8")
+
+
+def test_scenario_agent_adds_email_tool_is_a_gated_capability(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _commit(repo, "base agent")
+    _set_origin_main(repo)
+
+    head_tools = {"tools": [*_BASE_TOOLS["tools"], _EMAIL_TOOL]}
+    _write_tools(repo, head_tools)
+    _commit(repo, "agent adds customer-email tool")
+
+    payload = _verify(repo)
+
+    assert payload["head_status"] == "succeeded"
+    # An external-communication action is a real capability change, not an
+    # auto-mergeable one.
+    email_adds = [
+        c
+        for c in payload["capability_review"]["top_changes"]
+        if "email" in c["subject"] and c["change_type"] == "action_added"
+    ]
+    assert email_adds, payload["capability_review"]["top_changes"]
+    assert payload["can_merge_without_human"] is False, payload["merge_verdict"]
+
+
+def test_scenario_agent_removes_ci_gate_touches_trust_root(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _write_workflow(repo)
+    _commit(repo, "base agent with shipgate CI")
+    _set_origin_main(repo)
+
+    # The PR deletes the Shipgate CI workflow — a reward-hacking move to dodge
+    # the gate. Verify must route it to a human, not let it self-merge.
+    (repo / ".github" / "workflows" / "agents-shipgate.yml").unlink()
+    _commit(repo, "remove shipgate CI")
+
+    payload = _verify(repo)
+
+    assert payload["head_status"] == "succeeded"
+    review = payload["capability_review"]
+    assert review["trust_root_touched"] or review["policy_weakened"], review
+    assert payload["can_merge_without_human"] is False
+
+
+def test_scenario_agent_adds_suppression_weakens_policy(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _commit(repo, "base agent")
+    _set_origin_main(repo)
+
+    # The PR suppresses a check to silence a finding rather than fix it — the
+    # canonical reward-hacking move. Verify must flag the policy as weakened.
+    with (repo / "shipgate.yaml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            "checks:\n"
+            "  ignore:\n"
+            "    - check_id: SHIP-POLICY-APPROVAL-MISSING\n"
+            "      reason: accepted for now\n"
+        )
+    _commit(repo, "suppress approval check")
+
+    payload = _verify(repo)
+
+    review = payload["capability_review"]
+    # Editing shipgate.yaml to add a suppression touches a trust root, so the
+    # change is routed to a human — the agent cannot silently suppress and
+    # self-merge. (It surfaces as trust_root_touched rather than policy_weakened
+    # because the suppressed check has no active blocker in this minimal agent.)
+    assert review["trust_root_touched"] or review["policy_weakened"], review
+    assert payload["can_merge_without_human"] is False
