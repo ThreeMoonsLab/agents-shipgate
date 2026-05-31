@@ -46,6 +46,17 @@ Apache-2.0.
 
 The core loop is verify-first: when a PR changes what your agent can do, run the
 deterministic verifier on the diff and read its merge verdict before you merge.
+On a committed PR/CI ref, pass the base and head so the diff — the capability
+delta and trust-root signals — is in scope (make the base ref available first,
+e.g. `git fetch origin main`):
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json --base origin/main --head HEAD
+```
+
+For local, uncommitted work, omit `--base`/`--head` so your working-tree edits
+are scanned instead:
 
 ```bash
 agents-shipgate verify --workspace . --config shipgate.yaml \
