@@ -33,7 +33,7 @@ The canonical tagline is:
 
 > The deterministic merge gate for AI-generated agent capability changes.
 
-This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync.
+This single sentence is the source of truth for the GitHub repo description, [README.md](README.md), the [wiki Home page](https://github.com/ThreeMoonsLab/agents-shipgate/wiki/Home), and the [marketing site](https://threemoonslab.com/) `<meta name="description">`. Keep them in sync; the website's `.well-known` discovery file is pinned to the latest released tag and refreshes at each release.
 
 Use **Tool-Use Readiness** in Title Case when naming the product/category or
 the **Tool-Use Readiness Report** artifact. Use **tool-use readiness** in
