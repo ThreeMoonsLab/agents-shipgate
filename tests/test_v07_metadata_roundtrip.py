@@ -246,7 +246,7 @@ def test_package_version_is_v010():
     v0.10 but the package version was left behind. Both move together."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.10.0", (
+    assert agents_shipgate.__version__ == "0.11.0", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.10.0 for the v0.10 release"
+        "expected 0.11.0 for the v0.11 release"
     )

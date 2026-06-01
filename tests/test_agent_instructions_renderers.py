@@ -46,7 +46,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "c8f4eb24ffbb5cc6d7e2493f93a790fe042b87002ba3ee13879493b6660de709"
+        "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -58,7 +58,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "bb97c3fbd3b52d5755f6960878f350d484837849c3e536d99aab3fab3e353405"
+        "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -70,7 +70,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "2242305c28828f8d08bae1d0e4f60042f256e61949bc8f388d43c791c6b3f615"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "c3756c86f52cf00a594b3fe38179b66e0f07dc8c52b98b9e76f4a15939901c77"
+        "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
@@ -84,7 +84,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "d4005102df70a627d3883334e827c4bc7527a35a2278573699e18a43afed3bcb"
+        "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"

@@ -2,7 +2,7 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-Agents Shipgate is preparing the `v0.10.0` release. Releases `v0.2` through
+Agents Shipgate is preparing the `v0.11.0` release. Releases `v0.2` through
 `v0.8` are complete and retained here as release history. Active public
 planning continues with incremental source-provenance enrichment after the
 v0.8 release-decision close-out.

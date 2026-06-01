@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -151,7 +151,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.10.0"
+    - python -m pip install "agents-shipgate==0.11.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -183,7 +183,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.10.0"
+      - run: python -m pip install "agents-shipgate==0.11.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -212,7 +212,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.10.0
+    rev: v0.11.0
     hooks:
       - id: agents-shipgate
 ```

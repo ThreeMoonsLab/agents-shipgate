@@ -284,7 +284,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.11.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -571,12 +571,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.10.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.10.0'
+          shipgate_version: '0.11.0'
 ```
 
 Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
