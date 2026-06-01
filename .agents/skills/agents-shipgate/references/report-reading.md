@@ -1,14 +1,15 @@
 # Reading Agents Shipgate Reports
 
-Always read `agents-shipgate-reports/report.json`. Do not scrape Markdown.
+For verify runs, read `agents-shipgate-reports/verifier.json` first. Then read
+`agents-shipgate-reports/report.json`. Do not scrape Markdown.
 
 ## Order
 
-1. `release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`.
-2. `release_decision.blockers[]`: items blocking release.
-3. `release_decision.review_items[]`: accepted debt or human-review items.
-4. `agent_summary`: one-fetch summary with `headline`, counts, safe patches, human-review needs, and `first_recommended_action`.
-5. `verifier_summary`: one-fetch verifier composition for PR controllers. Its `verdict` mirrors `release_decision.decision`; use it for protected-surface, policy-weakening, human-ack, and reason-code rollups, never as a second gate.
+1. `verifier.json.merge_verdict`: `mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`.
+2. `verifier.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
+3. `verifier.json.first_next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
+4. `report.json.release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`; this is the release gate.
+5. `release_decision.blockers[]` and `release_decision.review_items[]`.
 6. `findings[]`: detailed evidence, source, severity, and remediation.
 
 ## Verifier Summary
@@ -58,7 +59,9 @@ For those, summarize the risk and the exact decision a human needs to make.
 Report back with:
 
 ```text
+Merge verdict: <verifier.json.merge_verdict>
 Decision: <release_decision.decision>
+Capability changes: <top verifier capability_review.top_changes entries>
 Blockers: <count>
 Review items: <count>
 Safe patches applied: <count or none>

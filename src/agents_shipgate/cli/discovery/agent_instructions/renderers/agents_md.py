@@ -28,26 +28,24 @@ policy impact unless the user explicitly asks.
 Commands:
 
 ```bash
-agents-shipgate detect --workspace . --json
-agents-shipgate init --workspace . --write --ci --json
+agents-shipgate verify --preview --json
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \\
   --ci-mode advisory --format json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
-agents-shipgate apply-patches \\
-  --from agents-shipgate-reports/report.json \\
-  --confidence high --apply
 ```
 
-Always parse `agents-shipgate-reports/report.json`, not Markdown. Use
-`release_decision.decision` as the release signal.
+Read `agents-shipgate-reports/verifier.json` first and lead with
+`merge_verdict`. Then read `agents-shipgate-reports/report.json`; use
+`release_decision.decision` as the release gate.
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
 verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
 edits are scanned; add `--base origin/main --head HEAD` only for committed
 PR/CI verification after making the base ref available.
-`agents-shipgate-reports/verifier.json` explains trigger/base status; it is
-not a second release verdict.
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;

@@ -40,13 +40,13 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "e1713eecbbb1538987b7bf2cbe90bcdac9c4491f250105b6c68e788c81d49de3"
+        "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "c19c03db48a5be3b002b385f9df09781e5fe32197d0dd924691f041ebe54d518"
+        "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "20a5a2b7a50e2a2b3cd7939e4dc078a0b0ba35e174aae5220dfcbd6d2106758c"
+        "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -67,7 +67,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "f0a1a3d759869ac18eae0b06438b9dc86334695fe0c979db73e514fd4b9f0a6c"
+        "2242305c28828f8d08bae1d0e4f60042f256e61949bc8f388d43c791c6b3f615"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
@@ -75,13 +75,13 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "bfd89761a2266ab89bc686a85fdd7700b0b915d5a8b133fafae16bb758d3272e"
+        "9e616a06ea6a6a9fb7ec17dd90171d24f94043bfd85bc765c25cd83762e42ab3"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "b5d90a1b02ebcc5bbc1c25015722508bc6d1ffde4bf28a470df88bb195c56aec"
+        "f1f48bc66d34237c8a981a1d868ef2e05939cf52726a00ff51d7bee826d45686"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "a916129229f7220936c0d861a60291dd62d14f42808f04e0123377d649df4bc0"
+        "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
         "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da"
@@ -265,6 +265,8 @@ def test_pr_template_uses_conditional_wording() -> None:
 
 def test_agents_md_includes_report_json_contract() -> None:
     out = render_agents_md()
+    assert "agents-shipgate-reports/verifier.json" in out
+    assert "merge_verdict" in out
     assert "agents-shipgate-reports/report.json" in out
     assert "release_decision.decision" in out
 
@@ -274,7 +276,8 @@ def test_claude_md_is_self_contained_no_dangling_link() -> None:
     dangling reference to AGENTS.md."""
     out = render_claude_md()
     # Self-contained means it lists its own commands and report.json contract.
-    assert "agents-shipgate detect" in out
+    assert "agents-shipgate verify --preview" in out
+    assert "merge_verdict" in out
     assert "release_decision.decision" in out
     # Cross-link to AGENTS.md is intentionally omitted.
     assert "AGENTS.md" not in out

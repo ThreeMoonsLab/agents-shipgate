@@ -17,7 +17,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 2. For reading `report.json`, summarizing release decisions, or deciding what may be auto-applied, read `references/report-reading.md`.
 3. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 4. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
-5. Always parse `agents-shipgate-reports/report.json`, not Markdown. Use `release_decision.decision` as the release signal.
+5. For verify runs, read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
 6. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
 7. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
 
@@ -25,7 +25,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
 - Local agent-related diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
-- Existing manifest: run `agents-shipgate scan -c shipgate.yaml --suggest-patches --format json`.
+- Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.
 - First GitHub CI: copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.
 - Explain one finding: run `agents-shipgate explain-finding <fingerprint> --from agents-shipgate-reports/report.json --json`.
 - Triage heuristic findings: run `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic --json`.

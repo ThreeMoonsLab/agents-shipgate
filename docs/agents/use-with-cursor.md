@@ -47,7 +47,7 @@ Do **not** edit the `description:` field unless you mean to change what Cursor's
 Open Cursor in the project. Two checks:
 
 1. Open `shipgate.yaml` (or any matching tool source — an MCP/OpenAPI spec, a tools JSON, a `.py` file in the agent) in the editor and start a chat. Confirm Cursor shows the `agents-shipgate` rule as auto-attached in the rule list.
-2. In the same chat, with the matching file still in context (open in the editor or referenced via `@filename`), ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate." Cursor should run `agents-shipgate detect --workspace . --json` per the rule and proceed to the canonical 4-call flow.
+2. In the same chat, with the matching file still in context (open in the editor or referenced via `@filename`), ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate." Cursor should run the preview/detect path per the rule and proceed only when Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Cursor to finish an
    agent-tool change. Cursor should run
    `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
@@ -119,7 +119,7 @@ Cursor must follow the same boundary as any other agent driving Shipgate:
 - **What it may do mechanically** — install, detect, init, doctor, scan, summarize, add advisory CI, apply high-confidence mechanical patches (`apply-patches --confidence high --apply`), add `agents-shipgate-reports/` to `.gitignore`.
 - **What it must not assert without human review** — approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime trace evidence.
 
-Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For the right order to read `report.json`, see [`report-reading-for-agents.md`](../report-reading-for-agents.md) — read `release_decision.decision` first.
+Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `verifier.json.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
 
 For the stable CLI / JSON contract, see [`STABILITY.md`](../../STABILITY.md).
 

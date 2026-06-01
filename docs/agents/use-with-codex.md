@@ -3,8 +3,8 @@
 OpenAI Codex reads repo-level `AGENTS.md` instructions and repo-scoped Codex
 Skills under `.agents/skills/<name>/`. Agents Shipgate ships both surfaces:
 the `AGENTS.md` snippet tells Codex when to run the gate, and the
-`agents-shipgate` skill gives Codex the detailed workflows for bootstrap,
-scanning, report reading, advisory CI, and finding triage.
+`agents-shipgate` skill gives Codex the detailed workflows for verify,
+bootstrap, report reading, advisory CI, and finding triage.
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
@@ -54,12 +54,13 @@ Open Codex in the project and run two checks:
 
 1. Ask: "prepare this agent repo for production release and add appropriate
    CI preflight checks." Codex should use the AGENTS.md snippet or the
-   `agents-shipgate` skill, run `agents-shipgate detect --workspace . --json`,
-   and continue only when Shipgate is relevant.
-2. Ask with explicit skill invocation: "$agents-shipgate scan this agent and
-   summarize the release decision." Codex should read
-   `agents-shipgate-reports/report.json`, not Markdown, and lead with
-   `release_decision.decision`.
+   `agents-shipgate` skill, run `agents-shipgate verify --preview --json` or
+   `agents-shipgate detect --workspace . --json`, and continue only when
+   Shipgate is relevant.
+2. Ask with explicit skill invocation: "$agents-shipgate verify this agent PR
+   and summarize the merge verdict." Codex should read
+   `agents-shipgate-reports/verifier.json`, lead with `merge_verdict`, then
+   read `agents-shipgate-reports/report.json` for `release_decision.decision`.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
@@ -115,7 +116,7 @@ It loads a concise `SKILL.md` first, then only reads references when needed:
 
 Codex must preserve the same safety boundary as every other agent:
 
-- It may install, detect, init, scan, summarize, add advisory CI, apply
+- It may install, preview/detect, init, verify, scan, summarize, add advisory CI, apply
   high-confidence mechanical patches, and add `agents-shipgate-reports/` to
   `.gitignore`.
 - It must not invent approval, confirmation, idempotency, broad-scope,

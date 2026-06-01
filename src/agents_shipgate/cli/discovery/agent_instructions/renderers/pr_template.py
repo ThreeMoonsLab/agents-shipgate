@@ -20,11 +20,14 @@ capability changes — a local-first, static Tool-Use Readiness review.
       `shipgate.yaml`, I ran:
 
       ```bash
-      agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+      agents-shipgate verify --workspace . --config shipgate.yaml \
+        --ci-mode advisory --format json
       ```
 
+- [ ] I reviewed `agents-shipgate-reports/verifier.json`, led with
+      `merge_verdict`, and checked `capability_review.top_changes[]`.
 - [ ] I reviewed `agents-shipgate-reports/report.json` and used
-      `release_decision.decision` as the release signal.
+      `release_decision.decision` as the release gate.
 - [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
       or prohibited-action policy decisions.
 

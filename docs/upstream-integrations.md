@@ -1,6 +1,6 @@
 # Upstream Integrations
 
-Per-framework, 60-second instructions for dropping Agents Shipgate into a project that already uses one of the supported tool surfaces. This is the "coding agent's adoption checklist" — paste the minimal `shipgate.yaml`, run the canonical 4-call flow, and you're scanning.
+Per-framework, 60-second instructions for dropping Agents Shipgate into a project that already uses one of the supported tool surfaces. This is the "coding agent's adoption checklist" — paste the minimal `shipgate.yaml`, run the first-adoption helper flow, then use `agents-shipgate verify` for ongoing PRs.
 
 > **Audience.** Coding agents adding Shipgate to a target repo for the first time, or repo maintainers picking up Shipgate. If you want the full architectural reference, see [`docs/manifest-v0.1.md`](manifest-v0.1.md) and [`docs/minimal-real-configs.md`](minimal-real-configs.md). This doc is the speedrun.
 

@@ -2,19 +2,42 @@
 
 A 60-second introduction to agents-shipgate for developers and AI coding agents.
 
-## One-command quickstart
+## Verify-first quickstart
 
-Run the bundled fixture without writing any YAML. If you already have
-[`uv`](https://docs.astral.sh/uv/) installed, this is a one-command check with
-no persistent install:
+The main path is to verify a PR or local diff before merge. After installing
+the CLI (see [Install](#install)), start with a preview so Shipgate can tell a
+coding agent whether the repo or diff is relevant:
 
 ```bash
-uvx agents-shipgate fixture run support_refund_agent
+agents-shipgate verify --preview --json
 ```
 
-Use this when you want a 5-minute path to confirm the CLI works and inspect a
-real Tool-Use Readiness Report before touching your own repo. If `uvx` is not
-available, use the `pipx` install path below.
+If the repo needs Shipgate and is not configured yet, install the manifest,
+advisory CI, and agent-facing instructions:
+
+```bash
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
+```
+
+Then run the verifier. For local pre-commit work, omit `--base` and `--head` so
+uncommitted edits are scanned:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+For committed PR/CI refs, make the base ref available first, then pass base and
+head:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json --base origin/main --head HEAD
+```
+
+Read `agents-shipgate-reports/verifier.json` first and lead with
+`merge_verdict`. Then read `agents-shipgate-reports/report.json`; the release
+gate remains `release_decision.decision`.
 
 ## Zero-install: is this even relevant?
 
@@ -47,21 +70,39 @@ Agents Shipgate currently requires Python 3.12 or newer. If your project uses
 an older runtime, install the CLI with `pipx` or `uv` using a Python 3.12+
 interpreter instead of installing it into the project environment.
 
-## First scan (60 seconds against a fixture)
+## Demo fixture (60 seconds)
 
-Without writing any YAML:
+Run the bundled fixture without writing any YAML. Use this when you want a
+5-minute path to confirm the CLI works and inspect a real Tool-Use Readiness
+Report before touching your own repo:
 
 ```bash
+uvx agents-shipgate fixture run support_refund_agent
+```
+
+If `uvx` is unavailable, install once with `pipx` and run:
+
+```bash
+pipx install agents-shipgate
 agents-shipgate fixture run support_refund_agent
 ```
 
-This runs against a bundled fixture that intentionally fails several checks,
-so you can confirm the install works and see what a real finding list looks
-like.
+The fixture intentionally fails several checks, so you can see what a real
+finding list looks like. It is a demo path, not the main PR verification flow.
 
 ## Read the first result
 
-Use `release_decision.decision` as the first signal:
+For PR verification, read `verifier.json.merge_verdict` first:
+
+| Merge verdict | Meaning | Next action |
+| --- | --- | --- |
+| `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky capability. |
+| `insufficient_evidence` | Static evidence is too weak to gate release confidently. | Add better sources and rerun; do not auto-merge. |
+| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. |
+| `mergeable` | No active blocker or review signal was found. | Keep verifier/report artifacts with the PR record. |
+| `unknown` | Verify could not produce a reliable head scan or diff context. | Fix the setup, fetch the base ref, or rerun with usable inputs. |
+
+Then read `report.json.release_decision.decision`, the source-of-truth gate:
 
 | Decision | Meaning | Next action |
 | --- | --- | --- |
@@ -70,17 +111,16 @@ Use `release_decision.decision` as the first signal:
 | `review_required` | Human review is needed for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
 | `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
 
-## Second 60 seconds (your real repo)
+## First adoption helper
 
-In a repo containing an agent and its tools, `bootstrap` runs the adoption flow
-in one command:
+`bootstrap` remains useful for first-time adoption when you want a single
+command to detect, configure, scan, and auto-apply safe mechanical fixes:
 
 ```bash
 agents-shipgate bootstrap --json
 ```
 
-The expanded form detects, configures, scans, and auto-applies safe fixes in
-one turn:
+The expanded form is:
 
 ```bash
 agents-shipgate detect --json                                              # 1. classify
@@ -178,20 +218,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
+          diff_base: target
           pr_comment: "true"
 ```
 
-Advisory mode never fails CI — it posts the finding list as a PR comment.
+Advisory mode never fails CI — it posts the merge verdict, capability changes,
+required next action, and report links as a PR comment.
 Switch to `ci_mode: strict` with a baseline file once your team has
 triaged existing findings.
 
 ## Next
 
-- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow
+- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for verify-first PRs and first adoption
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework minimal manifest references
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`checks.md`](checks.md) — what the scanner looks for

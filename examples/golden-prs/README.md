@@ -4,11 +4,12 @@ These examples show the full advisory loop a human reviewer or coding agent
 should imitate:
 
 1. Identify a risky tool surface.
-2. Run Agents Shipgate.
-3. Read `agents-shipgate-reports/report.json`.
-4. Use `release_decision.decision`.
-5. Separate safe patches from human release decisions.
-6. Post a recommended coding-agent PR summary.
+2. Run `agents-shipgate verify`.
+3. Read `agents-shipgate-reports/verifier.json`.
+4. Lead with `merge_verdict` and `capability_review.top_changes[]`.
+5. Read `agents-shipgate-reports/report.json` for `release_decision.decision`.
+6. Separate safe patches from human release decisions.
+7. Post a recommended coding-agent PR summary.
 
 Examples:
 

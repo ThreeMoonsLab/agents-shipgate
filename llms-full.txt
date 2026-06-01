@@ -106,13 +106,15 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
 
 Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
 scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
-after making the base ref available. The release gate is
-`agents-shipgate-reports/report.json.release_decision.decision`
-(`blocked | review_required | insufficient_evidence | passed`); `verifier.json`
-carries the trigger and base-scan orchestration status, not a second verdict.
-Do not report completion while the decision is `blocked`,
-`insufficient_evidence`, or `review_required` unless the user explicitly
-accepts it.
+after making the base ref available. Read
+`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
+(`mergeable | human_review_required | insufficient_evidence | blocked |
+unknown`), `capability_review.top_changes[]`, and `first_next_action`.
+Then read `agents-shipgate-reports/report.json.release_decision.decision`
+(`blocked | review_required | insufficient_evidence | passed`), which remains
+the release gate. Do not report completion while `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -127,7 +129,7 @@ agents-shipgate fixture run support_refund_agent
 
 ---
 
-## Single-turn agent flow (v0.6+)
+## First-adoption helper flow (v0.6+)
 
 For coding agents adopting Shipgate end-to-end in one turn:
 
@@ -585,12 +587,34 @@ static-by-default, with audited exceptions pinned in
 
 ---
 
-## Recipe 1 · Single-turn adoption (the canonical 4-call flow)
+## Recipe 0 · Verify an agent-related PR
 
-Use this when a repo doesn't yet have `shipgate.yaml`. Four calls in
-one user turn take it from "looks like an agent project" to "Shipgate
-is integrated, scan green or with safe trivial findings auto-applied,
-CI workflow optionally drafted."
+Use this before claiming completion on a PR or local diff that changes tools,
+MCP/OpenAPI surfaces, prompts, permissions, policies, release gates, or
+`shipgate.yaml`.
+
+```bash
+agents-shipgate verify --preview --json
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
+```
+
+For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
+base ref available. Read `agents-shipgate-reports/verifier.json` first and lead
+with `merge_verdict`, then inspect `capability_review.top_changes[]`,
+`first_next_action.actor`, and `fix_task.safe_to_attempt`. Then read
+`report.json.release_decision.decision`, which remains the release gate.
+
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
+
+## Recipe 1 · First adoption helper
+
+Use this when a repo doesn't yet have `shipgate.yaml`. Four calls in one user
+turn take it from "looks like an agent project" to "Shipgate is integrated,
+scan green or with safe trivial findings auto-applied, CI workflow optionally
+drafted." This is an adoption helper; ongoing PR work should use Recipe 0.
 
 ```bash
 agents-shipgate detect --json
@@ -1997,7 +2021,7 @@ Which Agents Shipgate findings are safe to apply automatically, which
 need human review, and how the per-finding metadata in `report.json`
 maps to `apply-patches --confidence` flag semantics.
 
-> **Audience.** AI coding agents driving the canonical 4-call flow
+> **Audience.** AI coding agents driving verify-first PR checks or first-adoption helper flows
 > (see [`agent-recipes.md`](agent-recipes.md)) and CI integrators
 > deciding what to gate on.
 

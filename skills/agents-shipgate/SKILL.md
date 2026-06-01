@@ -1,6 +1,6 @@
 ---
 name: agents-shipgate
-description: Use when the user wants to add the deterministic merge gate for AI-generated agent capability changes (a local-first, static Tool-Use Readiness review) to an AI agent's tool surface, run agents-shipgate scans, fix or triage Shipgate findings, add Shipgate to CI, or interpret a shipgate report. Triggers on phrases like "add shipgate", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/report.json", "fix shipgate finding".
+description: Use when the user wants to add or run the deterministic merge gate for AI-generated agent capability changes (a local-first, static Tool-Use Readiness review) on an AI agent's tool surface, verify agent-related PRs, fix or triage Shipgate findings, add Shipgate to CI, or interpret Shipgate verifier/report artifacts. Triggers on phrases like "add shipgate", "verify this agent PR", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/verifier.json", "agents-shipgate-reports/report.json", "fix shipgate finding".
 ---
 
 # agents-shipgate skill
@@ -14,7 +14,7 @@ It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or 
 ## When to use this skill
 
 - The user asks to add Tool-Use Readiness or pre-merge checks to an agent project.
-- The repo already has `shipgate.yaml` or `agents-shipgate-reports/report.json`.
+- The repo already has `shipgate.yaml`, `agents-shipgate-reports/verifier.json`, or `agents-shipgate-reports/report.json`.
 - The user asks to fix, triage, suppress, or explain a Shipgate finding.
 - The user wants to add Shipgate to CI (GitHub Actions, GitLab CI, CircleCI).
 
@@ -45,7 +45,7 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 Always:
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
-2. Parse `agents-shipgate-reports/report.json` (stable contract), not the markdown.
+2. For verify runs, parse `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
 3. Before finishing an agent-related local diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`, or report the exact `agents-shipgate trigger` skip verdict. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
 4. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 5. Confirm with the user before any command that writes files (`init --write`, `baseline save`).

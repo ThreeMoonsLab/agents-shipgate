@@ -81,13 +81,15 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
 
 Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
 scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
-after making the base ref available. The release gate is
-`agents-shipgate-reports/report.json.release_decision.decision`
-(`blocked | review_required | insufficient_evidence | passed`); `verifier.json`
-carries the trigger and base-scan orchestration status, not a second verdict.
-Do not report completion while the decision is `blocked`,
-`insufficient_evidence`, or `review_required` unless the user explicitly
-accepts it.
+after making the base ref available. Read
+`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
+(`mergeable | human_review_required | insufficient_evidence | blocked |
+unknown`), `capability_review.top_changes[]`, and `first_next_action`.
+Then read `agents-shipgate-reports/report.json.release_decision.decision`
+(`blocked | review_required | insufficient_evidence | passed`), which remains
+the release gate. Do not report completion while `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -102,7 +104,7 @@ agents-shipgate fixture run support_refund_agent
 
 ---
 
-## Single-turn agent flow (v0.6+)
+## First-adoption helper flow (v0.6+)
 
 For coding agents adopting Shipgate end-to-end in one turn:
 

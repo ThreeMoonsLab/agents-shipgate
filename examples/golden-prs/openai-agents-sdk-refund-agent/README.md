@@ -11,13 +11,14 @@ create an external financial side effect.
 ## Commands
 
 ```bash
-agents-shipgate scan -c samples/support_refund_agent/shipgate.yaml \
-  --suggest-patches --format json
+agents-shipgate verify --workspace samples/support_refund_agent \
+  --config shipgate.yaml --ci-mode advisory --format json
 ```
 
 Then read:
 
 ```bash
+agents-shipgate-reports/verifier.json
 agents-shipgate-reports/report.json
 ```
 
@@ -25,6 +26,7 @@ agents-shipgate-reports/report.json
 
 Expected advisory summary:
 
+- Merge verdict: `blocked`
 - Decision: `blocked`
 - Blockers: 2
 - Review items: 16
@@ -51,15 +53,22 @@ which evidence belongs in `shipgate.yaml`.
 ## Recommended Agent PR Summary
 
 ```md
-## Agents Shipgate
+## Agents Shipgate: blocked
 
+Merge verdict: `blocked`
 Release decision: `blocked`
-Reason: 2 active findings block release.
+Headline: This PR adds the money-moving action `stripe.create_refund` without
+approval or idempotency evidence.
 
-Blockers: 2
-Review items: 16
+Capability changes:
+- `capability_review.top_changes[]`: `stripe.create_refund` action added,
+  impact `blocks_release`.
 
-Top findings:
+Required before merge:
+1. Human owner must confirm approval policy evidence for `stripe.create_refund`.
+2. Human owner must confirm idempotency evidence for refund retries.
+
+Top findings from report.json:
 1. `SHIP-POLICY-APPROVAL-MISSING` - `stripe.create_refund` needs approval policy evidence.
 2. `SHIP-SIDEFX-IDEMPOTENCY-MISSING` - `stripe.create_refund` needs idempotency evidence.
 3. `SHIP-AUTH-MANIFEST-BROAD-SCOPE` - review manifest scopes before promotion.

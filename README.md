@@ -42,13 +42,27 @@ no scanner network calls, no scanner telemetry. Audited exceptions are pinned
 in [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
 Apache-2.0.
 
-## One-command quickstart
+## Verify-first quickstart
 
 The core loop is verify-first: when a PR changes what your agent can do, run the
 deterministic verifier on the diff and read its merge verdict before you merge.
-On a committed PR/CI ref, pass the base and head so the diff — the capability
-delta and trust-root signals — is in scope (make the base ref available first,
-e.g. `git fetch origin main`):
+
+First ask whether Shipgate applies to the current repo or diff:
+
+```bash
+agents-shipgate verify --preview --json
+```
+
+If the repo is not configured yet, install the manifest, advisory CI, and
+agent-facing instructions:
+
+```bash
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
+```
+
+Then verify the committed PR/CI ref. Pass the base and head so the diff — the
+capability delta and trust-root signals — is in scope (make the base ref
+available first, e.g. `git fetch origin main`):
 
 ```bash
 agents-shipgate verify --workspace . --config shipgate.yaml \
@@ -65,11 +79,13 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 The release gate is `agents-shipgate-reports/report.json` →
 `release_decision.decision` (`blocked | review_required | insufficient_evidence | passed`).
-No `shipgate.yaml` yet? Run `agents-shipgate init --workspace . --write` first.
+The PR/controller surface is `agents-shipgate-reports/verifier.json` →
+`merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
+blocked | unknown`), a deterministic projection of the release decision.
 
-Want a 5-minute first run with zero setup? Scan the bundled fixture. If you
-already have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is a
-one-command check with no persistent install:
+Want a 5-minute demo with zero setup? Scan the bundled fixture. If you already
+have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is a
+one-command install check with no persistent install:
 
 ```bash
 uvx agents-shipgate fixture run support_refund_agent
@@ -93,13 +109,23 @@ Reports: <tempdir>/reports
 Fixture copy at <tempdir>; pass --keep to retain after the run.
 ```
 
-Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To scan your own repo and write the standard `agents-shipgate-reports/` directory, see [Scan your repo](#scan-your-repo) below.
+Both blockers are on `stripe.create_refund`: missing approval policy and missing idempotency evidence. The fixture writes `report.{md,json}` and `packet.{md,json,html}` into the temp `reports/` directory. To verify your own repo and write the standard `agents-shipgate-reports/` directory, see [Verify your repo](#verify-your-repo) below.
 
 ![Sample Tool-Use Readiness Report showing 2 critical, 14 high, and 2 medium findings on the support_refund_agent fixture, including a missing approval policy on stripe.create_refund.](assets/sample-report.png)
 
 ## How to read your first result
 
-Read `release_decision.decision` first:
+For PR verification, read `verifier.json.merge_verdict` first:
+
+| Merge verdict | Meaning | Next step |
+|---|---|---|
+| `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky capability. |
+| `insufficient_evidence` | Static evidence is too weak to gate release confidently. | Add better sources and rerun; do not auto-merge. |
+| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. |
+| `mergeable` | No active blocker or review signal was found. | Keep verifier/report artifacts with the PR record. |
+| `unknown` | Verify could not produce a reliable head scan or diff context. | Fix setup, fetch the base ref, or rerun with usable inputs. |
+
+Then read `report.json.release_decision.decision`, the source-of-truth gate:
 
 | Decision | Meaning | Next step |
 |---|---|---|
@@ -107,6 +133,10 @@ Read `release_decision.decision` first:
 | `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence. This does not prove the agent is unsafe. | Provide clearer sources such as an MCP export, OpenAPI spec, explicit local tool inventory, or broader OpenAI SDK source path, then rerun. |
 | `review_required` | Human review is needed, often for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
 | `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
+
+Common review signals include missing confirmation, missing idempotency
+evidence, broad-scope permissions, prohibited-action policy gaps, and
+trust-root changes such as weakened CI or manifest policy.
 
 ## GitHub Action Marketplace
 
@@ -125,7 +155,7 @@ curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/t
   | python3 - --workspace . --json
 ```
 
-Continue to [Scan your repo](#scan-your-repo) when the output has
+Continue to [Verify your repo](#verify-your-repo) when the output has
 `is_agent_project: true`, non-empty `suggested_sources`, non-empty
 `codex_plugin_candidates`, or the workspace already has `shipgate.yaml`.
 
@@ -149,18 +179,18 @@ Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md
 ```text
 Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
 Run:
-agents-shipgate detect --workspace . --json
+agents-shipgate verify --preview --json
 If Shipgate is relevant, run:
-agents-shipgate contract --json
-agents-shipgate init --workspace . --write --ci --json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
-agents-shipgate apply-patches --from agents-shipgate-reports/report.json --confidence high --apply
-Read `agents-shipgate-reports/report.json`, not Markdown. Summarize
-`release_decision.decision`, blocker count, review item count, top critical/high
-findings, and any safe patches applied. Auto-apply only high-confidence safe
-patches. Do not auto-assert approval, confirmation, idempotency, broad-scope,
-or prohibited-action policy decisions. Ensure `.gitignore` contains
-`agents-shipgate-reports/` before committing.
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
+base ref available. Read `agents-shipgate-reports/verifier.json` first and lead
+with `merge_verdict`, then read `agents-shipgate-reports/report.json` for
+`release_decision.decision`. Do not claim completion when `merge_verdict` is
+`blocked`, `insufficient_evidence`, or `human_review_required` unless the user
+explicitly accepts human review. Do not auto-assert approval. Never suppress
+findings, lower severity, expand baselines or waivers, remove Shipgate CI, or
+weaken agent instructions just to make the verifier pass.
 ```
 
 ## Add the Codex adoption kit
@@ -173,7 +203,7 @@ agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-
 ```
 
 The skill lives at `.agents/skills/agents-shipgate/`, can be invoked with
-`$agents-shipgate`, and teaches Codex the bootstrap, scan, report-reading,
+`$agents-shipgate`, and teaches Codex the verify, bootstrap, report-reading,
 advisory CI, and finding-triage workflows.
 
 To customize generated skill content in a downstream repo without rebuilding
@@ -204,15 +234,20 @@ evidence around them:
   prohibited actions, or `shipgate.yaml`.
 - GitHub Actions or CI release gates for a tool-using AI agent.
 
-## Scan your repo
+## Verify your repo
 
 ```bash
-agents-shipgate init --workspace . --write --ci --json
+agents-shipgate verify --preview --json
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
 # Replace any CHANGE_ME placeholders reported by init.
-agents-shipgate scan -c shipgate.yaml
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --ci-mode advisory --format json
 ```
 
-Reports land at `agents-shipgate-reports/report.{md,json,sarif}`; the Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`.
+For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
+base ref available. Verify writes `agents-shipgate-reports/verifier.json`,
+`pr-comment.md`, and the normal `report.{md,json,sarif}` / packet artifacts
+when a scan is required.
 
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
@@ -221,11 +256,11 @@ python -m pip install agents-shipgate    # global pip
 uv tool install agents-shipgate          # via uv
 ```
 
-## Adopt in one turn (for AI coding agents)
+## Adopt in one turn (helper flow)
 
-The v0.6 single-turn flow takes a workspace from "looks like an agent
-project" to "Shipgate integrated, scan green or with safe patches
-applied, CI workflow drafted":
+The single-turn bootstrap flow remains useful for first adoption. It takes a
+workspace from "looks like an agent project" to "Shipgate integrated, scan green
+or with safe patches applied, CI workflow drafted":
 
 ```bash
 agents-shipgate detect --json                                          # 1. classify
@@ -246,15 +281,21 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 ## Use in CI
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
 - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
+    diff_base: target
+    pr_comment: "true"
 ```
 
-Set `pr_comment: "true"` to post a compact PR summary:
+The PR comment leads with `merge_verdict`, capability changes, required next
+action, and artifact links:
 
-![Preview of the optional Agents Shipgate PR comment showing release blockers, severity counts, top findings, and report artifacts.](assets/pr-comment-preview.png)
+![Preview of the optional Agents Shipgate PR comment showing merge verdict, capability changes, required next action, and report artifacts.](assets/pr-comment-preview.png)
 
 ## What it scans
 
@@ -355,7 +396,7 @@ Top findings:
 The fastest way to understand what changes for a reviewer: walk through a Golden PR. Each one ships a sample manifest, the resulting report, the release decision, and the recommended PR-comment summary an agent should post.
 
 - [`openai-agents-sdk-refund-agent`](examples/golden-prs/openai-agents-sdk-refund-agent/README.md) — refund agent adds `stripe.create_refund`. Shipgate decides `blocked` because approval policy and idempotency evidence are missing. Includes the recommended Markdown PR-comment template.
-- [`golden-pr-from-coding-agent.md`](examples/golden-prs/golden-pr-from-coding-agent.md) — the *artifact* a coding agent should produce after running the canonical 4-call flow: PR comment, structured `agent_summary`, applied diff, review-item table.
+- [`golden-pr-from-coding-agent.md`](examples/golden-prs/golden-pr-from-coding-agent.md) — the *artifact* a coding agent should produce after running the verify-first flow: PR comment, `merge_verdict`, `capability_review`, and human/coding-agent next action.
 - [`mcp-only-tool-server`](examples/golden-prs/mcp-only-tool-server/README.md) — MCP server with no Python framework imports; demonstrates the MCP-only adoption path.
 - [`openapi-support-agent`](examples/golden-prs/openapi-support-agent/README.md) — OpenAPI-described tool surface; shows scope-coverage findings.
 
