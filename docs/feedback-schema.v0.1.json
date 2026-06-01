@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/feedback-schema.v0.1.json",
+  "title": "Agents Shipgate Feedback Export v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "feedback_schema_version": {
+      "const": "0.1"
+    },
+    "source_verifier": {
+      "type": "string"
+    },
+    "redacted": {
+      "type": "boolean"
+    },
+    "merge_verdict": {
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown",
+        null
+      ]
+    },
+    "can_merge_without_human": {
+      "type": "boolean"
+    },
+    "decision": {
+      "enum": [
+        "passed",
+        "review_required",
+        "insufficient_evidence",
+        "blocked",
+        null
+      ]
+    },
+    "mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trigger": {
+      "$ref": "#/$defs/FeedbackTrigger"
+    },
+    "first_next_action": {
+      "$ref": "#/$defs/FeedbackAction"
+    },
+    "fix_task": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FeedbackFixTask"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability_review": {
+      "$ref": "#/$defs/FeedbackCapabilityReview"
+    },
+    "finding_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reviewer_feedback_requested": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "$ref": "#/$defs/FeedbackArtifacts"
+    }
+  },
+  "required": [
+    "feedback_schema_version",
+    "source_verifier",
+    "redacted",
+    "merge_verdict",
+    "can_merge_without_human",
+    "decision",
+    "mode",
+    "trigger",
+    "first_next_action",
+    "fix_task",
+    "capability_review",
+    "finding_ids",
+    "reviewer_feedback_requested",
+    "artifacts"
+  ],
+  "$defs": {
+    "FeedbackAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "why": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "FeedbackArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verifier_json": {
+          "type": "string"
+        },
+        "report_json": {
+          "type": "string"
+        },
+        "pr_comment": {
+          "type": "string"
+        }
+      }
+    },
+    "FeedbackCapabilityReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trust_root_touched": {
+          "type": "boolean"
+        },
+        "policy_weakened": {
+          "type": "boolean"
+        },
+        "capability_changes_added": {
+          "type": "integer"
+        },
+        "capability_changes_modified": {
+          "type": "integer"
+        },
+        "capability_changes_removed": {
+          "type": "integer"
+        },
+        "top_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FeedbackCapabilityChange"
+          }
+        }
+      },
+      "required": [
+        "trust_root_touched",
+        "policy_weakened",
+        "capability_changes_added",
+        "capability_changes_modified",
+        "capability_changes_removed",
+        "top_changes"
+      ]
+    },
+    "FeedbackCapabilityChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "change_type": {
+          "type": "string"
+        },
+        "change_bucket": {
+          "type": "string"
+        },
+        "subject_kind": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "impact": {
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_start_line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "FeedbackFixTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "safe_to_attempt": {
+          "type": "boolean"
+        },
+        "instructions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_shortcuts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification_command": {
+          "type": "string"
+        }
+      }
+    },
+    "FeedbackTrigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "should_run": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "should_run",
+        "action",
+        "matched_rule_ids"
+      ]
+    }
+  }
+}

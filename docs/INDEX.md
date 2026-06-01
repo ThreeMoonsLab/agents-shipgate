@@ -60,7 +60,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## Workflows
 
-- [`quickstart.md`](quickstart.md) — 60-second install + first scan
+- [`quickstart.md`](quickstart.md) — verify-first AI-generated PR workflow
 - [`faq.md`](faq.md) — common questions, AI-search-friendly
 - [`integrations.md`](integrations.md) — CI/CD integration recipes (GitHub Actions, GitLab CI, CircleCI, Jenkins snippet)
 - [`troubleshooting.md`](troubleshooting.md) — error messages → fixes

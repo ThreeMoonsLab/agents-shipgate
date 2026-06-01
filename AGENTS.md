@@ -84,8 +84,9 @@ scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
 after making the base ref available. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
-unknown`), `capability_review.top_changes[]`, and `first_next_action`.
-Then read `agents-shipgate-reports/report.json.release_decision.decision`
+unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
+`capability_review.top_changes[]`. Then read
+`agents-shipgate-reports/report.json.release_decision.decision`
 (`blocked | review_required | insufficient_evidence | passed`), which remains
 the release gate. Do not report completion while `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
@@ -96,7 +97,13 @@ expanding baselines or waivers, removing Shipgate CI, or weakening agent
 instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
 release-visible and route them to human review.
 
-To verify your install on a known fixture without writing any YAML:
+To reproduce the verify-native blocked refund PR demo without writing YAML:
+
+```bash
+agents-shipgate fixture run ai_generated_refund_pr
+```
+
+To verify your install on the older static scan fixture:
 
 ```bash
 agents-shipgate fixture run support_refund_agent

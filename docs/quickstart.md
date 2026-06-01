@@ -36,8 +36,10 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 Read `agents-shipgate-reports/verifier.json` first and lead with
-`merge_verdict`. Then read `agents-shipgate-reports/report.json`; the release
-gate remains `release_decision.decision`.
+`merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`,
+and `capability_review.top_changes`. Then read
+`agents-shipgate-reports/report.json`; the release gate remains
+`release_decision.decision`.
 
 ## Zero-install: is this even relevant?
 
@@ -72,9 +74,19 @@ interpreter instead of installing it into the project environment.
 
 ## Demo fixture (60 seconds)
 
-Run the bundled fixture without writing any YAML. Use this when you want a
-5-minute path to confirm the CLI works and inspect a real Tool-Use Readiness
-Report before touching your own repo:
+Run the verify-native fixture used for the public verifier story:
+
+```bash
+agents-shipgate fixture run ai_generated_refund_pr
+```
+
+The fixture builds a temporary base/head git history where the head commit adds
+`stripe.create_refund`. It writes `verifier.json`, `report.json`, and
+`pr-comment.md`; the expected merge verdict is `blocked`.
+
+The older static scan fixture is still useful when you want a 5-minute path to
+confirm the CLI works and inspect a real Tool-Use Readiness Report before
+touching your own repo:
 
 ```bash
 uvx agents-shipgate fixture run support_refund_agent
@@ -220,18 +232,50 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+      - id: shipgate
+        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
+          shipgate_version: "0.11.0"
 ```
 
 Advisory mode never fails CI — it posts the merge verdict, capability changes,
 required next action, and report links as a PR comment.
 Switch to `ci_mode: strict` with a baseline file once your team has
 triaged existing findings.
+
+After adoption, choose an explicit policy:
+
+```yaml
+- name: Block only blocked verdicts
+  if: steps.shipgate.outputs.merge_verdict == 'blocked'
+  run: exit 1
+```
+
+```yaml
+- name: Require no human authority gap
+  if: steps.shipgate.outputs.can_merge_without_human != 'true'
+  run: exit 1
+```
+
+## Export feedback
+
+For a design-partner review or false-positive report, export the small redacted
+feedback artifact from the verifier:
+
+```bash
+agents-shipgate feedback export \
+  --from agents-shipgate-reports/verifier.json \
+  --redact \
+  --out shipgate-feedback.json
+```
+
+The export includes the merge verdict, top capability changes, finding IDs,
+next action, `fix_task`, and reviewer prompts. It does not include raw finding
+evidence.
 
 ## Next
 

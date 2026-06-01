@@ -1,0 +1,29 @@
+version: "0.1"
+
+project:
+  name: ai-generated-refund-pr-demo
+  owner: support-platform
+
+agent:
+  name: support-agent
+  declared_purpose:
+    - answer support knowledge base questions
+    - prepare refund cases for human review
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: support_tools
+    type: mcp
+    path: tools.json
+    trust: internal
+
+permissions:
+  scopes:
+    - support:kb:read
+  credential_mode: service_account
+
+ci:
+  mode: advisory
+  pr_comment: true

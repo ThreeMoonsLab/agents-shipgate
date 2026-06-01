@@ -1,11 +1,11 @@
 name: Agents Shipgate
 description: >-
   The deterministic merge gate for AI-generated agent capability changes.
-  Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK,
-  LangChain, CrewAI, OpenAI API, Codex plugin, and n8n artifacts.
-  Writes a Tool-Use Readiness Report (Markdown / JSON / SARIF) before your
-  agent gets production-like permissions. Local-first and static-by-default. Audited
-  exceptions are pinned per call site in
+  Verifies PRs that change MCP, OpenAPI, OpenAI Agents SDK, Anthropic,
+  Google ADK, LangChain, CrewAI, OpenAI API, Codex plugin, and n8n
+  artifacts. Writes verifier.json, report.json, pr-comment.md, and SARIF
+  before your agent-capability change lands. Local-first and
+  static-by-default. Audited exceptions are pinned per call site in
   tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS. Apache-2.0.
 author: ThreeMoonsLab
 

@@ -1,0 +1,52 @@
+{
+  "tools": [
+    {
+      "name": "support.search_kb",
+      "description": "Search the support knowledge base for refund policy guidance.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["support:kb:read"]
+      },
+      "owner": "support-platform"
+    },
+    {
+      "name": "stripe.create_refund",
+      "description": "Create a real money refund to the customer payment method.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["charge_id", "amount"],
+        "properties": {
+          "charge_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["stripe:*"]
+      },
+      "owner": "support-platform"
+    }
+  ]
+}

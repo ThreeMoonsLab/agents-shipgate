@@ -26,19 +26,31 @@ currently a local-first OSS scanner and GitHub Action.
 
 Design partners get:
 
-- Help mapping an existing agent repo to `shipgate.yaml`.
-- A first Tool-Use Readiness Report for one agent or tool surface.
-- Guidance on advisory CI, baselines, suppressions, and strict-mode rollout.
-- Early influence on check semantics, report shape, framework adapters, and
-  agent-facing workflows.
+- A capability-level review of one AI-generated agent PR or sanitized patch.
+- `verifier.json` and `pr-comment.md` wired into the repo's advisory workflow.
+- A map of what the coding agent may fix mechanically vs. what requires human
+  authority.
+- A trust-root review: whether the PR could weaken the gate that reviews it.
+- Guidance from advisory verifier comments toward blocker-only or strict
+  `can_merge_without_human` CI.
 
 ## What Three Moons Lab Asks For
 
 Three Moons Lab asks for:
 
-- A concrete agent/tool-surface use case.
-- Feedback on whether the findings are actionable for platform, security, and
-  release reviewers.
+- A concrete PR link, sanitized patch, or representative diff from Claude Code,
+  Codex, Cursor, or similar tooling.
+- Feedback on whether the capability change, merge verdict, `fix_task`, and
+  `first_next_action` are actionable for platform, security, and release
+  reviewers.
+- When possible, a redacted feedback artifact:
+
+  ```bash
+  agents-shipgate feedback export \
+    --from agents-shipgate-reports/verifier.json \
+    --redact \
+    --out shipgate-feedback.json
+  ```
 - Permission to use anonymized lessons in docs or category writing, only when
   explicitly approved.
 
@@ -50,5 +62,5 @@ agent can do, and we'll turn it into a deterministic merge verdict together.
 Email `help@threemoonslab.com` with the subject `Agents Shipgate design partner
 review`.
 
-Include the agent framework, tool-source types, current CI system, and whether
-you want a local CLI workflow, a GitHub Action workflow, or both.
+Include the PR/diff, agent framework, tool-source types, whether the PR adds
+tools or changes policy/CI, and what your reviewer needs to know before merge.

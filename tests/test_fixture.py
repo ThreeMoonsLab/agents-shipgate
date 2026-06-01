@@ -80,6 +80,29 @@ def test_cli_fixture_run(tmp_path: Path):
     assert (out / "report.json").is_file()
 
 
+def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_path: Path):
+    out = tmp_path / "verify-out"
+    result = runner.invoke(
+        app,
+        [
+            "fixture",
+            "run",
+            "ai_generated_refund_pr",
+            "--out",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Mode: verify" in result.output
+    assert "Merge verdict: blocked" in result.output
+    assert (out / "verifier.json").is_file()
+    assert (out / "report.json").is_file()
+    assert (out / "pr-comment.md").is_file()
+    payload = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+
+
 def test_cli_fixture_copy(tmp_path: Path):
     target = tmp_path / "copies"
     result = runner.invoke(

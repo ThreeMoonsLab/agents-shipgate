@@ -75,10 +75,13 @@ removing Shipgate CI; those are the bypass patterns the verifier checks are
 designed to make visible.
 
 `agents-shipgate verify` also writes
-`agents-shipgate-reports/verifier.json`. Read that file for trigger and
-base-scan orchestration status (`base_status`, `base_notes`, artifact paths),
-but do not use it as a release verdict. The release gate remains
-`report.json.release_decision.decision`.
+`agents-shipgate-reports/verifier.json`. Lead with `merge_verdict`,
+`can_merge_without_human`, `first_next_action`, `fix_task`, and
+`capability_review.top_changes`; then confirm
+`report.json.release_decision.decision`, which remains the release gate.
+`merge_verdict` is a deterministic projection for controller flow, not a second
+decision engine. `base_status`, `base_notes`, and artifact paths explain
+orchestration only.
 
 ### Step 4 · `findings[]`
 

@@ -88,14 +88,15 @@ Then read `agents-shipgate-reports/verifier.json` and **lead with
 projection of `release_decision.decision`, which remains the gate in
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next to see the highest-signal tool/action access changes, and check
-`trust_root_touched`.
+`trust_root_touched`, `policy_weakened`, and `fix_task`.
 
 Codex must not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
-explicitly accepted the human-review requirement. When `first_next_action.actor`
-is `human` — approval, confirmation, idempotency, broad-scope, prohibited-action,
-or acknowledgement decisions — Codex surfaces the item for a person rather than
-resolving it.
+explicitly accepted the human-review requirement. Follow `fix_task` as the
+repair boundary. When `first_next_action.actor` or `fix_task.actor` is `human` —
+approval, confirmation, idempotency, broad-scope, prohibited-action,
+acknowledgement, waiver, baseline, or policy decisions — Codex surfaces the item
+for a person rather than resolving it.
 
 And Codex must **never** weaken `shipgate.yaml`, the Shipgate CI workflow,
 `AGENTS.md`, policy packs, baselines, waivers, or suppressions just to make

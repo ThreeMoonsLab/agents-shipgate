@@ -10,6 +10,8 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`04-multi-config-workspace.yml`](04-multi-config-workspace.yml) | Monorepo with several agents (each with its own `shipgate.yaml`). |
 | [`05-sarif-to-code-scanning.yml`](05-sarif-to-code-scanning.yml) | Surface findings in GitHub's Security tab and as PR annotations. |
 | [`06-on-tool-source-changes.yml`](06-on-tool-source-changes.yml) | Run only when the tool surface or manifest actually changed. |
+| [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
+| [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
 
 ## Permissions
 
@@ -34,7 +36,7 @@ For reproducible CI, pin both the action and the underlying CLI:
     shipgate_version: "0.11.0"
 ```
 
-When `shipgate_version` is empty the action installs the CLI from the action source — convenient on `@main`, less reproducible.
+When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
 
 ## Action outputs
 
@@ -100,3 +102,25 @@ preferred gating output. The additive verifier outputs are:
 `capability_changes_modified`, and `capability_changes_removed`.
 The verifier flags mirror `verifier_summary`; the capability counts mirror
 `capability_change` (`modified` is `broadened + narrowed`).
+
+## Verifier Rollout Policies
+
+Use one of these policies after the advisory comment is understood:
+
+```yaml
+- name: Fail blocked capability changes
+  if: steps.shipgate.outputs.merge_verdict == 'blocked'
+  run: exit 1
+```
+
+This blocks obvious release blockers while still allowing
+`human_review_required` PRs to proceed after the team performs the review.
+
+```yaml
+- name: Require mergeable verifier verdict
+  if: steps.shipgate.outputs.can_merge_without_human != 'true'
+  run: exit 1
+```
+
+This is the strict authority mode: only PRs with no blocker, no insufficient
+evidence, and no human-review requirement can merge automatically.

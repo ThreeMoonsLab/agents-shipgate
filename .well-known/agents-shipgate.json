@@ -10,11 +10,12 @@
     "url": "https://threemoonslab.com"
   },
   "category": "agent_release_readiness",
-  "primary_wedge": "tool_use_readiness",
+  "primary_wedge": "ai_generated_agent_pr_verifier",
+  "primary_use_case": "deterministic merge verdicts for AI-generated agent capability changes",
   "positioning": {
-    "short": "Agent release readiness for tool-using AI agents",
-    "answer": "Agents Shipgate is described by the canonical tagline: The deterministic merge gate for AI-generated agent capability changes. It is an open-source CLI and GitHub Action from Three Moons Lab that produces deterministic Tool-Use Readiness Reports before production-like permissions are granted.",
-    "primary_use_case": "Run in CI before promoting an agent whose MCP, OpenAPI, SDK, workflow, or plugin tool surface changed.",
+    "short": "Merge verdicts for AI-generated agent PRs",
+    "answer": "Agents Shipgate is described by the canonical tagline: The deterministic merge gate for AI-generated agent capability changes. It is an open-source, local-first CLI and GitHub Action from Three Moons Lab that verifies PRs from Codex, Claude Code, Cursor, or humans and returns a deterministic merge verdict before agent code lands.",
+    "primary_use_case": "Run on PRs from Codex, Claude Code, Cursor, or humans when agent tools, prompts, permissions, MCP/OpenAPI surfaces, policies, or release gates change.",
     "not_for": ["llm_evals", "runtime_guardrails", "runtime_observability", "general_linting"]
   },
   "primary_keywords": [
@@ -26,7 +27,9 @@
     "OpenAPI tool scanning",
     "OpenAI Agents SDK release gate",
     "GitHub Action for AI agents",
-    "tool surface scanning"
+    "AI-generated PR review",
+    "agent capability merge verdict",
+    "deterministic merge verdict"
   ],
   "recommended_github_topics": [
     "ai-agents",
@@ -43,17 +46,23 @@
   ],
   "audiences": ["agent_builders", "platform_engineers", "security_reviewers", "coding_agents"],
   "when_to_use": [
+    "AI-generated agent PRs from Codex, Claude Code, Cursor, or similar tools",
     "AI agent tool-surface changes",
     "MCP or OpenAPI surface changes",
     "SDK tool decorator changes",
     "n8n workflow JSON changes",
     "Codex plugin package or marketplace changes",
-    "permissions, scopes, approval, confirmation, prompt, or release-gate changes"
+    "permissions, scopes, approval, confirmation, prompt, or release-gate changes",
+    "Shipgate CI, AGENTS.md, Claude Code skill, Cursor rule, baseline, waiver, or suppression changes"
   ],
   "package": {
     "pypi": "agents-shipgate",
     "github_action": "ThreeMoonsLab/agents-shipgate@v0.11.0",
     "github_repo": "ThreeMoonsLab/agents-shipgate"
+  },
+  "release_status": {
+    "track": "verify-capable release",
+    "latest_release": "v0.11.0"
   },
   "install": {
     "pipx": "pipx install agents-shipgate",
@@ -61,20 +70,63 @@
     "uv": "uv tool install agents-shipgate"
   },
   "binaries": ["agents-shipgate", "shipgate"],
-  "quickstart": "agents-shipgate init --workspace . --write && agents-shipgate scan -c shipgate.yaml",
-  "verify": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-  "fixture_run": "agents-shipgate fixture run support_refund_agent",
+  "quickstart": "agents-shipgate verify --preview --json",
+  "commands": {
+    "preview": "agents-shipgate verify --preview --json",
+    "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=all",
+    "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json",
+    "trigger": "agents-shipgate trigger --base origin/main --head HEAD --json",
+    "feedback_export": "agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json"
+  },
+  "fixture_run": "agents-shipgate fixture run ai_generated_refund_pr",
+  "static_scan_fixture_run": "agents-shipgate fixture run support_refund_agent",
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
   "contract_version": "1",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin", "n8n"],
-  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md"],
+  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md", "feedback_json"],
+  "artifacts": {
+    "verifier": "agents-shipgate-reports/verifier.json",
+    "report": "agents-shipgate-reports/report.json",
+    "pr_comment": "agents-shipgate-reports/pr-comment.md",
+    "feedback": "shipgate-feedback.json"
+  },
   "gating_signal": "release_decision.decision",
+  "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
+  "release_decisions": ["passed", "review_required", "insufficient_evidence", "blocked"],
+  "merge_verdict_labels": {
+    "passed": "mergeable",
+    "review_required": "human_review_required",
+    "insufficient_evidence": "insufficient_evidence",
+    "blocked": "blocked"
+  },
+  "verifier_read_order": [
+    "merge_verdict",
+    "can_merge_without_human",
+    "first_next_action",
+    "fix_task",
+    "capability_review.top_changes",
+    "release_decision.decision"
+  ],
+  "do_not_auto_assert": [
+    "approval",
+    "confirmation",
+    "idempotency",
+    "broad-scope",
+    "prohibited-action",
+    "runtime-trace",
+    "suppression",
+    "waiver",
+    "baseline",
+    "policy-weakening"
+  ],
   "trust_model": "static_by_default",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
     "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.22.json",
+    "verifier": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.1.json",
     "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json",
+    "feedback": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/feedback-schema.v0.1.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
@@ -90,6 +142,23 @@
     "codex": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-codex.md",
     "claude_code": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-claude-code.md",
     "cursor": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md"
+  },
+  "coding_agent_surfaces": {
+    "codex": {
+      "agents_md": "AGENTS.md",
+      "skill_path": ".agents/skills/agents-shipgate/",
+      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=agents-md,codex-skill"
+    },
+    "claude_code": {
+      "claude_md": "CLAUDE.md",
+      "skill_path": ".claude/skills/agents-shipgate/",
+      "slash_command": ".claude/commands/shipgate.md",
+      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=claude-md,claude-code-skill"
+    },
+    "cursor": {
+      "rules_path": ".cursor/rules/agents-shipgate.mdc",
+      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=cursor"
+    }
   },
   "exit_codes": {
     "0": "pass",

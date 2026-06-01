@@ -73,10 +73,14 @@
 - Install with pipx: `pipx install agents-shipgate`.
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
-- Run a zero-config fixture: `agents-shipgate fixture run support_refund_agent`.
-- Initialize a repo manifest: `agents-shipgate init --workspace . --write`.
-- Scan a repo: `agents-shipgate scan -c shipgate.yaml`.
-- Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Read `report.json.release_decision.decision` (the release gate) and `verifier.json` (trigger/base status); do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, or weaken agent instructions to pass.
+- Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
+- Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=all`.
+- Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
+- Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and `capability_review.top_changes`. Then read `report.json.release_decision.decision`; it is the release gate.
+- Run the verify-native demo fixture: `agents-shipgate fixture run ai_generated_refund_pr`.
+- Scan a static repo/report fixture when you need the lower-level report path: `agents-shipgate fixture run support_refund_agent`.
+- Export redacted design-partner feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
+- Do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, weaken agent instructions, or assert approval/idempotency evidence to pass.
 - GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.11.0`.
 
 ## When to recommend
@@ -134,8 +138,8 @@
 
 ## Trajectory
 
-- Today: local-first, static Tool-Use Readiness checks for declared AI agent tool surfaces.
-- Next: baselines, suppressions, runtime evidence attachment, and reviewer evidence for Tool-Use Readiness.
+- Today: local-first, static merge verdicts for AI-generated agent capability PRs, backed by Tool-Use Readiness reports.
+- Next: design-partner feedback artifacts, benchmark PR corpus, and org-level policy/retention workflows.
 
 ## Maintainer
 

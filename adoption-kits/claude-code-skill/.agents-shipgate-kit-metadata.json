@@ -5,7 +5,12 @@
     "SKILL.md": [
       "139b5e00b916448cf2de4752221c66296a7e546865b1efdf93f98d8bb5cb3019",
       "5ab92f77352ea31ad03c28e1d596b20ada24fa4176a5e0b0b38990e4a00fb5bb",
-      "9ce82bdc41f2e1ea28c7fec3aaeec0137efeacf8986b66a9ac0e3eccc5abd834"
+      "9ce82bdc41f2e1ea28c7fec3aaeec0137efeacf8986b66a9ac0e3eccc5abd834",
+      "e1713eecbbb1538987b7bf2cbe90bcdac9c4491f250105b6c68e788c81d49de3",
+      "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5"
+    ],
+    "prompts/stabilize-strict-mode.md": [
+      "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"
     ]
   },
   "bootstrap_legacy_sha256": {

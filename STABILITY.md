@@ -35,6 +35,15 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate fixture verify` | `<name>` |
 | `agents-shipgate self-check` | `--json` |
 
+### Provisional CLI command surface
+
+`agents-shipgate feedback export` is introduced in v0.11 for design-partner
+feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
+`--out`, and `--json`. Treat the command and `feedback_schema_version: "0.1"`
+payload as provisional during the v0.11 design-partner cycle; the schema file is
+published so consumers can validate it, and any incompatible change must bump
+`feedback_schema_version`.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -375,6 +384,12 @@ tests on every CI run, not by convention:
     local `git rev-parse`, `git diff`, `git ls-files`, and `git archive`
     for verify base/head and working-tree orchestration. It never fetches,
     uses fixed argv, captures output, and never executes user code.
+  - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
+    `git init`, `git config`, `git add`, `git commit`, and `git update-ref`
+    against a temporary bundled fixture copy so
+    `fixture run ai_generated_refund_pr` can produce verifier artifacts.
+    This allowlisted meta-CLI surface uses fixed argv, no shell, no network
+    fetch, and no user-code execution.
   - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled fixture directory.
   - **`cli/discovery/agent_instructions/adoption_kit.py`** — one
@@ -698,6 +713,37 @@ Diff remains explanatory only.
 ### Fixture names
 
 Fixture names listed by `agents-shipgate fixture list` are stable. Names will not be renamed. New fixtures may be added.
+
+`ai_generated_refund_pr` is the verify-native demo fixture. It creates a
+temporary base/head git history and writes `verifier.json`, `report.json`, and
+`pr-comment.md` for a blocked refund-capability PR.
+
+### Feedback export
+
+`agents-shipgate feedback export` derives a small local artifact from
+`agents-shipgate-reports/verifier.json`. The current schema is
+[`docs/feedback-schema.v0.1.json`](docs/feedback-schema.v0.1.json). Current
+v0.1 fields:
+
+- `feedback_schema_version`
+- `source_verifier`
+- `redacted`
+- `merge_verdict`
+- `can_merge_without_human`
+- `decision`
+- `mode`
+- `trigger`
+- `first_next_action`
+- `fix_task`
+- `capability_review`
+- `finding_ids`
+- `reviewer_feedback_requested`
+- `artifacts`
+
+The export is a design-partner and false-positive triage aid. It is derived
+from verifier projections and does not include raw finding evidence. With
+`--redact` (the default), local artifact paths are reduced to filenames so the
+artifact does not leak usernames or confidential workspace directory names.
 
 ### Agent-skill paths
 

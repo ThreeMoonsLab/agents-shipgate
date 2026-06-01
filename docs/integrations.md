@@ -28,6 +28,7 @@ jobs:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
+          shipgate_version: '0.11.0'
 ```
 
 To post PR comments, set:
