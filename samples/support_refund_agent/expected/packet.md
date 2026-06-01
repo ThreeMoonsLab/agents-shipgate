@@ -234,7 +234,7 @@ Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generat
 
 - Source warnings:
   - MCP source declares wildcard tool exposure
-- Low-confidence tool extractions: none
+- Low-confidence tool extractions: `send\_email\_preview`
 - Suppressed findings in effect: none
 - Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.
 - 6 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=6, regex\_heuristic=0\); review the finding evidence before acting.

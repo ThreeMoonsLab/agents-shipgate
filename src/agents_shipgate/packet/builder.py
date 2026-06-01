@@ -1080,7 +1080,7 @@ def _build_not_proven(
 ) -> NotProvenSection:
     suppressed_ids = sorted(f.id for f in findings if f.suppressed and f.id)
     low_confidence_tools = sorted(
-        tool.name for tool in tools if tool.extraction_confidence == "low"
+        tool.name for tool in tools if tool.extraction_confidence != "high"
     )
     additional = [
         "Memory isolation is not modeled by the v0.1 manifest schema; "
