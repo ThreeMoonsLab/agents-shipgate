@@ -325,6 +325,7 @@ jobs:
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
+          shipgate_version: "0.11.0"
 ```
 
 Advisory mode reports findings without blocking merge. Move to strict mode only
@@ -340,16 +341,21 @@ companion to the bootstrap snippets above:
 Before claiming completion on any PR that changes agent tools, MCP exports,
 OpenAPI specs, prompts, permissions, policies, CI gates, or shipgate.yaml, run:
 `agents-shipgate verify --base origin/main --head HEAD --json`. Read
-agents-shipgate-reports/verifier.json first, then report.json. Do not claim
-completion when merge_verdict is blocked, insufficient_evidence, or
-human_review_required unless the user has explicitly accepted the human review
-requirement. Never weaken shipgate.yaml, Shipgate CI, AGENTS.md, skills, policy
-packs, baselines, waivers, or suppressions merely to make Shipgate pass.
+agents-shipgate-reports/verifier.json first: merge_verdict,
+can_merge_without_human, first_next_action, fix_task, and
+capability_review.top_changes. Then read report.json.release_decision.decision;
+it is the gate. Do not claim completion when merge_verdict is blocked,
+insufficient_evidence, or human_review_required unless the user has explicitly
+accepted the human review requirement. Never weaken shipgate.yaml, Shipgate CI,
+AGENTS.md, skills, policy packs, baselines, waivers, or suppressions merely to
+make Shipgate pass.
 ```
 
 `verifier.json` leads with `merge_verdict`
 (`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /
 `unknown`), a deterministic projection of `release_decision.decision` — the gate,
-which lives in `report.json`. See
+which lives in `report.json`. `fix_task` is the deterministic repair boundary:
+agent-safe mechanical work has `actor: coding_agent`; approval, idempotency,
+waiver, baseline, and policy authority has `actor: human`. See
 [`use-cases/ai-generated-agent-prs.md`](use-cases/ai-generated-agent-prs.md) for
 the full PR-verification walkthrough.

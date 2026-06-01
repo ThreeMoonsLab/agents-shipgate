@@ -39,6 +39,7 @@ The user has Agents Shipgate running in **advisory** mode and wants to graduate 
    ```yaml
    - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
      with:
+       shipgate_version: '0.11.0'
        ci_mode: strict
        fail_on: critical
        baseline: .agents-shipgate/baseline.json

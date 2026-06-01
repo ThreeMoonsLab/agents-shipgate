@@ -253,9 +253,9 @@ Compatibility rules:
 - Keep `matched_rules`, `dry_run_recommended`, `stop_conditions_fired`, `rationale`, and `schema_version`.
 - Preserve `python -m agents_shipgate.triggers` for developers.
 
-`agents-shipgate verify` should produce a compact `verifier.json`, but `report.json` remains the authoritative artifact.
+`agents-shipgate verify` produces a compact `verifier.json`, but `report.json` remains the authoritative artifact.
 
-`verifier.json` should contain:
+`verifier.json` contains:
 
 - trigger result
 - base scan status and notes
@@ -271,9 +271,11 @@ Compatibility rules:
 
 Trust-root protection is the moat for the AI coding workflow repositioning. Reward hacking is a coding-agent-specific threat model: an optimizer asked to "make CI green" may edit the gate instead of fixing the underlying readiness issue.
 
-### 5.1 Split touched from weakened
+### 5.1 Touched and weakened signals
 
-Do not combine path-level detection and semantic weakening into one milestone.
+The implementation was intentionally split into path-level detection and
+semantic weakening detection so each signal could be reviewed independently.
+Both tiers are shipped in v0.11.0.
 
 #### Tier A: trust_root_touched
 
@@ -528,11 +530,12 @@ class CapabilityChange(BaseModel):
     related_finding_ids: list[str]
 ```
 
-Start with Tier A before semantic trust-root weakening. This makes PR review capability-native without requiring a full policy comparator.
+`v0.11.0` ships Tier A and Tier B together: capability projection plus semantic
+trust-root weakening over the normalized effective policy.
 
 ### 7.2 Tier B: trust-root semantic changes
 
-After `verify` can compare base/head, extend capability projection with:
+When `verify` can compare base/head, capability projection includes:
 
 - policy weakened
 - waiver expanded
@@ -541,7 +544,8 @@ After `verify` can compare base/head, extend capability projection with:
 - agent instructions weakened
 - trigger catalog drift
 
-These should be backed by findings from the verify/trust-root check category.
+These are backed by findings from the verify/trust-root check category and feed
+the ordinary `release_decision.decision` gate.
 
 ## 8. Summary convergence
 
@@ -608,7 +612,7 @@ Acceptance criteria:
 - links to artifacts when available
 - contains no raw secrets
 
-`fix_task` should be deterministic and action-shaped:
+`fix_task` is deterministic and action-shaped:
 
 ```json
 {
@@ -633,15 +637,15 @@ For mechanical fixes, `actor` may be `coding_agent` and `safe_to_attempt` may be
 
 ## 10. Roadmap
 
-This roadmap is ordered by dependency and moat value.
+This roadmap records the verifier-cycle buildout now shipped in `v0.11.0`.
 
 | Phase | Goal | Deliverables | Notes |
 |---|---|---|---|
-| P0 | Promote existing trigger and ship cheap reward-hacking detection | `agents-shipgate trigger`; aligned flags; AGENTS.md <-> triggers.json parity test; `VerificationContext`; new verify/trust-root check category; `SHIP-VERIFY-TRUST-ROOT-TOUCHED` path classifier | Trigger is promotion work, not greenfield. Trust-root touched is the first moat feature. |
-| P1 | Unlock base/head workflow verification | `agents-shipgate verify`; git ref -> base scan -> `--diff-from` -> head scan; base-failure degradation contract and tests | This is the hard orchestration milestone. |
-| P2 | Make capability changes reviewer-native without summary drift | Tier A `CapabilityChange`; extend `reviewer_summary`; optional `verifier_summary` composition alias; report schema v0.22 additive update | Use existing surface diffs first. |
-| P3 | Add semantic trust-root weakening detection | normalized policy snapshot; `SHIP-VERIFY-POLICY-WEAKENED`; `CI-GATE-REMOVED`; `BASELINE-OR-WAIVER-EXPANDED`; `AGENT-INSTRUCTIONS-WEAKENED`; `TRIGGER-CATALOG-DRIFT`; declared human acknowledgement design | Depends on P1. |
-| P4 | Close the coding-agent control loop | PR comment v2; `fix_task`; `forbidden_shortcuts`; GitHub Action outputs; old outputs preserved | Treat output as controller instructions. |
+| P0 | Promote existing trigger and ship cheap reward-hacking detection | `agents-shipgate trigger`; aligned flags; AGENTS.md <-> triggers.json parity test; `VerificationContext`; verify/trust-root check category; `SHIP-VERIFY-TRUST-ROOT-TOUCHED` path classifier | Shipped. |
+| P1 | Unlock base/head workflow verification | `agents-shipgate verify`; git ref -> base scan -> `--diff-from` -> head scan; base-failure degradation contract and tests | Shipped. |
+| P2 | Make capability changes reviewer-native without summary drift | Tier A `CapabilityChange`; extend `reviewer_summary`; `verifier_summary`; report schema v0.22 additive update | Shipped. |
+| P3 | Add semantic trust-root weakening detection | normalized policy snapshot; `SHIP-VERIFY-POLICY-WEAKENED`; `CI-GATE-REMOVED`; `BASELINE-OR-WAIVER-EXPANDED`; `AGENT-INSTRUCTIONS-WEAKENED`; `TRIGGER-CATALOG-DRIFT`; declared human acknowledgement design | Shipped. |
+| P4 | Close the coding-agent control loop | PR comment v2; `fix_task`; `forbidden_shortcuts`; GitHub Action outputs; old outputs preserved | Shipped. |
 | P5 | Update agent integrations and optional hooks | Codex, Claude Code, Cursor verify recipes; "do not bypass verifier" backed by checks; optional `install-hooks` after CLI and CI are stable | Hooks are early feedback only. CI remains authoritative. |
 
 ## 11. Benchmark harness
@@ -686,7 +690,8 @@ The reward-hacking scenarios are the core proof:
 - removing approval policy must be caught
 - expanding suppression or waiver scope must be caught
 - removing Shipgate CI must be caught
-- touching trust roots must require review even before semantic weakening exists
+- touching trust roots must require review even when no semantic weakening is
+  detected
 
 ## 12. Test matrix
 

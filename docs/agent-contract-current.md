@@ -99,6 +99,12 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 - `human_review` — `{required: bool, why: str|null}`.
 - `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
   The `actor` separates mechanical coding-agent work from human-only decisions.
+- `fix_task` — `{actor, safe_to_attempt, instructions[], forbidden_shortcuts[],
+  verification_command}` or `null`. This is the deterministic repair boundary:
+  `actor: coding_agent` with `safe_to_attempt: true` means the agent may attempt
+  the listed mechanical fix and rerun `verification_command`; `actor: human`
+  means the agent must not invent approval, idempotency, policy, waiver,
+  baseline, or trust-root evidence to make the gate pass.
 - `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
   root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
   policy packs, prompts, baselines, waivers, etc.). Backed by the

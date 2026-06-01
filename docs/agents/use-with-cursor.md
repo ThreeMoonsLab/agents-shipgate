@@ -79,13 +79,14 @@ Read `agents-shipgate-reports/verifier.json` and **lead with `merge_verdict`**
 `unknown`). It is a deterministic projection of `release_decision.decision`,
 which stays the gate in `agents-shipgate-reports/report.json`. Read
 `capability_review.top_changes[]` next for the highest-signal tool/action access
-changes, and check `trust_root_touched`.
+changes, and check `trust_root_touched`, `policy_weakened`, and `fix_task`.
 
 Cursor must not claim the change is complete when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
 explicitly accepted the human-review requirement. When `first_next_action.actor`
-is `human`, surface the decision for a person rather than inventing approval,
-confirmation, or idempotency evidence.
+or `fix_task.actor` is `human`, surface the decision for a person rather than
+inventing approval, confirmation, idempotency, waiver, baseline, or policy
+evidence.
 
 Never weaken `shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`, policy
 packs, baselines, waivers, or suppressions just to make Shipgate pass — that

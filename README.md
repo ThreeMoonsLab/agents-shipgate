@@ -81,11 +81,25 @@ The release gate is `agents-shipgate-reports/report.json` →
 `release_decision.decision` (`blocked | review_required | insufficient_evidence | passed`).
 The PR/controller surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
-blocked | unknown`), a deterministic projection of the release decision.
+blocked | unknown`), a deterministic projection of the release decision. Read
+`verifier.json` first for `merge_verdict`, `can_merge_without_human`,
+`first_next_action`, `fix_task`, and `capability_review.top_changes`.
 
-Want a 5-minute demo with zero setup? Scan the bundled fixture. If you already
-have [`uv`](https://docs.astral.sh/uv/) installed, the fixture path is a
-one-command install check with no persistent install:
+Want a 5-minute verifier demo with zero setup? Run the verify-native blocked
+refund PR fixture:
+
+```bash
+agents-shipgate fixture run ai_generated_refund_pr
+```
+
+It builds a temporary base/head git history where the head commit adds
+`stripe.create_refund`, then writes `verifier.json`, `report.json`, and
+`pr-comment.md`. The expected merge verdict is `blocked`.
+
+The older static scan fixture remains useful when you want the full Tool-Use
+Readiness Report without a PR diff. If you already have
+[`uv`](https://docs.astral.sh/uv/) installed, the fixture path is a one-command
+install check with no persistent install:
 
 ```bash
 uvx agents-shipgate fixture run support_refund_agent
@@ -185,12 +199,14 @@ agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
 For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
 base ref available. Read `agents-shipgate-reports/verifier.json` first and lead
-with `merge_verdict`, then read `agents-shipgate-reports/report.json` for
-`release_decision.decision`. Do not claim completion when `merge_verdict` is
-`blocked`, `insufficient_evidence`, or `human_review_required` unless the user
-explicitly accepts human review. Do not auto-assert approval. Never suppress
-findings, lower severity, expand baselines or waivers, remove Shipgate CI, or
-weaken agent instructions just to make the verifier pass.
+with `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`,
+and `capability_review.top_changes`, then read
+`agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
+claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
+`human_review_required` unless the user explicitly accepts human review. Do not auto-assert approval. Do not auto-assert confirmation, idempotency,
+broad-scope safety, prohibited-action enforcement, runtime-trace proof,
+suppressions, waivers, baselines, or policy weakening. Never remove Shipgate CI
+or weaken agent instructions just to make the verifier pass.
 ```
 
 ## Add the Codex adoption kit
@@ -579,13 +595,23 @@ jobs:
           shipgate_version: '0.11.0'
 ```
 
-Switch to `ci_mode: strict` only after your team has reviewed the advisory output. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
+After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
 Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
 
 Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Prefer `merge_verdict`, `decision`, and `ci_would_fail` over legacy `status` for new release gates.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
+
+For a design-partner review, export the small redacted verifier feedback
+artifact instead of sending raw report evidence:
+
+```bash
+agents-shipgate feedback export \
+  --from agents-shipgate-reports/verifier.json \
+  --redact \
+  --out shipgate-feedback.json
+```
 
 ## Pricing And Open Source Stance
 
@@ -617,6 +643,7 @@ readers and AI search ingest.
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
 - [JSON report schema v0.22](docs/report-schema.v0.22.json)
+- [Feedback export schema v0.1](docs/feedback-schema.v0.1.json)
 - [Privacy and redaction](docs/privacy.md)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)

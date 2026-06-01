@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Verifier adoption-loop release prep.** Public docs and discovery metadata now
+  lead with the verify-first adoption path, pinned `v0.11.0` snippets, verifier
+  artifacts, merge verdicts, `fix_task`, and explicit Action merge-policy
+  examples. Adds the verify-native `ai_generated_refund_pr` fixture for the
+  blocked refund PR demo and introduces the provisional
+  `agents-shipgate feedback export` command plus
+  `docs/feedback-schema.v0.1.json` for redacted design-partner feedback loops.
+
 ## 0.11.0 - 2026-05-31
 
 - **Verifier PR comment v2 + additive Action outputs.** The GitHub Action now

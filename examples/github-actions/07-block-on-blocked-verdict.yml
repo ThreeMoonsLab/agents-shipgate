@@ -1,0 +1,31 @@
+# Block only when Agents Shipgate says the PR is blocked.
+# Use this after advisory adoption when the team still allows
+# human_review_required PRs to merge after human review.
+name: Agents Shipgate (block blocked verdicts)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: shipgate
+        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '0.11.0'
+      - name: Fail blocked capability changes
+        if: steps.shipgate.outputs.merge_verdict == 'blocked'
+        run: exit 1

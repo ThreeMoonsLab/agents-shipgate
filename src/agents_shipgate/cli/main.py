@@ -19,6 +19,7 @@ from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
+from agents_shipgate.cli.feedback import feedback_app
 from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
@@ -108,6 +109,7 @@ _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
 app.add_typer(fixture_app, name="fixture")
+app.add_typer(feedback_app, name="feedback")
 app.add_typer(scenario_app, name="scenario")
 logger = logging.getLogger(__name__)
 

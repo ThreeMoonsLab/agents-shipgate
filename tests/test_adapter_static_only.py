@@ -311,6 +311,37 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
             "shell, no user-code execution, and no fetch."
         ),
     ),
+    # cli/fixture.py — the ai_generated_refund_pr demo fixture creates a
+    # tiny temporary git history so users can reproduce verifier artifacts.
+    # It never reads or executes user code.
+    AllowedException(
+        relative_path="cli/fixture.py",
+        surface="import:subprocess",
+        line=10,
+        snippet="import subprocess",
+        rationale=(
+            "Fixture run catches subprocess.CalledProcessError and invokes "
+            "local git to create a temporary first-party sample repo for the "
+            "ai_generated_refund_pr verifier demo. Fixed argv, no shell, no "
+            "network, no user-code execution."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/fixture.py",
+        surface="attr_call:subprocess.run",
+        line=311,
+        snippet=(
+            "subprocess.run(['git', *args], cwd=cwd, check=True, "
+            "capture_output=True, text=True)"
+        ),
+        rationale=(
+            "_git helper for the ai_generated_refund_pr fixture: runs local "
+            "git init/config/add/commit/update-ref commands against a "
+            "temporary bundled fixture copy. argv is assembled inside "
+            "Shipgate, with no shell, no network fetch, and no user-code "
+            "execution."
+        ),
+    ),
     # cli/self_check.py — validates the installed environment via __import__
     # with the module name supplied as a CLI flag. Targets installed
     # packages, never user workspace.

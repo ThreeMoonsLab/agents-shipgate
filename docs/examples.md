@@ -6,7 +6,18 @@ Agents Shipgate turns an agent tool surface into release-review evidence.
 ## Runnable sample agents
 
 The [`samples/`](../samples/) directory contains local fixtures that can be
-scanned without network access. Start with:
+verified or scanned without network access. Start with the verify-native PR
+demo:
+
+```bash
+agents-shipgate fixture run ai_generated_refund_pr
+```
+
+It builds a temporary base/head git history, adds `stripe.create_refund`, and
+writes `verifier.json`, `report.json`, and `pr-comment.md` with
+`merge_verdict: blocked`.
+
+For the lower-level static report path, run:
 
 ```bash
 agents-shipgate fixture run support_refund_agent
@@ -14,6 +25,7 @@ agents-shipgate fixture run support_refund_agent
 
 Useful fixtures:
 
+- [`ai_generated_refund_pr`](../samples/ai_generated_refund_pr/) — base/head verifier fixture for the blocked refund PR story.
 - [`support_refund_agent`](../samples/support_refund_agent/) — production-like support/refund agent with MCP, OpenAPI, and SDK tool sources. Demonstrates critical approval and idempotency findings.
 - [`clean_read_only_agent`](../samples/clean_read_only_agent/) — a low-risk read-only surface that should scan cleanly.
 - [`simple_openai_api_agent`](../samples/simple_openai_api_agent/) — OpenAI API artifacts including prompts, tools, structured outputs, tests, and traces.
@@ -40,7 +52,13 @@ Useful fixtures:
 
 ## Example output
 
-The canonical fixture writes:
+The verify-native fixture writes:
+
+- `agents-shipgate-reports/verifier.json`
+- `agents-shipgate-reports/pr-comment.md`
+- `agents-shipgate-reports/report.json`
+
+The static scan fixtures write:
 
 - `agents-shipgate-reports/report.md`
 - `agents-shipgate-reports/report.json`

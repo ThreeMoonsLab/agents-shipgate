@@ -205,6 +205,8 @@ ACTION_PIN_FILES = (
     "examples/github-actions/04-multi-config-workspace.yml",
     "examples/github-actions/05-sarif-to-code-scanning.yml",
     "examples/github-actions/06-on-tool-source-changes.yml",
+    "examples/github-actions/07-block-on-blocked-verdict.yml",
+    "examples/github-actions/08-require-mergeable.yml",
     "examples/circleci/01-advisory.yml",
     "examples/circleci/02-strict-with-baseline.yml",
     "examples/circleci/03-sarif-artifact-retention.yml",
@@ -319,10 +321,10 @@ def test_well_known_metadata_lists_packet_outputs():
         f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
     )
     outputs = data.get("outputs", [])
-    for expected in ("packet_md", "packet_json", "packet_html"):
+    for expected in ("packet_md", "packet_json", "packet_html", "feedback_json"):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
-            "the Release Evidence Packet is first-class since v0.8."
+            "the Release Evidence Packet and feedback export are first-class outputs."
         )
     schemas = data.get("schemas", {})
     assert "packet" in schemas, (
@@ -344,6 +346,11 @@ def test_well_known_metadata_lists_packet_outputs():
     assert CURRENT_PACKET_SCHEMA in packet_url, (
         f".well-known schemas.packet must point to {CURRENT_PACKET_SCHEMA}; "
         f"got {packet_url!r}."
+    )
+    feedback_url = schemas.get("feedback", "")
+    assert "feedback-schema.v0.1.json" in feedback_url, (
+        ".well-known schemas.feedback must point to docs/feedback-schema.v0.1.json; "
+        f"got {feedback_url!r}."
     )
 
 
@@ -1252,18 +1259,29 @@ def test_well_known_links_to_agent_discovery_onramps():
 def test_well_known_seo_geo_positioning_fields_are_pinned():
     """AI-search discovery fields are public contract surface. Pin
     their shape so answer-engine positioning does not silently drift
-    away from the Tool-Use Readiness wedge."""
+    away from the AI-generated PR verifier wedge."""
     data = json.loads(_read(".well-known/agents-shipgate.json"))
 
     assert data.get("category") == "agent_release_readiness"
-    assert data.get("primary_wedge") == "tool_use_readiness"
+    assert data.get("primary_wedge") == "ai_generated_agent_pr_verifier"
+    assert data.get("primary_use_case") == (
+        "deterministic merge verdicts for AI-generated agent capability changes"
+    )
+    assert data.get("gating_signal") == "release_decision.decision"
+    assert data.get("merge_verdicts") == [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown",
+    ]
 
     positioning = data.get("positioning", {})
-    assert positioning.get("short") == "Agent release readiness for tool-using AI agents"
+    assert positioning.get("short") == "Merge verdicts for AI-generated agent PRs"
     assert POSITIONING_PHRASE in positioning.get("answer", "")
     assert "Three Moons Lab" in positioning.get("answer", "")
-    assert "Tool-Use Readiness Reports" in positioning.get("answer", "")
-    assert "MCP, OpenAPI, SDK, workflow, or plugin" in positioning.get(
+    assert "deterministic merge verdict" in positioning.get("answer", "")
+    assert "Codex, Claude Code, Cursor" in positioning.get(
         "primary_use_case", ""
     )
     assert positioning.get("not_for") == [
@@ -1283,9 +1301,26 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
         "OpenAPI tool scanning",
         "OpenAI Agents SDK release gate",
         "GitHub Action for AI agents",
-        "tool surface scanning",
+        "AI-generated PR review",
+        "agent capability merge verdict",
+        "deterministic merge verdict",
     ):
         assert keyword in primary_keywords
+
+    commands = data.get("commands", {})
+    assert commands.get("preview") == "agents-shipgate verify --preview --json"
+    assert "feedback export" in commands.get("feedback_export", "")
+    assert data.get("fixture_run") == "agents-shipgate fixture run ai_generated_refund_pr"
+    assert data.get("static_scan_fixture_run") == (
+        "agents-shipgate fixture run support_refund_agent"
+    )
+    assert data.get("verifier_read_order", [])[:5] == [
+        "merge_verdict",
+        "can_merge_without_human",
+        "first_next_action",
+        "fix_task",
+        "capability_review.top_changes",
+    ]
 
     recommended_topics = data.get("recommended_github_topics", [])
     for topic in (

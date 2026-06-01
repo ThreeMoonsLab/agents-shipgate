@@ -1,17 +1,24 @@
 # Samples
 
-Runnable fixtures for Agents Shipgate. They are safe to inspect and scan
-locally; the scanner does not run agents, call tools, invoke LLMs, connect to
-MCP servers, or make scanner network calls by default.
+Runnable fixtures for Agents Shipgate. They are safe to inspect, verify, and
+scan locally; the verifier does not run agents, call tools, invoke LLMs,
+connect to MCP servers, or make network calls by default.
 
 ## Recommended first run
 
 ```bash
-agents-shipgate fixture run support_refund_agent
+agents-shipgate fixture run ai_generated_refund_pr
 ```
 
-This produces a Tool-Use Readiness Report with 18 findings, including critical
-approval and idempotency findings on `stripe.create_refund`.
+This builds a temporary base/head git history where the head commit adds
+`stripe.create_refund`, then writes `verifier.json`, `report.json`, and
+`pr-comment.md` with `merge_verdict: blocked`.
+
+For the lower-level static report fixture:
+
+```bash
+agents-shipgate fixture run support_refund_agent
+```
 
 ## Sample reports
 
@@ -33,6 +40,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 
 | Sample | Purpose |
 | --- | --- |
+| [`ai_generated_refund_pr`](ai_generated_refund_pr/) | Verify-native base/head PR fixture for the blocked refund capability story. |
 | [`support_refund_agent`](support_refund_agent/) | Production-like support/refund agent with MCP, OpenAPI, and SDK tools. |
 | [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction from a directory of Python tools. |
 | [`clean_read_only_agent`](clean_read_only_agent/) | Low-risk read-only fixture for clean scans. |

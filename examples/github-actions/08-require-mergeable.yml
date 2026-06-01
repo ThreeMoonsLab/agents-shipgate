@@ -1,0 +1,31 @@
+# Require the verifier to say the PR can merge without human authority gaps.
+# Use this only after the team has accepted the baseline, trust-root policy,
+# and human-acknowledgement workflow.
+name: Agents Shipgate (require mergeable)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: shipgate
+        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '0.11.0'
+      - name: Require mergeable verifier verdict
+        if: steps.shipgate.outputs.can_merge_without_human != 'true'
+        run: exit 1

@@ -5,7 +5,7 @@ description: Use when the user wants to add or run the deterministic merge gate 
 
 # agents-shipgate skill
 
-`agents-shipgate` is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic findings as Markdown, JSON, and SARIF.
+`agents-shipgate` is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic verifier artifacts, findings, Markdown, JSON, and SARIF.
 
 It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry by default. Static analysis only; audited exceptions are pinned in `tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`.
 
@@ -14,6 +14,7 @@ It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or 
 ## When to use this skill
 
 - The user asks to add Tool-Use Readiness or pre-merge checks to an agent project.
+- The user asks whether an AI-generated agent PR can merge.
 - The repo already has `shipgate.yaml`, `agents-shipgate-reports/verifier.json`, or `agents-shipgate-reports/report.json`.
 - The user asks to fix, triage, suppress, or explain a Shipgate finding.
 - The user wants to add Shipgate to CI (GitHub Actions, GitLab CI, CircleCI).
@@ -45,7 +46,11 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 Always:
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
-2. For verify runs, parse `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
+2. For verifier runs, parse `agents-shipgate-reports/verifier.json` first:
+   `merge_verdict`, `can_merge_without_human`, `first_next_action`,
+   `fix_task`, and `capability_review.top_changes`. Then parse
+   `agents-shipgate-reports/report.json.release_decision.decision`; it is the
+   release gate.
 3. Before finishing an agent-related local diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`, or report the exact `agents-shipgate trigger` skip verdict. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
 4. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 5. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
@@ -66,6 +71,7 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 
 - **CLI surface** is frozen for `0.x` — see https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md.
 - **Installed CLI contract**: when available, run `agents-shipgate contract --json` to verify local schema versions, `release_decision.decision`, and manual-review signal fields. Older installs should use [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md) or upgrade before automating against the local contract command.
+- **Verifier JSON**: `verifier_schema_version: "0.1"`. Read `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, `capability_review.top_changes`, `trust_root_touched`, and `policy_weakened` before summarizing an AI-generated PR. `merge_verdict` is a deterministic projection; the gate remains `report.json.release_decision.decision`.
 - **Report JSON**: `report_schema_version: "0.22"`. Read `release_decision.decision` first for release gating; use `agent_summary` / `findings[].agent_action` for agent routing and `reviewer_summary` for the human-review entry point. v0.22 adds the verifier-cycle blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` — all reviewer-facing projections that never gate independently (`release_decision.decision` stays the only gate). To remove heuristic findings from the active gate, rerun scan with `--no-heuristics`; filtered findings remain in `findings[]` with `suppressed=true`, and `heuristics_filter` records `enabled`, `excluded_provenance_kinds`, `filtered_finding_count`, and `filtered_by_kind`. To inspect provenance without changing gate behavior, use `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic --json`. Do not gate on `summary.status`; it is legacy and baseline-blind. The full field list lives in [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md#read-these-first-for-release-gating), and reports validate against [`docs/report-schema.v0.22.json`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/report-schema.v0.22.json).
 - **Release Evidence Packet**: `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras) is emitted alongside the report by default. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/packet-schema.v0.6.json) (latest; v0.6 adds the top-level `evidence_matrix` compact review section AND `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance over the v0.5 baseline). See [STABILITY.md §Release Evidence Packet](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md#release-evidence-packet-v06). Use the packet for reviewer-shaped output; use the report for finding details.
 - **Single source of truth for the contract**: [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md). When the schema bumps, that file updates first.

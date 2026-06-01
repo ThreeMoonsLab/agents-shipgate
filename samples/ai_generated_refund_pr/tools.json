@@ -1,0 +1,27 @@
+{
+  "tools": [
+    {
+      "name": "support.search_kb",
+      "description": "Search the support knowledge base for refund policy guidance.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["support:kb:read"]
+      },
+      "owner": "support-platform"
+    }
+  ]
+}
