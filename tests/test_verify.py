@@ -349,6 +349,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
 
     assert "## Agents Shipgate: blocked" in comment
     assert "Headline: This PR adds a refund action without approval evidence" in comment
+    assert "Reason: test decision" in comment
     assert "Capability changes: +1, 0 modified, -0" in comment
     assert "### Capability changes" in comment
     assert "| blocks release | action added | `stripe.create_refund` |" in comment
@@ -356,6 +357,9 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "Actor: Human (human authority required" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
     assert "### Trust-root warnings" in comment
+    assert comment.index("### Required before merge") < comment.index(
+        "### Trust-root warnings"
+    )
     assert "`shipgate.yaml` (manifest): human review is required." in comment
     assert "Do not suppress findings, lower severity, or edit evidence" in comment
     assert "### Artifacts" in comment
@@ -381,6 +385,27 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
     assert "## Agents Shipgate: human_review_required" in comment
     assert "## Agents Shipgate: review_required" not in comment
     assert "Decision: `review_required`" in comment
+    assert "Reason: test decision" in comment
+
+
+def test_capability_review_pr_comment_does_not_double_blank_without_headline() -> None:
+    report = _report(decision="review_required", exit_code=0)
+    verifier = VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        head_status="succeeded",
+        release_decision={"decision": "review_required"},
+        decision="review_required",
+        merge_verdict="human_review_required",
+        headline="",
+        capability_review=build_capability_review(report),
+        artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+
+    assert "\n\n\nDecision:" not in comment
 
 
 def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:

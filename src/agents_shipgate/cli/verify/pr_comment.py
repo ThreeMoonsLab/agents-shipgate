@@ -40,12 +40,13 @@ def _render_capability_review_comment(
     report: ReadinessReport | None,
 ) -> str:
     visible_verdict = _visible_verdict(verifier)
-    lines = [STICKY_MARKER, f"## Agents Shipgate: {visible_verdict}", ""]
+    lines = [STICKY_MARKER, f"## Agents Shipgate: {visible_verdict}"]
     headline = _headline(verifier, report)
     if headline:
-        lines.append(f"Headline: {_escape(headline)}")
+        lines.extend(["", f"Headline: {_escape(headline)}"])
 
     if report is None or report.release_decision is None:
+        lines.append("")
         if verifier.head_status == "skipped":
             lines.append("No Shipgate scan was required for this diff.")
         else:
@@ -60,6 +61,7 @@ def _render_capability_review_comment(
         [
             "",
             f"Decision: `{decision.decision}`",
+            f"Reason: {_escape(decision.reason)}",
             (
                 "Capability changes: "
                 f"+{review.added}, {review.modified} modified, "
