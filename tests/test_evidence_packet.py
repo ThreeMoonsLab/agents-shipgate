@@ -21,9 +21,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.core.domain import Tool
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
@@ -38,7 +40,12 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF_HEADLINE,
 )
 from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import (
+    Finding,
+    ReadinessReport,
+    ReportSummary,
+    ToolSurfaceSummary,
+)
 
 SAMPLE_CONFIG = Path("samples/support_refund_agent/shipgate.yaml")
 EXPECTED_DIR = Path("samples/support_refund_agent/expected")
@@ -47,6 +54,78 @@ EXPECTED_PACKET_JSON = EXPECTED_DIR / "packet.json"
 EXPECTED_PACKET_HTML = EXPECTED_DIR / "packet.html"
 
 GENERATED_AT = "2026-01-01T00:00:00+00:00"
+
+
+def _minimal_packet_with_not_proven(
+    section,
+    *,
+    low_confidence_tool_count: int = 0,
+) -> EvidencePacket:
+    from agents_shipgate.schemas.packet import (
+        ApprovalCoverageSection,
+        CapabilityIntentDiff,
+        DynamicScenariosSection,
+        HighRiskSurfaceSection,
+        HumanInTheLoopEvidence,
+        IdempotencyRiskSection,
+        MemoryIsolationStatus,
+        ReleaseDecisionSection,
+        ScopeCoverageSection,
+    )
+    from agents_shipgate.schemas.report import (
+        BaselineDelta,
+        EvidenceCoverageDecision,
+        FailPolicy,
+    )
+
+    decision = ReleaseDecisionSection(
+        decision="insufficient_evidence" if low_confidence_tool_count else "passed",
+        verdict="INSUFFICIENT EVIDENCE" if low_confidence_tool_count else "PASSED",
+        reason="Evidence coverage below threshold.",
+        evidence_coverage=EvidenceCoverageDecision(
+            level="static",
+            human_review_recommended=low_confidence_tool_count > 0,
+            source_warning_count=0,
+            low_confidence_tool_count=low_confidence_tool_count,
+        ),
+        baseline_delta=BaselineDelta(enabled=False),
+        fail_policy=FailPolicy(
+            ci_mode="advisory",
+            fail_on=[],
+            new_findings_only=False,
+            would_fail_ci=False,
+            exit_code=0,
+        ),
+    )
+    return EvidencePacket(
+        generated_at=GENERATED_AT,
+        run_id="r",
+        project={"name": "p"},
+        agent={"name": "a"},
+        environment={"target": "local"},
+        release_decision=decision,
+        capability_intent=CapabilityIntentDiff(
+            status="not_declared",
+            declared_purpose=[],
+            prohibited_actions=[],
+            observed_tools=[],
+            rows=[],
+            divergence_findings=[],
+        ),
+        high_risk_surface=HighRiskSurfaceSection(
+            status="informational",
+            total_tools=0,
+            high_risk_count=0,
+            tools=[],
+        ),
+        approval_coverage=ApprovalCoverageSection(status="informational"),
+        idempotency_risk=IdempotencyRiskSection(status="informational"),
+        scope_coverage=ScopeCoverageSection(status="informational"),
+        memory_isolation=MemoryIsolationStatus(),
+        human_in_the_loop=HumanInTheLoopEvidence(status="not_declared"),
+        dynamic_scenarios=DynamicScenariosSection(status="informational"),
+        not_proven=section,
+    )
 
 
 def _scan_with_packet(tmp_path: Path) -> tuple[Path, EvidencePacket]:
@@ -180,6 +259,81 @@ def test_not_proven_residuals_include_non_static_provenance():
     assert "regex_heuristic=1" in residuals
     assert "AST-extracted tool surfaces" in residuals
     assert "external policy packs" in residuals
+
+
+def test_not_proven_low_confidence_residuals_match_release_decision_count():
+    tools = [
+        Tool(
+            id="high",
+            name="high_confidence_inventory",
+            source_type="mcp",
+            extraction_confidence="high",
+        ),
+        Tool(
+            id="medium",
+            name="medium_confidence_sdk",
+            source_type="sdk_function",
+            extraction_confidence="medium",
+        ),
+        Tool(
+            id="low",
+            name="low_confidence_sdk",
+            source_type="sdk_function",
+            extraction_confidence="low",
+        ),
+    ]
+
+    section = _build_not_proven([], source_warnings=[], tools=tools)
+
+    assert section.low_confidence_tools == [
+        "low_confidence_sdk",
+        "medium_confidence_sdk",
+    ]
+    report = ReadinessReport(
+        run_id="r",
+        project={"name": "p"},
+        agent={"name": "a"},
+        environment={"target": "local"},
+        summary=ReportSummary(
+            status="human_review_recommended",
+            critical_count=0,
+            high_count=0,
+            medium_count=0,
+            human_review_recommended=True,
+            evidence_coverage="static",
+        ),
+        tool_surface=ToolSurfaceSummary(
+            total_tools=len(tools),
+            high_risk_tools=0,
+        ),
+        findings=[],
+        source_warnings=[],
+    )
+    decision = build_release_decision(
+        report=report,
+        tools=tools,
+        ci_mode="advisory",
+        fail_on=None,
+        new_findings_only=False,
+    )
+
+    assert decision.evidence_coverage.low_confidence_tool_count == len(
+        section.low_confidence_tools
+    )
+
+    packet = _minimal_packet_with_not_proven(
+        section,
+        low_confidence_tool_count=decision.evidence_coverage.low_confidence_tool_count,
+    )
+    md = render_packet_markdown(packet)
+    html = render_packet_html(packet)
+
+    assert "Low-confidence tool extractions: none" not in md
+    assert "Low-confidence tool extractions: none" not in html
+    assert "`medium\\_confidence\\_sdk`" in md
+    assert "<code>medium_confidence_sdk</code>" in html
+    assert "high_confidence_inventory" not in md
+    assert "high_confidence_inventory" not in html
 
 
 def test_evidence_matrix_uses_release_decision_only_for_blocking_and_review():

@@ -1293,7 +1293,9 @@
       "6 active finding(s) came from heuristic provenance (keyword_heuristic=6, regex_heuristic=0); review the finding evidence before acting."
     ],
     "headline": "Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generated agent capability changes, run as a local-first, static Tool-Use Readiness review. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
-    "low_confidence_tools": [],
+    "low_confidence_tools": [
+      "send_email_preview"
+    ],
     "source_warnings": [
       "MCP source declares wildcard tool exposure"
     ],
