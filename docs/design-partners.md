@@ -20,7 +20,18 @@ You are likely a good fit if your team:
 
 You are probably not a fit if you need a hosted policy engine, runtime gateway,
 compliance certification, or private-data upload flow today. Agents Shipgate is
-currently a local-first OSS scanner and GitHub Action.
+currently a local-first OSS verifier and GitHub Action.
+
+## Verifier Pilot
+
+The current pilot asks each design partner to bring one AI-generated agent PR
+or sanitized diff. Agents Shipgate runs the verifier loop, writes
+`verifier.json`, `pr-comment.md`, and `report.json`, then exports redacted
+feedback for product and benchmark follow-up.
+
+Use the [`Design Partner Verifier Pilot`](design-partner-verifier-pilot.md)
+runbook for the fixed commands, artifact read order, tracker fields, and
+follow-up questions.
 
 ## What You Get
 

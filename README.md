@@ -623,7 +623,10 @@ Teams shipping production-like tool-using agents can apply to the
 [Three Moons Lab design partner program](https://threemoonslab.com/design-partners/)
 — the marketing page mirrors
 [`docs/design-partners.md`](docs/design-partners.md) in the repo and includes a
-prefilled email CTA for review criteria and contact.
+prefilled email CTA for review criteria and contact. The current pilot runbook
+is [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md):
+bring one AI-generated agent PR, run the verifier loop, and export redacted
+feedback.
 
 ## Docs
 
@@ -648,6 +651,7 @@ readers and AI search ingest.
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)
+- [Design partner verifier pilot](docs/design-partner-verifier-pilot.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Integration recipes](docs/integrations.md)
