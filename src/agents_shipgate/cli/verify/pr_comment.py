@@ -39,23 +39,18 @@ def _render_capability_review_comment(
     *,
     report: ReadinessReport | None,
 ) -> str:
-    visible_verdict = _visible_verdict(verifier, report)
+    visible_verdict = _visible_verdict(verifier)
     lines = [STICKY_MARKER, f"## Agents Shipgate: {visible_verdict}", ""]
-    lines.append(
-        f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}"
-    )
-    if verifier.base_status != "not_requested":
-        base = verifier.base_ref or "(none)"
-        lines.append(f"Base diff: `{base}` -> `{verifier.base_status}`")
-        for note in verifier.base_notes[:2]:
-            lines.append(f"- {_escape(note)}")
+    headline = _headline(verifier, report)
+    if headline:
+        lines.append(f"Headline: {_escape(headline)}")
 
     if report is None or report.release_decision is None:
-        lines.append("")
         if verifier.head_status == "skipped":
             lines.append("No Shipgate scan was required for this diff.")
         else:
             lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
+        lines.extend(_trigger_and_base_lines(verifier))
         lines.extend(_artifact_lines(verifier))
         return _truncate("\n".join(lines), 6000)
 
@@ -65,7 +60,6 @@ def _render_capability_review_comment(
         [
             "",
             f"Decision: `{decision.decision}`",
-            f"Reason: {_escape(decision.reason)}",
             (
                 "Capability changes: "
                 f"+{review.added}, {review.modified} modified, "
@@ -78,12 +72,11 @@ def _render_capability_review_comment(
             ),
         ]
     )
-    if report.agent_summary and report.agent_summary.headline:
-        lines.append(f"Summary: {_escape(report.agent_summary.headline)}")
 
     lines.extend(_capability_change_table(review))
-    lines.extend(_trust_root_warning_lines(review, report))
     lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
+    lines.extend(_trust_root_warning_lines(review, report))
+    lines.extend(_trigger_and_base_lines(verifier))
     lines.extend(_artifact_lines(verifier))
     return _truncate("\n".join(lines), 6000)
 
@@ -149,15 +142,32 @@ def _render_findings_comment(
     return _truncate("\n".join(lines), 6000)
 
 
-def _visible_verdict(
+def _visible_verdict(verifier: VerifierArtifact) -> str:
+    return verifier.merge_verdict
+
+
+def _headline(
     verifier: VerifierArtifact,
     report: ReadinessReport | None,
-) -> str:
+) -> str | None:
+    if verifier.headline:
+        return verifier.headline
     if report is not None and report.release_decision is not None:
-        return report.release_decision.decision
-    if verifier.head_status == "skipped":
-        return "skipped"
-    return "failed"
+        return report.release_decision.reason
+    return None
+
+
+def _trigger_and_base_lines(verifier: VerifierArtifact) -> list[str]:
+    lines = [
+        "",
+        f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}",
+    ]
+    if verifier.base_status != "not_requested":
+        base = verifier.base_ref or "(none)"
+        lines.append(f"Base diff: `{base}` -> `{verifier.base_status}`")
+        for note in verifier.base_notes[:2]:
+            lines.append(f"- {_escape(note)}")
+    return lines
 
 
 def _capability_review(

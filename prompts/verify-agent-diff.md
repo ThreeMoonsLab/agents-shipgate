@@ -50,13 +50,14 @@ work is complete.
    verification.
 
 4. **Read JSON, not Markdown.**
+   - `agents-shipgate-reports/verifier.json` is the PR/controller artifact.
+   - Lead with `merge_verdict`, then inspect `capability_review.top_changes[]`,
+     `first_next_action.actor`, and `fix_task.safe_to_attempt`.
    - `agents-shipgate-reports/report.json` is the release-gate artifact.
    - `release_decision.decision` is the only gate signal.
    - `verifier_summary` is a one-fetch composition for controller output; its
      `verdict` mirrors `release_decision.decision` and never gates
      independently.
-   - `agents-shipgate-reports/verifier.json` explains trigger and base-scan
-     status; do not treat it as a second verdict.
 
 5. **Do not bypass the verifier.** Do not suppress findings, lower severity,
    expand baselines or waivers, remove Shipgate CI, or soften agent
@@ -64,6 +65,9 @@ work is complete.
    `SHIP-VERIFY-*` findings and require human review.
 
 6. **Report back with:**
+   - `merge_verdict` and `headline` from `verifier.json`
+   - `capability_review.top_changes[]`
+   - `first_next_action.actor` and `fix_task.safe_to_attempt`
    - `release_decision.decision` and `release_decision.reason`
    - blocker count and review-item count
    - `verifier_summary.protected_surface_touched`
@@ -77,6 +81,9 @@ work is complete.
 
 - Do not claim the diff is verified until `agents-shipgate verify` has run or
   `agents-shipgate trigger` has returned a clear skip verdict.
+- Do not claim completion when `merge_verdict` is `blocked`,
+  `insufficient_evidence`, or `human_review_required` unless the user
+  explicitly accepts human review.
 - Do not use `summary.status` for gating; it is legacy and baseline-blind.
 - Do not invent approval, confirmation, idempotency, prohibited-action,
   broad-scope, human acknowledgement, or runtime trace evidence.
@@ -86,6 +93,8 @@ work is complete.
 
 - `agents-shipgate-reports/report.json` exists and parses.
 - `agents-shipgate-reports/verifier.json` exists and parses.
+- `verifier.json.merge_verdict` is surfaced to the user.
+- `capability_review.top_changes[]` is considered before generic findings.
 - `report.json.release_decision.decision` is surfaced to the user.
 - If `verifier_summary.protected_surface_touched` or `policy_weakened` is true,
   the response names the human-review requirement.

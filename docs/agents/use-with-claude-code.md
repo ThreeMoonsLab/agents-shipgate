@@ -83,8 +83,9 @@ Add `--base origin/main --head HEAD` only for committed PR/CI verification
 after making the base ref available. Omit both for local pre-commit work so
 uncommitted edits are scanned.
 
-It should then summarize `report.json.release_decision.decision`,
-`verifier_summary` trust-root flags, and `verifier.json.base_status`.
+It should then summarize `verifier.json.merge_verdict`,
+`capability_review.top_changes[]`, `first_next_action.actor`,
+`fix_task.safe_to_attempt`, and `report.json.release_decision.decision`.
 
 ## Verify an agent PR
 

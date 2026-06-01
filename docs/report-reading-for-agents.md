@@ -2,7 +2,7 @@
 
 A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in the order a new consumer should read it.
 
-> **Audience.** New agent or CI consumers parsing `agents-shipgate-reports/report.json` for the first time. If you only need the field index, see [`agent-contract-current.md`](agent-contract-current.md). If you need the canonical 4-call flow, see [`agent-recipes.md`](agent-recipes.md).
+> **Audience.** New agent or CI consumers parsing `agents-shipgate-reports/report.json` for the first time. If you only need the field index, see [`agent-contract-current.md`](agent-contract-current.md). If you need verify-first PR commands or first-adoption flows, see [`agent-recipes.md`](agent-recipes.md).
 
 ---
 
@@ -229,7 +229,7 @@ Frozen schemas are kept in `docs/` so older reports remain machine-validatable. 
 - [`agent-contract-current.md`](agent-contract-current.md) — current field index for `report.json`; updates first when the contract bumps.
 - [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — what conclusions an agent may publish without human review.
 - [`autofix-policy.md`](autofix-policy.md) — mechanical patch policy and the four classes of findings.
-- [`agent-recipes.md`](agent-recipes.md) — canonical 4-call flow.
+- [`agent-recipes.md`](agent-recipes.md) — verify-first PR commands and first-adoption helper flow.
 - [`diagnostics.md`](diagnostics.md) — full diagnostic-code catalog and `NextAction` ranking.
 - [`STABILITY.md`](../STABILITY.md) — what won't break across `0.x`.
 - [`AGENTS.md`](../AGENTS.md) Task 2 — one-paragraph version of this primer.

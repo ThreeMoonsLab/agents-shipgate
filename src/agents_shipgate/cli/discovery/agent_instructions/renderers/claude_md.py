@@ -22,13 +22,19 @@ capability changes — a local-first, static Tool-Use Readiness review.
 For agent tool-surface or release-policy changes, run:
 
 ```bash
-agents-shipgate detect --workspace . --json
+agents-shipgate verify --preview --json
 agents-shipgate verify --workspace . --config shipgate.yaml \\
   --ci-mode advisory --format json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 
-Read `agents-shipgate-reports/report.json` and summarize:
+Read `agents-shipgate-reports/verifier.json` and summarize:
+
+- `merge_verdict`
+- `capability_review.top_changes[]`
+- `first_next_action.actor`
+- `fix_task.safe_to_attempt`
+
+Then read `agents-shipgate-reports/report.json` and summarize:
 
 - `release_decision.decision`
 - blocker count
@@ -42,8 +48,9 @@ Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
 edits are scanned; add `--base origin/main --head HEAD` only for committed
 PR/CI verification after making the base ref available.
-`agents-shipgate-reports/verifier.json` explains trigger/base status; it is
-not a second release verdict.
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action

@@ -69,7 +69,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## For agents
 
-- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for the canonical 4-call flow (`detect → init → scan → apply-patches`)
+- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for verify-first PRs and first adoption (`detect → init → scan → apply-patches`)
 - [`agent-contract-current.md`](agent-contract-current.md) — current statement of which `report.json` fields agents and CI integrations should read
 - [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer for `report.json`; walks the file in the order a new consumer should read it
 - [`agent-autofix-boundary.md`](agent-autofix-boundary.md) — what an agent may do mechanically vs. what must defer to a human reviewer

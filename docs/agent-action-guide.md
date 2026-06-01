@@ -1,6 +1,6 @@
 # Agent Action Guide
 
-Per-category recipe for what a coding agent should DO when it sees a Shipgate finding. Companion to [`autofix-policy.md`](autofix-policy.md) (which describes the four-class autofix model) and [`agent-recipes.md`](agent-recipes.md) (the canonical 4-call flow). This doc is the lookup table for "I have a finding with `check_id: SHIP-X-Y`; what's the right move?"
+Per-category recipe for what a coding agent should DO when it sees a Shipgate finding. Companion to [`autofix-policy.md`](autofix-policy.md) (which describes the four-class autofix model) and [`agent-recipes.md`](agent-recipes.md) (verify-first PR checks and first-adoption helper flows). This doc is the lookup table for "I have a finding with `check_id: SHIP-X-Y`; what's the right move?"
 
 > **Audience.** AI coding agents reading a specific finding from `agents-shipgate-reports/report.json`. Drives the routing inside [`prompts/recommend-fixes.md`](../prompts/recommend-fixes.md) and [`prompts/fix-top-finding.md`](../prompts/fix-top-finding.md).
 
@@ -134,7 +134,7 @@ Framework-specific findings usually fire because the agent has dynamic toolsets 
 ## See also
 
 - [`autofix-policy.md`](autofix-policy.md) — the four-class autofix model and the catalog/Finding contract.
-- [`agent-recipes.md`](agent-recipes.md) — the canonical 4-call flow.
+- [`agent-recipes.md`](agent-recipes.md) — verify-first PR checks and first-adoption helper flows.
 - [`agent-contract-current.md`](agent-contract-current.md) — current schema versions and the `agent_action` enum.
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework drop-in instructions.
 - [`prompts/recommend-fixes.md`](../prompts/recommend-fixes.md) — coordinated remediation pass across all active findings.

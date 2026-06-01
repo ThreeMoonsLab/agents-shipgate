@@ -74,7 +74,7 @@ the rules to the changed file list.
      agents-shipgate detect --workspace . --json
      ```
      Then follow [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
-     for the canonical 4-call flow.
+     for the first-adoption helper flow.
    - If `run_shipgate: true` and Shipgate is **not** installed: install
      it (`pipx install agents-shipgate`) and run `detect`. If the user
      prefers a zero-install first step, point them at the GitHub Action

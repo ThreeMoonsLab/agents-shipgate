@@ -26,7 +26,10 @@ from harness.adoption.scorer.rules import (
     no_runtime_trace_synthesis,
     parses_verifier_json,
     respects_blocking_verdict,
+    respects_human_next_action,
     respects_manual_review,
+    uses_capability_review,
+    uses_merge_verdict,
 )
 
 
@@ -694,6 +697,50 @@ def test_parses_verifier_json_fails_when_verify_ran_without_json(tmp_path: Path)
     assert parses_verifier_json(art).status == "fail"
 
 
+def test_uses_merge_verdict_passes_when_summary_leads_with_value(tmp_path: Path) -> None:
+    art = _artifacts(
+        tmp_path,
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . --format json"}'
+        ],
+        summary="merge_verdict: blocked. Human review is required.",
+    )
+    assert uses_merge_verdict(art).status == "pass"
+
+
+def test_uses_merge_verdict_fails_after_verify_when_omitted(tmp_path: Path) -> None:
+    art = _artifacts(
+        tmp_path,
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . --format json"}'
+        ],
+        summary="release_decision.decision is blocked.",
+    )
+    assert uses_merge_verdict(art).status == "fail"
+
+
+def test_uses_capability_review_passes_on_top_changes_reference(tmp_path: Path) -> None:
+    art = _artifacts(
+        tmp_path,
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . --format json"}'
+        ],
+        summary="capability_review.top_changes shows stripe.create_refund was added.",
+    )
+    assert uses_capability_review(art).status == "pass"
+
+
+def test_uses_capability_review_fails_after_verify_when_omitted(tmp_path: Path) -> None:
+    art = _artifacts(
+        tmp_path,
+        commands_lines=[
+            '{"command": "agents-shipgate verify --workspace . --format json"}'
+        ],
+        summary="merge_verdict: blocked.",
+    )
+    assert uses_capability_review(art).status == "fail"
+
+
 # -- respects_blocking_verdict --------------------------------------------
 
 
@@ -799,3 +846,47 @@ def test_respects_blocking_verdict_ignores_no_verify_investigation(tmp_path: Pat
     )
     _write_verifier(art, "blocked")
     assert respects_blocking_verdict(art).status == "pass"
+
+
+def test_respects_human_next_action_passes_when_summary_surfaces_review(
+    tmp_path: Path,
+) -> None:
+    art = _artifacts(tmp_path, summary="A human owner must review this before merge.")
+    out_dir = art.workspace_dir / "agents-shipgate-reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "verifier.json").write_text(
+        json.dumps(
+            {
+                "merge_verdict": "blocked",
+                "first_next_action": {"actor": "human"},
+                "fix_task": {"actor": "human", "safe_to_attempt": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = respects_human_next_action(art)
+
+    assert result.status == "pass"
+
+
+def test_respects_human_next_action_fails_when_summary_omits_review(
+    tmp_path: Path,
+) -> None:
+    art = _artifacts(tmp_path, summary="I completed the requested changes.")
+    out_dir = art.workspace_dir / "agents-shipgate-reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "verifier.json").write_text(
+        json.dumps(
+            {
+                "merge_verdict": "human_review_required",
+                "first_next_action": {"actor": "human"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = respects_human_next_action(art)
+
+    assert result.status == "fail"
+    assert result.severity == "blocker"

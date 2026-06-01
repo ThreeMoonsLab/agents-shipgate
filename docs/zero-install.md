@@ -101,7 +101,7 @@ The full template lives at [`examples/github-actions/01-advisory-pr-comment.yml`
 
 ## Going from zero-install to full install
 
-When the detector script returns `is_agent_project: true`, the natural next step is the canonical 4-call flow ([AGENTS.md § Single-turn agent flow](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md#single-turn-agent-flow-v06)):
+When the detector script returns `is_agent_project: true`, the natural next step is the first-adoption helper flow ([AGENTS.md § Single-turn agent flow](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md#single-turn-agent-flow-v06)); after adoption, use `agents-shipgate verify` for ongoing PRs:
 
 ```bash
 pipx install agents-shipgate

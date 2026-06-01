@@ -46,27 +46,24 @@ policy impact unless the user explicitly asks.
 Commands:
 
 ```bash
-agents-shipgate detect --workspace . --json
-agents-shipgate contract --json
-agents-shipgate init --workspace . --write --ci --json
+agents-shipgate verify --preview --json
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
-agents-shipgate apply-patches \
-  --from agents-shipgate-reports/report.json \
-  --confidence high --apply
 ```
 
-Always parse `agents-shipgate-reports/report.json`, not Markdown. Use
-`release_decision.decision` as the release signal.
+Read `agents-shipgate-reports/verifier.json` first and lead with
+`merge_verdict`. Then read `agents-shipgate-reports/report.json`; use
+`release_decision.decision` as the release gate.
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
 verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
 edits are scanned; add `--base origin/main --head HEAD` only for committed
 PR/CI verification after making the base ref available.
-`agents-shipgate-reports/verifier.json` explains trigger/base status; it is
-not a second release verdict.
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
@@ -138,14 +135,19 @@ capability changes — a local-first, static Tool-Use Readiness review.
 For agent tool-surface or release-policy changes, run:
 
 ```bash
-agents-shipgate detect --workspace . --json
-agents-shipgate contract --json
+agents-shipgate verify --preview --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
 ```
 
-Read `agents-shipgate-reports/report.json` and summarize:
+Read `agents-shipgate-reports/verifier.json` and summarize:
+
+- `merge_verdict`
+- `capability_review.top_changes[]`
+- `first_next_action.actor`
+- `fix_task.safe_to_attempt`
+
+Then read `agents-shipgate-reports/report.json` and summarize:
 
 - `release_decision.decision`
 - blocker count
@@ -162,10 +164,12 @@ Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
 verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
 edits are scanned; add `--base origin/main --head HEAD` only for committed
-PR/CI verification after making the base ref available. Do not bypass the
-verifier by suppressing findings, lowering severity, expanding baselines or
-waivers, removing Shipgate CI, or weakening agent instructions. Verify-mode
-`SHIP-VERIFY-*` checks make those trust-root edits release-visible.
+PR/CI verification after making the base ref available. Do not claim completion
+when `merge_verdict` is `blocked`, `insufficient_evidence`, or
+`human_review_required` unless the user explicitly accepts human review. Do not
+bypass the verifier by suppressing findings, lowering severity, expanding
+baselines or waivers, removing Shipgate CI, or weakening agent instructions.
+Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 ````
 
 ## `.cursor/rules/agents-shipgate.mdc`
@@ -206,7 +210,7 @@ capability changes — a local-first, static Tool-Use Readiness review.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
-Default to advisory scans while adopting the gate.
+Default to advisory verification while adopting the gate.
 
 For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
@@ -218,10 +222,15 @@ Omit `--base` and `--head` for local pre-commit work so uncommitted edits are
 scanned; add `--base origin/main --head HEAD` only for committed PR/CI
 verification after making the base ref available.
 
-Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
-`release_decision.decision` over legacy severity/status summaries.
-Use `agents-shipgate-reports/verifier.json` only for trigger/base orchestration
-status, not as a second verdict.
+Read `agents-shipgate-reports/verifier.json` first. Lead with
+`merge_verdict`, then inspect `capability_review.top_changes[]`,
+`first_next_action.actor`, and `fix_task.safe_to_attempt`. Use
+`agents-shipgate-reports/report.json` as the source of truth for
+`release_decision.decision`.
+
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.
@@ -279,11 +288,14 @@ capability changes — a local-first, static Tool-Use Readiness review.
       `shipgate.yaml`, I ran:
 
       ```bash
-      agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
+      agents-shipgate verify --workspace . --config shipgate.yaml \
+        --ci-mode advisory --format json
       ```
 
+- [ ] I reviewed `agents-shipgate-reports/verifier.json`, led with
+      `merge_verdict`, and checked `capability_review.top_changes[]`.
 - [ ] I reviewed `agents-shipgate-reports/report.json` and used
-      `release_decision.decision` as the release signal.
+      `release_decision.decision` as the release gate.
 - [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
       or prohibited-action policy decisions.
 ````

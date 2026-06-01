@@ -2,21 +2,27 @@
 
 A worked example of the **artifact** a coding agent produces after running Agents Shipgate end-to-end. Sibling examples ([`mcp-only-tool-server`](mcp-only-tool-server/), [`openai-agents-sdk-refund-agent`](openai-agents-sdk-refund-agent/), [`openapi-support-agent`](openapi-support-agent/)) document the *recipe* for adopting Shipgate; this doc documents the *output* — the diff, the PR comment, and the structured summary an agent should generate.
 
-> **Audience.** Coding agents (Claude Code, Codex, Cursor) running Shipgate inside a host repo. Use this as the template for the message you post back to the user once the canonical 4-call flow finishes.
+> **Audience.** Coding agents (Claude Code, Codex, Cursor) running Shipgate inside a host repo. Use this as the template for the message you post back to the user once the verify-first flow finishes.
 
 ## Setup (the agent's actions before the PR)
 
-The agent has just completed the canonical 4-call flow on a target repo:
+The agent has just completed a verify-first run on a target repo:
 
 ```bash
-agents-shipgate detect --json
-agents-shipgate init --write --ci --json
-agents-shipgate scan -c shipgate.yaml --suggest-patches --format json
-agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
-    --confidence high --apply
+agents-shipgate verify --preview --json
+agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate verify --workspace . --config shipgate.yaml \
+    --ci-mode advisory --format json
 ```
 
-`scan` produced `agents-shipgate-reports/report.json` with:
+`verify` produced `agents-shipgate-reports/verifier.json` with:
+
+- `merge_verdict: "blocked"`
+- `capability_review.top_changes[]` names `stripe.create_refund`
+- `first_next_action.actor: "human"`
+- `fix_task.safe_to_attempt: false`
+
+The head scan also produced `agents-shipgate-reports/report.json` with:
 
 - `release_decision.decision: "blocked"`
 - 2 blockers on `stripe.create_refund` (missing approval policy, missing idempotency)
@@ -28,10 +34,23 @@ The agent now has to summarize this for the user.
 ## The expected artifact (PR comment / chat reply)
 
 ```markdown
-## Agents Shipgate — release blocked
+## Agents Shipgate: blocked
 
-**Decision**: `blocked` (2 active findings block release; 16 review
-items also flagged, 15 of those need human review.)
+**Merge verdict**: `blocked`
+**Release decision**: `blocked`
+
+This PR changes what `support-agent` can do: it adds the money-moving action
+`stripe.create_refund`. Shipgate cannot clear this for merge because approval
+and idempotency evidence are missing.
+
+| Impact | Change | Subject | Why |
+|---|---|---|---|
+| blocks release | action added | `stripe.create_refund` | money-moving refund action lacks approval and idempotency evidence |
+
+**Required before merge**:
+1. Human owner: confirm or add approval-policy evidence for `stripe.create_refund`.
+2. Human owner: confirm or add idempotency evidence for refund retries.
+3. Re-run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.
 
 **Top blockers**:
 1. `stripe.create_refund` — `SHIP-POLICY-APPROVAL-MISSING` (critical).
@@ -57,6 +76,7 @@ is at `agents-shipgate-reports/report.json`; the top-level
 `agent_summary` block carries the headline/action counts.
 
 **Reports**:
+- Verifier JSON: `agents-shipgate-reports/verifier.json`
 - Markdown: `agents-shipgate-reports/report.md`
 - JSON: `agents-shipgate-reports/report.json` (schema v0.12)
 - Release Evidence Packet: `agents-shipgate-reports/packet.{md,json,html}`
@@ -108,7 +128,17 @@ consistent counts:
 
 ```json
 {
-  "verdict": "blocked",
+  "merge_verdict": "blocked",
+  "first_next_action": {
+    "actor": "human",
+    "kind": "review",
+    "why": "Approval and idempotency evidence cannot be invented by a coding agent."
+  },
+  "fix_task": {
+    "actor": "human",
+    "safe_to_attempt": false
+  },
+  "release_decision": "blocked",
   "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt.",
   "blocker_count": 2,
   "review_item_count": 16,
@@ -137,7 +167,9 @@ the same number as `review_item_count`, which mirrors
 
 ## What to copy from this template
 
-- **Lead with the verdict.** `blocked` / `review_required` / `insufficient_evidence` / `passed`, with the headline counts on the same line.
+- **Lead with the merge verdict.** `mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` / `unknown`, with the capability change on the same screen.
+- **Show capability changes.** Pull the highest-signal rows from `verifier.json.capability_review.top_changes[]` before listing generic findings.
+- **Name who acts next.** Use `first_next_action.actor` and `fix_task.safe_to_attempt`; a human-routed task is not safe for a coding agent to self-resolve.
 - **Top blockers** named by `check_id` and `tool_name`, with a one-sentence "why it matters" pulled from `metadata.rationale` (use `agents-shipgate explain-finding <FINGERPRINT> --json`).
 - **Apply / review split**. What you applied automatically, what needs human review. Always show the auto-applied diff.
 - **Reports paths**. The agent shouldn't hide where the reports landed; the user may want to read them.
@@ -145,16 +177,18 @@ the same number as `review_item_count`, which mirrors
 
 ## What to vary per scan
 
+- **Merge verdict and capability changes** come from `verifier.json`.
 - **Summary counts** in the headline come from `agent_summary.{blocker_count, review_item_count, auto_appliable_patches, needs_human_review}`.
 - **Top blockers** come from `release_decision.blockers[]`. For each, run `agents-shipgate explain-finding <FINGERPRINT> --json` to get the metadata + evidence + templated explanation; quote the explanation or rewrite for tone.
 - **Diff blocks** come from the `apply-patches --apply --json` output's `files` object — keyed by file path, with each entry exposing `status`, `patches`, `diff`, `error`. Iterate `Object.entries(out.files)` (or `out["files"].items()` in Python) and render each `diff` with standard `+`/`-` markers.
 - **Review-item table** comes from walking `findings[]` filtered by `release_decision.review_items[].fingerprint`.
 
-## When the verdict is different
+## When the merge verdict is different
 
-- **`review_required` (no blockers)**: replace the headline with "review required; N review item(s)". Still split by `agent_action`. Still cite the auto-applied diff if there was one.
-- **`passed`**: a one-liner is fine ("Agents Shipgate is green; advisory CI is wired."). Mention the report paths so the user can verify.
-- **Evidence-only `review_required`** (no findings; the scan saw only low-confidence/static evidence): the headline IS the `release_decision.reason`. Surface it verbatim with a follow-up question about whether to gather more evidence (MCP/OpenAPI inputs, eval traces).
+- **`human_review_required`**: replace the headline with "human review required; N review item(s)". Still split by `agent_action`. Still cite the auto-applied diff if there was one.
+- **`mergeable`**: a one-liner is fine ("Agents Shipgate is mergeable; advisory CI is wired."). Mention the verifier/report paths so the user can verify.
+- **`unknown`**: do not call the PR mergeable. Surface `base_status`, `head_status`, and the first next action from `verifier.json`.
+- **Evidence-only `human_review_required`**: the headline IS the `release_decision.reason`. Surface it verbatim with a follow-up question about whether to gather more evidence (MCP/OpenAPI inputs, eval traces).
 
 ## See also
 

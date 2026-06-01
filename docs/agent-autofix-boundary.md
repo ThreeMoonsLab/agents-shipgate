@@ -2,7 +2,7 @@
 
 Where the line is between what an AI coding agent may do mechanically with Agents Shipgate and what it must defer to a human.
 
-> **Audience.** AI coding agents driving the canonical 4-call flow (see [`agent-recipes.md`](agent-recipes.md)) and CI integrators framing reviewer-facing copy.
+> **Audience.** AI coding agents driving verify-first PR checks or first-adoption helper flows (see [`agent-recipes.md`](agent-recipes.md)) and CI integrators framing reviewer-facing copy.
 
 [`autofix-policy.md`](autofix-policy.md) answers "will `apply-patches` run this?". This page answers "what may an agent assert in a PR comment, commit message, or review summary?". The two are related but not the same — `apply-patches` is a *mechanical* filter; this page is a *behavioral* boundary that holds even when an agent never invokes `apply-patches`.
 
@@ -13,7 +13,7 @@ Where the line is between what an AI coding agent may do mechanically with Agent
 Without further human approval, an agent driving Agents Shipgate may:
 
 - **Install** the CLI (`pipx install agents-shipgate` or fallbacks) — see [`AGENTS.md`](../AGENTS.md) §Install.
-- **Detect / init / doctor / scan / summarize** — every command in this set is read-only with respect to user code, except `init --write` which writes only `shipgate.yaml`. See [`agent-recipes.md`](agent-recipes.md) Recipe 1 for the canonical 4-call flow.
+- **Detect / init / doctor / scan / verify / summarize** — every command in this set is read-only with respect to user code, except `init --write` which writes only `shipgate.yaml`. See [`agent-recipes.md`](agent-recipes.md) for the verify-first PR flow and first-adoption helper.
 - **Add advisory CI** — drop in [`examples/github-actions/01-advisory-pr-comment.yml`](../examples/github-actions/01-advisory-pr-comment.yml) (or run `init --ci`). Advisory mode reports findings without blocking merge.
 - **Apply high-confidence mechanical patches** via `apply-patches --confidence high --apply`. By the [strict derivation rule](autofix-policy.md#strict-derivation-rule) this only fires when every patch on a finding is non-manual AND `confidence == "high"`. Today that's the three stale-manifest removals (`SHIP-MANIFEST-STALE-{SUPPRESSION,POLICY,RISK-OVERRIDE}`).
 - **Summarize the report** for the user — `release_decision.decision`, `release_decision.reason`, blocker / review-item counts, top active findings by severity. See [`report-reading-for-agents.md`](report-reading-for-agents.md).
@@ -87,6 +87,6 @@ Editing a trace artifact to flip an `SHIP-API-TRACE-APPROVAL-MISSING` finding is
 - [`agent-contract-current.md`](agent-contract-current.md) — current statement of which `report.json` fields agents and CI integrations should read.
 - [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer for `report.json`.
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do; the source of the runtime-enforcement boundary.
-- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable workflows for the canonical 4-call flow.
+- [`agent-recipes.md`](agent-recipes.md) — copy-pasteable workflows for verify-first PRs and first adoption.
 - [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md) — the same boundary in copy-paste form for downstream repos (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, PR template).
 - [`AGENTS.md`](../AGENTS.md) §"What you can't do" — CLI invariants (no MCP connect, no code modification, 10 MB cap, etc.). That section is about the *CLI*'s boundary; this page is about the *agent consuming the CLI*.

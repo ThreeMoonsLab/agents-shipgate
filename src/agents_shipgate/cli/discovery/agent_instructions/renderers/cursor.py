@@ -49,7 +49,7 @@ capability changes — a local-first, static Tool-Use Readiness review.
 
 When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
-Default to advisory scans while adopting the gate.
+Default to advisory verification while adopting the gate.
 
 For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
@@ -61,10 +61,15 @@ Omit `--base` and `--head` for local pre-commit work so uncommitted edits are
 scanned; add `--base origin/main --head HEAD` only for committed PR/CI
 verification after making the base ref available.
 
-Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
-`release_decision.decision` over legacy severity/status summaries.
-Use `agents-shipgate-reports/verifier.json` only for trigger/base orchestration
-status, not as a second verdict.
+Read `agents-shipgate-reports/verifier.json` first. Lead with
+`merge_verdict`, then inspect `capability_review.top_changes[]`,
+`first_next_action.actor`, and `fix_task.safe_to_attempt`. Use
+`agents-shipgate-reports/report.json` as the source of truth for
+`release_decision.decision`.
+
+Do not claim completion when `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.

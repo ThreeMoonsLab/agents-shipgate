@@ -56,11 +56,13 @@ uncommitted edits. In committed PR or CI contexts, add
 `--base origin/main --head HEAD` after making the base ref available. If you
 pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
 
-Read `agents-shipgate-reports/report.json` first. Use
-`release_decision.decision` as the gate. Use `verifier_summary` only as a
-composition summary: its `verdict` mirrors `release_decision.decision` and it
-adds counts for protected-surface touches, policy weakening, human
-acknowledgement, and top reason codes.
+Read `agents-shipgate-reports/verifier.json` first. Lead with
+`merge_verdict`, then inspect `capability_review.top_changes[]`,
+`first_next_action.actor`, and `fix_task.safe_to_attempt`. Then read
+`agents-shipgate-reports/report.json`; `release_decision.decision` remains the
+gate. Use `verifier_summary` only as a composition summary: its `verdict`
+mirrors `release_decision.decision` and it adds counts for protected-surface
+touches, policy weakening, human acknowledgement, and top reason codes.
 
 Do not bypass the verifier. Do not suppress findings, lower severity, expand
 baselines or waivers, remove Shipgate CI, or weaken agent instructions to make

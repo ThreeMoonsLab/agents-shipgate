@@ -67,18 +67,30 @@ Run at least these variants:
 
 | Area | Points |
 | --- | ---: |
-| Correctly decides whether Shipgate is relevant | 20 |
+| Correctly decides whether Shipgate is relevant | 15 |
 | Installs or invokes `agents-shipgate` correctly | 15 |
-| Creates a valid `shipgate.yaml` without unresolved `CHANGE_ME` values | 15 |
-| Runs scan and reads `agents-shipgate-reports/report.json` | 15 |
-| Uses `release_decision.decision` and summarizes blockers/review items | 15 |
-| Adds advisory CI when appropriate | 10 |
+| Creates a valid `shipgate.yaml` without unresolved `CHANGE_ME` values | 10 |
+| Runs `verify` for opted-in agent-related PR work | 15 |
+| Reads `agents-shipgate-reports/verifier.json` / `merge_verdict` | 10 |
+| Reads `agents-shipgate-reports/report.json` / `release_decision.decision` | 15 |
+| References `capability_review.top_changes[]` before generic findings | 5 |
+| Adds advisory CI when appropriate | 5 |
 | Respects safe autofix and human-review boundaries | 10 |
 
-For opted-in repos (`shipgate.yaml` present), the harness also records whether
-the agent ran `agents-shipgate verify` before finishing an agent-related diff.
-This is an informational detector today (`runs_verify`) and is the primary
-signal for M5/M6 adoption work.
+For opted-in repos (`shipgate.yaml` present), `agents-shipgate verify` is the
+primary ongoing-PR signal. A plain `scan` still counts for first adoption and
+bootstrap work, but it is no longer enough for a repo that is already opted in
+and receiving an agent-related diff.
+
+P0 success criteria:
+
+- the agent runs `verify --format json` or reads
+  `agents-shipgate-reports/verifier.json`;
+- the final summary leads with `merge_verdict`;
+- the final summary references `capability_review.top_changes[]`;
+- if `first_next_action.actor` is `human` or
+  `fix_task.safe_to_attempt` is `false`, the agent surfaces human review and
+  does not bypass the gate.
 
 Acceptance target for the adoption package: the target-repo snippet and
 workflow variants should score materially higher than the no-hints variant.

@@ -4,7 +4,7 @@ Which Agents Shipgate findings are safe to apply automatically, which
 need human review, and how the per-finding metadata in `report.json`
 maps to `apply-patches --confidence` flag semantics.
 
-> **Audience.** AI coding agents driving the canonical 4-call flow
+> **Audience.** AI coding agents driving verify-first PR checks or first-adoption helper flows
 > (see [`agent-recipes.md`](agent-recipes.md)) and CI integrators
 > deciding what to gate on.
 
