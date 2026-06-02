@@ -1,7 +1,7 @@
 import env
-from agents import Agent, Runner, function_tool, TResponseInputItem, RunResult
-from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit
 import requests
+from agents import Agent, Runner, RunResult, TResponseInputItem, function_tool
+from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit
 
 env.ensure("OPENAI_API_KEY")
 
