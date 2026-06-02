@@ -48,6 +48,27 @@ DEFAULT_ALLOWED_TOOLS: tuple[str, ...] = (
 )
 
 
+def _sandbox_env(inputs: DriverInputs) -> dict[str, str]:
+    """Build the spawned agent's environment.
+
+    By default HOME is scoped to a per-cell scratch dir so an under-specified
+    prompt cannot reach a real checkout via ``cd $HOME/...`` — the exact escape
+    that let an agent edit the real repo on a developer machine. Opt out with
+    ``SHIPGATE_HARNESS_SCOPE_HOME=0``. Fails closed: a HOME the SDK can't use
+    surfaces as an infra error, never a sandbox escape. Absolute-path escapes
+    (``cd /Users/...``) are still possible and are caught post-hoc by the
+    ``stayed_in_workspace`` scorer blocker — defence in depth. NOTE: the live
+    SDK has not been validated against a scoped HOME under a no-spend pass; the
+    next paid run should confirm it initialises (set the flag to 0 if not).
+    """
+    env = {**os.environ, **inputs.extra_env, "AGENTS_SHIPGATE_AGENT_MODE": "1"}
+    if os.environ.get("SHIPGATE_HARNESS_SCOPE_HOME", "1") != "0":
+        scratch = inputs.artifacts_dir / "sandbox_home"
+        scratch.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(scratch)
+    return env
+
+
 class ClaudeCodeDriver:
     name = "claude-code"
 
@@ -102,11 +123,7 @@ class ClaudeCodeDriver:
             allowed_tools=list(DEFAULT_ALLOWED_TOOLS),
             max_turns=25,
             model=model,
-            env={
-                **os.environ,
-                **inputs.extra_env,
-                "AGENTS_SHIPGATE_AGENT_MODE": "1",
-            },
+            env=_sandbox_env(inputs),
         )
 
         tokens_in = 0
