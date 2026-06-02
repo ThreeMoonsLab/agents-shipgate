@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from harness.adoption.drivers.base import DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult, _sandbox_env
 from harness.adoption.observer.transcript import TranscriptWriter
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -63,12 +63,9 @@ class CodexDriver:
             last_message=last_message,
             model=inputs.model,
         )
-        env = {
-            **os.environ,
-            **inputs.extra_env,
-            "AGENTS_SHIPGATE_AGENT_MODE": "1",
-            "NO_COLOR": "1",
-        }
+        # Shared HOME scoping (SHIPGATE_HARNESS_SCOPE_HOME) + agent-mode flag.
+        # Codex also runs with its own `--sandbox workspace-write --ephemeral`.
+        env = {**_sandbox_env(inputs), "NO_COLOR": "1"}
 
         timed_out = False
         error: str | None = None

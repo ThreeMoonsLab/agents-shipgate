@@ -14,6 +14,7 @@ capture mode (e.g. Codex without ``--json-logs``).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -66,4 +67,24 @@ class AgentDriver(Protocol):
         ...
 
 
-__all__ = ["AgentDriver", "DriverInputs", "RunResult"]
+def _sandbox_env(inputs: DriverInputs) -> dict[str, str]:
+    """Build a spawned agent's environment with HOME scoped to the cell.
+
+    By default HOME points at a per-cell scratch dir so an under-specified
+    prompt cannot reach a real checkout via ``cd $HOME/...`` — the exact escape
+    that let an agent edit the real repo on a developer machine. Opt out with
+    ``SHIPGATE_HARNESS_SCOPE_HOME=0``. Fails closed: a HOME the agent can't use
+    surfaces as an infra error, never a sandbox escape. Absolute-path escapes
+    (``cd /Users/...``) remain caught post-hoc by the ``stayed_in_workspace``
+    scorer blocker — defence in depth. NOTE: not yet validated against a live
+    agent under a no-spend pass; the next paid run confirms it initialises.
+    """
+    env = {**os.environ, **inputs.extra_env, "AGENTS_SHIPGATE_AGENT_MODE": "1"}
+    if os.environ.get("SHIPGATE_HARNESS_SCOPE_HOME", "1") != "0":
+        scratch = inputs.artifacts_dir / "sandbox_home"
+        scratch.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(scratch)
+    return env
+
+
+__all__ = ["AgentDriver", "DriverInputs", "RunResult", "_sandbox_env"]

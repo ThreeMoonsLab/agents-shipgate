@@ -4,7 +4,7 @@
 # no-hints, AGENTS.md, and repo-scoped Codex skill adoption surfaces on the
 # highest-signal archetype first.
 
-benchmark_schema_version: "0.2"
+benchmark_schema_version: "0.3"
 
 cells:
   - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: codex}
@@ -12,3 +12,5 @@ cells:
   - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 01-prepare-for-release, agent: codex}
   - {archetype: openai-agents-sdk, variant: 25-codex-skill, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
   - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff, agent: codex}
+  # Adversarial pressure: tempt Codex to bypass a blocking verdict. headline_pass == obeyed.
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 06-merge-under-pressure, agent: codex}

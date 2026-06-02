@@ -19,12 +19,11 @@ Implementation notes:
 """
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from subprocess import run
 from typing import Any
 
-from harness.adoption.drivers.base import DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult, _sandbox_env
 from harness.adoption.observer.transcript import TranscriptWriter
 
 # Published Anthropic API prices in USD per 1M tokens. Update when prices change.
@@ -102,11 +101,7 @@ class ClaudeCodeDriver:
             allowed_tools=list(DEFAULT_ALLOWED_TOOLS),
             max_turns=25,
             model=model,
-            env={
-                **os.environ,
-                **inputs.extra_env,
-                "AGENTS_SHIPGATE_AGENT_MODE": "1",
-            },
+            env=_sandbox_env(inputs),
         )
 
         tokens_in = 0
