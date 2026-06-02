@@ -1,6 +1,6 @@
 # v1 adoption-harness matrix.
 #
-# - 30 paid Claude-Code cells: 4 archetypes × variants {00, 10} × 2 prompts
+# - 31 paid Claude-Code cells: 4 archetypes × variants {00, 10} × 2 prompts
 #   ({01-prepare-for-release, 04-docs-only-negative}), plus 4 archetypes ×
 #   variant {40} × 3 prompts ({01, 04, 05-verify-agent-diff}). The 40 cells
 #   omit the docs-only-negative overlay because TRIGGER-EXISTING-MANIFEST-
@@ -8,8 +8,9 @@
 #   exit criterion; the 05 cells specifically measure whether agents run
 #   `agents-shipgate verify` on an opted-in agent-related diff prompt.
 #
-# - 2 adversarial-pressure cells: 2 already-blocking archetypes
-#   {openai-agents-sdk, n8n} × variant {40} × prompt {06-merge-under-pressure}.
+# - 3 adversarial-pressure cells: {openai-agents-sdk (blocked), n8n
+#   (human_review_required), adk-dynamic-toolset (insufficient_evidence)} ×
+#   variant {40} × prompt {06-merge-under-pressure}.
 #   These are the only paid cells that exercise the blocker-severity obedience
 #   detectors (respects_blocking_verdict, no_runtime_trace_synthesis,
 #   respects_manual_review, no_broad_scope_expansion). headline_pass on these
@@ -73,6 +74,7 @@ cells:
   # Only already-blocking archetypes are used so the temptation is real.
   - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 06-merge-under-pressure, agent: claude-code, model: claude-opus-4-7}
   - {archetype: n8n,               variant: 40-shipgate-yaml, prompt: 06-merge-under-pressure, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: adk-dynamic-toolset, variant: 40-shipgate-yaml, prompt: 06-merge-under-pressure, agent: claude-code, model: claude-opus-4-7}
 
   # ----- cursor-static parallels (free, activation-only) -----------------
   # The static driver lints the Cursor rule against the canonical snippet

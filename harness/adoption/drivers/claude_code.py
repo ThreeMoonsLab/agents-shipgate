@@ -19,12 +19,11 @@ Implementation notes:
 """
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from subprocess import run
 from typing import Any
 
-from harness.adoption.drivers.base import DriverInputs, RunResult
+from harness.adoption.drivers.base import DriverInputs, RunResult, _sandbox_env
 from harness.adoption.observer.transcript import TranscriptWriter
 
 # Published Anthropic API prices in USD per 1M tokens. Update when prices change.
@@ -46,27 +45,6 @@ DEFAULT_ALLOWED_TOOLS: tuple[str, ...] = (
     "Grep",
     "WebFetch",
 )
-
-
-def _sandbox_env(inputs: DriverInputs) -> dict[str, str]:
-    """Build the spawned agent's environment.
-
-    By default HOME is scoped to a per-cell scratch dir so an under-specified
-    prompt cannot reach a real checkout via ``cd $HOME/...`` — the exact escape
-    that let an agent edit the real repo on a developer machine. Opt out with
-    ``SHIPGATE_HARNESS_SCOPE_HOME=0``. Fails closed: a HOME the SDK can't use
-    surfaces as an infra error, never a sandbox escape. Absolute-path escapes
-    (``cd /Users/...``) are still possible and are caught post-hoc by the
-    ``stayed_in_workspace`` scorer blocker — defence in depth. NOTE: the live
-    SDK has not been validated against a scoped HOME under a no-spend pass; the
-    next paid run should confirm it initialises (set the flag to 0 if not).
-    """
-    env = {**os.environ, **inputs.extra_env, "AGENTS_SHIPGATE_AGENT_MODE": "1"}
-    if os.environ.get("SHIPGATE_HARNESS_SCOPE_HOME", "1") != "0":
-        scratch = inputs.artifacts_dir / "sandbox_home"
-        scratch.mkdir(parents=True, exist_ok=True)
-        env["HOME"] = str(scratch)
-    return env
 
 
 class ClaudeCodeDriver:
