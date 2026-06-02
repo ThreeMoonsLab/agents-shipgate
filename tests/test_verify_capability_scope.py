@@ -82,7 +82,7 @@ def test_extractor_parses_unbounded_factory_call():
 
 def test_extractor_drops_only_false_actions():
     src = (
-        "from x import StripeAgentToolkit\n"
+        "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit\n"
         "tk = StripeAgentToolkit(configuration={'actions': {"
         "'customers': {'read': True, 'update': False}}})\n"
     )
@@ -94,7 +94,7 @@ def test_extractor_skips_non_literal_configuration():
     # A configuration passed as a variable is ambiguous; emit no bound rather
     # than guess (the dynamic-toolkit path still degrades to low confidence).
     src = (
-        "from x import StripeAgentToolkit\n"
+        "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit\n"
         "cfg = load_cfg()\n"
         "tk = StripeAgentToolkit(configuration=cfg)\n"
     )
@@ -102,7 +102,86 @@ def test_extractor_skips_non_literal_configuration():
 
 
 def test_extractor_ignores_unknown_constructor():
-    src = "from x import SomeOtherToolkit\ntk = SomeOtherToolkit(configuration={'a': 1})\n"
+    # A real Stripe import but an unknown symbol name must not match.
+    src = (
+        "from stripe_agent_toolkit.openai.toolkit import SomeOtherToolkit\n"
+        "tk = SomeOtherToolkit(configuration={'a': 1})\n"
+    )
+    assert _bounds_from_src(src) == []
+
+
+def test_extractor_missing_actions_is_unbounded():
+    # Stripe mounts the FULL toolkit when `actions` is absent, so a config with
+    # only `context` is unbounded -- NOT "bounded to no tools". Otherwise a base
+    # `actions={...}` -> head `configuration={context: ...}` migration would
+    # read as a narrowing and escape the gate.
+    src = (
+        "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit\n"
+        "tk = StripeAgentToolkit(configuration={'context': {'account': 'acct_1'}})\n"
+    )
+    [bound] = _bounds_from_src(src)
+    assert bound.bounded is False
+    assert bound.scopes == []
+
+
+def test_extractor_explicit_empty_actions_is_bounded_to_nothing():
+    src = (
+        "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit\n"
+        "tk = StripeAgentToolkit(configuration={'actions': {}})\n"
+    )
+    [bound] = _bounds_from_src(src)
+    assert bound.bounded is True
+    assert bound.scopes == []
+
+
+def test_extractor_tracks_from_import_alias():
+    # `import StripeAgentToolkit as SAT; SAT(...)` must resolve.
+    src = (
+        "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit as SAT\n"
+        "tk = SAT(configuration={'actions': {'customers': {'read': True}}})\n"
+    )
+    [bound] = _bounds_from_src(src)
+    assert bound.provider == "stripe"
+    assert bound.constructor == "StripeAgentToolkit"
+    assert bound.scopes == ["customers:read"]
+
+
+def test_extractor_resolves_module_alias_attribute_call():
+    src = (
+        "import stripe_agent_toolkit.openai.toolkit as t\n"
+        "tk = t.StripeAgentToolkit(configuration={'actions': {'customers': {'read': True}}})\n"
+    )
+    [bound] = _bounds_from_src(src)
+    assert bound.provider == "stripe"
+    assert bound.constructor == "StripeAgentToolkit"
+
+
+def test_extractor_resolves_fully_qualified_call():
+    src = (
+        "import stripe_agent_toolkit.openai.toolkit\n"
+        "tk = stripe_agent_toolkit.openai.toolkit.create_stripe_agent_toolkit(secret_key='x')\n"
+    )
+    [bound] = _bounds_from_src(src)
+    assert bound.provider == "stripe"
+    assert bound.bounded is False
+
+
+def test_extractor_ignores_unimported_local_symbol():
+    # A local symbol that merely shares the constructor name, never imported
+    # from a known toolkit module, must NOT be matched (no false positive).
+    src = (
+        "def StripeAgentToolkit(**kwargs):\n"
+        "    return None\n"
+        "tk = StripeAgentToolkit(configuration={'actions': {'customers': {'read': True}}})\n"
+    )
+    assert _bounds_from_src(src) == []
+
+
+def test_extractor_ignores_same_name_from_other_module():
+    src = (
+        "from totally_unrelated import StripeAgentToolkit\n"
+        "tk = StripeAgentToolkit(configuration={'actions': {'customers': {'read': True}}})\n"
+    )
     assert _bounds_from_src(src) == []
 
 
@@ -124,11 +203,15 @@ def test_policy_fact_round_trip_bounded():
         constructor="StripeAgentToolkit",
         bounded=True,
         scopes=["customers:read", "invoices:read"],
+        binding="customer_tk",
     )
     fact = bound_to_policy_fact(bound)
     assert fact.kind == TOOLKIT_BOUND_POLICY_KIND
-    assert fact.key == "stripe"
+    # Keyed per-instance as provider:binding.
+    assert fact.key == "stripe:customer_tk"
     decoded = bound_from_policy_fact(fact)
+    assert decoded.provider == "stripe"
+    assert decoded.binding == "customer_tk"
     assert decoded.bounded is True
     assert decoded.scopes == ["customers:read", "invoices:read"]
 
@@ -156,13 +239,20 @@ def _cfg(side: str) -> Path:
     return FIXTURES / side / "shipgate.yaml"
 
 
-def _bound(*, bounded=True, scopes=(), provider="stripe", constructor="StripeAgentToolkit"):
+def _bound(
+    *,
+    bounded=True,
+    scopes=(),
+    provider="stripe",
+    constructor="StripeAgentToolkit",
+    binding="stripe_agent_toolkit",
+):
     return ToolkitScopeBound(
         provider=provider,
         constructor=constructor,
         bounded=bounded,
         scopes=sorted(scopes),
-        binding="stripe_agent_toolkit",
+        binding=binding,
         source_ref="support_agent.py",
         source_line=27,
     )
@@ -250,6 +340,46 @@ def test_new_toolkit_only_in_head_emits_nothing():
     assert verify_capability_scope.run(ctx) == []
 
 
+def test_multiple_instances_do_not_collapse():
+    # Two Stripe toolkits: only customer_tk broadens; invoice_tk is unchanged.
+    # Provider-only keying collapsed these (last wins) and missed the
+    # broadening; per-binding keying keeps them distinct.
+    ctx = _ctx(
+        base_bounds=[
+            _bound(binding="customer_tk", scopes=["customers:read"]),
+            _bound(binding="invoice_tk", scopes=["invoices:read"]),
+        ],
+        head_bounds=[
+            _bound(binding="customer_tk", bounded=False),
+            _bound(binding="invoice_tk", scopes=["invoices:read"]),
+        ],
+    )
+    [finding] = verify_capability_scope.run(ctx)
+    assert finding.evidence["kind"] == "scope_bound_removed"
+    assert finding.evidence["binding"] == "customer_tk"
+
+
+def test_multiple_instances_unchanged_emit_nothing():
+    bounds = [
+        _bound(binding="customer_tk", scopes=["customers:read"]),
+        _bound(binding="invoice_tk", scopes=["invoices:read"]),
+    ]
+    ctx = _ctx(base_bounds=list(bounds), head_bounds=list(bounds))
+    assert verify_capability_scope.run(ctx) == []
+
+
+def test_renamed_single_toolkit_still_compared():
+    # A rename-plus-broaden: keys differ, but the leftover-singleton fallback
+    # re-pairs the one unmatched bound per side so it cannot slip through.
+    ctx = _ctx(
+        base_bounds=[_bound(binding="customer_tk", scopes=["customers:read"])],
+        head_bounds=[_bound(binding="billing_tk", bounded=False)],
+    )
+    [finding] = verify_capability_scope.run(ctx)
+    assert finding.evidence["kind"] == "scope_bound_removed"
+    assert finding.evidence["binding"] == "billing_tk"
+
+
 def test_no_base_reference_emits_nothing():
     ctx = _ctx(base_bounds=None, head_bounds=[_bound(bounded=False)])
     assert verify_capability_scope.run(ctx) == []
@@ -309,5 +439,5 @@ def test_base_report_carries_toolkit_bound_policy_fact(tmp_path):
     toolkit_facts = [
         p for p in base_report.tool_surface_facts.policies if p.kind == TOOLKIT_BOUND_POLICY_KIND
     ]
-    assert [p.key for p in toolkit_facts] == ["stripe"]
+    assert [p.key for p in toolkit_facts] == ["stripe:stripe_agent_toolkit"]
     assert "customers:read" in toolkit_facts[0].summary

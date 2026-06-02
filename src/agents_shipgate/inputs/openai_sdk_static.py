@@ -192,20 +192,29 @@ def _decorator_kwarg_string(
 # stay opaque. See ``core.domain.ToolkitScopeBound`` and the
 # ``SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED`` check.
 #
-# The registry maps a constructor's final attribute name → (provider, parser).
-# Both the class constructor and the async factory map to the same provider so
-# a base→head switch between them still matches on provider.
-_TOOLKIT_CONSTRUCTORS: dict[str, str] = {
-    "StripeAgentToolkit": "stripe",
-    "create_stripe_agent_toolkit": "stripe",
+# Known agent-toolkit constructors, grouped by the top-level module they are
+# imported from. A symbol only counts when it is actually imported from the
+# provider's package (resolved through this file's import aliases below), so an
+# unrelated local symbol that happens to share the name is NOT matched, and an
+# aliased import (``import StripeAgentToolkit as SAT``) IS. Both the class
+# constructor and the async factory map to the same provider so a base→head
+# switch between them still matches.
+_TOOLKIT_MODULES: dict[str, dict[str, str]] = {
+    "stripe_agent_toolkit": {
+        "StripeAgentToolkit": "stripe",
+        "create_stripe_agent_toolkit": "stripe",
+    },
 }
 
 
 def _detect_toolkit_bounds(tree: ast.Module, ref: str) -> list[ToolkitScopeBound]:
+    name_map, module_aliases = _toolkit_alias_maps(tree)
+    if not name_map and not module_aliases:
+        return []
     bounds: list[ToolkitScopeBound] = []
     captured: set[int] = set()
-    # Assignments first so we can attach the Python binding name (evidence
-    # only — matching is by provider, see core.toolkit_scope.policy_key_for).
+    # Assignments first so we can attach the Python binding name, which keys
+    # the bound per-instance (see core.toolkit_scope.policy_key_for).
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             targets, value = node.targets, node.value
@@ -216,7 +225,9 @@ def _detect_toolkit_bounds(tree: ast.Module, ref: str) -> list[ToolkitScopeBound
         call = _unwrap_toolkit_call(value)
         if call is None:
             continue
-        bound = _bound_from_toolkit_call(call, ref, _first_assign_name(targets))
+        bound = _bound_from_toolkit_call(
+            call, ref, _first_assign_name(targets), name_map, module_aliases
+        )
         if bound is not None:
             bounds.append(bound)
             captured.add(id(call))
@@ -224,10 +235,78 @@ def _detect_toolkit_bounds(tree: ast.Module, ref: str) -> list[ToolkitScopeBound
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or id(node) in captured:
             continue
-        bound = _bound_from_toolkit_call(node, ref, None)
+        bound = _bound_from_toolkit_call(node, ref, None, name_map, module_aliases)
         if bound is not None:
             bounds.append(bound)
     return bounds
+
+
+def _toolkit_alias_maps(
+    tree: ast.Module,
+) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
+    """Resolve local names to known toolkit constructors via the file's imports.
+
+    Returns ``(name_map, module_aliases)``:
+
+    - ``name_map``: local call name → ``(provider, symbol)`` for
+      ``from <toolkit_module> import <Symbol> [as <local>]`` (handles aliases).
+    - ``module_aliases``: local module alias → top-level toolkit package for
+      ``import <toolkit_module>[.sub] [as <alias>]``, so a later
+      ``alias.Symbol(...)`` attribute call resolves.
+
+    Only imports whose top-level package is a known toolkit module contribute,
+    so an unrelated symbol that merely shares a constructor name is ignored.
+    """
+    name_map: dict[str, tuple[str, str]] = {}
+    module_aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            symbols = _toolkit_symbols_for_module(node.module)
+            if symbols is None:
+                continue
+            for alias in node.names:
+                provider = symbols.get(alias.name)
+                if provider is not None:
+                    name_map[alias.asname or alias.name] = (provider, alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".", 1)[0] in _TOOLKIT_MODULES:
+                    module_aliases[alias.asname or alias.name] = alias.name.split(".", 1)[0]
+    return name_map, module_aliases
+
+
+def _toolkit_symbols_for_module(module: str | None) -> dict[str, str] | None:
+    if not module:
+        return None
+    return _TOOLKIT_MODULES.get(module.split(".", 1)[0])
+
+
+def _resolve_toolkit_call(
+    call: ast.Call,
+    name_map: dict[str, tuple[str, str]],
+    module_aliases: dict[str, str],
+) -> tuple[str, str] | None:
+    """Resolve a call node to ``(provider, constructor)`` via the import maps.
+
+    Matches a bare ``Name`` against ``name_map`` (covers plain and aliased
+    ``from`` imports) and an ``Attribute`` against ``module_aliases`` or a
+    fully-qualified ``stripe_agent_toolkit…`` path. Returns ``None`` for calls
+    that do not resolve to a known toolkit constructor.
+    """
+    func = call.func
+    if isinstance(func, ast.Name):
+        return name_map.get(func.id)
+    if isinstance(func, ast.Attribute):
+        base = dotted_name(func.value)
+        if not base:
+            return None
+        base_top = base.split(".", 1)[0]
+        top = module_aliases.get(base_top) or (base_top if base_top in _TOOLKIT_MODULES else None)
+        if top is not None:
+            provider = _TOOLKIT_MODULES.get(top, {}).get(func.attr)
+            if provider is not None:
+                return (provider, func.attr)
+    return None
 
 
 def _unwrap_toolkit_call(value: ast.expr) -> ast.Call | None:
@@ -246,16 +325,18 @@ def _first_assign_name(targets: list[ast.expr]) -> str | None:
 
 
 def _bound_from_toolkit_call(
-    call: ast.Call, ref: str, binding: str | None
+    call: ast.Call,
+    ref: str,
+    binding: str | None,
+    name_map: dict[str, tuple[str, str]],
+    module_aliases: dict[str, str],
 ) -> ToolkitScopeBound | None:
-    dotted = dotted_name(call.func)
-    if not dotted:
+    resolved = _resolve_toolkit_call(call, name_map, module_aliases)
+    if resolved is None:
         return None
-    constructor = dotted.rsplit(".", maxsplit=1)[-1]
-    provider = _TOOLKIT_CONSTRUCTORS.get(constructor)
-    if provider is None:
-        return None
-    parsed = _parse_toolkit_configuration(call)
+    provider, constructor = resolved
+    parser = _CONFIG_PARSERS.get(provider)
+    parsed = parser(call) if parser is not None else (False, [])
     if parsed is None:
         # ``configuration`` was supplied but is not a literal we can read
         # (e.g. a variable). Skip rather than guess — the dynamic-toolkit
@@ -273,19 +354,22 @@ def _bound_from_toolkit_call(
     )
 
 
-def _parse_toolkit_configuration(
-    call: ast.Call,
-) -> tuple[bool, list[str]] | None:
-    """Read the ``configuration={"actions": {...}}`` allowlist from a call.
+def _parse_stripe_configuration(call: ast.Call) -> tuple[bool, list[str]] | None:
+    """Read the Stripe ``configuration={"actions": {...}}`` allowlist.
 
     Returns ``(bounded, scopes)``:
 
-    - No ``configuration`` keyword → ``(False, [])`` (unbounded — the full
-      toolkit surface is mounted).
-    - ``configuration`` is a dict literal → ``(True, scopes)`` with each
-      truthy ``resource:verb`` flattened into a scope string.
-    - ``configuration`` present but not a dict literal → ``None`` (ambiguous;
-      caller skips emitting a bound).
+    - No ``configuration`` keyword, OR a ``configuration`` dict with no
+      ``actions`` key → ``(False, [])``. The Stripe toolkit mounts its FULL
+      surface when ``actions`` is absent, so this is *unbounded*, not "bounded
+      to no tools" — otherwise a base ``actions={…}`` → head
+      ``configuration={"context": …}`` migration would read as a narrowing and
+      escape the gate.
+    - ``configuration`` (or its ``actions``) present but not a dict literal →
+      ``None`` (ambiguous; the caller skips the bound).
+    - ``actions`` is a dict literal → ``(True, scopes)`` with each truthy
+      ``resource:verb`` flattened. An explicit empty ``actions={}`` is
+      ``(True, [])`` — explicitly bounded to no tools.
     """
     config = _keyword_value(call, "configuration")
     if config is None:
@@ -293,9 +377,10 @@ def _parse_toolkit_configuration(
     if not isinstance(config, ast.Dict):
         return None
     actions = _dict_get(config, "actions")
-    if actions is None or not isinstance(actions, ast.Dict):
-        # Bounded, but no actions allowlist → no tools enabled.
-        return (True, [])
+    if actions is None:
+        return (False, [])
+    if not isinstance(actions, ast.Dict):
+        return None
     scopes: list[str] = []
     for resource_key, resource_value in zip(actions.keys, actions.values, strict=False):
         resource = _const_str(resource_key)
@@ -311,6 +396,12 @@ def _parse_toolkit_configuration(
         elif _is_truthy_const(resource_value):
             scopes.append(f"{resource}:*")
     return (True, scopes)
+
+
+# Per-provider configuration parsers. Provider detection (imports) is kept
+# separate from config-shape parsing so a future provider with a different
+# allowlist shape only adds a parser here.
+_CONFIG_PARSERS = {"stripe": _parse_stripe_configuration}
 
 
 def _keyword_value(call: ast.Call, name: str) -> ast.expr | None:

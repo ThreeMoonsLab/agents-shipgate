@@ -28,10 +28,12 @@ nothing.
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from agents_shipgate.checks._verify_common import verification_active, verify_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import ToolkitScopeBound
-from agents_shipgate.core.toolkit_scope import bound_from_policy_fact
+from agents_shipgate.core.toolkit_scope import bound_from_policy_fact, policy_key_for
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED"
@@ -49,14 +51,10 @@ def run(context: ScanContext) -> list[Finding]:
         return []
     head_bounds = _head_bounds(context)
     findings: list[Finding] = []
-    for provider in sorted(base_bounds):
-        head = head_bounds.get(provider)
-        if head is None:
-            # Toolkit gone on head → capability removed (narrowing); not ours.
-            continue
-        weakening = _classify(base_bounds[provider], head)
+    for base_bound, head_bound in _pair_bounds(base_bounds, head_bounds):
+        weakening = _classify(base_bound, head_bound)
         if weakening is not None:
-            findings.append(_finding(context, provider, weakening))
+            findings.append(_finding(context, base_bound, head_bound, weakening))
     return findings
 
 
@@ -69,12 +67,49 @@ def _base_bounds(context: ScanContext) -> dict[str, ToolkitScopeBound]:
     for fact in facts.policies:
         bound = bound_from_policy_fact(fact)
         if bound is not None:
-            bounds[bound.provider] = bound
+            bounds[policy_key_for(bound)] = bound
     return bounds
 
 
 def _head_bounds(context: ScanContext) -> dict[str, ToolkitScopeBound]:
-    return {bound.provider: bound for bound in context.toolkit_bounds}
+    return {policy_key_for(bound): bound for bound in context.toolkit_bounds}
+
+
+def _pair_bounds(
+    base: dict[str, ToolkitScopeBound], head: dict[str, ToolkitScopeBound]
+) -> list[tuple[ToolkitScopeBound, ToolkitScopeBound]]:
+    """Pair base↔head bounds for comparison, keeping instances distinct.
+
+    First by exact ``provider:binding`` key, so multiple toolkit instances of a
+    provider do not collapse. Then a leftover fallback: for a provider with
+    exactly one unmatched bound on each side, pair them — this re-pairs a
+    *renamed* single toolkit so a rename-plus-broaden cannot slip through.
+    Ambiguous leftovers (more than one unmatched per side) are left unpaired
+    (fail safe).
+    """
+    pairs: list[tuple[ToolkitScopeBound, ToolkitScopeBound]] = []
+    matched_head: set[str] = set()
+    base_left: list[ToolkitScopeBound] = []
+    for key in sorted(base):
+        if key in head:
+            pairs.append((base[key], head[key]))
+            matched_head.add(key)
+        else:
+            base_left.append(base[key])
+    head_left = [head[key] for key in sorted(head) if key not in matched_head]
+
+    base_by_provider: dict[str, list[ToolkitScopeBound]] = defaultdict(list)
+    head_by_provider: dict[str, list[ToolkitScopeBound]] = defaultdict(list)
+    for bound in base_left:
+        base_by_provider[bound.provider].append(bound)
+    for bound in head_left:
+        head_by_provider[bound.provider].append(bound)
+    for provider in sorted(base_by_provider):
+        bl = base_by_provider[provider]
+        hl = head_by_provider.get(provider, [])
+        if len(bl) == 1 and len(hl) == 1:
+            pairs.append((bl[0], hl[0]))
+    return pairs
 
 
 def _classify(base: ToolkitScopeBound, head: ToolkitScopeBound) -> dict | None:
@@ -104,21 +139,26 @@ def _classify(base: ToolkitScopeBound, head: ToolkitScopeBound) -> dict | None:
     return None
 
 
-def _finding(context: ScanContext, provider: str, weakening: dict) -> Finding:
+def _finding(
+    context: ScanContext,
+    base_bound: ToolkitScopeBound,
+    head_bound: ToolkitScopeBound,
+    weakening: dict,
+) -> Finding:
+    provider = head_bound.provider or base_bound.provider
     label = provider[:1].upper() + provider[1:] if provider else "Toolkit"
-    head = _head_bounds(context).get(provider)
     evidence: dict = {
         "provider": provider,
         **weakening,
     }
-    if head is not None:
-        evidence["constructor"] = head.constructor
-        if head.binding:
-            evidence["binding"] = head.binding
-        if head.source_ref:
-            evidence["source_ref"] = head.source_ref
-        if head.source_line is not None:
-            evidence["source_line"] = head.source_line
+    if head_bound.constructor:
+        evidence["constructor"] = head_bound.constructor
+    if head_bound.binding:
+        evidence["binding"] = head_bound.binding
+    if head_bound.source_ref:
+        evidence["source_ref"] = head_bound.source_ref
+    if head_bound.source_line is not None:
+        evidence["source_line"] = head_bound.source_line
     if weakening["kind"] == "scope_bound_removed":
         title = f"{label} toolkit least-privilege bound removed"
         recommendation = (

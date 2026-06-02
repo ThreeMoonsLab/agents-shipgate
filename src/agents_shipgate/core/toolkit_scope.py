@@ -36,14 +36,18 @@ UNBOUNDED_SUMMARY = "(unbounded — full toolkit surface)"
 _SCOPE_SEP = ", "
 
 
-def policy_key_for(provider: str) -> str:
+def policy_key_for(bound: ToolkitScopeBound) -> str:
     """The ``ToolSurfacePolicyFact.key`` used to match a bound base-vs-head.
 
-    Keyed on provider (e.g. ``stripe``) rather than the Python binding
-    name so a rename of the toolkit variable does not hide a broadening.
-    The common case is one toolkit per provider per agent.
+    Keyed on ``provider:binding`` so multiple toolkit instances of the same
+    provider (e.g. a customer toolkit and an invoice toolkit) stay distinct
+    rather than collapsing to one (last-wins). ``binding`` is the Python
+    variable the toolkit was assigned to; an inline/unbound toolkit uses an
+    empty binding. A renamed single toolkit is re-paired by the check's
+    leftover-singleton fallback, so keying on the binding does not let a
+    rename-plus-broaden slip through.
     """
-    return provider
+    return f"{bound.provider}:{bound.binding or ''}"
 
 
 def _bound_summary(bound: ToolkitScopeBound) -> str:
@@ -65,7 +69,7 @@ def bound_to_policy_fact(bound: ToolkitScopeBound) -> ToolSurfacePolicyFact:
     """Encode a toolkit bound as a carried ``ToolSurfacePolicyFact``."""
     return ToolSurfacePolicyFact(
         kind=TOOLKIT_BOUND_POLICY_KIND,
-        key=policy_key_for(bound.provider),
+        key=policy_key_for(bound),
         value_hash=_bound_value_hash(bound),
         summary=_bound_summary(bound),
     )
@@ -74,27 +78,42 @@ def bound_to_policy_fact(bound: ToolkitScopeBound) -> ToolSurfacePolicyFact:
 def bound_from_policy_fact(fact: ToolSurfacePolicyFact) -> ToolkitScopeBound | None:
     """Decode a carried policy fact back into a ``ToolkitScopeBound``.
 
-    Returns ``None`` for facts that are not toolkit bounds. The decoded
-    bound only recovers ``provider`` / ``bounded`` / ``scopes`` (the
-    fields needed to diff); constructor/binding/source provenance is not
-    carried, so they fall back to neutral defaults.
+    Returns ``None`` for facts that are not toolkit bounds. The decoded bound
+    recovers ``provider`` / ``binding`` / ``bounded`` / ``scopes`` (the fields
+    needed to diff and to key per-instance); constructor/source provenance is
+    not carried, so it falls back to neutral defaults.
     """
     if fact.kind != TOOLKIT_BOUND_POLICY_KIND:
         return None
+    provider, _, binding = fact.key.partition(":")
+    binding_value = binding or None
     summary = fact.summary or ""
     if summary == UNBOUNDED_SUMMARY:
-        return ToolkitScopeBound(provider=fact.key, constructor="", bounded=False, scopes=[])
+        return ToolkitScopeBound(
+            provider=provider,
+            constructor="",
+            bounded=False,
+            scopes=[],
+            binding=binding_value,
+        )
     scopes = [token for token in summary.split(_SCOPE_SEP) if token] if summary else []
-    return ToolkitScopeBound(provider=fact.key, constructor="", bounded=True, scopes=sorted(scopes))
+    return ToolkitScopeBound(
+        provider=provider,
+        constructor="",
+        bounded=True,
+        scopes=sorted(scopes),
+        binding=binding_value,
+    )
 
 
 def toolkit_bound_facts(
     bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...],
 ) -> list[ToolSurfacePolicyFact]:
-    """Encode every bound, keeping one fact per provider (last wins).
+    """Encode every bound, keeping one fact per ``provider:binding`` instance.
 
-    Deterministic: deduped by policy key and returned sorted by key so the
-    serialized ``tool_surface_facts.policies`` stay byte-stable.
+    Deterministic: deduped by policy key (so distinct toolkit instances stay
+    separate) and returned sorted by key so the serialized
+    ``tool_surface_facts.policies`` stay byte-stable.
     """
     by_key: dict[str, ToolSurfacePolicyFact] = {}
     for bound in bounds:
