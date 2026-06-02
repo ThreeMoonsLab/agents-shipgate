@@ -25,6 +25,7 @@ from agents_shipgate.checks import (
     verify,
     verify_agent_instructions,
     verify_baseline_waiver,
+    verify_capability_scope,
     verify_ci_gate,
     verify_policy,
     verify_trigger_drift,
@@ -67,6 +68,7 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     verify_ci_gate.run,
     verify_agent_instructions.run,
     verify_trigger_drift.run,
+    verify_capability_scope.run,
 ]
 
 

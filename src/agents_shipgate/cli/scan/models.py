@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.domain import Agent, LoadedToolSource, Tool
+from agents_shipgate.core.domain import Agent, LoadedToolSource, Tool, ToolkitScopeBound
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.core.privacy import RedactionStats
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
@@ -81,6 +81,10 @@ class _ToolsAndAgent:
     tools: list[Tool]
     agent: Agent
     warnings: list[str]  # deduplicated source warnings
+    # Statically-parsed least-privilege bounds on dynamically-loaded
+    # toolkits, aggregated across all loaded sources. Empty for the common
+    # case (no recognized agent-toolkit constructor).
+    toolkit_bounds: list[ToolkitScopeBound] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

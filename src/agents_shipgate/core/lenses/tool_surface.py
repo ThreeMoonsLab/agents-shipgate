@@ -12,11 +12,12 @@ from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
 )
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import Tool, ToolkitScopeBound
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
+from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.manifest import (
@@ -79,14 +80,40 @@ def build_tool_surface_facts(
     findings: list[Finding],
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
+    toolkit_bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...] = (),
 ) -> ToolSurfaceFacts:
     del findings  # Reserved for future evidence projections.
     return ToolSurfaceFacts(
         tools=_tool_facts(tools),
         scopes=_scope_facts(manifest, tools),
         controls=_control_facts(manifest, api_artifacts, anthropic_artifacts),
-        policies=_policy_facts(manifest, api_artifacts, anthropic_artifacts),
+        policies=_policy_facts_with_toolkit_bounds(
+            manifest, api_artifacts, anthropic_artifacts, toolkit_bounds
+        ),
     )
+
+
+def _policy_facts_with_toolkit_bounds(
+    manifest: AgentsShipgateManifest,
+    api_artifacts: OpenAIApiArtifacts | None,
+    anthropic_artifacts: AnthropicArtifacts | None,
+    toolkit_bounds: list[ToolkitScopeBound] | tuple[ToolkitScopeBound, ...],
+) -> list[ToolSurfacePolicyFact]:
+    """Manifest/artifact policy facts plus carried toolkit scope bounds.
+
+    A dynamically-loaded toolkit's least-privilege allowlist rides as a
+    ``toolkit_scope_bound`` policy fact (see ``core.toolkit_scope``) so the
+    base report carries it for the capability-scope diff. Merged into the
+    policy fact list and re-sorted by ``(kind, key)`` for byte-stable
+    output; the gentle ``policy_drift`` diff path then reads
+    bound-vs-unbound as a broadening without misclassifying it as a scope
+    *grant* removal.
+    """
+    facts = _policy_facts(manifest, api_artifacts, anthropic_artifacts)
+    if not toolkit_bounds:
+        return facts
+    merged = [*facts, *toolkit_bound_facts(list(toolkit_bounds))]
+    return sorted(merged, key=lambda item: (item.kind, item.key))
 
 
 def enrich_tool_surface_diff_with_source(

@@ -18,6 +18,7 @@ from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import (
     Agent,
     Tool,
+    ToolkitScopeBound,
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
@@ -67,6 +68,12 @@ class ScanContext:
     # ``raw["effective_policy"]`` to compare base-vs-head policy. None for
     # plain scans with no base — those comparison checks degrade safely.
     diff_reference: ToolSurfaceDiffReference | None = None
+    # Statically-parsed least-privilege bounds on dynamically-loaded
+    # toolkits (the HEAD side). ``SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED``
+    # diffs these against the base bounds carried in
+    # ``diff_reference.facts.policies``. Empty when no recognized toolkit
+    # constructor is present.
+    toolkit_bounds: list[ToolkitScopeBound] = field(default_factory=list)
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

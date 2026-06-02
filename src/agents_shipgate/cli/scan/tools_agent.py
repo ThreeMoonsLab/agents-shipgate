@@ -55,4 +55,12 @@ def _build_tools_and_agent(
     agent = _build_agent(
         manifest, tools, inputs.api, inputs.anthropic, inputs.adk
     )
-    return _ToolsAndAgent(tools=tools, agent=agent, warnings=warnings)
+    # Aggregate statically-parsed toolkit scope bounds across sources, in
+    # loaded order. These ride alongside the (enumerable) tools so the
+    # capability-scope verify check can diff them base-vs-head.
+    toolkit_bounds = [
+        bound for loaded in inputs.loaded_sources for bound in loaded.toolkit_bounds
+    ]
+    return _ToolsAndAgent(
+        tools=tools, agent=agent, warnings=warnings, toolkit_bounds=toolkit_bounds
+    )

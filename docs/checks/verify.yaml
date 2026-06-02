@@ -131,3 +131,35 @@ checks:
   - changed_trigger_files
   recommendation: A human must confirm the trigger change does not create a path
     that evades the release gate.
+- id: SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED
+  default_severity: critical
+  floor_severity: critical
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR removes or broadens a dynamically-loaded agent toolkit's
+    explicit least-privilege configuration bound (e.g. a stripe_agent_toolkit
+    constructor allowlist) versus the base report, silently expanding the
+    toolkit surface.
+  rationale: Toolkits that load tools through a runtime factory
+    (*toolkit.get_tools()) hide the individual tools from static enumeration,
+    so the only statically-provable signal is the constructor's permission
+    allowlist. Removing it mounts the full toolkit (refund / cancel / dispute
+    on a customer-support agent); a coding agent must not self-approve that
+    capability broadening. Without this check the opaque factory degrades the
+    verdict to insufficient_evidence instead of blocked.
+  fires_when: A VerificationContext and a base report are both present, the base
+    declared a bounded toolkit allowlist for a provider, and the head removed
+    the bound (unbounded) or added permissions the base allowlist did not.
+  evidence_fields:
+  - kind
+  - provider
+  - base_scopes
+  - head_scopes
+  - added_scopes
+  - constructor
+  - binding
+  - source_ref
+  - source_line
+  recommendation: A human must review and re-apply a least-privilege toolkit
+    configuration or explicitly approve the broadened scope; do not remove the
+    allowlist to expand agent capability without review.

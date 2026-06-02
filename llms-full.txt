@@ -1264,6 +1264,7 @@ baseline summary and do not fail CI.
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
 | `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
 | `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` | medium | The PR changes the trigger catalog that decides when Shipgate runs; routed to human review to rule out gate evasion. |
+| `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` | critical | The PR removes or broadens a dynamically-loaded toolkit's least-privilege configuration bound (e.g. a `stripe_agent_toolkit` allowlist), silently expanding the toolkit surface; blocks rather than degrading to insufficient_evidence. |
 
 ## Check Details
 
@@ -1805,6 +1806,20 @@ it can carve out paths so the gate stops firing — a gate-evasion one level
 up from suppressing findings. Fires on changed-file membership in verify
 mode at `medium`; the human confirms the change does not create a path
 that evades the release gate.
+
+### SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED
+
+Tier B: some agent toolkits load their tools through a runtime factory
+(`*toolkit.get_tools()`) the static extractor cannot enumerate, so the only
+statically-provable least-privilege signal is the *constructor's* permission
+allowlist (`configuration={"actions": {...}}`). This check diffs that bound
+base-vs-head and fires `critical` when the head removes it (mounting the full
+toolkit surface — e.g. refund / cancel / dispute on a customer-support agent)
+or adds permissions the base allowlist did not. Without it the opaque factory
+would degrade the verdict to `insufficient_evidence` instead of `blocked`. A
+coding agent cannot self-approve the broadening; a human must re-apply a
+least-privilege configuration or explicitly approve the expanded surface. A
+narrowing (bound added or tightened) emits nothing.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 
