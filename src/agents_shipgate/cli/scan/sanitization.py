@@ -263,6 +263,7 @@ def _sanitize_for_output(
         public_diff_reference=public_diff_reference,
         diffs=diffs,
         privacy_stats=privacy_stats,
+        toolkit_bounds=decision.context.toolkit_bounds,
     )
     privacy_audit = build_privacy_audit(
         privacy_stats,
@@ -367,6 +368,7 @@ def _public_tool_surfaces(
     public_diff_reference,
     diffs: _DiffReferences,
     privacy_stats,
+    toolkit_bounds=(),
 ):
     public_tool_surface_facts = sanitize_model(
         build_tool_surface_facts(
@@ -375,6 +377,7 @@ def _public_tool_surfaces(
             public_findings,
             public_api_artifacts,
             public_anthropic_artifacts,
+            toolkit_bounds,
         ),
         ToolSurfaceFacts,
         stats=privacy_stats,

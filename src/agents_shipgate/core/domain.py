@@ -93,11 +93,45 @@ class Agent(BaseModel):
     extraction: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolkitScopeBound(BaseModel):
+    """Statically-parsed least-privilege bound on a dynamically-loaded agent toolkit.
+
+    Some agent toolkits (e.g. ``stripe_agent_toolkit``) expose their tools
+    through a runtime factory (``*toolkit.get_tools()``) that the static
+    extractor cannot enumerate. What IS statically parseable is the
+    *configuration* passed to the toolkit constructor — an explicit
+    allowlist of ``resource:verb`` permissions. Capturing that bound lets
+    the verifier diff it base-vs-head and catch a silent broadening (the
+    allowlist removed or widened) even though the individual tools stay
+    opaque.
+
+    ``bounded`` is ``True`` when the constructor declared an explicit
+    permission allowlist; ``scopes`` is that allowlist (sorted, normalized
+    to ``resource:verb``). ``bounded=False`` means no configuration was
+    supplied, so the full toolkit surface is mounted (the broadest state) —
+    ``scopes`` is empty in that case and is NOT a least-privilege grant.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    provider: str
+    constructor: str
+    bounded: bool
+    scopes: list[str] = Field(default_factory=list)
+    binding: str | None = None
+    source_ref: str | None = None
+    source_line: int | None = None
+
+
 class LoadedToolSource(BaseModel):
     source_id: str
     source_type: str
     tools: list[Tool] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Statically-parsed least-privilege bounds on dynamically-loaded
+    # toolkits found in this source (e.g. ``stripe_agent_toolkit``). Empty
+    # for sources that declare no recognized agent-toolkit constructor.
+    toolkit_bounds: list[ToolkitScopeBound] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

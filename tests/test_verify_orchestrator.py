@@ -99,3 +99,59 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
         and finding.evidence.get("changed_file") == "AGENTS.md"
         for finding in report.findings
     )
+
+
+def test_verify_pr232_toolkit_bound_removal_blocks(tmp_path):
+    """Stripe stripe/ai PR #232: the agent's Stripe tools load via a dynamic
+    factory the static extractor cannot enumerate, so the head scan alone reads
+    as ``insufficient_evidence``. The base→head removal of the explicit
+    ``StripeAgentToolkit(configuration=...)`` allowlist is statically parseable,
+    so the full ``verify`` command must return a ``blocked`` merge verdict.
+    """
+    fixtures = REPO_ROOT / "tests" / "fixtures" / "stripe_pr232"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shutil.copy(fixtures / "base" / "shipgate.yaml", repo / "shipgate.yaml")
+    shutil.copy(fixtures / "base" / "support_agent.py", repo / "support_agent.py")
+
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base: bounded stripe toolkit")
+
+    # The PR migrates the toolkit to the MCP factory and drops the bound.
+    shutil.copy(fixtures / "head" / "support_agent.py", repo / "support_agent.py")
+    _git(repo, "add", "support_agent.py")
+    _git(repo, "commit", "-m", "head: migrate to MCP factory (drops the bound)")
+
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=True,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert report.release_decision.decision == "blocked"
+    assert verifier.merge_verdict == "blocked"
+    assert verifier.human_review.required is True
+    [finding] = [
+        f for f in report.findings if f.check_id == "SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED"
+    ]
+    assert finding.severity == "critical"
+    assert finding.evidence["kind"] == "scope_bound_removed"
+    assert finding.evidence["provider"] == "stripe"

@@ -84,6 +84,8 @@ def _run_checks_and_decide(
         # effective policy. None for plain scans (no base) — those checks
         # degrade safely and emit nothing.
         diff_reference=diffs.diff_reference,
+        # HEAD-side toolkit scope bounds for the capability-scope check.
+        toolkit_bounds=tools_and_agent.toolkit_bounds,
     )
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
