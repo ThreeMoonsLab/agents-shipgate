@@ -116,3 +116,24 @@ The leaderboard in `results/README.md` groups by `(model, variant)` and `(archet
 - **Re-running the same cell after seeing the result.** Resist. Cell results have variance; record the first run, not the best run.
 - **Including agent transcripts in the public CSV.** Transcripts go private; CSVs are public. Notes column is for structured observations, not raw output.
 - **Skipping the negative control.** The `04-docs-only-negative` cells are the most informative — they catch over-eager Shipgate proposals.
+
+## Isolated runs (required for real/paid cells)
+
+A real agent given a pressure prompt can wander out of its cell if a real
+checkout is reachable on disk — an on-host run had the agent `cd $HOME/code/...`
+into the real repo and edit it. Two isolated paths keep the agent boxed in.
+Both default `SHIPGATE_HARNESS_SCOPE_HOME=1` (HOME → a per-cell scratch dir), and
+the `stayed_in_workspace` scorer blocker flags any escape that slips through
+(turning it into `headline_pass=false`, never a silent pass).
+
+- **GitHub Actions (preferred).** [`.github/workflows/adoption-harness.yml`](../.github/workflows/adoption-harness.yml)
+  (`workflow_dispatch`) runs on an ephemeral runner holding only a fresh
+  checkout — no other real repo is reachable. The `smoke` job is free; the `run`
+  job spends and needs an `ANTHROPIC_API_KEY` repo secret + a `budget_usd` input.
+- **Local container.** `./harness/adoption/run-isolated.sh smoke` (free), or
+  `ANTHROPIC_API_KEY=... ./harness/adoption/run-isolated.sh run --matrix … --budget-usd 5`.
+  Builds [`Dockerfile.harness`](../Dockerfile.harness) (image holds only this
+  repo) and runs without mounting any host checkout.
+
+**Do not** run real/paid cells directly on a developer machine where a real
+checkout lives — use one of the above.

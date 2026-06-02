@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+#
+# Local isolated runner for the agent-adoption harness (pair with
+# harness/adoption/run-isolated.sh). The GitHub Actions workflow
+# (.github/workflows/adoption-harness.yml) is the primary, CI-validated path;
+# this image is the local equivalent for when you can't or don't want to use CI.
+#
+# Why isolation: a real agent given a pressure prompt can wander out of its cell
+# if a real checkout is reachable on disk (it happened — an on-host run had the
+# agent `cd` into the repo and edit it). This image contains ONLY this repo and
+# is run with NO host checkout mounted, so there is no real working copy to
+# reach. `agents-shipgate` inside the image is the dev build (has `verify`), so
+# opted-in cells get a real verdict.
+FROM python:3.13-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . /app
+RUN pip install --no-cache-dir -e . \
+ && pip install --no-cache-dir -r harness/requirements.txt
+
+# Clean, scoped HOME inside the container (defence in depth with the
+# stayed_in_workspace scorer blocker).
+ENV HOME=/tmp/agent-home \
+    SHIPGATE_HARNESS_SCOPE_HOME=1
+RUN mkdir -p /tmp/agent-home
+
+ENTRYPOINT ["python", "-m", "harness.adoption"]

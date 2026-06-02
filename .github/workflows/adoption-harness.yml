@@ -31,6 +31,10 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SHIPGATE_HARNESS_BUDGET_USD: ${{ inputs.budget_usd }}
+      # Scope HOME to a per-cell scratch dir so a wandering agent cannot reach a
+      # real checkout via `cd $HOME/...` (defence in depth with the
+      # stayed_in_workspace scorer blocker). On by default; pinned here for clarity.
+      SHIPGATE_HARNESS_SCOPE_HOME: "1"
     steps:
       - uses: actions/checkout@v6
         with:
