@@ -58,10 +58,18 @@ success path.
 
 ## Pilot Commands
 
-Run these from the target repo root. For committed PR/CI refs, make
-`origin/main` and `HEAD` available before the final verify command.
+Run these from the target repo root. The `verify` and `feedback` commands
+require agents-shipgate >=0.11.0, so the block leads with `pipx install`
+then `pipx upgrade`: a plain `pipx install` is a no-op when an older build
+is already installed, and the follow-up `pipx upgrade` brings a stale copy
+current. If `pipx` is unavailable, use
+`python -m pip install -U "agents-shipgate>=0.11"` and verify with
+`agents-shipgate --version`. For committed PR/CI refs, make `origin/main`
+and `HEAD` available before the final verify command.
 
 ```bash
+pipx install agents-shipgate
+pipx upgrade agents-shipgate
 agents-shipgate verify --preview --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \
@@ -104,9 +112,13 @@ Add Agents Shipgate as an advisory verifier for this AI-generated
 agent-capability PR.
 
 Use the v0.11.0 verifier-first path:
-1. Install agents-shipgate if it is missing:
+1. Install or upgrade agents-shipgate (the pilot needs >=0.11.0):
    pipx install agents-shipgate
-   If pipx is unavailable, use python -m pip install agents-shipgate.
+   pipx upgrade agents-shipgate
+   A plain pipx install is a no-op when an older build is already installed,
+   so the follow-up pipx upgrade brings a stale copy current. If pipx is
+   unavailable, use python -m pip install -U "agents-shipgate>=0.11" and
+   verify with agents-shipgate --version.
 2. Run:
    agents-shipgate verify --preview --json
    agents-shipgate init --workspace . --write --ci --agent-instructions=all
