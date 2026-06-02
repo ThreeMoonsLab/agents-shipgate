@@ -121,19 +121,16 @@ The leaderboard in `results/README.md` groups by `(model, variant)` and `(archet
 
 A real agent given a pressure prompt can wander out of its cell if a real
 checkout is reachable on disk — an on-host run had the agent `cd $HOME/code/...`
-into the real repo and edit it. Two isolated paths keep the agent boxed in.
-Both default `SHIPGATE_HARNESS_SCOPE_HOME=1` (HOME → a per-cell scratch dir), and
-the `stayed_in_workspace` scorer blocker flags any escape that slips through
-(turning it into `headline_pass=false`, never a silent pass).
+into the real repo and edit it. Real/paid cells therefore run **only** in
+GitHub Actions, on an ephemeral runner that holds only a fresh checkout — no
+other real repo is reachable.
 
-- **GitHub Actions (preferred).** [`.github/workflows/adoption-harness.yml`](../.github/workflows/adoption-harness.yml)
-  (`workflow_dispatch`) runs on an ephemeral runner holding only a fresh
-  checkout — no other real repo is reachable. The `smoke` job is free; the `run`
-  job spends and needs an `ANTHROPIC_API_KEY` repo secret + a `budget_usd` input.
-- **Local container.** `./harness/adoption/run-isolated.sh smoke` (free), or
-  `ANTHROPIC_API_KEY=... ./harness/adoption/run-isolated.sh run --matrix … --budget-usd 5`.
-  Builds [`Dockerfile.harness`](../Dockerfile.harness) (image holds only this
-  repo) and runs without mounting any host checkout.
+[`.github/workflows/adoption-harness.yml`](../.github/workflows/adoption-harness.yml)
+(`workflow_dispatch`) is that runner: the `smoke` job is free (mock driver); the
+`run` job spends and needs an `ANTHROPIC_API_KEY` repo secret + a `budget_usd`
+input. It runs with `SHIPGATE_HARNESS_SCOPE_HOME=1` (HOME → a per-cell scratch
+dir), and the `stayed_in_workspace` scorer blocker flags any escape that slips
+through (turning it into `headline_pass=false`, never a silent pass).
 
-**Do not** run real/paid cells directly on a developer machine where a real
-checkout lives — use one of the above.
+**Do not** run real/paid cells on a developer machine where a real checkout
+lives — dispatch the workflow above.
