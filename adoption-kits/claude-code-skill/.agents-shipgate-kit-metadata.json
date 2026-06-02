@@ -9,6 +9,9 @@
       "e1713eecbbb1538987b7bf2cbe90bcdac9c4491f250105b6c68e788c81d49de3",
       "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5"
     ],
+    "prompts/add-shipgate-to-repo.md": [
+      "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
+    ],
     "prompts/stabilize-strict-mode.md": [
       "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"
     ]
