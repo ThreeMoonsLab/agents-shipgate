@@ -1,16 +1,85 @@
 # Use Agents Shipgate with Codex
 
-OpenAI Codex reads repo-level `AGENTS.md` instructions and repo-scoped Codex
-Skills under `.agents/skills/<name>/`. Agents Shipgate ships both surfaces:
-the `AGENTS.md` snippet tells Codex when to run the gate, and the
-`agents-shipgate` skill gives Codex the detailed workflows for verify,
-bootstrap, report reading, advisory CI, and finding triage.
+Agents Shipgate ships a skill-only Codex plugin so users can install it from
+the Codex plugin experience, start a new thread, invoke `$agents-shipgate`, and
+have Codex run the existing Shipgate CLI workflows correctly. The plugin gives
+Codex the workflows for verify, bootstrap, report reading, advisory CI, and
+finding triage; the scanner itself still runs through the `agents-shipgate`
+CLI installed in the local environment.
+
+For repos that prefer committed instructions instead of a plugin install,
+OpenAI Codex also reads repo-level `AGENTS.md` instructions and repo-scoped
+Codex Skills under `.agents/skills/<name>/`.
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
+| Codex plugin | Installable plugin package for Codex with the Agents Shipgate skill bundled. | [`plugins/agents-shipgate/`](../../plugins/agents-shipgate/) |
+| Beta marketplace | Repo marketplace entry that lets Codex discover and install the plugin. | [`.agents/plugins/marketplace.json`](../../.agents/plugins/marketplace.json) |
 | `AGENTS.md` snippet | Tells Codex when Shipgate is relevant and names the canonical commands. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
 | Codex skill | Repo-scoped skill Codex can invoke explicitly with `$agents-shipgate` or implicitly when the task matches. | [`.agents/skills/agents-shipgate/`](../../.agents/skills/agents-shipgate/) |
 | Reusable prompts | Longer copy-paste recipes for agents that do not use skills. | [`prompts/README.md`](../../prompts/README.md) |
+
+## Install From Codex
+
+The beta plugin is distributed through this repository's Codex marketplace. In
+Codex, add or select the Agents Shipgate marketplace, install **Agents
+Shipgate**, start a new thread, and invoke:
+
+```text
+$agents-shipgate verify this agent PR and summarize the merge verdict.
+```
+
+For local beta validation before public listing, add this repo as a marketplace
+source, then install from Codex's Plugins view:
+
+```bash
+codex plugin marketplace add ThreeMoonsLab/agents-shipgate
+```
+
+When testing from a local checkout instead of GitHub, use the checkout root:
+
+```bash
+codex plugin marketplace add /path/to/agents-shipgate
+```
+
+The plugin can also be shared from the Codex app after installation. Shared
+users install it from **Plugins** > **Shared with you**, then start a new
+thread before invoking `$agents-shipgate`.
+
+## Runtime CLI Prerequisite
+
+The Codex plugin supplies workflow instructions, not the scanner binary. Before
+asking Codex to scan or verify a repo, make sure the CLI is available:
+
+```bash
+pipx install agents-shipgate
+# or
+uv tool install agents-shipgate
+```
+
+When `$agents-shipgate` runs and the CLI is missing, Codex should ask for one
+of those installs instead of continuing to `detect`, `init`, `scan`, or
+`verify`.
+
+## Codex Plugin Smoke
+
+Before treating a release as Codex-installable, run this smoke from a machine
+with a working Codex CLI/app:
+
+```bash
+codex plugin marketplace add /path/to/agents-shipgate
+codex plugin list --marketplace agents-shipgate-beta
+codex plugin add agents-shipgate@agents-shipgate-beta
+codex exec --sandbox read-only \
+  '$agents-shipgate Do not run shell commands. Do not edit files. Reply with exactly: LOADED agents-shipgate'
+```
+
+Passing evidence:
+
+- `plugin list` shows `agents-shipgate@agents-shipgate-beta`.
+- `plugin add` reports the plugin was added from `agents-shipgate-beta`.
+- the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
+- the `codex exec` response is `LOADED agents-shipgate`.
 
 ## Install In Your Agent Repo
 
@@ -28,7 +97,9 @@ agents-shipgate init --workspace . --write --agent-instructions=all
 ```
 
 The `codex-skill` target writes `.agents/skills/agents-shipgate/`. It is
-idempotent and safe to rerun; user-edited skill files are not overwritten.
+idempotent and safe to rerun; user-edited skill files are not overwritten. Use
+this path when a repo wants durable checked-in instructions in addition to, or
+instead of, the installable Codex plugin.
 
 ## Customize Generated Skill Content
 
@@ -50,27 +121,31 @@ different config path with `--agent-instructions-kit <path>`.
 
 ## Verify
 
-Open Codex in the project and run two checks:
+Open Codex in the project and run these checks:
 
-1. Ask: "prepare this agent repo for production release and add appropriate
+1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
+   "$agents-shipgate verify this agent PR and summarize the merge verdict."
+   Codex should load the plugin skill, check that the CLI exists, then read
+   `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`.
+2. Ask: "prepare this agent repo for production release and add appropriate
    CI preflight checks." Codex should use the AGENTS.md snippet or the
    `agents-shipgate` skill, run `agents-shipgate verify --preview --json` or
    `agents-shipgate detect --workspace . --json`, and continue only when
    Shipgate is relevant.
-2. Ask with explicit skill invocation: "$agents-shipgate verify this agent PR
+3. Ask with explicit skill invocation: "$agents-shipgate verify this agent PR
    and summarize the merge verdict." Codex should read
    `agents-shipgate-reports/verifier.json`, lead with `merge_verdict`, then
    read `agents-shipgate-reports/report.json` for `release_decision.decision`.
-3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
+4. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
+   or report the exact `agents-shipgate trigger` skip verdict.
 
    Add `--base origin/main --head HEAD` only for committed PR/CI verification
    after making the base ref available. Omit both for local pre-commit work so
    uncommitted edits are scanned.
-   or report the exact `agents-shipgate trigger` skip verdict.
 
-If both pass, the repo has the Codex adoption surface installed.
+If these pass, Codex can install, invoke, and operate the Shipgate workflow.
 
 ## Verify An Agent PR
 
@@ -106,8 +181,8 @@ for the full PR-verification walkthrough.
 
 ## What The Skill Covers
 
-The Codex skill is intentionally smaller than the Claude Code skill bundle.
-It loads a concise `SKILL.md` first, then only reads references when needed:
+The Codex plugin is intentionally skill-only in v1. It loads a concise
+`SKILL.md` first, then only reads references when needed:
 
 - `references/recipes.md` — relevance, bootstrap, advisory CI, fixing,
   explaining, suppressing, strict promotion, and version upgrades.

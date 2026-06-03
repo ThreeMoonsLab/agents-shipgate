@@ -209,6 +209,46 @@ suppressions, waivers, baselines, or policy weakening. Never remove Shipgate CI
 or weaken agent instructions just to make the verifier pass.
 ```
 
+## Install the Codex plugin beta
+
+Agents Shipgate now ships a skill-only Codex plugin package at
+[`plugins/agents-shipgate/`](plugins/agents-shipgate/) with a repo marketplace
+entry at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
+The plugin lets users install Agents Shipgate from Codex, start a new thread,
+invoke `$agents-shipgate`, and have Codex run the existing CLI workflows for
+detect, init, verify, scan, report reading, and finding triage.
+
+Add this repository as a Codex marketplace source, then install **Agents
+Shipgate** from Codex's Plugins view:
+
+```bash
+codex plugin marketplace add ThreeMoonsLab/agents-shipgate
+```
+
+For local beta validation from a checkout:
+
+```bash
+codex plugin marketplace add /path/to/agents-shipgate
+```
+
+After installation, start a fresh Codex thread and invoke:
+
+```text
+$agents-shipgate verify this agent PR and summarize the merge verdict.
+```
+
+The plugin supplies Codex workflows, not the scanner binary. Install the CLI in
+the environment where Codex will run commands:
+
+```bash
+pipx install agents-shipgate
+# or
+uv tool install agents-shipgate
+```
+
+The staged launch path is workspace sharing from the Codex app or this
+repo-backed marketplace. Public/OpenAI-curated listing remains a later phase.
+
 ## Add the Codex adoption kit
 
 For OpenAI Codex repos, install both the native `AGENTS.md` trigger block and
