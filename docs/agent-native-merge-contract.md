@@ -14,10 +14,14 @@ guarantees, see [`../STABILITY.md`](../STABILITY.md).
 ## The one principle everything rests on
 
 **One decision engine.** `report.json.release_decision.decision` is the only
-release gate. Every agent-facing field — `merge_verdict`, `agent_controller`,
-`capability_review`, the GitHub Action outputs — is a *deterministic projection*
-of it. No surface computes a second opinion. This is enforced structurally
-(construction-time validators in
+release gate, and **no agent-facing field gates independently of it**. Some
+fields are direct projections of the decision (`merge_verdict`, the `decision`
+mirror); others project from related head-scan substrate — `capability_review`
+from `capability_change`, `applicability` from scan applicability
+(decision-presence + `head_status`), the `agent_controller` deny-lists from the
+trust-root surface list — but all are subordinate to the decision, and none
+computes a second verdict. This is enforced structurally (construction-time
+validators in
 [`../src/agents_shipgate/schemas/verifier.py`](../src/agents_shipgate/schemas/verifier.py))
 and covered by a totality test, so a field that drifts from the gate fails CI
 rather than shipping.
@@ -56,9 +60,11 @@ protected* — never a new way to decide.
 - **Guarantee:** a single machine verdict the agent can switch on, that cannot
   disagree with the gate.
 - **Implements it:** `merge_verdict` (`mergeable` / `human_review_required` /
-  `insufficient_evidence` / `blocked` / `unknown`) plus `applicability`
-  (`verified` / `not_applicable` / `unknown`), both projected from
-  `release_decision.decision`.
+  `insufficient_evidence` / `blocked` / `unknown`), a projection of
+  `release_decision.decision`; plus `applicability` (`verified` /
+  `not_applicable` / `unknown`), derived from whether Shipgate evaluated the
+  change (decision-presence + `head_status`) — orthogonal to the verdict, never
+  a second gate.
 - **Agent reads:** `merge_verdict`, `can_merge_without_human`.
 - **Prevents:** a second verdict; and — via `applicability` — reading a
   `mergeable` that came from a *skipped* scan as "verified safe".
