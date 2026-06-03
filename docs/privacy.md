@@ -4,6 +4,12 @@ Agents Shipgate is local-first. A scan reads local manifests and tool-surface
 artifacts, then writes local reports under the configured output directory. The
 CLI does not upload tool schemas, prompts, reports, credentials, or telemetry.
 
+The Agents Shipgate Codex plugin is skill-only. It gives Codex workflow
+instructions for running the local `agents-shipgate` CLI; it does not declare
+apps, MCP servers, hooks, bundled credentials, or a hosted service. Any command
+execution happens in the user's Codex workspace and uses the locally installed
+CLI.
+
 Public scan artifacts are redacted by default before they are written:
 
 - `report.json`, `report.md`, and `report.sarif`

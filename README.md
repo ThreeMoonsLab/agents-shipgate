@@ -211,7 +211,7 @@ suppressions, waivers, baselines, or policy weakening. Never remove Shipgate CI
 or weaken agent instructions just to make the verifier pass.
 ```
 
-## Install the Codex plugin beta
+## Install the Codex plugin
 
 Agents Shipgate now ships a skill-only Codex plugin package at
 [`plugins/agents-shipgate/`](plugins/agents-shipgate/) with a repo marketplace
@@ -227,7 +227,7 @@ Shipgate** from Codex's Plugins view:
 codex plugin marketplace add ThreeMoonsLab/agents-shipgate
 ```
 
-For local beta validation from a checkout:
+For local checkout validation:
 
 ```bash
 codex plugin marketplace add /path/to/agents-shipgate
@@ -256,8 +256,9 @@ python -m pip install -U "agents-shipgate>=0.11"
 agents-shipgate --version
 ```
 
-The staged launch path is workspace sharing from the Codex app or this
-repo-backed marketplace. Public/OpenAI-curated listing remains a later phase.
+The v1 launch channel is workspace sharing from the Codex app or this
+repo-backed marketplace. Public/OpenAI-curated listing remains an optional
+later platform submission.
 
 ## Add the Codex adoption kit
 
@@ -706,6 +707,7 @@ readers and AI search ingest.
 - [JSON report schema v0.22](docs/report-schema.v0.22.json)
 - [Feedback export schema v0.1](docs/feedback-schema.v0.1.json)
 - [Privacy and redaction](docs/privacy.md)
+- [Terms](docs/terms.md)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
 - [Design partners](docs/design-partners.md)

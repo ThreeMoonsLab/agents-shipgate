@@ -32,8 +32,8 @@
       "Triage findings without fabricating human approval"
     ],
     "websiteURL": "https://threemoonslab.com/",
-    "privacyPolicyURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/SECURITY.md",
-    "termsOfServiceURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/LICENSE",
+    "privacyPolicyURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/privacy.md",
+    "termsOfServiceURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/terms.md",
     "brandColor": "#2F6FEB",
     "defaultPrompt": "Use $agents-shipgate to add or verify a Tool-Use Readiness release gate for this agent repo."
   }
