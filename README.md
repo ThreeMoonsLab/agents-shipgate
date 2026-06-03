@@ -109,6 +109,8 @@ Otherwise, install once with `pipx` and run the same fixture:
 
 ```bash
 pipx install agents-shipgate
+pipx upgrade agents-shipgate
+agents-shipgate --version
 agents-shipgate fixture run support_refund_agent
 ```
 
@@ -237,13 +239,21 @@ After installation, start a fresh Codex thread and invoke:
 $agents-shipgate verify this agent PR and summarize the merge verdict.
 ```
 
-The plugin supplies Codex workflows, not the scanner binary. Install the CLI in
-the environment where Codex will run commands:
+The plugin supplies Codex workflows, not the scanner binary. Install or upgrade
+the CLI in the environment where Codex will run commands, then confirm
+`agents-shipgate --version` reports `0.11.0` or newer:
 
 ```bash
 pipx install agents-shipgate
-# or
-uv tool install agents-shipgate
+pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
+agents-shipgate --version
+```
+
+If `pipx` is unavailable, use:
+
+```bash
+python -m pip install -U "agents-shipgate>=0.11"
+agents-shipgate --version
 ```
 
 The staged launch path is workspace sharing from the Codex app or this
@@ -308,8 +318,9 @@ when a scan is required.
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
 ```bash
-python -m pip install agents-shipgate    # global pip
-uv tool install agents-shipgate          # via uv
+python -m pip install -U "agents-shipgate>=0.11"    # global pip
+uv tool install --upgrade agents-shipgate            # via uv
+agents-shipgate --version                            # require >=0.11.0
 ```
 
 ## Adopt in one turn (helper flow)
