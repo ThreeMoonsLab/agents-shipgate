@@ -107,6 +107,7 @@
     "first_next_action",
     "fix_task",
     "capability_review.top_changes",
+    "agent_controller",
     "release_decision.decision"
   ],
   "do_not_auto_assert": [

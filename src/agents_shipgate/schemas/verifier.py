@@ -185,6 +185,45 @@ class VerifierCapabilityReview(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+AgentStopReason = Literal[
+    "self_approval_prohibited",
+    "blocked_findings",
+    "insufficient_evidence",
+    "human_review_required",
+    "scan_incomplete",
+]
+
+
+class AgentController(BaseModel):
+    """Imperative controller projection for an autonomous coding agent.
+
+    A re-shaping of the verdict the agent already has — ``merge_verdict``,
+    ``can_merge_without_human``, ``fix_task``, ``capability_review`` — into the
+    four questions an agent must answer without human interpretation: may I claim
+    the task done (``completion_allowed``), must I stop for a human
+    (``must_stop`` / ``stop_reason``), what may I run next
+    (``allowed_next_commands``), and what must I never edit or do to get past the
+    gate (``forbidden_file_edits`` / ``forbidden_actions``).
+
+    It introduces NO new decision: ``completion_allowed`` is locked to
+    ``can_merge_without_human`` by ``VerifierArtifact``, and every other field is
+    a deterministic projection of the head scan. ``forbidden_file_edits`` and
+    ``forbidden_actions`` are a STANDING negative affordance — present on every
+    verdict, including ``mergeable`` — so a passing run never reads as "anything
+    goes".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    completion_allowed: bool = False
+    must_stop: bool = True
+    stop_reason: AgentStopReason | None = None
+    allowed_next_commands: list[str] = Field(default_factory=list)
+    forbidden_file_edits: list[str] = Field(default_factory=list)
+    forbidden_actions: list[str] = Field(default_factory=list)
+    user_message_template: str | None = None
+
+
 class VerifierArtifact(BaseModel):
     """Machine-readable artifact emitted by ``agents-shipgate verify``.
 
@@ -224,6 +263,7 @@ class VerifierArtifact(BaseModel):
     human_review: VerifierHumanReview | None = None
     first_next_action: VerifierNextAction | None = None
     fix_task: VerifierFixTask | None = None
+    agent_controller: AgentController | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -303,8 +343,31 @@ class VerifierArtifact(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _agent_controller_projects_gate(self) -> VerifierArtifact:
+        """Lock the controller's completion flag to the gate (no second verdict).
+
+        ``agent_controller.completion_allowed`` is the imperative restatement of
+        ``can_merge_without_human``. If they ever disagree, two parts of the
+        artifact disagree about whether the agent may finish — exactly the
+        drift the one-decision-engine discipline forbids. Pin them so the
+        controller can never become a finding-independent second opinion.
+        """
+        if self.agent_controller is None:
+            return self
+        if self.agent_controller.completion_allowed != self.can_merge_without_human:
+            raise ValueError(
+                "AgentController.completion_allowed must equal "
+                "can_merge_without_human (one decision engine): "
+                f"{self.agent_controller.completion_allowed!r} != "
+                f"{self.can_merge_without_human!r}"
+            )
+        return self
+
 
 __all__ = [
+    "AgentController",
+    "AgentStopReason",
     "Applicability",
     "CapabilityChangeBucket",
     "CapabilityReleaseImpact",

@@ -29,6 +29,7 @@ from agents_shipgate.schemas.verifier import (
 )
 from agents_shipgate.triggers import evaluate
 
+from .agent_controller import build_agent_controller
 from .capability_review import build_capability_review
 from .fix_task import build_fix_task
 from .git import (
@@ -746,6 +747,32 @@ def _build_verifier(
         base_ref=base,
         head_ref=head,
     )
+    can_merge = _can_merge_without_human(
+        merge_verdict=merge_verdict,
+        release_decision=release_decision_model,
+        capability_review=capability_review,
+    )
+    headline = _verifier_headline(
+        report=report,
+        merge_verdict=merge_verdict,
+        head_status=head_status,
+        capability_review=capability_review,
+    )
+    # Imperative controller projection — a pure restatement of the verdict
+    # above. Not emitted for --preview, which is a pre-gate relevance check
+    # (the agent reads first_next_action there).
+    agent_controller = (
+        None
+        if preview
+        else build_agent_controller(
+            merge_verdict=merge_verdict,
+            can_merge_without_human=can_merge,
+            fix_task=fix_task,
+            capability_review=capability_review,
+            human_review=human_review,
+            headline=headline,
+        )
+    )
     return VerifierArtifact(
         workspace=str(git_root),
         config=_display_path(config_path, git_root),
@@ -784,17 +811,8 @@ def _build_verifier(
         decision=decision,
         merge_verdict=merge_verdict,
         applicability=applicability,
-        can_merge_without_human=_can_merge_without_human(
-            merge_verdict=merge_verdict,
-            release_decision=release_decision_model,
-            capability_review=capability_review,
-        ),
-        headline=_verifier_headline(
-            report=report,
-            merge_verdict=merge_verdict,
-            head_status=head_status,
-            capability_review=capability_review,
-        ),
+        can_merge_without_human=can_merge,
+        headline=headline,
         human_review=human_review,
         first_next_action=_first_next_action(
             merge_verdict=merge_verdict,
@@ -804,6 +822,7 @@ def _build_verifier(
             capability_review=capability_review,
         ),
         fix_task=fix_task,
+        agent_controller=agent_controller,
         artifacts=artifacts,
     )
 
