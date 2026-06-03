@@ -14,7 +14,7 @@ Codex Skills under `.agents/skills/<name>/`.
 | Surface | What it does | Source path in this repo |
 |---|---|---|
 | Codex plugin | Installable plugin package for Codex with the Agents Shipgate skill bundled. | [`plugins/agents-shipgate/`](../../plugins/agents-shipgate/) |
-| Beta marketplace | Repo marketplace entry that lets Codex discover and install the plugin. | [`.agents/plugins/marketplace.json`](../../.agents/plugins/marketplace.json) |
+| Marketplace | Repo marketplace entry that lets Codex discover and install the plugin. | [`.agents/plugins/marketplace.json`](../../.agents/plugins/marketplace.json) |
 | `AGENTS.md` snippet | Tells Codex when Shipgate is relevant and names the canonical commands. | [`docs/target-repo-agent-snippets.md`](../target-repo-agent-snippets.md) §`AGENTS.md` |
 | Codex skill | Repo-scoped skill Codex can invoke explicitly with `$agents-shipgate` or implicitly when the task matches. | [`.agents/skills/agents-shipgate/`](../../.agents/skills/agents-shipgate/) |
 | Reusable prompts | Longer copy-paste recipes for agents that do not use skills. | [`prompts/README.md`](../../prompts/README.md) |
@@ -49,6 +49,18 @@ The plugin manifest points to dedicated privacy and terms pages in this repo.
 Public/OpenAI-curated listing, if pursued later, is a separate platform
 submission using the same skill-only package.
 
+### Migrating From The Beta Marketplace
+
+Early testers may have installed the old `agents-shipgate-beta` marketplace.
+For GA, remove the beta marketplace and install from the GA marketplace name:
+
+```bash
+codex plugin remove agents-shipgate
+codex plugin marketplace remove agents-shipgate-beta
+codex plugin marketplace add ThreeMoonsLab/agents-shipgate
+codex plugin add agents-shipgate@agents-shipgate
+```
+
 ## Runtime CLI Prerequisite
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
@@ -79,8 +91,8 @@ with a working Codex CLI/app:
 
 ```bash
 codex plugin marketplace add /path/to/agents-shipgate
-codex plugin list --marketplace agents-shipgate-beta
-codex plugin add agents-shipgate@agents-shipgate-beta
+codex plugin list --marketplace agents-shipgate
+codex plugin add agents-shipgate@agents-shipgate
 agents-shipgate --version
 codex exec --sandbox read-only \
   '$agents-shipgate Do not run shell commands. Do not edit files. Reply with exactly: LOADED agents-shipgate'
@@ -88,8 +100,8 @@ codex exec --sandbox read-only \
 
 Passing evidence:
 
-- `plugin list` shows `agents-shipgate@agents-shipgate-beta`.
-- `plugin add` reports the plugin was added from `agents-shipgate-beta`.
+- `plugin list` shows `agents-shipgate@agents-shipgate`.
+- `plugin add` reports the plugin was added from `agents-shipgate`.
 - `agents-shipgate --version` reports `0.11.0` or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.

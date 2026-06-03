@@ -36,7 +36,8 @@ def test_agents_shipgate_codex_plugin_manifest_is_skill_only() -> None:
 def test_agents_shipgate_codex_plugin_marketplace_entry_is_installable() -> None:
     marketplace = json.loads(MARKETPLACE_PATH.read_text(encoding="utf-8"))
 
-    assert marketplace["name"] == "agents-shipgate-beta"
+    assert marketplace["name"] == "agents-shipgate"
+    assert marketplace["interface"]["displayName"] == "Agents Shipgate"
     [entry] = marketplace["plugins"]
     assert entry == {
         "name": "agents-shipgate",
