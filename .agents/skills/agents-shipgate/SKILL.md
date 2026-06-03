@@ -15,14 +15,16 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 1. For relevance decisions, bootstrap, verifier runs, scanning, CI setup, finding fixes, false-positive triage, strict-mode promotion, or version upgrades, read `references/recipes.md`.
 2. For reading `report.json`, summarizing release decisions, or deciding what may be auto-applied, read `references/report-reading.md`.
-3. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
-4. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
-5. For verify runs, read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
-6. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
-7. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
+3. Before running Shipgate CLI commands, check that `agents-shipgate` is available. If it is missing, tell the user to install it with `pipx install agents-shipgate` or `uv tool install agents-shipgate`; the Codex plugin supplies workflows, not the scanner binary.
+4. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
+5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
+6. For verify runs, read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
+7. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
+8. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
 
 ## Fast Paths
 
+- CLI preflight: run `command -v agents-shipgate`. If it is missing, ask the user to install the CLI with `pipx install agents-shipgate` or `uv tool install agents-shipgate`, then start a fresh command attempt.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
 - Local agent-related diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
 - Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.

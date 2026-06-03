@@ -75,10 +75,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "9e616a06ea6a6a9fb7ec17dd90171d24f94043bfd85bc765c25cd83762e42ab3"
+        "e6570a879f5c249442f47e537a90d5169a68b5583e6e1310dad4fa2a22867eaa"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "f1f48bc66d34237c8a981a1d868ef2e05939cf52726a00ff51d7bee826d45686"
+        "df4a0adda78fbd676826f95ef1386d9fe639ad7fecabd72dd630f09a217ec4bd"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"

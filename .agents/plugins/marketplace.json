@@ -1,0 +1,20 @@
+{
+  "name": "agents-shipgate-beta",
+  "interface": {
+    "displayName": "Agents Shipgate Beta"
+  },
+  "plugins": [
+    {
+      "name": "agents-shipgate",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agents-shipgate"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

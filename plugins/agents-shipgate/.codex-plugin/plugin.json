@@ -1,0 +1,40 @@
+{
+  "name": "agents-shipgate",
+  "version": "0.1.0",
+  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Codex.",
+  "author": {
+    "name": "Three Moons Lab",
+    "url": "https://threemoonslab.com/"
+  },
+  "homepage": "https://threemoonslab.com/",
+  "repository": "https://github.com/ThreeMoonsLab/agents-shipgate",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "codex",
+    "tool-use-readiness",
+    "release-gate",
+    "mcp",
+    "openapi"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agents Shipgate",
+    "shortDescription": "Run Tool-Use Readiness release gates from Codex.",
+    "longDescription": "Agents Shipgate teaches Codex how to detect, install, verify, and summarize deterministic Tool-Use Readiness release gates for tool-using AI agent repositories. The plugin supplies workflow instructions; the scanner runs through the agents-shipgate CLI installed in the local environment.",
+    "developerName": "Three Moons Lab",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Detect whether Shipgate applies to an agent repo",
+      "Bootstrap advisory Tool-Use Readiness gates",
+      "Run verify and scan workflows",
+      "Read report.json and verifier.json safely",
+      "Triage findings without fabricating human approval"
+    ],
+    "websiteURL": "https://threemoonslab.com/",
+    "privacyPolicyURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/SECURITY.md",
+    "termsOfServiceURL": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/LICENSE",
+    "brandColor": "#2F6FEB",
+    "defaultPrompt": "Use $agents-shipgate to add or verify a Tool-Use Readiness release gate for this agent repo."
+  }
+}

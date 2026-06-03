@@ -1,0 +1,73 @@
+# Reading Agents Shipgate Reports
+
+For verify runs, read `agents-shipgate-reports/verifier.json` first. Then read
+`agents-shipgate-reports/report.json`. Do not scrape Markdown.
+
+## Order
+
+1. `verifier.json.merge_verdict`: `mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`.
+2. `verifier.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
+3. `verifier.json.first_next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
+4. `report.json.release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`; this is the release gate.
+5. `release_decision.blockers[]` and `release_decision.review_items[]`.
+6. `findings[]`: detailed evidence, source, severity, and remediation.
+
+## Verifier Summary
+
+When `report_schema_version` is `0.22` or newer, read
+`verifier_summary` after `release_decision`:
+
+- `verdict`: exact mirror of `release_decision.decision`.
+- `protected_surface_touched`: true when verify-mode `SHIP-VERIFY-*`
+  findings show a trust-root edit.
+- `policy_weakened`: true when the normalized policy surface moved toward
+  less review, less blocking, or less evidence.
+- `human_ack_required` / `human_ack_satisfied`: declared human-acknowledgement
+  state; a coding agent must not synthesize acknowledgement.
+- `top_reason_codes[]`: ranked reason-code counts for concise summaries.
+
+This block is a deterministic projection. It cannot introduce a blocker that
+is not already present in `findings[]` and `release_decision`.
+
+## Per-Finding Action
+
+Prefer `findings[].agent_action` when present:
+
+- `auto_apply`: safe to apply only when a high-confidence patch exists.
+- `propose_patch_for_review`: show patch and ask for review.
+- `escalate_to_human`: policy/evidence decision.
+- `suppress_with_reason`: suppress only after explicit user confirmation.
+- `informational`: summarize only.
+
+Do not synthesize an action from lower-level fields when `agent_action` exists.
+
+## Manual-Review Boundary
+
+Never auto-assert these categories:
+
+- approval policy
+- confirmation policy
+- idempotency evidence
+- broad-scope permission decisions
+- prohibited-action policy decisions
+- runtime trace evidence
+
+For those, summarize the risk and the exact decision a human needs to make.
+
+## Summary Template
+
+Report back with:
+
+```text
+Merge verdict: <verifier.json.merge_verdict>
+Decision: <release_decision.decision>
+Capability changes: <top verifier capability_review.top_changes entries>
+Blockers: <count>
+Review items: <count>
+Safe patches applied: <count or none>
+Needs human review: <short list>
+Top findings:
+1. <check/tool/risk/next action>
+```
+
+If `privacy_audit` is present, mention that default report redaction ran. If `insufficient_evidence` appears, treat it as review-required unless the user has stricter release policy.
