@@ -10,7 +10,11 @@
       "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5"
     ],
     "prompts/add-shipgate-to-repo.md": [
-      "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
+      "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1",
+      "ea3c37cfbbd42c40d164abfe21d468a3a5550d5384125f94a53c947dea6b4b2a"
+    ],
+    "prompts/decide-shipgate-relevance.md": [
+      "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
     ],
     "prompts/stabilize-strict-mode.md": [
       "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"

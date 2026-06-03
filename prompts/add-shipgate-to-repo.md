@@ -9,12 +9,18 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool** — you need `>=0.11.0`, since the `agents-shipgate verify` step this prompt relies on only ships in 0.11.0+:
+1. **Install the tool — pin the version so a stale build can't shadow it.** This flow drives `agents-shipgate verify`, which only ships in **`>=0.11.0`**; an older copy lingering on `PATH` (we have seen `0.8.0`) has no `verify` subcommand and writes no `verifier.json`, so it silently breaks the gate. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`:
    ```bash
-   pipx install agents-shipgate
-   pipx upgrade agents-shipgate
+   uvx agents-shipgate@0.11.0 --version         # uv: ephemeral, always the pinned build
+   pipx run agents-shipgate==0.11.0 --version   # pipx equivalent
    ```
-   A plain `pipx install` is a no-op when an older build is already installed, so the follow-up `pipx upgrade` brings a stale copy current. If `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.11"` and verify with `agents-shipgate --version`.
+   Run every `agents-shipgate …` step below through that same runner (`uvx agents-shipgate@0.11.0 …` / `pipx run agents-shipgate==0.11.0 …`) so no stale global install can shadow it.
+
+   If you instead install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists:
+   ```bash
+   python -m pip install -U "agents-shipgate>=0.11.0"   # or: pipx install "agents-shipgate>=0.11.0"
+   agents-shipgate --version   # STOP if this prints < 0.11.0 — re-run pinned via uvx agents-shipgate@0.11.0
+   ```
 
 2. **Sanity-check the install** before touching the user's code:
    ```bash
