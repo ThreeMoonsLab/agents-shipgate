@@ -774,7 +774,7 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `cli_version`
 - `source_verifier`
 - `redacted`
-- `base_ref`, `head_ref`, `base_tree_sha`, `mode`
+- `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
 - `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
 - `human_ack` (`required`, `satisfied`, `outstanding`)

@@ -13,6 +13,7 @@
     "base_ref",
     "head_ref",
     "base_tree_sha",
+    "head_tree_sha",
     "mode",
     "verdict",
     "capability",
@@ -28,6 +29,7 @@
     "base_ref": { "type": ["string", "null"] },
     "head_ref": { "type": ["string", "null"] },
     "base_tree_sha": { "type": ["string", "null"], "description": "Tree SHA of the base ref Shipgate diffed against, when available." },
+    "head_tree_sha": { "type": ["string", "null"], "description": "Tree SHA of the head ref that was scanned — the durable, content-addressed identity of what shipped. Null for working-tree scans (no committed head)." },
     "mode": { "type": ["string", "null"], "description": "advisory / strict / skipped / preview." },
     "verdict": {
       "type": "object",

@@ -23,6 +23,7 @@ def _verifier_payload() -> dict:
         "base_ref": "origin/main",
         "head_ref": "HEAD",
         "base_tree_sha": "7d4d5f5e125a9bbcf16d4091fa0038bd229e1c7c",
+        "head_tree_sha": "a1b2c3d4e5f6071829abcdef0123456789abcdef",
         "mode": "advisory",
         "merge_verdict": "blocked",
         "applicability": "verified",
@@ -75,6 +76,7 @@ def test_build_attestation_core_fields() -> None:
     )
     assert att["attestation_schema_version"] == "0.1"
     assert att["base_tree_sha"] == "7d4d5f5e125a9bbcf16d4091fa0038bd229e1c7c"
+    assert att["head_tree_sha"] == "a1b2c3d4e5f6071829abcdef0123456789abcdef"
     assert att["verdict"] == {
         "merge_verdict": "blocked",
         "decision": "blocked",

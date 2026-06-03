@@ -105,6 +105,7 @@ def build_attestation_payload(
         "base_ref": verifier.get("base_ref"),
         "head_ref": verifier.get("head_ref"),
         "base_tree_sha": verifier.get("base_tree_sha"),
+        "head_tree_sha": verifier.get("head_tree_sha"),
         "mode": verifier.get("mode"),
         "verdict": {
             "merge_verdict": verifier.get("merge_verdict"),
