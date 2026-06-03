@@ -9,6 +9,19 @@ python -m pip install -e ".[dev]"
 pytest
 ```
 
+After the editable install, the `agents-shipgate` / `shipgate` console scripts
+run from your working tree. **Beware a stale shadow install.** If you run a bare
+`agents-shipgate` or `python -m agents_shipgate` from a shell where another copy
+is on `PATH` — pipx, a base conda env, a globally pinned older release — you can
+silently execute an old build (we have seen `0.8.0` shadow a worktree, which
+makes new subcommands look "missing"). To stay honest:
+
+- Work inside the project venv and confirm with `agents-shipgate --version`.
+- For a one-off, pin the exact version: `uvx agents-shipgate@<version> ...` or
+  `pipx run agents-shipgate==<version> ...`.
+- When in doubt, `agents-shipgate contract --json` prints the running build's
+  version and contract, so you never reason against a version you don't have.
+
 ## Useful Commands
 
 ```bash
