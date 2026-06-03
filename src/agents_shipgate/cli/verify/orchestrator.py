@@ -24,6 +24,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierFixTask,
     VerifierHumanReview,
     VerifierNextAction,
+    applicability_for,
     merge_verdict_for,
 )
 from agents_shipgate.triggers import evaluate
@@ -730,6 +731,7 @@ def _build_verifier(
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
+    applicability = applicability_for(decision=decision, head_status=head_status)
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
     human_review = _human_review(
@@ -781,6 +783,7 @@ def _build_verifier(
         ),
         decision=decision,
         merge_verdict=merge_verdict,
+        applicability=applicability,
         can_merge_without_human=_can_merge_without_human(
             merge_verdict=merge_verdict,
             release_decision=release_decision_model,

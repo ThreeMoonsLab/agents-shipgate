@@ -978,6 +978,12 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate; switch on the enum with
   an `unknown`/`human_review_required` fallback for future values.
+- `applicability` (v0.11.0+) — `"verified"` / `"not_applicable"` / `"unknown"`.
+  Disambiguates a `mergeable` verdict: `"verified"` means Shipgate evaluated the
+  change and produced a release decision; `"not_applicable"` means the head scan
+  was skipped (nothing to gate — do **not** read this as "verified safe");
+  `"unknown"` means the scan could not complete. Orthogonal to `merge_verdict`;
+  additive and locked to `"verified"` whenever a `release_decision` is present.
 - `can_merge_without_human` — `bool`.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
 - `headline` — single-sentence, PR-comment-friendly summary (or `null`).

@@ -268,6 +268,16 @@
       "default": null,
       "title": "Agent Summary"
     },
+    "applicability": {
+      "default": "unknown",
+      "enum": [
+        "verified",
+        "not_applicable",
+        "unknown"
+      ],
+      "title": "Applicability",
+      "type": "string"
+    },
     "artifacts": {
       "additionalProperties": {
         "type": "string"

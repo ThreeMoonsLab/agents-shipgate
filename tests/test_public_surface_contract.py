@@ -104,7 +104,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "ROADMAP.md",
-        re.compile(r"preparing the\s+`v(\d+\.\d+\.\d+)`\s+release"),
+        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+)`"),
     ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
@@ -645,8 +645,8 @@ def test_shipgate_version_inputs_match_pyproject_version(relpath):
 def test_version_literals_match_pyproject_version(relpath, pattern):
     """Plain release-version literals on these public surfaces (the
     bug-report placeholder, distribution.md's release-tag list,
-    faq.md's 'latest released version' line, ROADMAP.md's lead
-    paragraph) must move with pyproject.toml on every bump. The
+    faq.md's 'latest released version' line, ROADMAP.md's latest-release
+    line) must move with pyproject.toml on every bump. The
     Action / pip / shipgate_version pin tests don't catch these
     because the literals aren't pins."""
     expected = _load_pyproject_version()

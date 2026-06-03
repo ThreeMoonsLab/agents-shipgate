@@ -25,6 +25,11 @@ MergeVerdict = Literal[
     "blocked",
     "unknown",
 ]
+# Whether Shipgate actually evaluated the change — orthogonal to the verdict.
+# Disambiguates a ``mergeable`` verdict: "verified" (Shipgate ran and reached a
+# determination) vs "not_applicable" (skipped — nothing to gate) vs "unknown"
+# (scan could not complete). Never read "mergeable" alone as "verified safe".
+Applicability = Literal["verified", "not_applicable", "unknown"]
 CapabilityChangeBucket = Literal["added", "modified", "removed"]
 CapabilityReleaseImpact = Literal[
     "blocks_release",
@@ -74,6 +79,22 @@ def merge_verdict_for(*, decision: str | None, head_status: str) -> MergeVerdict
     if decision is not None:
         return map_merge_verdict(decision)
     return "mergeable" if head_status == "skipped" else "unknown"
+
+
+def applicability_for(*, decision: str | None, head_status: str) -> Applicability:
+    """Whether Shipgate actually evaluated this change — orthogonal to the verdict.
+
+    A produced ``decision`` means Shipgate was applicable and reached a
+    determination (``"verified"`` — regardless of pass/block). A *skipped* head
+    means there was nothing to gate (``"not_applicable"``). Anything else — scan
+    failed, or not yet run — is ``"unknown"``. This is the field that keeps a
+    ``merge_verdict`` of ``"mergeable"`` from being read as "verified safe" when
+    Shipgate in fact did not need to run. Mirrors ``merge_verdict_for`` so the
+    two stay in lock-step.
+    """
+    if decision is not None:
+        return "verified"
+    return "not_applicable" if head_status == "skipped" else "unknown"
 
 
 class VerifierNextAction(BaseModel):
@@ -197,6 +218,7 @@ class VerifierArtifact(BaseModel):
     mode: str = "advisory"
     decision: str | None = None
     merge_verdict: MergeVerdict = "unknown"
+    applicability: Applicability = "unknown"
     can_merge_without_human: bool = False
     headline: str | None = None
     human_review: VerifierHumanReview | None = None
@@ -234,8 +256,30 @@ class VerifierArtifact(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _applicability_projects_release_decision(self) -> VerifierArtifact:
+        """Lock applicability to the substrate, mirroring the verdict lock.
+
+        A present head ``release_decision`` means Shipgate evaluated the change
+        and produced a determination, so ``applicability`` MUST be
+        ``"verified"``. Skipped / failed / preview runs have no
+        ``release_decision`` substrate and are left to ``applicability_for``,
+        exactly like ``merge_verdict``. Construction-time enforcement makes a
+        ``mergeable``-but-``not_applicable`` lie impossible to emit.
+        """
+        if self.release_decision is None:
+            return self
+        if self.applicability != "verified":
+            raise ValueError(
+                "VerifierArtifact.applicability must be 'verified' when a head "
+                "release_decision is present (Shipgate was applicable); got "
+                f"{self.applicability!r}."
+            )
+        return self
+
 
 __all__ = [
+    "Applicability",
     "CapabilityChangeBucket",
     "CapabilityReleaseImpact",
     "MergeVerdict",
@@ -247,6 +291,7 @@ __all__ = [
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",
+    "applicability_for",
     "map_merge_verdict",
     "merge_verdict_for",
 ]

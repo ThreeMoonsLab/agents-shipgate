@@ -93,6 +93,7 @@
   },
   "gating_signal": "release_decision.decision",
   "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
+  "applicability_values": ["verified", "not_applicable", "unknown"],
   "release_decisions": ["passed", "review_required", "insufficient_evidence", "blocked"],
   "merge_verdict_labels": {
     "passed": "mergeable",
