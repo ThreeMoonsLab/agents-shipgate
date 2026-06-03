@@ -75,10 +75,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "e6570a879f5c249442f47e537a90d5169a68b5583e6e1310dad4fa2a22867eaa"
+        "3031abbfd241c9af4eeac92de6caf2454ad124ce897109ca93f8d9933f4a04cb"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "df4a0adda78fbd676826f95ef1386d9fe639ad7fecabd72dd630f09a217ec4bd"
+        "a677eb81493afb202e1e234c20e8e1478d960e0fdc2605024347f304d4f00e82"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
@@ -255,6 +255,11 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not auto-assert approval" in skill
     assert "agents-shipgate verify" in skill
+    assert "agents-shipgate --version" in skill
+    assert "pipx upgrade agents-shipgate" in skill
+    recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
+    assert "Require `agents-shipgate >=0.11.0`" in recipes
+    assert 'python -m pip install -U "agents-shipgate>=0.11"' in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

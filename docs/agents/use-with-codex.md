@@ -46,20 +46,32 @@ The plugin can also be shared from the Codex app after installation. Shared
 users install it from **Plugins** > **Shared with you**, then start a new
 thread before invoking `$agents-shipgate`.
 
+Before a public/OpenAI-curated listing, replace the beta `privacyPolicyURL` and
+`termsOfServiceURL` manifest values with dedicated policy and terms pages. The
+current repo URLs are beta placeholders to keep the local manifest valid.
+
 ## Runtime CLI Prerequisite
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
-asking Codex to scan or verify a repo, make sure the CLI is available:
+asking Codex to scan or verify a repo, make sure the CLI is available and
+`agents-shipgate --version` reports `0.11.0` or newer:
 
 ```bash
 pipx install agents-shipgate
-# or
-uv tool install agents-shipgate
+pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
+agents-shipgate --version
 ```
 
-When `$agents-shipgate` runs and the CLI is missing, Codex should ask for one
-of those installs instead of continuing to `detect`, `init`, `scan`, or
-`verify`.
+If `pipx` is unavailable, use:
+
+```bash
+python -m pip install -U "agents-shipgate>=0.11"
+agents-shipgate --version
+```
+
+When `$agents-shipgate` runs and the CLI is missing or older than 0.11.0,
+Codex should ask for an install or upgrade instead of continuing to `detect`,
+`init`, `scan`, or `verify`.
 
 ## Codex Plugin Smoke
 
@@ -70,6 +82,7 @@ with a working Codex CLI/app:
 codex plugin marketplace add /path/to/agents-shipgate
 codex plugin list --marketplace agents-shipgate-beta
 codex plugin add agents-shipgate@agents-shipgate-beta
+agents-shipgate --version
 codex exec --sandbox read-only \
   '$agents-shipgate Do not run shell commands. Do not edit files. Reply with exactly: LOADED agents-shipgate'
 ```
@@ -78,6 +91,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate-beta`.
 - `plugin add` reports the plugin was added from `agents-shipgate-beta`.
+- `agents-shipgate --version` reports `0.11.0` or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -87,6 +101,8 @@ From the root of the project where Codex should run Shipgate:
 
 ```bash
 pipx install agents-shipgate
+pipx upgrade agents-shipgate
+agents-shipgate --version
 agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill
 ```
 
@@ -119,24 +135,37 @@ Files under the override directory are relative to
 `references/recipes.md`, or `assets/advisory-pr-comment.yml`. Pass a
 different config path with `--agent-instructions-kit <path>`.
 
+## Sync Generated Skill Content
+
+The installable plugin skill is a rendered copy of
+`adoption-kits/codex-skill/`. When changing that kit, sync both generated
+locations:
+
+- `.agents/skills/agents-shipgate/`
+- `plugins/agents-shipgate/skills/agents-shipgate/`
+
+For version-rendered files such as `assets/advisory-pr-comment.yml`, update the
+rendered copies together, bump `EXPECTED_CODEX_SKILL_RENDER_SHA256`, append the
+outgoing file hashes to
+`adoption-kits/codex-skill/.agents-shipgate-kit-metadata.json`
+`prior_render_sha256`, and rerun the renderer and plugin package tests.
+
 ## Verify
 
 Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, check that the CLI exists, then read
-   `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`.
+   Codex should load the plugin skill, require `agents-shipgate >=0.11.0`, then
+   read `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`;
+   it then reads `agents-shipgate-reports/report.json` for
+   `release_decision.decision`.
 2. Ask: "prepare this agent repo for production release and add appropriate
    CI preflight checks." Codex should use the AGENTS.md snippet or the
    `agents-shipgate` skill, run `agents-shipgate verify --preview --json` or
    `agents-shipgate detect --workspace . --json`, and continue only when
    Shipgate is relevant.
-3. Ask with explicit skill invocation: "$agents-shipgate verify this agent PR
-   and summarize the merge verdict." Codex should read
-   `agents-shipgate-reports/verifier.json`, lead with `merge_verdict`, then
-   read `agents-shipgate-reports/report.json` for `release_decision.decision`.
-4. In a repo that already has `shipgate.yaml`, ask Codex to finish an
+3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
    or report the exact `agents-shipgate trigger` skip verdict.

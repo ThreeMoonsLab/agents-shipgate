@@ -5,21 +5,30 @@ Use these recipes after the `agents-shipgate` skill triggers.
 ## CLI Preflight
 
 The Codex plugin supplies the workflow instructions, not the scanner binary.
-Before running `agents-shipgate` commands, confirm the CLI is installed:
+Before running `agents-shipgate` commands, confirm the CLI is installed and new
+enough for the `verify` workflow:
 
 ```bash
 command -v agents-shipgate
+agents-shipgate --version
 ```
 
-If the command is missing, ask the user to install the CLI and rerun the task:
+Require `agents-shipgate >=0.11.0`. If the command is missing or the version is
+older, ask the user to install or upgrade the CLI and rerun the task:
 
 ```bash
 pipx install agents-shipgate
-# or
-uv tool install agents-shipgate
+pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
 ```
 
-Do not continue to `detect`, `init`, `scan`, or `verify` until the CLI exists.
+If `pipx` is unavailable, use:
+
+```bash
+python -m pip install -U "agents-shipgate>=0.11"
+```
+
+After installation, run `agents-shipgate --version` again. Do not continue to
+`detect`, `init`, `scan`, or `verify` until the CLI exists and is `>=0.11.0`.
 
 ## Decide Relevance
 

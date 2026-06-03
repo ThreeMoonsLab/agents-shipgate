@@ -19,7 +19,7 @@ def test_agents_shipgate_codex_plugin_manifest_is_skill_only() -> None:
     )
 
     assert manifest["name"] == "agents-shipgate"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.11.0"
     assert manifest["skills"] == "./skills/"
     assert "apps" not in manifest
     assert "mcpServers" not in manifest
