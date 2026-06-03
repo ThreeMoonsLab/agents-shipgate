@@ -29,6 +29,8 @@ def test_agents_shipgate_codex_plugin_manifest_is_skill_only() -> None:
     assert interface["displayName"] == "Agents Shipgate"
     assert interface["defaultPrompt"].startswith("Use $agents-shipgate")
     assert "scanner runs through the agents-shipgate CLI" in interface["longDescription"]
+    assert interface["privacyPolicyURL"].endswith("/docs/privacy.md")
+    assert interface["termsOfServiceURL"].endswith("/docs/terms.md")
 
 
 def test_agents_shipgate_codex_plugin_marketplace_entry_is_installable() -> None:
