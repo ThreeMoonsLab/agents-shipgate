@@ -42,6 +42,7 @@ def _previous_report_schema_version() -> str:
 AGENT_FACING_DOCS = (
     "agent-recipes.md",
     "agent-adoption-harness.md",
+    "agent-native-merge-contract.md",
     "autofix-policy.md",
     "minimal-real-configs.md",
     "target-repo-agent-snippets.md",
