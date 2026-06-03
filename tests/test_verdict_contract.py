@@ -151,11 +151,6 @@ def _artifact(**overrides) -> VerifierArtifact:
         "head_status": "succeeded",
     }
     base.update(overrides)
-    # When a release decision is present, applicability is locked to "verified"
-    # (Shipgate evaluated the change). Inject it so callers that only exercise
-    # the merge_verdict projection don't trip the applicability lock.
-    if base.get("release_decision") is not None and "applicability" not in base:
-        base["applicability"] = "verified"
     return VerifierArtifact(**base)
 
 
@@ -210,3 +205,31 @@ def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
             merge_verdict="mergeable",
             applicability="not_applicable",
         )
+
+
+def test_artifact_model_validate_backfills_applicability_for_old_payloads() -> None:
+    # An older verifier.json (schema 0.1) carries release_decision but no
+    # applicability key. model_validate must round-trip it — backfilling
+    # "verified" via the before-validator — instead of tripping the lock.
+    art = VerifierArtifact.model_validate(
+        {
+            "workspace": "/tmp/w",
+            "config": "shipgate.yaml",
+            "head_status": "succeeded",
+            "release_decision": {"decision": "blocked"},
+            "decision": "blocked",
+            "merge_verdict": "blocked",
+        }
+    )
+    assert art.applicability == "verified"
+    # A skipped older artifact backfills "not_applicable" — never a bare
+    # "mergeable" that an agent could read as "verified safe".
+    skipped = VerifierArtifact.model_validate(
+        {
+            "workspace": "/tmp/w",
+            "config": "shipgate.yaml",
+            "head_status": "skipped",
+            "merge_verdict": "mergeable",
+        }
+    )
+    assert skipped.applicability == "not_applicable"

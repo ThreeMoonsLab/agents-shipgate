@@ -226,6 +226,30 @@ class VerifierArtifact(BaseModel):
     fix_task: VerifierFixTask | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_absent_applicability(cls, data: Any) -> Any:
+        """Backward-compatible default for ``applicability`` (additive in schema 0.1).
+
+        An artifact written before this field existed — or any caller that does
+        not set it — may carry a ``release_decision`` but omit
+        ``applicability``. Derive it from the substrate so
+        ``model_validate(...)`` round-trips an older ``verifier.json`` instead
+        of tripping the consistency lock below. Only an *absent* value is
+        filled; an explicit (possibly contradictory) value is left for the
+        after-validator to reject. Keyed on ``release_decision`` presence so the
+        derived value always satisfies that lock.
+        """
+        if isinstance(data, dict) and "applicability" not in data:
+            if data.get("release_decision") is not None:
+                derived = "verified"
+            elif data.get("head_status", "skipped") == "skipped":
+                derived = "not_applicable"
+            else:
+                derived = "unknown"
+            data = {**data, "applicability": derived}
+        return data
+
     @model_validator(mode="after")
     def _verdict_projects_release_decision(self) -> VerifierArtifact:
         """Lock the one-decision-engine contract structurally.
@@ -262,10 +286,12 @@ class VerifierArtifact(BaseModel):
 
         A present head ``release_decision`` means Shipgate evaluated the change
         and produced a determination, so ``applicability`` MUST be
-        ``"verified"``. Skipped / failed / preview runs have no
-        ``release_decision`` substrate and are left to ``applicability_for``,
-        exactly like ``merge_verdict``. Construction-time enforcement makes a
-        ``mergeable``-but-``not_applicable`` lie impossible to emit.
+        ``"verified"``. An *absent* value was already backfilled by
+        ``_derive_absent_applicability``; this lock therefore only rejects an
+        *explicit* contradiction (e.g. ``"not_applicable"`` passed alongside a
+        release decision). Skipped / failed / preview runs have no
+        ``release_decision`` substrate and are left unconstrained, exactly like
+        ``merge_verdict``.
         """
         if self.release_decision is None:
             return self

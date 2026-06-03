@@ -327,7 +327,6 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         release_decision={"decision": "blocked"},
         decision="blocked",
         merge_verdict="blocked",
-        applicability="verified",
         headline="This PR adds a refund action without approval evidence.",
         capability_review=build_capability_review(report),
         fix_task=VerifierFixTask(
@@ -377,7 +376,6 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
         release_decision={"decision": "review_required"},
         decision="review_required",
         merge_verdict="human_review_required",
-        applicability="verified",
         capability_review=build_capability_review(report),
         artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
     )
@@ -400,7 +398,6 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
         release_decision={"decision": "review_required"},
         decision="review_required",
         merge_verdict="human_review_required",
-        applicability="verified",
         headline="",
         capability_review=build_capability_review(report),
         artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
