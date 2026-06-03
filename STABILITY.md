@@ -608,6 +608,10 @@ consumer may read:
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate. Switch on the enum with
   an `unknown`/`human_review_required` fallback for unrecognized future values.
+- `applicability` — `"verified"` / `"not_applicable"` / `"unknown"`; whether
+  Shipgate evaluated the change. Disambiguates a `mergeable` verdict
+  (`"not_applicable"` means the head scan was skipped — *not* "verified safe").
+  Locked to `"verified"` whenever a `release_decision` is present.
 - `can_merge_without_human` — `bool`; whether the PR can merge without human
   review.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan
@@ -630,6 +634,15 @@ consumer may read:
   highest-signal capability deltas with `{id, title, impact, rationale,
   related_finding_ids}`. `impact` mirrors the gate; this block never introduces a
   finding-independent blocker.
+- `agent_controller` — imperative restatement of the verdict for autonomous
+  control (`null` for `--preview`): `{completion_allowed, must_stop, stop_reason,
+  allowed_next_commands[], forbidden_file_edits[], forbidden_actions[],
+  user_message_template}`. `completion_allowed` is locked to
+  `can_merge_without_human` (never a second verdict). `forbidden_file_edits[]` is
+  a standing deny-list of whole-file trust roots (CI gate, agent instructions,
+  policy packs), never an allow-list; it excludes `shipgate.yaml` /
+  `.agents-shipgate` (key-level, covered by `forbidden_actions[]`) and the tool
+  surface under review. Both forbidden lists are present on every verdict.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
 
 `verifier.json` also carries `trigger` (the run/skip evaluation), `base_status`,

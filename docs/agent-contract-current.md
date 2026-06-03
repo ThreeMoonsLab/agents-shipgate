@@ -111,6 +111,20 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   the listed mechanical fix and rerun `verification_command`; `actor: human`
   means the agent must not invent approval, idempotency, policy, waiver,
   baseline, or trust-root evidence to make the gate pass.
+- `agent_controller` (v0.11.0+) — `null` for `--preview`; otherwise the
+  imperative restatement of the verdict for autonomous control:
+  `{completion_allowed, must_stop, stop_reason, allowed_next_commands[],
+  forbidden_file_edits[], forbidden_actions[], user_message_template}`.
+  `completion_allowed` is locked to `can_merge_without_human` (never a second
+  verdict); `must_stop` is `true` only when the agent can neither finish nor
+  safely repair; `stop_reason` ∈ `{self_approval_prohibited, blocked_findings,
+  insufficient_evidence, human_review_required, scan_incomplete}`.
+  `forbidden_file_edits[]` is a standing deny-list of whole-file trust roots (CI
+  gate, agent instructions, policy packs) — **not** an allow-list — and
+  deliberately excludes `shipgate.yaml` / `.agents-shipgate` (key-level, covered
+  by `forbidden_actions[]`) and the tool surface under review. Both forbidden
+  lists are present on every verdict, including `mergeable`, so a passing run is
+  never read as "anything goes".
 - `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
   root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
   policy packs, prompts, baselines, waivers, etc.). Backed by the

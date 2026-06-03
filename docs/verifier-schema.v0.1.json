@@ -1,5 +1,75 @@
 {
   "$defs": {
+    "AgentController": {
+      "additionalProperties": false,
+      "description": "Imperative controller projection for an autonomous coding agent.\n\nA re-shaping of the verdict the agent already has \u2014 ``merge_verdict``,\n``can_merge_without_human``, ``fix_task``, ``capability_review`` \u2014 into the\nfour questions an agent must answer without human interpretation: may I claim\nthe task done (``completion_allowed``), must I stop for a human\n(``must_stop`` / ``stop_reason``), what may I run next\n(``allowed_next_commands``), and what must I never edit or do to get past the\ngate (``forbidden_file_edits`` / ``forbidden_actions``).\n\nIt introduces NO new decision: ``completion_allowed`` is locked to\n``can_merge_without_human`` by ``VerifierArtifact``, and every other field is\na deterministic projection of the head scan. ``forbidden_file_edits`` and\n``forbidden_actions`` are a STANDING negative affordance \u2014 present on every\nverdict, including ``mergeable`` \u2014 so a passing run never reads as \"anything\ngoes\".",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "forbidden_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Actions",
+          "type": "array"
+        },
+        "forbidden_file_edits": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden File Edits",
+          "type": "array"
+        },
+        "must_stop": {
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "self_approval_prohibited",
+                "blocked_findings",
+                "insufficient_evidence",
+                "human_review_required",
+                "scan_incomplete"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Reason"
+        },
+        "user_message_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Message Template"
+        }
+      },
+      "title": "AgentController",
+      "type": "object"
+    },
     "VerifierCapabilityChange": {
       "additionalProperties": false,
       "description": "One reviewer-facing capability change projected for verifier output.",
@@ -255,6 +325,17 @@
   "additionalProperties": false,
   "description": "JSON Schema for verifier.json. Generated from agents_shipgate.schemas.verifier.VerifierArtifact. Do not edit by hand.",
   "properties": {
+    "agent_controller": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentController"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "agent_summary": {
       "anyOf": [
         {
