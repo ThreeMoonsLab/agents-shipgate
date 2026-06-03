@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/attestation-schema.v0.1.json",
+  "title": "Agents Shipgate Release Attestation v0.1",
+  "description": "A deterministic, local release attestation derived from verifier.json by `agents-shipgate attest`. Records which capability shipped, under which verdict, acknowledged by whom. Carries no wall-clock timestamp; it is content-addressed by git SHAs and artifact hashes. It does not gate — release_decision.decision remains the only gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestation_schema_version",
+    "cli_version",
+    "source_verifier",
+    "redacted",
+    "base_ref",
+    "head_ref",
+    "base_tree_sha",
+    "mode",
+    "verdict",
+    "capability",
+    "human_ack",
+    "policy_snapshot_sha256",
+    "artifact_sha256"
+  ],
+  "properties": {
+    "attestation_schema_version": { "const": "0.1" },
+    "cli_version": { "type": "string" },
+    "source_verifier": { "type": "string", "description": "Path to the source verifier.json; reduced to a basename when redacted." },
+    "redacted": { "type": "boolean" },
+    "base_ref": { "type": ["string", "null"] },
+    "head_ref": { "type": ["string", "null"] },
+    "base_tree_sha": { "type": ["string", "null"], "description": "Tree SHA of the base ref Shipgate diffed against, when available." },
+    "mode": { "type": ["string", "null"], "description": "advisory / strict / skipped / preview." },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["merge_verdict", "decision", "applicability", "can_merge_without_human"],
+      "properties": {
+        "merge_verdict": { "type": ["string", "null"], "enum": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown", null] },
+        "decision": { "type": ["string", "null"], "enum": ["passed", "review_required", "insufficient_evidence", "blocked", null] },
+        "applicability": { "type": ["string", "null"], "enum": ["verified", "not_applicable", "unknown", null] },
+        "can_merge_without_human": { "type": "boolean" }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "modified", "removed", "trust_root_touched", "policy_weakened", "change_ids"],
+      "properties": {
+        "added": { "type": "integer", "minimum": 0 },
+        "modified": { "type": "integer", "minimum": 0 },
+        "removed": { "type": "integer", "minimum": 0 },
+        "trust_root_touched": { "type": "boolean" },
+        "policy_weakened": { "type": "boolean" },
+        "change_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "human_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "satisfied", "outstanding"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "satisfied": { "type": ["boolean", "null"], "description": "null when no report.json was available to confirm." },
+        "outstanding": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "policy_snapshot_sha256": { "type": ["string", "null"], "description": "sha256 of the canonical-JSON effective_policy block from report.json, or null when unavailable." },
+    "artifact_sha256": {
+      "type": "object",
+      "description": "sha256 of each verify artifact (keyed by artifact name) that sits beside verifier.json.",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    }
+  }
+}

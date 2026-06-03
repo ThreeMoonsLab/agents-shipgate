@@ -26,6 +26,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` alongside v0.21's `heuristics_filter` envelope)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
+- [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
 - [`privacy.md`](privacy.md) and [`report-sensitive-fields.json`](report-sensitive-fields.json) — redaction behavior and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
