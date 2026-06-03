@@ -414,6 +414,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
+- **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)** — copyable snippets for adding Shipgate trigger rules to downstream agent repos
