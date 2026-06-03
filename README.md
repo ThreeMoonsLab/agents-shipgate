@@ -260,6 +260,16 @@ The v1 launch channel is workspace sharing from the Codex app or this
 repo-backed marketplace. Public/OpenAI-curated listing remains an optional
 later platform submission.
 
+Early testers who installed the old `agents-shipgate-beta` marketplace should
+remove that marketplace and reinstall from `agents-shipgate`:
+
+```bash
+codex plugin remove agents-shipgate
+codex plugin marketplace remove agents-shipgate-beta
+codex plugin marketplace add ThreeMoonsLab/agents-shipgate
+codex plugin add agents-shipgate@agents-shipgate
+```
+
 ## Add the Codex adoption kit
 
 For OpenAI Codex repos, install both the native `AGENTS.md` trigger block and
