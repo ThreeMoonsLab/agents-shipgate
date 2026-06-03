@@ -21,16 +21,15 @@ Codex Skills under `.agents/skills/<name>/`.
 
 ## Install From Codex
 
-The beta plugin is distributed through this repository's Codex marketplace. In
-Codex, add or select the Agents Shipgate marketplace, install **Agents
-Shipgate**, start a new thread, and invoke:
+The v1 plugin is distributed through this repository's Codex marketplace and
+Codex workspace sharing. In Codex, add or select the Agents Shipgate
+marketplace, install **Agents Shipgate**, start a new thread, and invoke:
 
 ```text
 $agents-shipgate verify this agent PR and summarize the merge verdict.
 ```
 
-For local beta validation before public listing, add this repo as a marketplace
-source, then install from Codex's Plugins view:
+To add the repo-backed marketplace, use:
 
 ```bash
 codex plugin marketplace add ThreeMoonsLab/agents-shipgate
@@ -46,9 +45,9 @@ The plugin can also be shared from the Codex app after installation. Shared
 users install it from **Plugins** > **Shared with you**, then start a new
 thread before invoking `$agents-shipgate`.
 
-Before a public/OpenAI-curated listing, replace the beta `privacyPolicyURL` and
-`termsOfServiceURL` manifest values with dedicated policy and terms pages. The
-current repo URLs are beta placeholders to keep the local manifest valid.
+The plugin manifest points to dedicated privacy and terms pages in this repo.
+Public/OpenAI-curated listing, if pursued later, is a separate platform
+submission using the same skill-only package.
 
 ## Runtime CLI Prerequisite
 
