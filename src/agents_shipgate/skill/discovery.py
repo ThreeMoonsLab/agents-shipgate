@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 from pathlib import Path
 
 from agents_shipgate.core.errors import InputParseError
@@ -119,11 +120,16 @@ def _looks_like_instruction(path: Path) -> bool:
     if path.name in {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CODEX.md", ".cursorrules"}:
         return True
     parts = path.parts
-    return (
-        ".cursor" in parts
-        or ".github" in parts
-        and any(part in {"instructions", "prompts"} for part in parts)
-    )
+    if ".cursor" in parts:
+        cursor_index = parts.index(".cursor")
+        return len(parts) > cursor_index + 1 and parts[cursor_index + 1] == "rules"
+    if ".github" in parts:
+        github_index = parts.index(".github")
+        rest = parts[github_index + 1 :]
+        return rest == ("copilot-instructions.md",) or bool(
+            rest and rest[0] in {"instructions", "prompts"}
+        )
+    return False
 
 
 def _load_changed_files(path: Path) -> set[str]:
@@ -151,4 +157,15 @@ def _ignored(path: str, patterns: list[str]) -> bool:
 
 def _dedupe_artifacts(artifacts: list[SkillArtifact]) -> list[SkillArtifact]:
     by_path = {artifact.path: artifact for artifact in artifacts}
-    return [by_path[path] for path in sorted(by_path)]
+    seen_skill_content: set[str] = set()
+    out: list[SkillArtifact] = []
+    for path in sorted(by_path):
+        artifact = by_path[path]
+        if artifact.kind == "agent_skill":
+            digest = hashlib.sha256(artifact.raw_text.encode("utf-8")).hexdigest()
+            content_key = f"{artifact.name or ''}:{digest}"
+            if content_key in seen_skill_content:
+                continue
+            seen_skill_content.add(content_key)
+        out.append(artifact)
+    return out

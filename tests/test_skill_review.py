@@ -9,6 +9,8 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.skill.config import load_skill_review_config
 from agents_shipgate.skill.discovery import discover_skill_artifacts
+from agents_shipgate.skill.models import SkillArtifact
+from agents_shipgate.skill.rules_common import has_section, mutating_line
 from agents_shipgate.skill.runner import run_skill_review
 
 runner = CliRunner()
@@ -184,6 +186,172 @@ def test_skill_security_detects_static_risks_and_redacts_secrets(tmp_path: Path)
     assert "[REDACTED:" in payload
 
 
+def test_skill_security_does_not_treat_prose_as_destructive_commands(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        textwrap.dedent(
+            """
+            # Agent guide
+
+            When integrating the billing API, send a POST to /v1/charges to create a
+            charge, a PUT to update it, and a DELETE to remove it. Document each
+            release in the changelog.
+
+            Compare the README with https://threemoonslab.com/vs/promptfoo/.
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_skill_review(
+        command="security",
+        paths=[tmp_path],
+        output_dir=tmp_path / "out",
+        ci_mode="strict",
+    )
+
+    assert exit_code == 0
+    check_ids = {finding.check_id for finding in report.findings}
+    assert "SEC-SCRIPT-002" not in check_ids
+    assert "SEC-REMOTE-001" not in check_ids
+
+
+def test_mutating_line_requires_release_words_to_be_command_verbs() -> None:
+    assert mutating_line("agents-shipgate scan --policy-pack policies/org-release.yaml") is False
+    assert mutating_line("cat deploy.md") is False
+    assert mutating_line("cp release-notes.md docs/") is False
+
+    assert mutating_line("git push origin main") is True
+    assert mutating_line("npm publish") is True
+    assert mutating_line("cargo publish") is True
+    assert mutating_line("gh release create v1.2.3") is True
+    assert mutating_line("./scripts/deploy-prod.sh") is True
+    assert mutating_line("curl -X POST https://api.example.test/items") is True
+
+
+def test_markdown_scan_command_with_release_named_policy_is_not_destructive(
+    tmp_path: Path,
+) -> None:
+    _write_skill(
+        tmp_path,
+        "shipgate-scan",
+        description="Use when documenting a read-only Shipgate scan command for one policy pack.",
+        body="""
+        # Shipgate Scan
+        ## Procedure
+        1. Run the static scan command.
+        2. Read the JSON report.
+        ```bash
+        agents-shipgate scan --policy-pack policies/org-release.yaml --format json
+        ```
+        ## Output
+        Return the release decision.
+        ## Verification
+        Confirm the command stays read-only.
+        """,
+    )
+
+    report, exit_code = run_skill_review(
+        command="security",
+        paths=[tmp_path],
+        output_dir=tmp_path / "out",
+        ci_mode="strict",
+    )
+
+    assert exit_code == 0
+    assert "SEC-SCRIPT-002" not in {finding.check_id for finding in report.findings}
+
+
+def test_markdown_command_guardrail_comments_are_nearby_context(tmp_path: Path) -> None:
+    _write_skill(
+        tmp_path,
+        "guarded-markdown",
+        description="Use when documenting a guarded cleanup command for one fixture path.",
+        body="""
+        # Guarded Markdown
+        ## Procedure
+        1. Review the fenced cleanup example.
+        ```bash
+        # confirm before deleting the target path
+        rm -rf "$1"
+        ```
+        ## Output
+        Return command findings.
+        ## Verification
+        Confirm fence comments count as nearby guardrail context.
+        """,
+    )
+
+    report, exit_code = run_skill_review(
+        command="security",
+        paths=[tmp_path],
+        output_dir=tmp_path / "out",
+        ci_mode="strict",
+    )
+
+    assert exit_code == 0
+    assert "SEC-SCRIPT-002" not in {finding.check_id for finding in report.findings}
+
+
+def test_skill_security_uses_nearby_command_guardrails(tmp_path: Path) -> None:
+    skill_dir = tmp_path / ".agents" / "skills" / "cleanup"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        textwrap.dedent(
+            """
+            ---
+            name: cleanup
+            description: Use when reviewing local cleanup scripts for one test fixture directory.
+            ---
+            # Cleanup
+            ## Procedure
+            1. Inspect the cleanup script.
+            2. Report risky commands.
+            ## Output
+            Return command findings.
+            ## Verification
+            Confirm guardrails are adjacent to destructive commands.
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    scripts = skill_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "guarded.sh").write_text(
+        "#!/bin/sh\n# confirm before deleting the target path\nrm -rf \"$1\"\n",
+        encoding="utf-8",
+    )
+    (scripts / "unguarded.sh").write_text(
+        "#!/bin/sh\n# confirmation is required elsewhere in the workflow\n\n\n\n\nrm -rf \"$1\"\n",
+        encoding="utf-8",
+    )
+
+    report, _ = run_skill_review(
+        command="security",
+        paths=[tmp_path],
+        output_dir=tmp_path / "out",
+    )
+
+    destructive_findings = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SEC-SCRIPT-002"
+    ]
+    assert [finding.source.path for finding in destructive_findings] == [
+        ".agents/skills/cleanup/scripts/unguarded.sh"
+    ]
+
+
+def test_has_section_matches_qualified_heading_prefix() -> None:
+    artifact = SkillArtifact(
+        kind="agent_skill",
+        path="skills/agents-shipgate/SKILL.md",
+        root_dir="skills/agents-shipgate",
+        sections={"boundaries (do not violate)": 81},
+    )
+
+    assert has_section(artifact, {"boundaries"}) is True
+
+
 def test_skill_review_changed_files_scans_adjacent_skill_directory(tmp_path: Path) -> None:
     _write_skill(
         tmp_path,
@@ -230,6 +398,68 @@ def test_skill_review_accepts_relative_explicit_skill_directory(
     assert exit_code == 0
     assert [artifact.path for artifact in report.artifacts] == [
         ".agents/skills/relative/SKILL.md"
+    ]
+
+
+def test_skill_discovery_aligns_explicit_instruction_paths_with_defaults(tmp_path: Path) -> None:
+    (tmp_path / ".cursor" / "rules").mkdir(parents=True)
+    (tmp_path / ".cursor" / "rules" / "agent.md").write_text(
+        "# Cursor rule\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".cursor" / "notes").mkdir(parents=True)
+    (tmp_path / ".cursor" / "notes" / "draft.md").write_text(
+        "# Draft\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "copilot-instructions.md").write_text(
+        "# Copilot instructions\n",
+        encoding="utf-8",
+    )
+
+    config, _ = load_skill_review_config(None)
+    artifacts, _ = discover_skill_artifacts(
+        workspace=tmp_path,
+        config=config,
+        paths=[tmp_path],
+    )
+
+    paths = {artifact.path for artifact in artifacts}
+    assert ".cursor/rules/agent.md" in paths
+    assert ".github/copilot-instructions.md" in paths
+    assert ".cursor/notes/draft.md" not in paths
+
+
+def test_skill_discovery_dedupes_identical_skill_copies(tmp_path: Path) -> None:
+    content = textwrap.dedent(
+        """
+        ---
+        name: mirrored
+        description: Use when reviewing one mirrored skill copy across package layouts.
+        ---
+        # Mirrored
+        ## Procedure
+        1. Review the skill.
+        2. Report findings.
+        ## Output
+        Return findings.
+        ## Verification
+        Confirm the duplicate copy is not reported twice.
+        """
+    ).lstrip()
+    for path in (
+        tmp_path / ".agents" / "skills" / "mirrored" / "SKILL.md",
+        tmp_path / "skills" / "mirrored" / "SKILL.md",
+    ):
+        path.parent.mkdir(parents=True)
+        path.write_text(content, encoding="utf-8")
+
+    config, _ = load_skill_review_config(None)
+    artifacts, _ = discover_skill_artifacts(workspace=tmp_path, config=config)
+
+    assert [artifact.path for artifact in artifacts] == [
+        ".agents/skills/mirrored/SKILL.md"
     ]
 
 

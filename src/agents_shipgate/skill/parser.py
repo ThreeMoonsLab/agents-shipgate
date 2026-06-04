@@ -172,14 +172,25 @@ def _commands(text: str, source_path: Path, workspace: Path) -> list[CommandRef]
             block_lines.append(lines[index])
             index += 1
         if language.lower() in SHELL_LANGS:
-            for offset, command in enumerate(block_lines, start=start_line):
+            for index_in_block, command in enumerate(block_lines):
                 stripped = command.strip()
                 if stripped and not stripped.startswith("#"):
                     commands.append(
-                        CommandRef(command=stripped, line=offset, source_path=rel_path)
+                        CommandRef(
+                            command=stripped,
+                            line=start_line + index_in_block,
+                            source_path=rel_path,
+                            context=_command_context(block_lines, index_in_block),
+                        )
                     )
         index += 1
     return commands
+
+
+def _command_context(lines: list[str], index: int, *, radius: int = 3) -> str:
+    start = max(0, index - radius)
+    end = min(len(lines), index + radius + 1)
+    return "\n".join(lines[start:end])
 
 
 def _summaries(root: Path, workspace: Path, *, role: str) -> list[FileSummary]:

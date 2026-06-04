@@ -8,6 +8,7 @@ from agents_shipgate import __version__
 from agents_shipgate.cli._helpers import _parse_fail_on, _parse_formats
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.skill.models import SkillCommand
 from agents_shipgate.skill.runner import run_skill_review
 
 skill_app = typer.Typer(
@@ -140,7 +141,7 @@ def review(
 
 
 def _run(
-    command,
+    command: SkillCommand,
     *,
     paths: list[Path] | None,
     config: Path,

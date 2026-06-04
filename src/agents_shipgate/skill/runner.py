@@ -84,7 +84,7 @@ def run_skill_review(
         source_warnings=warnings,
     )
     out_dir = output_dir or workspace / "agents-shipgate-reports"
-    report.generated_reports = _write_reports(report, out_dir, formats or ["markdown", "json"])
+    _write_reports(report, out_dir, formats or ["markdown", "json"])
     exit_code = _exit_code(report, resolved_fail_on)
     return report, exit_code
 

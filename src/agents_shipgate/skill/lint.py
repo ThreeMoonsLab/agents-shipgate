@@ -156,7 +156,22 @@ def _body_rules(artifact: SkillArtifact) -> list[Finding]:
                 provenance_kind="keyword_heuristic",
             )
         )
-    if not has_section(artifact, {"output", "outputs", "deliverable", "result", "final response"}):
+    if not has_section(
+        artifact,
+        {
+            "output",
+            "outputs",
+            "deliverable",
+            "deliverables",
+            "result",
+            "results",
+            "final response",
+            "response",
+            "reporting",
+            "summary",
+            "fast paths",
+        },
+    ):
         findings.append(
             skill_finding(
                 artifact=artifact,
@@ -171,7 +186,23 @@ def _body_rules(artifact: SkillArtifact) -> list[Finding]:
                 provenance_kind="keyword_heuristic",
             )
         )
-    if not has_section(artifact, {"verification", "quality", "tests", "acceptance criteria"}):
+    if not has_section(
+        artifact,
+        {
+            "verification",
+            "quality",
+            "tests",
+            "checks",
+            "acceptance",
+            "acceptance criteria",
+            "quality gates",
+            "failure modes",
+            "boundaries",
+            "error handling",
+            "if something errors out",
+            "troubleshooting",
+        },
+    ):
         findings.append(
             skill_finding(
                 artifact=artifact,

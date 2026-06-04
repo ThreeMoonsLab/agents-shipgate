@@ -7,14 +7,49 @@ from agents_shipgate.schemas.common import SourceReference, parse_confidence, pa
 from agents_shipgate.schemas.report import Finding
 from agents_shipgate.skill.models import SkillArtifact, TextSegment
 
+COMMAND_PREFIX = r"^\s*(?:(?:sudo|command|time|noglob)\s+)*"
+
 MUTATING_PATTERNS = [
     re.compile(r"\brm\s+-[A-Za-z]*r[fA-Za-z]*\b"),
     re.compile(r"\bfind\b.+\s-delete\b"),
     re.compile(r"\bgit\s+(?:push|clean|reset\s+--hard)\b"),
     re.compile(r"\b(?:mv|cp|chmod|chown)\b.+\s(?:/|~|\.)"),
-    re.compile(r"\b(?:deploy|publish|release)\b", re.IGNORECASE),
-    re.compile(r"\b(?:POST|PUT|PATCH|DELETE)\b"),
-    re.compile(r"\brequests\.(?:post|put|patch|delete)\b"),
+    re.compile(r"\brequests\.(?:post|put|patch|delete)\b", re.IGNORECASE),
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:curl|xh|http)\b[^\n]*(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        COMMAND_PREFIX + r"(?:http|https|xh)\s+(?:POST|PUT|PATCH|DELETE)\b",
+        re.IGNORECASE,
+    ),
+]
+
+RELEASE_COMMAND_PATTERNS = [
+    re.compile(COMMAND_PREFIX + r"(?:npm|pnpm|bun|cargo|poetry)\s+publish\b", re.IGNORECASE),
+    re.compile(COMMAND_PREFIX + r"yarn\s+(?:npm\s+)?publish\b", re.IGNORECASE),
+    re.compile(COMMAND_PREFIX + r"twine\s+upload\b", re.IGNORECASE),
+    re.compile(COMMAND_PREFIX + r"gh\s+release\s+(?:create|delete|edit|upload)\b", re.IGNORECASE),
+    re.compile(
+        COMMAND_PREFIX + r"(?:npx\s+)?(?:semantic-release|release-it|np)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:make|just|task|npm|pnpm|yarn|bun)\s+(?:run\s+)?[\w:.-]*(?:deploy|release)[\w:.-]*\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:fly|vercel|netlify|wrangler|firebase|sls|serverless|sst|sam|pulumi|terraform|gcloud|aws|az|cap)\b"
+        + r"[^\n;|&]*\bdeploy\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        COMMAND_PREFIX + r"[\w./-]*(?:deploy|release)[\w./-]*(?:\.sh|\.bash)?(?:\s|$)",
+        re.IGNORECASE,
+    ),
 ]
 
 DRY_RUN_RE = re.compile(r"--dry-run|\bdry_run\b|\bdry-run\b", re.IGNORECASE)
@@ -60,7 +95,7 @@ def has_section(artifact: SkillArtifact, names: Iterable[str]) -> bool:
     for name in names:
         normalized.add(_norm(name))
     return any(
-        section == name or section.startswith(f"{name}:")
+        _section_matches(section, name)
         for section in artifact.sections
         for name in normalized
     )
@@ -81,7 +116,9 @@ def iter_lines(segment: TextSegment):
 
 
 def mutating_line(line: str) -> bool:
-    return any(pattern.search(line) for pattern in MUTATING_PATTERNS)
+    return any(pattern.search(line) for pattern in MUTATING_PATTERNS) or any(
+        pattern.search(line) for pattern in RELEASE_COMMAND_PATTERNS
+    )
 
 
 def has_dry_run(text: str) -> bool:
@@ -94,3 +131,9 @@ def has_confirmation(text: str) -> bool:
 
 def _norm(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _section_matches(section: str, name: str) -> bool:
+    if section == name:
+        return True
+    return bool(re.match(rf"^{re.escape(name)}(?:\b|[\s:([{{/.-])", section))

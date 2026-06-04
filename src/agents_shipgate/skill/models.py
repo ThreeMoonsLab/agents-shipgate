@@ -104,6 +104,7 @@ class CommandRef(BaseModel):
     command: str
     line: int
     source_path: str
+    context: str = ""
 
 
 class TextSegment(BaseModel):

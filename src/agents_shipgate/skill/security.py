@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from agents_shipgate.core.privacy import (
     LABELED_SECRET_PATTERN,
@@ -42,11 +44,9 @@ REMOTE_EXEC_RE = re.compile(
     r"\bpython\s+-c\b[^\n]+(?:requests|urllib)[^\n]+exec\s*\(",
     re.IGNORECASE,
 )
-REMOTE_INSTRUCTION_RE = re.compile(
-    r"\b(?:fetch|load|read|pull|download|curl|wget)\b[^\n]{0,120}https?://[^\s)]+[^\n]{0,80}\b(prompt|instruction|skill|system message|developer message)\b|"
-    r"https?://[^\s)]*(?:prompt|instruction|SKILL\.md|system-message)[^\s)]*",
-    re.IGNORECASE,
-)
+REMOTE_FETCH_RE = re.compile(r"\b(?:fetch|load|read|pull|download|curl|wget)\b", re.IGNORECASE)
+URL_RE = re.compile(r"https?://[^\s)>\]\"']+")
+REMOTE_INSTRUCTION_TOKENS = {"prompt", "prompts", "instruction", "instructions"}
 READ_ONLY_DESC_RE = re.compile(
     r"\b(read-only|only reads?|inspect|review|analy[sz]e|summari[sz]e|report)\b",
     re.IGNORECASE,
@@ -57,6 +57,14 @@ DATA_BOUNDARY_RE = re.compile(
 )
 UNTRUSTED_RE = re.compile(r"\b(untrusted|webpage|website|external document|user uploaded|remote content)\b", re.IGNORECASE)
 SHELL_TOOL_RE = re.compile(r"\b(bash|shell|sh|zsh|terminal)\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class CommandContext:
+    path: str
+    line: int
+    text: str
+    nearby_text: str
 
 
 def run_security_rules(
@@ -197,68 +205,67 @@ def _credential_rules(artifact: SkillArtifact) -> list[Finding]:
 
 def _script_security_rules(artifact: SkillArtifact) -> list[Finding]:
     findings: list[Finding] = []
-    for segment in artifact.text_segments():
-        for line_number, line in iter_lines(segment):
-            if REMOTE_SHELL_RE.search(line):
-                findings.append(
-                    skill_finding(
-                        artifact=artifact,
-                        check_id="SEC-SCRIPT-001",
-                        title="Remote content is piped to a shell or interpreter",
-                        severity="critical",
-                        category="skill_security",
-                        evidence={
-                            "source_path": segment.path,
-                            "line": line_number,
-                            "excerpt": excerpt(segment.text, line_number),
-                        },
-                        confidence="high",
-                        recommendation="Vendor the script or pin and verify remote content instead of piping it directly to an interpreter.",
-                        path=segment.path,
-                        line=line_number,
-                        provenance_kind="regex_heuristic",
-                    )
+    for command in _command_contexts(artifact):
+        if REMOTE_SHELL_RE.search(command.text):
+            findings.append(
+                skill_finding(
+                    artifact=artifact,
+                    check_id="SEC-SCRIPT-001",
+                    title="Remote content is piped to a shell or interpreter",
+                    severity="critical",
+                    category="skill_security",
+                    evidence={
+                        "source_path": command.path,
+                        "line": command.line,
+                        "excerpt": _command_excerpt(command.text),
+                    },
+                    confidence="high",
+                    recommendation="Vendor the script or pin and verify remote content instead of piping it directly to an interpreter.",
+                    path=command.path,
+                    line=command.line,
+                    provenance_kind="regex_heuristic",
                 )
-            if mutating_line(line) and not (has_dry_run(segment.text) or has_confirmation(segment.text)):
-                findings.append(
-                    skill_finding(
-                        artifact=artifact,
-                        check_id="SEC-SCRIPT-002",
-                        title="Destructive or stateful command lacks guardrails",
-                        severity="critical",
-                        category="skill_security",
-                        evidence={
-                            "source_path": segment.path,
-                            "line": line_number,
-                            "excerpt": excerpt(segment.text, line_number),
-                        },
-                        confidence="medium",
-                        recommendation="Add dry-run, confirmation, path validation, or remove destructive commands from the skill workflow.",
-                        path=segment.path,
-                        line=line_number,
-                        provenance_kind="regex_heuristic",
-                    )
+            )
+        if mutating_line(command.text) and not _has_nearby_guardrail(command):
+            findings.append(
+                skill_finding(
+                    artifact=artifact,
+                    check_id="SEC-SCRIPT-002",
+                    title="Destructive or stateful command lacks guardrails",
+                    severity="critical",
+                    category="skill_security",
+                    evidence={
+                        "source_path": command.path,
+                        "line": command.line,
+                        "excerpt": _command_excerpt(command.text),
+                    },
+                    confidence="medium",
+                    recommendation="Add dry-run, confirmation, path validation, or remove destructive commands from the skill workflow.",
+                    path=command.path,
+                    line=command.line,
+                    provenance_kind="regex_heuristic",
                 )
-            if REMOTE_EXEC_RE.search(line):
-                findings.append(
-                    skill_finding(
-                        artifact=artifact,
-                        check_id="SEC-REMOTE-002",
-                        title="Remote content is fetched and executed",
-                        severity="critical",
-                        category="skill_security",
-                        evidence={
-                            "source_path": segment.path,
-                            "line": line_number,
-                            "excerpt": excerpt(segment.text, line_number),
-                        },
-                        confidence="high",
-                        recommendation="Remove runtime remote-code execution or pin, verify, and sandbox the content explicitly.",
-                        path=segment.path,
-                        line=line_number,
-                        provenance_kind="regex_heuristic",
-                    )
+            )
+        if REMOTE_EXEC_RE.search(command.text):
+            findings.append(
+                skill_finding(
+                    artifact=artifact,
+                    check_id="SEC-REMOTE-002",
+                    title="Remote content is fetched and executed",
+                    severity="critical",
+                    category="skill_security",
+                    evidence={
+                        "source_path": command.path,
+                        "line": command.line,
+                        "excerpt": _command_excerpt(command.text),
+                    },
+                    confidence="high",
+                    recommendation="Remove runtime remote-code execution or pin, verify, and sandbox the content explicitly.",
+                    path=command.path,
+                    line=command.line,
+                    provenance_kind="regex_heuristic",
                 )
+            )
     return findings
 
 
@@ -292,7 +299,7 @@ def _remote_rules(artifact: SkillArtifact, config: SkillReviewConfig) -> list[Fi
     findings: list[Finding] = []
     for segment in artifact.text_segments():
         for line_number, line in iter_lines(segment):
-            if REMOTE_INSTRUCTION_RE.search(line):
+            if _remote_instruction_line(line):
                 findings.append(
                     skill_finding(
                         artifact=artifact,
@@ -313,6 +320,69 @@ def _remote_rules(artifact: SkillArtifact, config: SkillReviewConfig) -> list[Fi
                     )
                 )
     return findings
+
+
+def _command_contexts(artifact: SkillArtifact) -> list[CommandContext]:
+    contexts: list[CommandContext] = [
+        CommandContext(
+            path=command.source_path,
+            line=command.line,
+            text=command.command,
+            nearby_text=command.context or command.command,
+        )
+        for command in artifact.commands_in_markdown
+    ]
+    for script in artifact.scripts:
+        if not script.text:
+            continue
+        lines = script.text.splitlines()
+        for index, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            contexts.append(
+                CommandContext(
+                    path=script.path,
+                    line=index,
+                    text=line,
+                    nearby_text=_line_window(lines, index),
+                )
+            )
+    return contexts
+
+
+def _line_window(lines: list[str], line_number: int, *, radius: int = 3) -> str:
+    start = max(0, line_number - radius - 1)
+    end = min(len(lines), line_number + radius)
+    return "\n".join(lines[start:end])
+
+
+def _has_nearby_guardrail(command: CommandContext) -> bool:
+    return has_dry_run(command.nearby_text) or has_confirmation(command.nearby_text)
+
+
+def _command_excerpt(text: str, *, max_len: int = 180) -> str:
+    value = text.strip()
+    if len(value) <= max_len:
+        return value
+    return f"{value[:max_len]}..."
+
+
+def _remote_instruction_line(line: str) -> bool:
+    if not REMOTE_FETCH_RE.search(line):
+        return False
+    return any(_url_points_to_instruction(match.group(0)) for match in URL_RE.finditer(line))
+
+
+def _url_points_to_instruction(url: str) -> bool:
+    parsed = urlsplit(url)
+    path = parsed.path.lower()
+    if path.endswith("/skill.md") or path == "/skill.md":
+        return True
+    tokens = [token for token in re.split(r"[/._-]+", path) if token]
+    if any(token in REMOTE_INSTRUCTION_TOKENS for token in tokens):
+        return True
+    return "system" in tokens and "message" in tokens
 
 
 def _provenance_rules(artifact: SkillArtifact, config: SkillReviewConfig) -> list[Finding]:
