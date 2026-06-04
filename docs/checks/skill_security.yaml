@@ -1,0 +1,175 @@
+# Check catalog · category: skill_security
+#
+# Built-in deterministic skill security checks used by
+# `agents-shipgate skill security` and `agents-shipgate skill review`.
+checks:
+- id: SEC-FLOW-004
+  default_severity: medium
+  mvp_tier: core
+  description: Skill lacks data and instruction separation guidance.
+  rationale: Skills that combine untrusted content with outbound channels or
+    secret access need explicit guidance that untrusted content is data, not
+    agent instructions.
+  fires_when: A skill references untrusted content plus outbound or secret-access
+    behavior without data/instruction separation guidance.
+  evidence_fields:
+  - artifact_path
+  - untrusted_content
+  - outbound_or_secret_access
+  recommendation: Add guidance that untrusted content is data only and must not
+    supply agent instructions.
+- id: SEC-MISMATCH-001
+  default_severity: high
+  mvp_tier: core
+  description: Skill declares read-only behavior but bundled scripts mutate state.
+  rationale: Reviewers and agents rely on the skill description to understand the
+    behavior boundary before loading scripts and references.
+  fires_when: A skill description says it is read-only, analytical, or review-only
+    but a bundled script contains stateful or destructive behavior.
+  evidence_fields:
+  - artifact_path
+  - mutating_scripts
+  recommendation: Update the declared purpose to include state changes or remove
+    mutating script behavior.
+- id: SEC-PI-001
+  default_severity: critical
+  mvp_tier: core
+  description: Skill artifact contains instruction override language.
+  rationale: Skill and instruction artifacts are loaded into agent context and
+    must not tell agents to ignore higher-priority instructions.
+  fires_when: Skill, instruction, reference, asset, or script text matches
+    instruction-override language.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  - matched
+  recommendation: Remove instructions that tell agents to ignore, override, or
+    replace higher-priority instructions.
+- id: SEC-PI-003
+  default_severity: high
+  mvp_tier: core
+  description: Skill artifact tells the agent to hide behavior.
+  rationale: Instructions to conceal behavior from users, reviewers, or logs are
+    unsafe in agent behavior surfaces.
+  fires_when: Skill, instruction, reference, asset, or script text tells an agent
+    not to disclose or log behavior.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  - matched
+  recommendation: Remove instructions to hide behavior from users, reviewers, or
+    logs.
+- id: SEC-PROV-001
+  default_severity: high
+  mvp_tier: core
+  description: Third-party skill lacks provenance metadata.
+  rationale: Third-party skills are supply-chain artifacts and need source,
+    owner, version, and review metadata.
+  fires_when: A skill declares itself third-party but lacks
+    metadata.shipgate.source provenance.
+  evidence_fields:
+  - artifact_path
+  - third_party
+  recommendation: Add metadata.shipgate.source, source_ref, owner, and review
+    metadata for third-party skills.
+- id: SEC-REMOTE-001
+  default_severity: medium
+  mvp_tier: core
+  description: Skill fetches remote instruction content.
+  rationale: Mutable remote prompt or instruction content can change skill
+    behavior after review.
+  fires_when: A skill or bundled artifact fetches remote prompt, instruction, or
+    skill content at runtime.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  recommendation: Avoid fetching mutable remote instructions at runtime or
+    document source trust and pinning.
+- id: SEC-REMOTE-002
+  default_severity: critical
+  mvp_tier: core
+  description: Remote content is fetched and executed.
+  rationale: Runtime remote-code execution lets mutable external content change
+    the behavior of a skill after review.
+  fires_when: A skill artifact sources or executes content fetched from a remote
+    URL.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  recommendation: Remove runtime remote-code execution or pin, verify, and
+    sandbox the content explicitly.
+- id: SEC-SCRIPT-001
+  default_severity: critical
+  mvp_tier: core
+  description: Remote content is piped to a shell or interpreter.
+  rationale: Piping remote content to an interpreter executes mutable external
+    code in the agent environment.
+  fires_when: A script, instruction, or command block matches curl/wget piped to
+    shell or interpreter execution.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  recommendation: Vendor the script or pin and verify remote content instead of
+    piping it directly to an interpreter.
+- id: SEC-SCRIPT-002
+  default_severity: critical
+  mvp_tier: core
+  description: Destructive or stateful command lacks guardrails.
+  rationale: Skills that drive destructive commands need dry-run, confirmation,
+    or path validation before an agent can invoke them safely.
+  fires_when: A skill artifact contains destructive or stateful command patterns
+    without nearby dry-run or confirmation guidance.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  recommendation: Add dry-run, confirmation, path validation, or remove
+    destructive commands from the skill workflow.
+- id: SEC-SECRET-001
+  default_severity: critical
+  mvp_tier: core
+  description: Skill artifact contains a hardcoded secret-like value.
+  rationale: Secrets in skill artifacts can leak into prompts, reports, logs, or
+    agent execution environments.
+  fires_when: Skill, instruction, reference, asset, or script text matches known
+    token patterns or labeled secret values.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  - secret_kind
+  recommendation: Remove the secret from the skill artifact and rotate the exposed
+    credential.
+- id: SEC-SECRET-003
+  default_severity: high
+  mvp_tier: core
+  description: Skill artifact instructs credential or secret-file access.
+  rationale: Skills should not direct agents to inspect broad credential files or
+    environment secrets unless the workflow explicitly scopes and protects them.
+  fires_when: Skill, instruction, reference, asset, or script text references
+    credential files or secret-bearing environment variables.
+  evidence_fields:
+  - artifact_path
+  - source_path
+  - line
+  - credential_reference
+  recommendation: Remove broad credential-file access or replace it with explicit
+    placeholder-based credential guidance.
+- id: SEC-TOOL-001
+  default_severity: high
+  mvp_tier: core
+  description: Skill pre-approves shell or bash without justification.
+  rationale: Shell preapproval removes an important confirmation step before an
+    agent runs commands from a skill.
+  fires_when: SKILL.md frontmatter allows shell/bash-like tools without reviewed
+    script, sandbox, or justification language.
+  evidence_fields:
+  - artifact_path
+  - allowed_tools
+  recommendation: Remove shell/bash preapproval or add reviewed-script and
+    sandbox justification.
