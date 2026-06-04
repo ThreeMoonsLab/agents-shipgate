@@ -117,6 +117,11 @@ def build_agent_summary(
                 else "."
             )
         )
+        # The blocked release_decision.reason is always "{n} active findings
+        # block release." — exactly the blocker count this headline already
+        # leads with. Appending it just restates the count (and the headline's
+        # review-item clause is strictly more informative), so skip it.
+        append_reason = False
     elif verdict == "review_required":
         if needs_review > 0:
             head = f"{needs_review} finding(s) require human review"
