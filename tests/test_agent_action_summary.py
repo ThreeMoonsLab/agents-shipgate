@@ -414,6 +414,32 @@ def test_build_agent_summary_blocked_recommends_apply_when_auto_appliable():
     assert "apply-patches" in (summary.first_recommended_action.command or "")
 
 
+def test_build_agent_summary_blocked_headline_does_not_duplicate_count():
+    # Regression: the blocked release_decision.reason ("{n} active findings block
+    # release.") restates the blocker count the headline already leads with, so
+    # it must not be appended a second time.
+    blocker = _make_finding(
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        severity="critical",
+        agent_action="escalate_to_human",
+    )
+    summary = build_agent_summary(
+        findings=[blocker],
+        release_decision=_make_release_decision(
+            decision="blocked",
+            blockers=["SHIP-POLICY-APPROVAL-MISSING"],
+            reason="1 active finding blocks release.",
+        ),
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+    )
+    assert summary.verdict == "blocked"
+    assert "1 active finding(s) block release" in summary.headline
+    # The "release" phrase appears exactly once — the reason is not re-appended
+    # after the headline already states the blocker count.
+    assert summary.headline.count("release") == 1, summary.headline
+    assert "blocks release" not in summary.headline  # the reason's verb form
+
+
 def test_first_recommended_action_uses_actual_json_report_path():
     """When the scan wrote its JSON to a custom path (e.g. via
     ``scan --out custom-reports``), the recommended apply-patches
