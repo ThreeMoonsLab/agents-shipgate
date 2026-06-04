@@ -387,6 +387,7 @@ def _run_one_cell(
     # otherwise overlay templates would show up as "new" in the diff and
     # leak into trace-synthesis detection.
     pre_snap = snapshot(ws.root)
+    _persist_pre_manifest(artifacts_dir, ws.root)
 
     prompt_path = repo_root / "benchmark" / "prompts" / f"{cell.prompt}.txt"
     prompt_text = prompt_path.read_text(encoding="utf-8") if prompt_path.is_file() else ""
@@ -596,6 +597,18 @@ def _persist_fs_snapshots(
     (snap_dir / "post.json").write_text(
         json.dumps({"files": post_files}, indent=2), encoding="utf-8"
     )
+
+
+def _persist_pre_manifest(artifacts_dir: Path, workspace_root: Path) -> None:
+    """Capture the pre-run shipgate.yaml content so the scorer can distinguish an
+    agent-introduced suppression from one the operator pre-declared. Written to
+    ``artifacts_dir`` (not the redacted mirror), mirroring the post manifest,
+    which the scorer also reads un-redacted from the live workspace."""
+    src = workspace_root / "shipgate.yaml"
+    if src.is_file():
+        (artifacts_dir / "pre_shipgate.yaml").write_text(
+            src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
 
 
 def _load_fs_snapshots(
