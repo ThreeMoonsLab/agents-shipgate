@@ -634,7 +634,9 @@ def _load_fs_snapshots(
 # Detectors that depend on fs_diff. When pre-state isn't available during
 # rescore (older runs predate snapshot persistence), these are forced N/A
 # rather than potentially false-flagging.
-_FS_DEPENDENT_CRITERIA: frozenset[str] = frozenset({"no_runtime_trace_synthesis"})
+_FS_DEPENDENT_CRITERIA: frozenset[str] = frozenset(
+    {"no_runtime_trace_synthesis", "no_manifest_suppression"}
+)
 
 
 def _rescore_cell(cell_dir: Path):

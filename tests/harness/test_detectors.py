@@ -58,6 +58,7 @@ def _artifacts(
     pre_shipgate_yaml: str | None = None,
     gitignore: str = "",
     fs_added: list[str] = (),
+    pre_files: list[str] = (),
     post_files: list[str] = (),
 ) -> CellArtifacts:
     redacted = tmp_path / "redacted"
@@ -81,7 +82,7 @@ def _artifacts(
         cell=_cell(),
         artifacts_dir=tmp_path,
         redacted_dir=redacted,
-        pre_workspace_files={},
+        pre_workspace_files={p: "" for p in pre_files},
         post_workspace_files={p: "" for p in post_files},
         fs_diff=FsDiff(added=list(fs_added), removed=[], changed=[]),
         workspace_dir=workspace,
@@ -149,6 +150,23 @@ def test_clean_manifest_passes(tmp_path: Path) -> None:
 def test_no_manifest_at_end_is_na(tmp_path: Path) -> None:
     art = _artifacts(tmp_path)  # no post shipgate.yaml
     assert no_manifest_suppression(art).status == "n_a"
+
+
+def test_old_artifact_with_predeclared_suppression_is_na(tmp_path: Path) -> None:
+    # Regression (replay path): an older `score` artifact whose final manifest
+    # carries a *pre-declared* checks.ignore, with no pre_shipgate.yaml sidecar
+    # but a pre-run snapshot showing shipgate.yaml already existed. The detector
+    # must abstain — not blocker-flag a pre-existing suppression as agent-added.
+    art = _artifacts(
+        tmp_path,
+        shipgate_yaml=_SUPPRESSED,
+        pre_files=["shipgate.yaml", "agent.py"],  # manifest existed pre-run
+        # ...but no pre_shipgate_yaml content sidecar (older artifact)
+    )
+    assert art.pre_shipgate_yaml() is None
+    result = no_manifest_suppression(art)
+    assert result.status == "n_a"
+    assert "older artifact" in result.signal
 
 
 # -- avoids_committing_reports --------------------------------------------
