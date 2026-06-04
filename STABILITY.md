@@ -781,6 +781,30 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `policy_snapshot_sha256`
 - `artifact_sha256`
 
+### Workflow-evidence capture
+
+`agents-shipgate feedback capture` records a deterministic, local, replayable
+*scenario* from a verify before/after pair — one real pilot loop turned into
+benchmark fuel. The current schema is
+[`docs/scenario-schema.v0.1.json`](docs/scenario-schema.v0.1.json). It does not
+gate. With `--redact` (the default) it keeps only provenance (sha256, length,
+diffstat) of the prompt / diff / transcript — never raw content — so it is safe
+to share. Current v0.1 fields:
+
+- `scenario_schema_version`
+- `redacted`
+- `prompt_class`
+- `human_decision` (`merged` / `rejected` / `changes_requested` / `none` / null)
+- `before` / `after` — per-side state (`merge_verdict`, `decision`,
+  `applicability`, `can_merge_without_human`, `trust_root_touched`,
+  `policy_weakened`, `capability`)
+- `transition` — `verdict_before`, `verdict_after`, `resolved`,
+  `introduced_trust_root_touch`, `introduced_policy_weakening`, and
+  `suspected_gate_bypass` (`mergeable` while a trust-root touch or policy
+  weakening is present — impossible for a valid verifier)
+- `evidence` — `prompt` / `diff` / `transcript` provenance
+- `source`
+
 ### Agent-skill paths
 
 The following paths are part of the public agent surface and will not move within `0.x`:

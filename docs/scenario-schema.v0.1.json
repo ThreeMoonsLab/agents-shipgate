@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/scenario-schema.v0.1.json",
+  "title": "Agents Shipgate Workflow-Evidence Scenario v0.1",
+  "description": "A deterministic, local, replayable record of one real coding-agent pilot loop, captured by `agents-shipgate feedback capture` from a verify before/after pair. Feeds the benchmark flywheel; it does not gate. Redacted by default (provenance only — no raw prompt/diff/transcript content).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario_schema_version",
+    "redacted",
+    "prompt_class",
+    "human_decision",
+    "before",
+    "after",
+    "transition",
+    "evidence",
+    "source"
+  ],
+  "properties": {
+    "scenario_schema_version": { "const": "0.1" },
+    "redacted": { "type": "boolean" },
+    "prompt_class": { "type": ["string", "null"], "description": "Coarse task label, e.g. add_refund_tool." },
+    "human_decision": { "type": ["string", "null"], "enum": ["merged", "rejected", "changes_requested", "none", null] },
+    "before": { "$ref": "#/$defs/state" },
+    "after": { "oneOf": [{ "$ref": "#/$defs/state" }, { "type": "null" }] },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict_before",
+        "verdict_after",
+        "resolved",
+        "introduced_trust_root_touch",
+        "introduced_policy_weakening",
+        "suspected_gate_bypass"
+      ],
+      "properties": {
+        "verdict_before": { "type": ["string", "null"] },
+        "verdict_after": { "type": ["string", "null"] },
+        "resolved": { "type": "boolean", "description": "Was non-mergeable before and mergeable after." },
+        "introduced_trust_root_touch": { "type": "boolean", "description": "The repair touched a trust root that the before-state did not." },
+        "introduced_policy_weakening": { "type": "boolean", "description": "The repair weakened policy where the before-state did not." },
+        "suspected_gate_bypass": { "type": "boolean", "description": "`mergeable` while a trust-root touch or policy weakening is present — impossible for a valid verifier (the self-approval prohibition forces human review), so a likely bypass or hand-edited artifact. State-based: independent of whether the flag was newly introduced." }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "diff", "transcript"],
+      "properties": {
+        "prompt": { "$ref": "#/$defs/evidence_entry" },
+        "diff": { "$ref": "#/$defs/diff_entry" },
+        "transcript": { "$ref": "#/$defs/evidence_entry" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after"],
+      "properties": {
+        "before": { "type": "string" },
+        "after": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "merge_verdict",
+        "decision",
+        "applicability",
+        "can_merge_without_human",
+        "trust_root_touched",
+        "policy_weakened",
+        "capability"
+      ],
+      "properties": {
+        "merge_verdict": { "type": ["string", "null"] },
+        "decision": { "type": ["string", "null"] },
+        "applicability": { "type": ["string", "null"] },
+        "can_merge_without_human": { "type": "boolean" },
+        "trust_root_touched": { "type": "boolean" },
+        "policy_weakened": { "type": "boolean" },
+        "capability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["added", "modified", "removed"],
+          "properties": {
+            "added": { "type": "integer", "minimum": 0 },
+            "modified": { "type": "integer", "minimum": 0 },
+            "removed": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "evidence_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "sha256", "bytes", "text"],
+      "properties": {
+        "included": { "type": "boolean" },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the raw file bytes (matches sha256sum)." },
+        "bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Raw byte length of the file." },
+        "text": { "type": ["string", "null"], "description": "Best-effort UTF-8 decode of the raw bytes (errors replaced); null unless --no-redact. The sha256 is authoritative." }
+      }
+    },
+    "diff_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "sha256", "bytes", "text", "files", "insertions", "deletions"],
+      "properties": {
+        "included": { "type": "boolean" },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the raw diff bytes (matches sha256sum)." },
+        "bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Raw byte length of the diff." },
+        "text": { "type": ["string", "null"], "description": "Best-effort UTF-8 decode of the raw diff; null unless --no-redact." },
+        "files": { "type": ["integer", "null"], "minimum": 0 },
+        "insertions": { "type": ["integer", "null"], "minimum": 0 },
+        "deletions": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  }
+}
