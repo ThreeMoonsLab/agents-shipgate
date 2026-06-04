@@ -26,6 +26,7 @@ from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
+from agents_shipgate.cli.skill import skill_app
 from agents_shipgate.cli.trigger import trigger as _trigger_command
 from agents_shipgate.cli.verify import verify as _verify_command
 
@@ -119,6 +120,7 @@ _register_baseline.register(app)
 app.add_typer(fixture_app, name="fixture")
 app.add_typer(feedback_app, name="feedback")
 app.add_typer(scenario_app, name="scenario")
+app.add_typer(skill_app, name="skill")
 logger = logging.getLogger(__name__)
 
 

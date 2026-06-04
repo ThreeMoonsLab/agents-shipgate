@@ -1286,6 +1286,28 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
 | `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
 | `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
+| `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
+| `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
+| `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
+| `LINT-DESC-001` | high | A skill description is too vague to route reliably. |
+| `LINT-DESC-003` | medium | A skill description is overbroad and may false-trigger. |
+| `LINT-BODY-001` | medium | A skill body lacks a step-by-step procedure. |
+| `LINT-BODY-003` | medium | A skill body lacks an output contract. |
+| `LINT-BODY-004` | medium | A skill body lacks verification criteria. |
+| `LINT-SCRIPT-001` | medium | A skill script lacks documented `--help` usage. |
+| `LINT-SCRIPT-004` | medium | A stateful skill script lacks dry-run support. |
+| `SEC-PI-001` | critical | A skill artifact contains instruction override language. |
+| `SEC-PI-003` | high | A skill artifact tells the agent to hide behavior. |
+| `SEC-SECRET-001` | critical | A skill artifact contains a hardcoded secret-like value. |
+| `SEC-SECRET-003` | high | A skill artifact instructs credential or secret-file access. |
+| `SEC-SCRIPT-001` | critical | Remote content is piped to a shell or interpreter. |
+| `SEC-SCRIPT-002` | critical | A destructive or stateful command lacks guardrails. |
+| `SEC-REMOTE-001` | medium | A skill fetches remote instruction content. |
+| `SEC-REMOTE-002` | critical | Remote content is fetched and executed. |
+| `SEC-TOOL-001` | high | A skill pre-approves shell or bash without justification. |
+| `SEC-FLOW-004` | medium | A skill lacks data and instruction separation guidance. |
+| `SEC-PROV-001` | high | A third-party skill lacks provenance metadata. |
+| `SEC-MISMATCH-001` | high | A skill declares read-only behavior but bundled scripts mutate state. |
 | `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | An n8n tool surface uses runtime, unresolved, wildcard, or uninventoried custom exposure. |
 | `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` | high/medium | An n8n MCP Client Tool exposes `All` or `All Except` tools without an explicit inventory. |
 | `SHIP-N8N-AI-TOOL-METADATA-MISSING` | medium | An n8n AI-exposed tool lacks static description or parameter metadata. |
@@ -1667,6 +1689,116 @@ artifact documents the effective surface.
 A `skills/**/SKILL.md` file is missing parseable `name` or `description`
 frontmatter, or duplicates another skill name in the same plugin. Give every
 skill a unique routing name and clear description.
+
+### LINT-BODY-001
+
+A `SKILL.md` body lacks an ordered Procedure, Steps, or Workflow section. Add
+step-by-step instructions an agent can follow.
+
+### LINT-BODY-003
+
+A `SKILL.md` body does not define the expected output artifact, response shape,
+or completion criteria. Add an Output section.
+
+### LINT-BODY-004
+
+A `SKILL.md` body lacks verification or acceptance criteria. Add checks the
+agent can run or cite before reporting completion.
+
+### LINT-DESC-001
+
+A skill description is too short or generic to route reliably. Rewrite it with
+concrete trigger conditions and domain-specific nouns.
+
+### LINT-DESC-003
+
+A skill description is broad enough to false-trigger. Narrow it to the specific
+workflow, file type, or domain where the skill applies.
+
+### LINT-SCRIPT-001
+
+A bundled script lacks documented `--help` usage. Document safe invocation in
+`SKILL.md` and make usage discoverable without interaction.
+
+### LINT-SCRIPT-004
+
+A bundled script appears stateful or destructive but lacks dry-run support. Add
+`--dry-run` or document a non-mutating preview path.
+
+### LINT-SPEC-002
+
+`SKILL.md` frontmatter is not parseable YAML mapping data. Fix the frontmatter
+before relying on skill discovery.
+
+### LINT-SPEC-003
+
+`SKILL.md` is missing required `name` frontmatter. Add a stable routing name.
+
+### LINT-SPEC-004
+
+`SKILL.md` is missing required `description` frontmatter. Add a clear trigger
+description that tells agents when to load the skill.
+
+### SEC-FLOW-004
+
+A skill combines untrusted content with outbound or secret-access behavior but
+lacks instruction/data separation guidance. State that untrusted content is data
+and must not supply agent instructions.
+
+### SEC-MISMATCH-001
+
+A skill declares read-only or review-only behavior but bundled scripts mutate
+files or external state. Update the declared purpose or remove the mutation.
+
+### SEC-PI-001
+
+A skill or related artifact tells agents to ignore or override higher-priority
+instructions. Remove the instruction-override language.
+
+### SEC-PI-003
+
+A skill or related artifact tells agents to hide behavior from users, reviewers,
+or logs. Remove concealment instructions.
+
+### SEC-PROV-001
+
+A skill marked as third-party lacks `metadata.shipgate.source` provenance. Add
+source, source reference, owner, and review metadata.
+
+### SEC-REMOTE-001
+
+A skill fetches mutable remote prompt, instruction, or skill content at runtime.
+Avoid remote instruction fetch or document source trust and pinning.
+
+### SEC-REMOTE-002
+
+A skill sources or executes content fetched from a remote URL. Remove the
+runtime remote-code execution or pin, verify, and sandbox the content.
+
+### SEC-SCRIPT-001
+
+A skill artifact pipes remote content to a shell or interpreter. Vendor the
+script or verify pinned content instead of executing mutable remote bytes.
+
+### SEC-SCRIPT-002
+
+A skill artifact contains destructive or stateful command patterns without
+dry-run, confirmation, or path validation. Add guardrails or remove the command.
+
+### SEC-SECRET-001
+
+A skill artifact contains a hardcoded secret-like value. Remove it and rotate the
+exposed credential; reports redact the value by kind and location.
+
+### SEC-SECRET-003
+
+A skill artifact instructs agents to read broad credential files or secret-bearing
+environment variables. Replace with scoped placeholder guidance.
+
+### SEC-TOOL-001
+
+A skill pre-approves shell or bash-like tools without reviewed-script or sandbox
+justification. Remove preapproval or document the review boundary.
 
 ### SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
 

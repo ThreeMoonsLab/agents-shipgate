@@ -1,0 +1,130 @@
+# Check catalog · category: skill_lint
+#
+# Built-in deterministic skill lint checks used by
+# `agents-shipgate skill lint` and `agents-shipgate skill review`.
+checks:
+- id: LINT-BODY-001
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Skill body lacks a step-by-step procedure.
+  rationale: Agents need explicit operational steps to apply a skill consistently.
+  fires_when: A SKILL.md body lacks a Procedure, Steps, or Workflow section and
+    does not contain a numbered multi-step procedure.
+  evidence_fields:
+  - artifact_path
+  - sections
+  recommendation: Add a Procedure, Steps, or Workflow section with ordered actions
+    an agent can follow.
+- id: LINT-BODY-003
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Skill body lacks an output contract.
+  rationale: Without an output contract, agents and reviewers cannot tell what
+    artifact, response shape, or completion criteria the skill requires.
+  fires_when: A SKILL.md body lacks an Output, Deliverable, Result, or Final
+    Response section.
+  evidence_fields:
+  - artifact_path
+  - sections
+  recommendation: Add an Output section defining the expected artifact, response
+    shape, or completion criteria.
+- id: LINT-BODY-004
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Skill body lacks verification criteria.
+  rationale: Verification guidance lets an agent check whether the workflow was
+    applied correctly before reporting completion.
+  fires_when: A SKILL.md body lacks Verification, Quality, Tests, or Acceptance
+    Criteria guidance.
+  evidence_fields:
+  - artifact_path
+  - sections
+  recommendation: Add verification or acceptance criteria for successful skill
+    execution.
+- id: LINT-DESC-001
+  default_severity: high
+  mvp_tier: hygiene
+  description: Skill description is too vague to route reliably.
+  rationale: The skill description is the primary routing surface agents inspect
+    before loading the full skill body.
+  fires_when: A skill description is very short or contains generic assistant
+    language instead of concrete trigger conditions.
+  evidence_fields:
+  - artifact_path
+  - description_length
+  - generic_phrase
+  recommendation: Rewrite the description with concrete trigger conditions,
+    domain nouns, and when-to-use guidance.
+- id: LINT-DESC-003
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Skill description is overbroad and may false-trigger.
+  rationale: Broad skill descriptions can cause agents to load a skill for tasks
+    outside its intended behavior boundary.
+  fires_when: A skill description uses broad trigger terms or exceeds the
+    configured description length.
+  evidence_fields:
+  - artifact_path
+  - description_length
+  - overbroad_phrase
+  recommendation: Narrow the description to the specific workflow, files, or
+    domain where this skill should activate.
+- id: LINT-SCRIPT-001
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Skill script lacks documented --help usage.
+  rationale: Agent-invoked scripts need discoverable usage text so agents can run
+    them non-interactively and safely.
+  fires_when: A script is bundled with a skill but neither the script nor SKILL.md
+    documents a `--help` usage path.
+  evidence_fields:
+  - artifact_path
+  - script_path
+  recommendation: Document safe script invocation in SKILL.md and provide a
+    `--help` mode for agent users.
+- id: LINT-SCRIPT-004
+  default_severity: medium
+  mvp_tier: hygiene
+  description: Stateful skill script lacks dry-run support.
+  rationale: Scripts that mutate files or external state should expose a preview
+    path before agents perform the stateful action.
+  fires_when: A bundled script appears stateful or destructive and does not expose
+    dry-run support.
+  evidence_fields:
+  - artifact_path
+  - script_path
+  recommendation: Add `--dry-run` support or document a non-mutating preview
+    path before stateful script execution.
+- id: LINT-SPEC-002
+  default_severity: high
+  mvp_tier: hygiene
+  description: Skill has invalid YAML frontmatter.
+  rationale: Agents use SKILL.md frontmatter for discovery; malformed frontmatter
+    makes the routing surface ambiguous or unreadable.
+  fires_when: A SKILL.md frontmatter block cannot be parsed as a YAML mapping.
+  evidence_fields:
+  - artifact_path
+  - error
+  recommendation: Fix SKILL.md YAML frontmatter so it is a valid mapping.
+- id: LINT-SPEC-003
+  default_severity: high
+  mvp_tier: hygiene
+  description: Skill is missing required name frontmatter.
+  rationale: A stable skill name is required for discovery and unambiguous review.
+  fires_when: A SKILL.md frontmatter block lacks a non-empty `name` field.
+  evidence_fields:
+  - artifact_path
+  - missing_field
+  recommendation: Add a non-empty `name` field to SKILL.md frontmatter.
+- id: LINT-SPEC-004
+  default_severity: high
+  mvp_tier: hygiene
+  description: Skill is missing required description frontmatter.
+  rationale: A clear description tells agents when to select the skill before
+    loading the full body.
+  fires_when: A SKILL.md frontmatter block lacks a non-empty `description` field.
+  evidence_fields:
+  - artifact_path
+  - missing_field
+  recommendation: Add a clear `description` explaining exactly when agents should
+    use the skill.
