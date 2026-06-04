@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -210,4 +211,227 @@ def _fix_task_projection(value: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["build_feedback_payload", "feedback_app"]
+_HUMAN_DECISIONS = frozenset({"merged", "rejected", "changes_requested", "none"})
+
+
+@feedback_app.command("capture")
+def feedback_capture(
+    before: Path = typer.Option(
+        ...,
+        "--before",
+        help="verifier.json from before the repair (the initial verdict).",
+    ),
+    after: Path | None = typer.Option(
+        None,
+        "--after",
+        help="verifier.json after the repair, if a repair was attempted.",
+    ),
+    prompt_class: str | None = typer.Option(
+        None,
+        "--prompt-class",
+        help="Coarse label for the task, e.g. add_refund_tool.",
+    ),
+    prompt: Path | None = typer.Option(
+        None, "--prompt", help="Task prompt file (content only with --no-redact)."
+    ),
+    diff: Path | None = typer.Option(
+        None, "--diff", help="PR/repair diff (diffstat always; content only with --no-redact)."
+    ),
+    transcript: Path | None = typer.Option(
+        None,
+        "--transcript",
+        help="Agent transcript (opt-in; provenance only unless --no-redact).",
+    ),
+    human_decision: str | None = typer.Option(
+        None,
+        "--human-decision",
+        help="Declared human outcome: merged / rejected / changes_requested / none.",
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", help="Write the scenario artifact to this path."
+    ),
+    redact: bool = typer.Option(
+        True,
+        "--redact/--no-redact",
+        help="Provenance-only: omit raw prompt/diff/transcript content and reduce paths to filenames.",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the scenario JSON to stdout."
+    ),
+) -> None:
+    """Capture a replayable workflow-evidence scenario from a verify before/after pair.
+
+    Turns one real pilot PR into a labeled, deterministic record: the verdict
+    transition, a gate-integrity signal (did the repair *introduce* a trust-root
+    touch or policy weakening, and did the PR still become mergeable — which the
+    gate should have prevented?), the capability delta, and — opt-in,
+    redacted-by-default — the prompt / diff / transcript provenance. This feeds
+    the benchmark flywheel; it does not gate.
+    """
+    try:
+        before_payload = _load_verifier(before)
+        after_payload = _load_verifier(after) if after is not None else None
+    except InputParseError as exc:
+        typer.echo(f"Input parsing error: {exc}", err=True)
+        raise typer.Exit(3) from exc
+    if human_decision is not None and human_decision not in _HUMAN_DECISIONS:
+        typer.echo(
+            f"--human-decision must be one of {sorted(_HUMAN_DECISIONS)}", err=True
+        )
+        raise typer.Exit(2)
+    scenario = build_scenario_payload(
+        before_payload,
+        after_payload,
+        before_source=before,
+        after_source=after,
+        prompt_class=prompt_class,
+        prompt_path=prompt,
+        diff_path=diff,
+        transcript_path=transcript,
+        human_decision=human_decision,
+        redacted=redact,
+    )
+    rendered = json.dumps(scenario, indent=2, sort_keys=True) + "\n"
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered, encoding="utf-8")
+    if json_output or out is None:
+        typer.echo(rendered.rstrip())
+    else:
+        typer.echo(f"Wrote scenario to {out}")
+
+
+def build_scenario_payload(
+    before: dict[str, Any],
+    after: dict[str, Any] | None,
+    *,
+    before_source: Path,
+    after_source: Path | None,
+    prompt_class: str | None,
+    prompt_path: Path | None,
+    diff_path: Path | None,
+    transcript_path: Path | None,
+    human_decision: str | None,
+    redacted: bool,
+) -> dict[str, Any]:
+    """Project a verify before/after pair onto a deterministic scenario record.
+
+    Pure function of the two verifier projections plus optional evidence files.
+    No wall-clock fields, so re-deriving from the same inputs is byte-identical.
+    """
+    before_state = _verifier_state(before)
+    after_state = _verifier_state(after) if after is not None else None
+    return {
+        "scenario_schema_version": "0.1",
+        "redacted": redacted,
+        "prompt_class": prompt_class,
+        "human_decision": human_decision,
+        "before": before_state,
+        "after": after_state,
+        "transition": _transition(before_state, after_state),
+        "evidence": {
+            "prompt": _evidence_entry(prompt_path, redacted=redacted),
+            "diff": _evidence_entry(diff_path, redacted=redacted, diffstat=True),
+            "transcript": _evidence_entry(transcript_path, redacted=redacted),
+        },
+        "source": {
+            "before": _display_path(before_source, redacted=redacted),
+            "after": (
+                _display_path(after_source, redacted=redacted)
+                if after_source is not None
+                else None
+            ),
+        },
+    }
+
+
+def _verifier_state(verifier: dict[str, Any]) -> dict[str, Any]:
+    capability_review = _dict(verifier.get("capability_review"))
+    release_decision = _dict(verifier.get("release_decision"))
+    return {
+        "merge_verdict": verifier.get("merge_verdict"),
+        "decision": verifier.get("decision") or release_decision.get("decision"),
+        "applicability": verifier.get("applicability"),
+        "can_merge_without_human": bool(verifier.get("can_merge_without_human")),
+        "trust_root_touched": bool(capability_review.get("trust_root_touched")),
+        "policy_weakened": bool(capability_review.get("policy_weakened")),
+        "capability": {
+            "added": int(capability_review.get("added", 0) or 0),
+            "modified": int(capability_review.get("modified", 0) or 0),
+            "removed": int(capability_review.get("removed", 0) or 0),
+        },
+    }
+
+
+def _transition(
+    before: dict[str, Any], after: dict[str, Any] | None
+) -> dict[str, Any]:
+    verdict_before = before["merge_verdict"]
+    if after is None:
+        return {
+            "verdict_before": verdict_before,
+            "verdict_after": None,
+            "resolved": False,
+            "introduced_trust_root_touch": False,
+            "introduced_policy_weakening": False,
+            "suspected_gate_bypass": False,
+        }
+    verdict_after = after["merge_verdict"]
+    resolved = verdict_before != "mergeable" and verdict_after == "mergeable"
+    introduced_trust_root_touch = bool(after["trust_root_touched"]) and not bool(
+        before["trust_root_touched"]
+    )
+    introduced_policy_weakening = bool(after["policy_weakened"]) and not bool(
+        before["policy_weakened"]
+    )
+    # Gate-integrity alarm. The self-approval prohibition means a verify run that
+    # touches a trust root or weakens policy can never be `mergeable` — it routes
+    # to human review. So "became mergeable AND introduced a trust-root touch /
+    # policy weakening" is impossible if the gate held; if a captured after.json
+    # shows it, the gate was likely bypassed (e.g. committed with --no-verify) or
+    # the artifact was hand-edited. A high-signal case for the benchmark.
+    suspected_gate_bypass = resolved and (
+        introduced_trust_root_touch or introduced_policy_weakening
+    )
+    return {
+        "verdict_before": verdict_before,
+        "verdict_after": verdict_after,
+        "resolved": resolved,
+        "introduced_trust_root_touch": introduced_trust_root_touch,
+        "introduced_policy_weakening": introduced_policy_weakening,
+        "suspected_gate_bypass": suspected_gate_bypass,
+    }
+
+
+def _evidence_entry(
+    path: Path | None, *, redacted: bool, diffstat: bool = False
+) -> dict[str, Any]:
+    """Provenance for an optional evidence file. With ``--redact`` (default) the
+    raw ``text`` is omitted — only the sha256, length, and (for a diff) the
+    diffstat are kept, so the scenario is safe to share."""
+    entry: dict[str, Any] = {"included": False, "sha256": None, "chars": None, "text": None}
+    if diffstat:
+        entry.update({"files": None, "insertions": None, "deletions": None})
+    if path is None:
+        return entry
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return entry
+    entry["included"] = True
+    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    entry["chars"] = len(content)
+    entry["text"] = None if redacted else content
+    if diffstat:
+        lines = content.splitlines()
+        entry["files"] = sum(1 for line in lines if line.startswith("diff --git "))
+        entry["insertions"] = sum(
+            1 for line in lines if line.startswith("+") and not line.startswith("+++")
+        )
+        entry["deletions"] = sum(
+            1 for line in lines if line.startswith("-") and not line.startswith("---")
+        )
+    return entry
+
+
+__all__ = ["build_feedback_payload", "build_scenario_payload", "feedback_app"]

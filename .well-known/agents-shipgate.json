@@ -77,7 +77,8 @@
     "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json",
     "trigger": "agents-shipgate trigger --base origin/main --head HEAD --json",
     "feedback_export": "agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json",
-    "attest": "agents-shipgate attest --from agents-shipgate-reports/verifier.json --out agents-shipgate-reports/attestation.json"
+    "attest": "agents-shipgate attest --from agents-shipgate-reports/verifier.json --out agents-shipgate-reports/attestation.json",
+    "capture_scenario": "agents-shipgate feedback capture --before verifier-before.json --after verifier-after.json --redact --out scenario.json"
   },
   "fixture_run": "agents-shipgate fixture run ai_generated_refund_pr",
   "static_scan_fixture_run": "agents-shipgate fixture run support_refund_agent",
@@ -85,13 +86,14 @@
   "contract": "agents-shipgate contract --json",
   "contract_version": "1",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin", "n8n"],
-  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md", "feedback_json", "attestation_json"],
+  "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md", "feedback_json", "attestation_json", "scenario_json"],
   "artifacts": {
     "verifier": "agents-shipgate-reports/verifier.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "feedback": "shipgate-feedback.json",
-    "attestation": "agents-shipgate-reports/attestation.json"
+    "attestation": "agents-shipgate-reports/attestation.json",
+    "scenario": "scenario.json"
   },
   "gating_signal": "release_decision.decision",
   "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
@@ -132,6 +134,7 @@
     "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json",
     "feedback": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/feedback-schema.v0.1.json",
     "attestation": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.1.json",
+    "scenario": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",
     "checks_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
   },
   "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
