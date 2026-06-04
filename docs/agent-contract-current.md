@@ -18,6 +18,24 @@ agents-shipgate contract --json
 - Frozen-reference report schemas: [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
+## Two read entry points
+
+There are two correct "read first" paths; which one applies depends on who is
+reading. They are not two decisions — they are two entry points into the same
+one decision engine.
+
+- **PR / controller flow** — an autonomous coding agent deciding *continue,
+  repair, or stop*. Read `agents-shipgate-reports/verifier.json`: start with
+  `agent_controller`, then `merge_verdict` (see "In `verifier.json`, read these
+  additive fields" below). `.well-known/agents-shipgate.json` → `verifier_read_order`
+  is the machine-readable form.
+- **Gate / CI flow** — deciding pass/fail, or any raw `report.json` consumer.
+  Read `agents-shipgate-reports/report.json` → `release_decision.decision` (the
+  next section). `.well-known` → `gating_signal` names this signal.
+
+`merge_verdict` is a deterministic projection of `release_decision.decision`, so
+the two can never disagree.
+
 ## Read these first for release gating
 
 In `agents-shipgate-reports/report.json`:

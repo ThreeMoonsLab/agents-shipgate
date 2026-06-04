@@ -8,6 +8,8 @@ A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in t
 
 ## TL;DR
 
+**This primer is the `report.json` / CI-gate read path.** If you are a PR/controller consumer — an autonomous coding agent deciding *continue, repair, or stop* — read `agents-shipgate-reports/verifier.json` first (`agent_controller`, then `merge_verdict`, a deterministic projection of the gate). See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
+
 **Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "insufficient_evidence" | "passed"`, baseline-aware, stable since v0.8 (`insufficient_evidence` added v0.14). Switch on the enum with a `review_required` fallback for unknown future values per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release). Everything else in the report is detail you reach for *after* the gate decision is captured.
 
 ```python
