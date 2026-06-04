@@ -910,10 +910,11 @@ reading. They are not two decisions — they are two entry points into the same
 one decision engine.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
-  repair, or stop*. Read `agents-shipgate-reports/verifier.json`: start with
-  `agent_controller`, then `merge_verdict` (see "In `verifier.json`, read these
-  additive fields" below). `.well-known/agents-shipgate.json` → `verifier_read_order`
-  is the machine-readable form.
+  repair, or stop*. Read `agents-shipgate-reports/verifier.json`: lead with
+  `merge_verdict`, then read `agent_controller` for the imperative controls (see
+  "In `verifier.json`, read these additive fields" below).
+  `.well-known/agents-shipgate.json` → `verifier_read_order` is the
+  machine-readable form of this order.
 - **Gate / CI flow** — deciding pass/fail, or any raw `report.json` consumer.
   Read `agents-shipgate-reports/report.json` → `release_decision.decision` (the
   next section). `.well-known` → `gating_signal` names this signal.
