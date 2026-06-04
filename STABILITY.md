@@ -758,6 +758,29 @@ from verifier projections and does not include raw finding evidence. With
 `--redact` (the default), local artifact paths are reduced to filenames so the
 artifact does not leak usernames or confidential workspace directory names.
 
+### Attestation
+
+`agents-shipgate attest` derives a deterministic, local attestation from
+`agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
+when present). The current schema is
+[`docs/attestation-schema.v0.1.json`](docs/attestation-schema.v0.1.json). It
+records the verdict, the capability delta, the declared `human_ack` state, a
+policy-snapshot hash, and content hashes of the verify artifacts. It carries no
+wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
+so re-deriving from the same inputs is byte-identical. It does not gate;
+`release_decision.decision` remains the only gate. Current v0.1 fields:
+
+- `attestation_schema_version`
+- `cli_version`
+- `source_verifier`
+- `redacted`
+- `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
+- `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
+- `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
+- `human_ack` (`required`, `satisfied`, `outstanding`)
+- `policy_snapshot_sha256`
+- `artifact_sha256`
+
 ### Agent-skill paths
 
 The following paths are part of the public agent surface and will not move within `0.x`:

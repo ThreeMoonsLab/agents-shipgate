@@ -243,6 +243,7 @@ class VerifierArtifact(BaseModel):
     trigger: dict[str, Any] = Field(default_factory=dict)
     base_status: VerifierBaseStatus = "not_requested"
     base_tree_sha: str | None = None
+    head_tree_sha: str | None = None
     base_report_json: str | None = None
     base_notes: list[str] = Field(default_factory=list)
     head_status: VerifierHeadStatus = "skipped"

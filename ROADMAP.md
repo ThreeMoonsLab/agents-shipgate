@@ -46,11 +46,13 @@ into replayable evidence. Active themes, in priority order:
    pre-flight, so an agent learns what it must not touch without first tripping
    the gate.
 
-4. **Local attestation.** A JSON-first, local attestation per verdict —
-   base/head SHA, changed capability IDs, policy-snapshot hash, CLI version,
-   verdict, `human_ack` / waiver / baseline state, and artifact hashes — as the
-   durable record of *which* capability was released, under *which* verdict,
-   acknowledged by *whom*.
+4. **Local attestation.** *(First cut shipped — `agents-shipgate attest`.)* A
+   deterministic, JSON-first, local attestation per verdict — base/head SHA,
+   changed capability IDs, policy-snapshot hash, CLI version, verdict,
+   `human_ack` state, and artifact hashes — as the durable record of *which*
+   capability was released, under *which* verdict, acknowledged by *whom*.
+   Remaining: explicit waiver/baseline state and a cross-repo capability
+   registry that consumes these attestations.
 
 5. **Source-provenance enrichment (incremental).** Thread origin (file path,
    line index for JSONL, list index for arrays) through finding evidence to

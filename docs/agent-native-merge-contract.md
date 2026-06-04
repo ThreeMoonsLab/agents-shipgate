@@ -127,12 +127,17 @@ protected* — never a new way to decide.
 
 - **Guarantee:** an agent-capability release leaves an attestation, not a
   memory: which capability shipped, under which verdict, acknowledged by whom.
-- **Status: planned.** The *inputs* already exist in `verifier.json` /
-  `report.json` (base/head SHAs, the verdict, `human_ack`, the artifact
-  references). A dedicated, local, JSON-first attestation artifact is the next
-  build — see [`../ROADMAP.md`](../ROADMAP.md).
-- **Will prevent:** "we think a human approved that refund tool last quarter"
-  with no record to point at.
+- **Implements it:** `agents-shipgate attest` derives a deterministic, local,
+  JSON-first attestation from `verifier.json` (+ the sibling `report.json`) —
+  base/head SHAs, the verdict, the capability delta, declared `human_ack` state,
+  a policy-snapshot hash, and content hashes of every verify artifact. It is
+  content-addressed (no wall-clock timestamp) and does not gate. Schema:
+  [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json).
+- **Agent reads:** the attestation is a durable record for humans and
+  registries, not a control signal — the agent still acts on `agent_controller`
+  (contracts 3–5).
+- **Prevents:** "we think a human approved that refund tool last quarter" with
+  no record to point at.
 
 ## The agent control loop
 

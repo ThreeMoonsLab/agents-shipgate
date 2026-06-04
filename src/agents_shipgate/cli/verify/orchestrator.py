@@ -236,11 +236,13 @@ def run_verify(
     head_tmp: tempfile.TemporaryDirectory[str] | None = None
     head_config_path = config_path
     head_policy_pack_paths = policy_pack_paths
+    head_tree: str | None = None
     try:
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
             archive_tree(git_root, head, head_tree_dir)
+            head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
             if not head_config_path.is_file():
                 raise ConfigError(
@@ -304,6 +306,7 @@ def run_verify(
             trigger=trigger,
             base_status=base_status,
             base_tree=base_tree,
+            head_tree=head_tree,
             base_report=base_report,
             base_notes=base_notes,
             report=report,
@@ -710,6 +713,7 @@ def _build_verifier(
     trigger: dict[str, Any],
     base_status: VerifierBaseStatus,
     base_tree: str | None,
+    head_tree: str | None = None,
     base_report: Path | None,
     base_notes: list[str],
     report: ReadinessReport | None,
@@ -783,6 +787,7 @@ def _build_verifier(
         trigger=trigger,
         base_status=base_status,
         base_tree_sha=base_tree,
+        head_tree_sha=head_tree,
         base_report_json=(
             _display_path(base_report, git_root) if base_report is not None else None
         ),

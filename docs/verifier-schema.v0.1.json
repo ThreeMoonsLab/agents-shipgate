@@ -515,6 +515,18 @@
       "title": "Head Status",
       "type": "string"
     },
+    "head_tree_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Tree Sha"
+    },
     "headline": {
       "anyOf": [
         {

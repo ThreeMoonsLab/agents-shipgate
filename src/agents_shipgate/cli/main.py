@@ -15,6 +15,7 @@ from agents_shipgate.cli import (
     _register_scan,
 )
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
+from agents_shipgate.cli.attest import _attest_command
 from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
@@ -94,6 +95,13 @@ app.command(
         "base scan, and one authoritative head scan."
     ),
 )(_verify_command)
+app.command(
+    "attest",
+    help=(
+        "Derive a deterministic local release attestation from verifier.json "
+        "(verdict, capability delta, human-ack state, policy + artifact hashes)."
+    ),
+)(_attest_command)
 app.command(
     "install-hooks",
     help=(
