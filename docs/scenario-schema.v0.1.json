@@ -98,23 +98,23 @@
     "evidence_entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["included", "sha256", "chars", "text"],
+      "required": ["included", "sha256", "bytes", "text"],
       "properties": {
         "included": { "type": "boolean" },
-        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-        "chars": { "type": ["integer", "null"], "minimum": 0 },
-        "text": { "type": ["string", "null"], "description": "Raw content; null unless --no-redact." }
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the raw file bytes (matches sha256sum)." },
+        "bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Raw byte length of the file." },
+        "text": { "type": ["string", "null"], "description": "Best-effort UTF-8 decode of the raw bytes (errors replaced); null unless --no-redact. The sha256 is authoritative." }
       }
     },
     "diff_entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["included", "sha256", "chars", "text", "files", "insertions", "deletions"],
+      "required": ["included", "sha256", "bytes", "text", "files", "insertions", "deletions"],
       "properties": {
         "included": { "type": "boolean" },
-        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-        "chars": { "type": ["integer", "null"], "minimum": 0 },
-        "text": { "type": ["string", "null"], "description": "Raw diff; null unless --no-redact." },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the raw diff bytes (matches sha256sum)." },
+        "bytes": { "type": ["integer", "null"], "minimum": 0, "description": "Raw byte length of the diff." },
+        "text": { "type": ["string", "null"], "description": "Best-effort UTF-8 decode of the raw diff; null unless --no-redact." },
         "files": { "type": ["integer", "null"], "minimum": 0 },
         "insertions": { "type": ["integer", "null"], "minimum": 0 },
         "deletions": { "type": ["integer", "null"], "minimum": 0 }

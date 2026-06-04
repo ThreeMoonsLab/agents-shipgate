@@ -133,7 +133,7 @@ def test_evidence_provenance_and_redaction(tmp_path: Path) -> None:
     p = redacted["evidence"]["prompt"]
     assert p["included"] is True
     assert p["sha256"] == hashlib.sha256(b"add a refund tool").hexdigest()
-    assert p["chars"] == len("add a refund tool")
+    assert p["bytes"] == len(b"add a refund tool")
     assert p["text"] is None  # redacted: no raw content
     d = redacted["evidence"]["diff"]
     assert d["files"] == 1 and d["insertions"] == 1 and d["deletions"] == 1
@@ -150,9 +150,35 @@ def test_absent_evidence_is_marked_not_included() -> None:
     assert scen["evidence"]["transcript"] == {
         "included": False,
         "sha256": None,
-        "chars": None,
+        "bytes": None,
         "text": None,
     }
+
+
+def test_evidence_hash_is_raw_bytes_not_newline_normalized(tmp_path: Path) -> None:
+    # The hash must be over the raw file bytes — CRLF must not be normalized to
+    # LF before hashing, or the sha won't match sha256sum and isn't replayable.
+    raw = b"a\r\nb\r\n"
+    f = tmp_path / "crlf.txt"
+    f.write_bytes(raw)
+    scen = _capture(_verifier("blocked"), None, prompt_path=f, redacted=False)
+    p = scen["evidence"]["prompt"]
+    assert p["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert p["bytes"] == len(raw)
+    assert p["text"] == "a\r\nb\r\n"  # CRLF preserved in the embedded text
+
+
+def test_non_utf8_evidence_does_not_crash(tmp_path: Path) -> None:
+    # Non-UTF-8 evidence must hash by raw bytes and not raise; the byte-exact
+    # sha256 is the source of truth, the decoded text is best-effort.
+    raw = b"\xff\xfe\x00 not utf-8"
+    f = tmp_path / "bin.dat"
+    f.write_bytes(raw)
+    scen = _capture(_verifier("blocked"), None, transcript_path=f, redacted=True)
+    t = scen["evidence"]["transcript"]
+    assert t["included"] is True
+    assert t["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert t["bytes"] == len(raw)
 
 
 def test_scenario_is_deterministic() -> None:

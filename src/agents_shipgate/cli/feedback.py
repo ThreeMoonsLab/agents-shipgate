@@ -424,24 +424,30 @@ def _transition(
 def _evidence_entry(
     path: Path | None, *, redacted: bool, diffstat: bool = False
 ) -> dict[str, Any]:
-    """Provenance for an optional evidence file. With ``--redact`` (default) the
-    raw ``text`` is omitted — only the sha256, length, and (for a diff) the
-    diffstat are kept, so the scenario is safe to share."""
-    entry: dict[str, Any] = {"included": False, "sha256": None, "chars": None, "text": None}
+    """Provenance for an optional evidence file.
+
+    The ``sha256`` is over the **raw file bytes** (so it matches ``sha256sum``
+    and stays replayable) and ``bytes`` is the raw byte length. The decoded view
+    is computed separately and only where needed — ``text`` (omitted under
+    ``--redact``) and the diffstat — with ``errors="replace"`` so non-UTF-8
+    evidence never crashes; the byte-exact hash remains the source of truth, and
+    universal-newline normalization can never alter what is hashed."""
+    entry: dict[str, Any] = {"included": False, "sha256": None, "bytes": None, "text": None}
     if diffstat:
         entry.update({"files": None, "insertions": None, "deletions": None})
     if path is None:
         return entry
     try:
-        content = path.read_text(encoding="utf-8")
+        data = path.read_bytes()
     except OSError:
         return entry
     entry["included"] = True
-    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    entry["chars"] = len(content)
-    entry["text"] = None if redacted else content
+    entry["sha256"] = hashlib.sha256(data).hexdigest()
+    entry["bytes"] = len(data)
+    text = data.decode("utf-8", errors="replace")
+    entry["text"] = None if redacted else text
     if diffstat:
-        lines = content.splitlines()
+        lines = text.splitlines()
         entry["files"] = sum(1 for line in lines if line.startswith("diff --git "))
         entry["insertions"] = sum(
             1 for line in lines if line.startswith("+") and not line.startswith("+++")
