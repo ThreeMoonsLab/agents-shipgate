@@ -262,9 +262,9 @@ def feedback_capture(
     """Capture a replayable workflow-evidence scenario from a verify before/after pair.
 
     Turns one real pilot PR into a labeled, deterministic record: the verdict
-    transition, a gate-integrity signal (did the repair *introduce* a trust-root
-    touch or policy weakening, and did the PR still become mergeable — which the
-    gate should have prevented?), the capability delta, and — opt-in,
+    transition, a gate-integrity signal (is the PR `mergeable` while a trust-root
+    touch or policy weakening is present — which a valid verifier never emits?),
+    the capability delta, and — opt-in,
     redacted-by-default — the prompt / diff / transcript provenance. This feeds
     the benchmark flywheel; it does not gate.
     """
@@ -279,6 +279,21 @@ def feedback_capture(
             f"--human-decision must be one of {sorted(_HUMAN_DECISIONS)}", err=True
         )
         raise typer.Exit(2)
+    # An explicitly provided evidence path that cannot be read is a user error,
+    # not "no evidence" — failing loud avoids a silently incomplete benchmark
+    # artifact (an unreadable --prompt must not become `included: false`).
+    for flag, evidence_path in (
+        ("--prompt", prompt),
+        ("--diff", diff),
+        ("--transcript", transcript),
+    ):
+        if evidence_path is not None and not evidence_path.is_file():
+            typer.echo(
+                f"Input parsing error: {flag} file not found or unreadable: "
+                f"{evidence_path}",
+                err=True,
+            )
+            raise typer.Exit(3)
     scenario = build_scenario_payload(
         before_payload,
         after_payload,
@@ -384,14 +399,17 @@ def _transition(
     introduced_policy_weakening = bool(after["policy_weakened"]) and not bool(
         before["policy_weakened"]
     )
-    # Gate-integrity alarm. The self-approval prohibition means a verify run that
-    # touches a trust root or weakens policy can never be `mergeable` — it routes
-    # to human review. So "became mergeable AND introduced a trust-root touch /
-    # policy weakening" is impossible if the gate held; if a captured after.json
-    # shows it, the gate was likely bypassed (e.g. committed with --no-verify) or
-    # the artifact was hand-edited. A high-signal case for the benchmark.
-    suspected_gate_bypass = resolved and (
-        introduced_trust_root_touch or introduced_policy_weakening
+    # Gate-integrity alarm — STATE-BASED, not delta-based. The self-approval
+    # prohibition means a verify run that touches a trust root or weakens policy
+    # can never be `mergeable`; it routes to human review. So an `after` that is
+    # `mergeable` while *either* flag is set is internally inconsistent — the gate
+    # was bypassed (e.g. committed with --no-verify) or the artifact was
+    # hand-edited. It does not matter whether the flag was newly introduced: a
+    # pre-existing flag that survives into a `mergeable` verdict is just as
+    # impossible. (Keying this on `introduced_*` would miss the case where the
+    # flag is true in both before and after.)
+    suspected_gate_bypass = verdict_after == "mergeable" and (
+        bool(after["trust_root_touched"]) or bool(after["policy_weakened"])
     )
     return {
         "verdict_before": verdict_before,

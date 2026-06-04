@@ -103,13 +103,16 @@ def test_introduced_weakening_without_reaching_mergeable_is_not_a_bypass() -> No
     assert t["suspected_gate_bypass"] is False
 
 
-def test_pre_existing_weakening_is_not_counted_as_introduced() -> None:
-    # Weakening present in BOTH before and after was not introduced by the repair.
+def test_mergeable_with_weakening_is_a_bypass_even_if_pre_existing() -> None:
+    # State-based invariant: `mergeable` with a trust-root touch is impossible for
+    # a valid verifier, regardless of whether the flag was newly introduced. The
+    # earlier "introduced-delta" framing missed this (the flag survived from
+    # before into a mergeable after), so the bypass is keyed on the after-state.
     before = _verifier("human_review_required", trust_root_touched=True)
     after = _verifier("mergeable", trust_root_touched=True)
     scen = _capture(before, after)
-    assert scen["transition"]["introduced_trust_root_touch"] is False
-    assert scen["transition"]["suspected_gate_bypass"] is False
+    assert scen["transition"]["introduced_trust_root_touch"] is False  # pre-existing
+    assert scen["transition"]["suspected_gate_bypass"] is True  # but still a bypass
 
 
 # --- evidence provenance + redaction ----------------------------------------
@@ -208,3 +211,22 @@ def test_capture_cli_missing_before_returns_3(tmp_path: Path) -> None:
     )
     assert result.exit_code == 3
     assert "not found" in result.output
+
+
+def test_capture_cli_unreadable_evidence_returns_3(tmp_path: Path) -> None:
+    # An explicitly provided --prompt/--diff/--transcript that can't be read must
+    # fail loud, not silently record included=false (a silently incomplete
+    # benchmark artifact).
+    (tmp_path / "before.json").write_text(
+        json.dumps(_verifier("blocked")), encoding="utf-8"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "feedback", "capture",
+            "--before", str(tmp_path / "before.json"),
+            "--prompt", str(tmp_path / "typo.txt"),
+        ],
+    )
+    assert result.exit_code == 3
+    assert "--prompt file not found" in result.output

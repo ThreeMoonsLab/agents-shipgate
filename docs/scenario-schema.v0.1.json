@@ -40,7 +40,7 @@
         "resolved": { "type": "boolean", "description": "Was non-mergeable before and mergeable after." },
         "introduced_trust_root_touch": { "type": "boolean", "description": "The repair touched a trust root that the before-state did not." },
         "introduced_policy_weakening": { "type": "boolean", "description": "The repair weakened policy where the before-state did not." },
-        "suspected_gate_bypass": { "type": "boolean", "description": "Became mergeable while introducing a trust-root touch or policy weakening — impossible if the gate held, so a likely bypass or hand-edited artifact." }
+        "suspected_gate_bypass": { "type": "boolean", "description": "`mergeable` while a trust-root touch or policy weakening is present — impossible for a valid verifier (the self-approval prohibition forces human review), so a likely bypass or hand-edited artifact. State-based: independent of whether the flag was newly introduced." }
       }
     },
     "evidence": {

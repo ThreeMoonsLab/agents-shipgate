@@ -800,8 +800,8 @@ to share. Current v0.1 fields:
   `policy_weakened`, `capability`)
 - `transition` — `verdict_before`, `verdict_after`, `resolved`,
   `introduced_trust_root_touch`, `introduced_policy_weakening`, and
-  `suspected_gate_bypass` (became mergeable while introducing a trust-root touch
-  or policy weakening — impossible if the gate held)
+  `suspected_gate_bypass` (`mergeable` while a trust-root touch or policy
+  weakening is present — impossible for a valid verifier)
 - `evidence` — `prompt` / `diff` / `transcript` provenance
 - `source`
 
