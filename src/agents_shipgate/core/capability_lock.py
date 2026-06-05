@@ -21,6 +21,7 @@ from agents_shipgate.schemas.capabilities import (
     CapabilityLockRef,
     CapabilityLockSource,
     CapabilityLockSummary,
+    capability_fact_sort_key,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
@@ -53,17 +54,19 @@ def build_capability_lock(
     cli_version: str,
     source_count: int = 0,
     source_warning_count: int = 0,
+    toolkit_bound_count: int = 0,
     plugins_enabled: bool = True,
 ) -> CapabilityLockFileV1:
     facts = build_capability_facts(manifest, agent_id=agent.id, tools=tools)
     source = CapabilityLockSource(
-        config_path=_repo_display_path(config_path),
-        manifest_dir=_repo_display_path(manifest_dir),
+        config_path=_manifest_relative_path(config_path, manifest_dir),
+        manifest_dir=".",
         project_name=manifest.project.name,
         agent_id=agent.id,
         agent_name=agent.name,
         environment_target=manifest.environment.target,
         tool_count=len(tools),
+        toolkit_bound_count=toolkit_bound_count,
         source_count=source_count,
         source_warning_count=source_warning_count,
         plugins_enabled=plugins_enabled,
@@ -104,12 +107,19 @@ def diff_capability_locks(
     base_by_id = {fact.id: fact for fact in base.capabilities}
     head_by_id = {fact.id: fact for fact in head.capabilities}
 
-    added = _sort_facts(
-        [head_by_id[capability_id] for capability_id in head_by_id.keys() - base_by_id.keys()]
+    raw_added = _sort_facts(
+        [
+            head_by_id[capability_id]
+            for capability_id in head_by_id.keys() - base_by_id.keys()
+        ]
     )
-    removed = _sort_facts(
-        [base_by_id[capability_id] for capability_id in base_by_id.keys() - head_by_id.keys()]
+    raw_removed = _sort_facts(
+        [
+            base_by_id[capability_id]
+            for capability_id in base_by_id.keys() - head_by_id.keys()
+        ]
     )
+    reidentified, added, removed = _reidentified_changes(raw_removed, raw_added)
     changed: list[CapabilityLockChangedFact] = []
     evidence_changed: list[CapabilityLockChangedFact] = []
     unchanged_count = 0
@@ -136,9 +146,11 @@ def diff_capability_locks(
 
     changed.sort(key=_changed_sort_key)
     evidence_changed.sort(key=_changed_sort_key)
+    reidentified.sort(key=_changed_sort_key)
     summary = CapabilityLockDiffSummary(
         added=len(added),
         removed=len(removed),
+        reidentified=len(reidentified),
         changed=len(changed),
         evidence_changed=len(evidence_changed),
         unchanged=unchanged_count,
@@ -149,9 +161,9 @@ def diff_capability_locks(
         summary=summary,
         added=added,
         removed=removed,
+        reidentified=reidentified,
         changed=changed,
         evidence_changed=evidence_changed,
-        unchanged_count=unchanged_count,
     )
 
 
@@ -222,7 +234,7 @@ def _lock_hashes(
 
 def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLockRef:
     return CapabilityLockRef(
-        path=str(path) if path is not None else None,
+        path=_lock_ref_path(path),
         capability_lock_schema_version=lock.capability_lock_schema_version,
         semantic_capability_set_hash=lock.hashes.semantic_capability_set_hash,
         evidence_set_hash=lock.hashes.evidence_set_hash,
@@ -242,34 +254,83 @@ def _changed_hashes(
     )
 
 
-def _sort_facts(facts: list[CapabilityFactV1]) -> list[CapabilityFactV1]:
-    return sorted(facts, key=_fact_sort_key)
+def _reidentified_changes(
+    removed: list[CapabilityFactV1],
+    added: list[CapabilityFactV1],
+) -> tuple[
+    list[CapabilityLockChangedFact],
+    list[CapabilityFactV1],
+    list[CapabilityFactV1],
+]:
+    added_by_key: dict[tuple[str, str, str, str, str], list[CapabilityFactV1]] = {}
+    for fact in added:
+        added_by_key.setdefault(_lineage_key(fact), []).append(fact)
+    for facts in added_by_key.values():
+        facts.sort(key=capability_fact_sort_key)
 
+    reidentified: list[CapabilityLockChangedFact] = []
+    remaining_removed: list[CapabilityFactV1] = []
+    consumed_added_ids: set[str] = set()
 
-def _fact_sort_key(fact: CapabilityFactV1) -> tuple[str, str, str, str, str, str]:
+    for before in removed:
+        candidates = added_by_key.get(_lineage_key(before), [])
+        after = next((fact for fact in candidates if fact.id not in consumed_added_ids), None)
+        if after is None:
+            remaining_removed.append(before)
+            continue
+        consumed_added_ids.add(after.id)
+        reidentified.append(
+            CapabilityLockChangedFact(
+                id=f"{before.id}->{after.id}",
+                tool_name=after.identity.tool_name,
+                operation=after.identity.operation,
+                changed_hashes=_changed_hashes(before, after),
+                before=before,
+                after=after,
+            )
+        )
+
+    remaining_added = [fact for fact in added if fact.id not in consumed_added_ids]
     return (
-        fact.identity.agent_id,
-        fact.identity.provider,
-        fact.identity.operation,
-        fact.identity.tool_name,
-        "\n".join(fact.identity.scope),
-        fact.id,
+        sorted(reidentified, key=_changed_sort_key),
+        _sort_facts(remaining_added),
+        _sort_facts(remaining_removed),
     )
+
+
+def _lineage_key(fact: CapabilityFactV1) -> tuple[str, str, str, str, str]:
+    identity = fact.identity
+    return (
+        identity.agent_id,
+        identity.provider,
+        identity.operation,
+        identity.tool_name,
+        identity.subject_kind,
+    )
+
+
+def _sort_facts(facts: list[CapabilityFactV1]) -> list[CapabilityFactV1]:
+    return sorted(facts, key=capability_fact_sort_key)
 
 
 def _changed_sort_key(row: CapabilityLockChangedFact) -> tuple[str, str, str]:
     return (row.tool_name, row.operation, row.id)
 
 
-def _repo_display_path(path: Path) -> str:
-    candidate = path
+def _manifest_relative_path(path: Path, manifest_dir: Path) -> str:
     try:
-        resolved = candidate.resolve()
-        cwd = Path.cwd().resolve()
-        relative = resolved.relative_to(cwd)
-        return str(relative) if str(relative) else "."
+        relative = path.resolve().relative_to(manifest_dir.resolve())
+        return str(relative) if str(relative) else path.name
     except (OSError, ValueError):
-        return str(candidate)
+        return path.name
+
+
+def _lock_ref_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    if path.is_absolute():
+        return path.name
+    return str(path)
 
 
 def _sha256(value: Any) -> str:

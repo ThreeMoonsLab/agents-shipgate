@@ -273,13 +273,25 @@ to `.agents-shipgate/capabilities.lock.json` and a byte-identical
 generated copy to `agents-shipgate-reports/capabilities.lock.json`.
 
 `agents-shipgate capability diff --base ... --head ...` compares two
-lockfiles by `CapabilityFactV1.id`. Semantic hash drift (`effect`,
-`authority`, `control`, `schema`, or `risk`) is reported as `changed`;
-source-provenance-only drift is reported as `evidence_changed`; added
-and removed capability facts are listed separately. The current schema
-is [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
+lockfiles by `CapabilityFactV1.id`. Semantic hash drift on a stable id
+(`effect`, non-scope `authority`, `control`, `schema`, or `risk`) is
+reported as `changed`; source-provenance-only drift is reported as
+`evidence_changed`. Scope/resource changes intentionally re-identify a
+capability because scope is part of durable identity, so the diff pairs
+same agent/provider/operation/tool rows and reports them as
+`reidentified` instead of unrelated add/remove churn. Added and removed
+capability facts are listed separately.
+
+The v0.1 lock is an enumerable-tools envelope. Dynamic toolkit scope
+bounds parsed from factories are counted in `source.toolkit_bound_count`
+but are not yet emitted as capability facts, so widening a dynamic
+factory's authority bound is a known limitation until a later phase
+adds non-enumerable authority facts. The current schema is
+[`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
 and is experimental: it is not part of `report.json`, does not bump
 `report_schema_version`, does not feed policy packs, and does not gate.
+The committed lock is deterministic for the same manifest-relative
+inputs; `cli_version` is provenance and may change on scanner upgrades.
 The release decision remains `release_decision.decision`.
 
 ## Reviewer surfaces: five lenses + three audit envelopes

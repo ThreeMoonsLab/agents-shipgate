@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
@@ -128,6 +128,19 @@ class CapabilityFactV1(BaseModel):
     hashes: CapabilityHashes
 
 
+def capability_fact_sort_key(
+    fact: CapabilityFactV1,
+) -> tuple[str, str, str, str, str, str]:
+    return (
+        fact.identity.agent_id,
+        fact.identity.provider,
+        fact.identity.operation,
+        fact.identity.tool_name,
+        "\n".join(fact.identity.scope),
+        fact.id,
+    )
+
+
 class CapabilityLockSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -138,6 +151,7 @@ class CapabilityLockSource(BaseModel):
     agent_name: str
     environment_target: str | None = None
     tool_count: int = 0
+    toolkit_bound_count: int = 0
     source_count: int = 0
     source_warning_count: int = 0
     plugins_enabled: bool = True
@@ -176,16 +190,7 @@ class CapabilityLockFileV1(BaseModel):
 
     @model_validator(mode="after")
     def _sort_capabilities(self) -> CapabilityLockFileV1:
-        self.capabilities.sort(
-            key=lambda fact: (
-                fact.identity.agent_id,
-                fact.identity.provider,
-                fact.identity.operation,
-                fact.identity.tool_name,
-                "\n".join(fact.identity.scope),
-                fact.id,
-            )
-        )
+        self.capabilities.sort(key=capability_fact_sort_key)
         return self
 
 
@@ -205,6 +210,7 @@ class CapabilityLockDiffSummary(BaseModel):
 
     added: int = 0
     removed: int = 0
+    reidentified: int = 0
     changed: int = 0
     evidence_changed: int = 0
     unchanged: int = 0
@@ -233,16 +239,13 @@ class CapabilityLockDiffV1(BaseModel):
     summary: CapabilityLockDiffSummary
     added: list[CapabilityFactV1] = Field(default_factory=list)
     removed: list[CapabilityFactV1] = Field(default_factory=list)
+    reidentified: list[CapabilityLockChangedFact] = Field(default_factory=list)
     changed: list[CapabilityLockChangedFact] = Field(default_factory=list)
     evidence_changed: list[CapabilityLockChangedFact] = Field(default_factory=list)
-    unchanged_count: int = 0
 
 
 class CapabilityLockArtifactV1(RootModel[CapabilityLockFileV1 | CapabilityLockDiffV1]):
     root: CapabilityLockFileV1 | CapabilityLockDiffV1
-
-
-CapabilityLockJson = dict[str, Any]
 
 
 __all__ = [
@@ -262,8 +265,8 @@ __all__ = [
     "CapabilityLockDiffV1",
     "CapabilityLockFileV1",
     "CapabilityLockHashes",
-    "CapabilityLockJson",
     "CapabilityLockRef",
     "CapabilityLockSource",
     "CapabilityLockSummary",
+    "capability_fact_sort_key",
 ]

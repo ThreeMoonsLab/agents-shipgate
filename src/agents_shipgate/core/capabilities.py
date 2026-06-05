@@ -15,6 +15,7 @@ from agents_shipgate.schemas.capabilities import (
     CapabilityFactV1,
     CapabilityHashes,
     CapabilityIdentity,
+    capability_fact_sort_key,
 )
 from agents_shipgate.schemas.common import ProvenanceKind
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -102,21 +103,7 @@ def build_capability_facts(
             )
         )
     _validate_unique_capability_ids(facts)
-    return sorted(facts, key=_capability_sort_key)
-
-
-def _capability_sort_key(
-    fact: CapabilityFactV1,
-) -> tuple[str, str, str, str, str, str]:
-    identity = fact.identity
-    return (
-        identity.agent_id,
-        identity.provider,
-        identity.operation,
-        identity.tool_name,
-        "\n".join(identity.scope),
-        fact.id,
-    )
+    return sorted(facts, key=capability_fact_sort_key)
 
 
 def _capability_effect(action: Action) -> CapabilityEffect:

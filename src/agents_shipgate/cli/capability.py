@@ -192,6 +192,7 @@ def _build_lock_from_config(
         cli_version=__version__,
         source_count=len(inputs.loaded_sources),
         source_warning_count=len(tools_and_agent.warnings),
+        toolkit_bound_count=len(tools_and_agent.toolkit_bounds),
         plugins_enabled=not no_plugins,
     )
 

@@ -795,9 +795,18 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. `agents-shipgate capability
-diff` compares two such lockfiles and emits added, removed, semantic `changed`,
-and `evidence_changed` rows. The current experimental schema is
+diff` compares two such lockfiles and emits added, removed, `reidentified`,
+semantic `changed`, and `evidence_changed` rows. `reidentified` is the
+scope/resource case: scope is part of capability identity, so a scope escalation
+changes the id and is paired by agent/provider/operation/tool instead of being
+reported as unrelated add/remove churn.
+
+The current experimental schema is
 [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
+The lock is an enumerable-tools envelope. Dynamic toolkit scope bounds are
+disclosed by `source.toolkit_bound_count` but not emitted as capability facts in
+v0.1. `cli_version` is provenance and may change on scanner upgrades; it is not
+part of the semantic capability-set hash.
 
 This artifact is deterministic and carries no wall-clock timestamp, but it is
 not yet a stable agent contract: it is not emitted in `report.json`, is not

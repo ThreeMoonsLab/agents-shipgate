@@ -607,6 +607,11 @@
           "title": "Evidence Changed",
           "type": "integer"
         },
+        "reidentified": {
+          "default": 0,
+          "title": "Reidentified",
+          "type": "integer"
+        },
         "removed": {
           "default": 0,
           "title": "Removed",
@@ -663,6 +668,13 @@
         "head": {
           "$ref": "#/$defs/CapabilityLockRef"
         },
+        "reidentified": {
+          "items": {
+            "$ref": "#/$defs/CapabilityLockChangedFact"
+          },
+          "title": "Reidentified",
+          "type": "array"
+        },
         "removed": {
           "items": {
             "$ref": "#/$defs/CapabilityFactV1"
@@ -672,11 +684,6 @@
         },
         "summary": {
           "$ref": "#/$defs/CapabilityLockDiffSummary"
-        },
-        "unchanged_count": {
-          "default": 0,
-          "title": "Unchanged Count",
-          "type": "integer"
         }
       },
       "required": [
@@ -863,6 +870,11 @@
         "tool_count": {
           "default": 0,
           "title": "Tool Count",
+          "type": "integer"
+        },
+        "toolkit_bound_count": {
+          "default": 0,
+          "title": "Toolkit Bound Count",
           "type": "integer"
         }
       },
