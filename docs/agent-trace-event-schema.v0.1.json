@@ -1,0 +1,136 @@
+{
+  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-trace-event-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Local, opt-in observable event schema for Agent Workflow Evidence. It records actions and artifacts, not private chain-of-thought.",
+  "properties": {
+    "actor": {
+      "description": "Observable actor such as human, coding_agent, ci, or a named tool wrapper.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "artifact_refs": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "event_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "task",
+        "agent_message",
+        "tool_call",
+        "command",
+        "file_change",
+        "verification",
+        "human_decision",
+        "artifact"
+      ],
+      "type": "string"
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "policy_checks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "allow",
+              "deny",
+              "review_required",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "result"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "redacted_arguments": {
+      "description": "Optional reviewer-safe argument projection. Raw secrets and private chain-of-thought are forbidden.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "resource_effects": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "object": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "verb": {
+            "enum": [
+              "read",
+              "write",
+              "delete",
+              "execute",
+              "network",
+              "deploy",
+              "permission_change",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "verb",
+          "object"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "sequence": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "source_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "run_id",
+    "sequence",
+    "event_type",
+    "actor",
+    "summary",
+    "resource_effects",
+    "artifact_refs"
+  ],
+  "title": "Agents Shipgate AgentTraceEvent v0.1",
+  "type": "object"
+}

@@ -14,6 +14,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`agent-native-merge-contract.md`](agent-native-merge-contract.md) — the agent-native protocol map: the eight merge contracts, each mapped to the artifact that implements it
+- [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance benchmark, policy-pack tests, trace contract, and runtime-inventory boundary
+- [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
@@ -27,6 +29,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` alongside v0.21's `heuristics_filter` envelope)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
+- [`agent-trace-event-schema.v0.1.json`](agent-trace-event-schema.v0.1.json) — JSON Schema for local, opt-in AgentTraceEvent records used by Agent Workflow Evidence
+- [`agent-workflow-evidence-bundle-schema.v0.1.json`](agent-workflow-evidence-bundle-schema.v0.1.json) — JSON Schema for local, opt-in replay bundles that combine verifier artifacts, trace files, and expected governance outcomes
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)

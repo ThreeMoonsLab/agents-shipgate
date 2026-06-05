@@ -7,6 +7,11 @@ built and asserted as a base/head git diff in
 which runs the real engine (trigger → scan → capability projection →
 merge verdict) rather than committing fragile golden trees.
 
+This directory is a product-regression suite, not a broad research benchmark.
+Add scenarios when a verifier behavior is core product surface, or when a
+design-partner feedback artifact exposes a real ambiguity, false positive, or
+unsafe-pass risk. Do not expand it for academic breadth alone.
+
 | Scenario | Diff | Expected `verifier.json` |
 |---|---|---|
 | `codex_adds_refund_tool` | head adds a money-moving `stripe.create_refund` MCP tool with a broad `stripe:*` scope and no approval/idempotency | `merge_verdict: blocked`, `can_merge_without_human: false`; `capability_changes` includes `action_added stripe.create_refund` with `financial_write` at `blocks_release` |

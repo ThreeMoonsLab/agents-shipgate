@@ -1,0 +1,126 @@
+{
+  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-workflow-evidence-bundle-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Local, opt-in replay bundle shape for AI-generated agent PR governance scenarios. It references artifacts and AgentTraceEvent files; it does not execute them.",
+  "properties": {
+    "agent_trace": {
+      "description": "Optional JSONL file containing AgentTraceEvent records.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "base_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bundle_schema_version": {
+      "const": "0.1"
+    },
+    "expected": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "passed",
+            "review_required",
+            "insufficient_evidence",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "merge_verdict": {
+          "enum": [
+            "mergeable",
+            "human_review_required",
+            "insufficient_evidence",
+            "blocked",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "next_actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "merge_verdict",
+        "next_actor"
+      ],
+      "type": "object"
+    },
+    "head_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "human_review_note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "patch": {
+      "description": "Sanitized patch path when base/head refs are not shareable.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "redaction_note": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "shipgate_manifest": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "verify_artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "pr_comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report_json": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "verifier_json": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "verifier_json",
+        "report_json"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "bundle_schema_version",
+    "id",
+    "shipgate_manifest",
+    "verify_artifacts",
+    "expected",
+    "redaction_note"
+  ],
+  "title": "Agents Shipgate Agent Workflow Evidence Bundle v0.1",
+  "type": "object"
+}

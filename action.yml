@@ -172,19 +172,19 @@ outputs:
     description: Comma-separated trigger rule IDs that matched.
     value: ${{ steps.report_outputs.outputs.trigger_rule_ids }}
   verifier_verdict:
-    description: Verifier convenience verdict. Prefer `decision` for gating.
+    description: Verifier convenience verdict projected from release_decision. Prefer `decision` for CI gating.
     value: ${{ steps.report_outputs.outputs.verifier_verdict }}
   merge_verdict:
-    description: "Merge verdict projected from release_decision (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`)."
+    description: "PR/controller verdict projected from release_decision (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Use `decision` for CI gating."
     value: ${{ steps.report_outputs.outputs.merge_verdict }}
   can_merge_without_human:
-    description: Whether the PR can merge without human review (`true`/`false`).
+    description: Whether the verifier projection says the PR can merge without human authority gaps (`true`/`false`).
     value: ${{ steps.report_outputs.outputs.can_merge_without_human }}
   trust_root_touched:
-    description: Whether verifier_summary reports a touched release trust root (`true`/`false`).
+    description: Whether verifier_summary reports a touched release trust root (`true`/`false`). Review signal; not a second gate.
     value: ${{ steps.report_outputs.outputs.trust_root_touched }}
   policy_weakened:
-    description: Whether verifier_summary reports a policy weakening (`true`/`false`).
+    description: Whether verifier_summary reports a policy weakening (`true`/`false`). Review signal; not a second gate.
     value: ${{ steps.report_outputs.outputs.policy_weakened }}
   capability_changes_added:
     description: Number of added members in the canonical capability delta.

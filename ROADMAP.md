@@ -37,7 +37,10 @@ into replayable evidence. Active themes, in priority order:
    agent transcript, repair attempt, verifier-before/after, and the human
    decision. Every real pilot PR becomes a replayable benchmark scenario, so the
    deterministic verdict is regression-tested against real agent behavior — not
-   just synthetic archetypes.
+   just synthetic archetypes. The local event contract is documented in
+   [`docs/agent-workflow-evidence.md`](docs/agent-workflow-evidence.md), and the
+   initial governance case catalog lives under
+   [`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/).
 
 3. **Pre-emptive authority surface.** Today the trust root is enforced
    *reactively* — a weakening shows up in the diff, and Shipgate escalates.
