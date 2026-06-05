@@ -172,7 +172,7 @@ outputs:
     description: Comma-separated trigger rule IDs that matched.
     value: ${{ steps.report_outputs.outputs.trigger_rule_ids }}
   verifier_verdict:
-    description: Verifier convenience verdict projected from release_decision. Prefer `decision` for CI gating.
+    description: Verifier convenience verdict. Prefer `decision` for CI gating; projected from release_decision.
     value: ${{ steps.report_outputs.outputs.verifier_verdict }}
   merge_verdict:
     description: "PR/controller verdict projected from release_decision (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Use `decision` for CI gating."
