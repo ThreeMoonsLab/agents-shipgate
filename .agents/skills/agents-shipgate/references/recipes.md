@@ -75,14 +75,13 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
   --workspace . --base origin/main --head HEAD --json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
-  --ci-mode advisory --format json
+  --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-For local pre-commit work, omit `--head` and omit `--base` unless the base ref
-exists locally so `verify` scans the checked-out working tree, including
-uncommitted edits. In committed PR or CI contexts, add
-`--base origin/main --head HEAD` after making the base ref available. If you
-pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
+For local uncommitted work, omit `--head` and omit `--base` so `verify` scans
+the checked-out working tree, including uncommitted edits. In committed PR or
+CI contexts, make the base ref available first because `verify` never fetches.
+If you pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
 
 Read `agents-shipgate-reports/verifier.json` first. Lead with
 `merge_verdict`, then inspect `capability_review.top_changes[]`,

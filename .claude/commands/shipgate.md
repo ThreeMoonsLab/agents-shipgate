@@ -24,12 +24,13 @@ Verifier command:
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD \
   --ci-mode advisory --format json
 ```
 
-Add `--base origin/main --head HEAD` only when verifying a committed PR/CI ref
-after making the base ref available. For local pre-commit work, omit both so
-uncommitted edits are scanned.
+For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches.
 
 Required behavior (do not skip):
 

@@ -78,8 +78,9 @@ findings can feed those fields through `findings[].blocks_release`.
 Verifier artifacts: `verifier_json` points at `verifier.json`, and
 `pr_comment_markdown` points at the Markdown body the action posts to PRs.
 The default PR comment style is `capability-review`: it leads with
-`release_decision.decision`, then shows a top capability-change table,
-trust-root warnings, required next steps, and artifact links. For one minor
+`merge_verdict`, then shows `can_merge_without_human`, top capability changes,
+required next steps, trust-root warnings, and artifact links. The underlying
+release gate remains `report.json.release_decision.decision`. For one minor
 release cycle, existing adopters can set `pr_comment_style: findings` to keep
 the v1 findings-oriented comment while updating downstream automation.
 
@@ -94,8 +95,10 @@ Existing `diff_base` / `diff_from` workflows keep working.
 
 Rollout note for the verifier-cycle minor: the Action defaults are
 `verify_mode: verify` and `pr_comment_style: capability-review`. New outputs
-are additive and old outputs remain stable; keep using `decision` as the
-preferred gating output. The additive verifier outputs are:
+are additive and old outputs remain stable; keep using `decision` /
+`ci_would_fail` as CI gating outputs, and use `merge_verdict` /
+`can_merge_without_human` for PR-controller routing. The additive verifier
+outputs are:
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
 `merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
 `policy_weakened`, `capability_changes_added`,
@@ -105,7 +108,9 @@ The verifier flags mirror `verifier_summary`; the capability counts mirror
 
 ## Verifier Rollout Policies
 
-Use one of these policies after the advisory comment is understood:
+Use one of these policies after the advisory comment is understood. These
+policies consume verifier projections for workflow routing; the source gate is
+still `report.json.release_decision.decision`.
 
 ```yaml
 - name: Fail blocked capability changes

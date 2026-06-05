@@ -51,7 +51,7 @@ Always:
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
    release gate.
-3. Before finishing an agent-related local diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`, or report the exact `agents-shipgate trigger` skip verdict. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
+3. Before finishing an agent-related diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` for committed PR/CI verification after making the base ref available, or report the exact `agents-shipgate trigger` skip verdict. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
 4. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 5. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
 

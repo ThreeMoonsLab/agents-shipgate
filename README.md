@@ -61,8 +61,8 @@ agents-shipgate init --workspace . --write --ci --agent-instructions=all
 ```
 
 Then verify the committed PR/CI ref. Pass the base and head so the diff — the
-capability delta and trust-root signals — is in scope (make the base ref
-available first, e.g. `git fetch origin main`):
+capability delta and trust-root signals — is in scope (the verifier never
+fetches; make the base ref available first, e.g. `git fetch origin main`):
 
 ```bash
 agents-shipgate verify --workspace . --config shipgate.yaml \
@@ -198,11 +198,13 @@ Run:
 agents-shipgate verify --preview --json
 If Shipgate is relevant, run:
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
-agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
-For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
-base ref available. Read `agents-shipgate-reports/verifier.json` first and lead
-with `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`,
-and `capability_review.top_changes`, then read
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
+make the base ref available first because `verify` never fetches. Read
+`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
+`can_merge_without_human`, `first_next_action`, `fix_task`, and
+`capability_review.top_changes`, then read
 `agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
 claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
 `human_review_required` unless the user explicitly accepts human review. Do not auto-assert approval. Do not auto-assert confirmation, idempotency,
@@ -318,13 +320,16 @@ agents-shipgate verify --preview --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 # Replace any CHANGE_ME placeholders reported by init.
 agents-shipgate verify --workspace . --config shipgate.yaml \
-  --ci-mode advisory --format json
+  --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
-base ref available. Verify writes `agents-shipgate-reports/verifier.json`,
-`pr-comment.md`, and the normal `report.{md,json,sarif}` / packet artifacts
-when a scan is required.
+For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
+make the base ref available first because `verify` never fetches. Verify writes
+`agents-shipgate-reports/verifier.json`, `pr-comment.md`, and the normal
+`report.{md,json,sarif}` / packet artifacts when a scan is required. Lead with
+`merge_verdict`, `can_merge_without_human`, `first_next_action`, and
+`capability_review.top_changes`; use `release_decision.decision` as the release
+gate.
 
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
@@ -334,9 +339,11 @@ uv tool install --upgrade agents-shipgate            # via uv
 agents-shipgate --version                            # require >=0.11.0
 ```
 
-## Adopt in one turn (helper flow)
+## Adopt in one turn (scan helper)
 
-The single-turn bootstrap flow remains useful for first adoption. It takes a
+The verifier-first loop above is the product entry path. The older single-turn
+bootstrap flow remains useful when a coding agent needs a scan-oriented first
+adoption pass that can apply high-confidence manifest cleanup. It takes a
 workspace from "looks like an agent project" to "Shipgate integrated, scan green
 or with safe patches applied, CI workflow drafted":
 
@@ -426,6 +433,8 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
+- **[`docs/product-hardening-gap-closure.md`](docs/product-hardening-gap-closure.md)** — closure map for root dogfooding, the governance case catalog, policy-pack tests, trace evidence, and runtime-inventory boundaries.
+- **[`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/)** — governance case catalog for unsafe-merge prevention, authority routing, and verifier explanation quality.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)** — copyable snippets for adding Shipgate trigger rules to downstream agent repos
@@ -668,7 +677,7 @@ After adoption, choose an explicit merge policy. [`examples/github-actions/07-bl
 
 Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
 
-Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Prefer `merge_verdict`, `decision`, and `ci_would_fail` over legacy `status` for new release gates.
+Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Use `decision` / `ci_would_fail` for CI gating, use `merge_verdict` / `can_merge_without_human` for PR-controller routing, and avoid legacy `status` for new gates.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 

@@ -32,9 +32,8 @@ work is complete.
    you need a full advisory check before handing off.
 
 3. **Run the verifier.**
-   For local pre-commit work, omit `--head` and omit `--base` unless the base
-   ref exists locally, so the checked-out working tree is scanned, including
-   uncommitted edits:
+   For local uncommitted work, omit `--head` and omit `--base` so the
+   checked-out working tree is scanned, including uncommitted edits:
    ```bash
    agents-shipgate verify --workspace . --config shipgate.yaml \
      --ci-mode advisory --format json
@@ -46,8 +45,8 @@ work is complete.
    ```
    `verify` never fetches. If you pass `--base` and that ref is missing,
    `verify` exits 2 with an unknown merge verdict instead of producing a
-   head-only pass. Fetch the base ref or omit `--base` for local working-tree
-   verification.
+   head-only pass. Fetch the base ref for committed PR/CI verification, or
+   omit `--base` for local working-tree verification.
 
 4. **Read JSON, not Markdown.**
    - `agents-shipgate-reports/verifier.json` is the PR/controller artifact.
