@@ -240,6 +240,28 @@ The existing string-based predicates in `core/risk_hints.py`
 public API used by every check in `checks/`. New code should prefer
 the typed accessors; legacy callers may migrate incrementally.
 
+## Internal capability substrate: `CapabilityFactV1`
+
+`core/capabilities.py` defines an internal, non-wire durable capability
+vocabulary on top of `Scope`, `SideEffect`, and `Action`. The main type,
+`CapabilityFactV1`, groups stable semantic identity, normalized effect,
+authority, controls, source evidence, risk tags, and separate identity /
+effect / authority / control / schema / risk / evidence hashes. The
+hashes use capability-specific canonical JSON so they do not inherit the
+finding fingerprint exclusion list. It is intended to become the
+substrate for future capability lockfiles, richer capability diffs,
+policy matching, and governance benchmark assertions.
+
+**Boundary.** `CapabilityFactV1` is not emitted in `report.json`, does
+not bump `report_schema_version`, and does not gate release. The release
+decision remains `release_decision.decision`; current public surfaces
+(`action_surface_facts`, `tool_surface_facts`, `capability_change`,
+`verifier.json`, and the Action outputs) remain projections of the
+existing scan pipeline. Phase-0 capability facts are built from typed
+`Action` objects via `build_capability_facts(...)` so they reuse the
+same provider, operation, scope, effect, approval, safeguard, and
+evidence semantics as Action Surface Diff.
+
 ## Reviewer surfaces: five lenses + three audit envelopes
 
 The emitted `report.json` and the Release Evidence Packet expose

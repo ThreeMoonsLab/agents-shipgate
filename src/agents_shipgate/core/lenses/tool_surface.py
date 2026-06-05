@@ -958,6 +958,12 @@ def _diff_base(reference: ToolSurfaceDiffReference | None) -> ToolSurfaceDiffBas
 
 
 def _stable_hash(value: Any) -> str:
+    # Follow-up: action/tool-surface hashes still use the finding
+    # fingerprint canonicalizer, which drops finding-specific evidence
+    # keys (for example ``observed`` and ``source_provenance``). The
+    # internal capability substrate intentionally uses its own
+    # canonicalizer; migrate this public hash path separately because it
+    # changes emitted ActionFact/ToolSurface hashes.
     canonical = _canonicalize_for_fingerprint(value)
     payload = json.dumps(canonical, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
