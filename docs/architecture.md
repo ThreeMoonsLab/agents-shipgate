@@ -262,6 +262,26 @@ existing scan pipeline. Phase-0 capability facts are built from typed
 same provider, operation, scope, effect, approval, safeguard, and
 evidence semantics as Action Surface Diff.
 
+## Experimental capability locks
+
+`agents-shipgate capability export` builds an experimental local
+capability lock from the same static source-loading path used by scans,
+but stops after enriched tools and typed `Action` objects are available.
+It does not run findings, write `report.json`, invoke `verify`, or
+produce a release decision. By default it writes the reviewed envelope
+to `.agents-shipgate/capabilities.lock.json` and a byte-identical
+generated copy to `agents-shipgate-reports/capabilities.lock.json`.
+
+`agents-shipgate capability diff --base ... --head ...` compares two
+lockfiles by `CapabilityFactV1.id`. Semantic hash drift (`effect`,
+`authority`, `control`, `schema`, or `risk`) is reported as `changed`;
+source-provenance-only drift is reported as `evidence_changed`; added
+and removed capability facts are listed separately. The current schema
+is [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
+and is experimental: it is not part of `report.json`, does not bump
+`report_schema_version`, does not feed policy packs, and does not gate.
+The release decision remains `release_decision.decision`.
+
 ## Reviewer surfaces: five lenses + three audit envelopes
 
 The emitted `report.json` and the Release Evidence Packet expose

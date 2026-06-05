@@ -27,6 +27,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` alongside v0.21's `heuristics_filter` envelope)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
+- [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — experimental JSON Schema for `capabilities.lock.json` and capability-lock diff artifacts emitted by `agents-shipgate capability`; non-gating and not part of `report.json`
 - [`scenario-schema.v0.1.json`](scenario-schema.v0.1.json) — JSON Schema for the workflow-evidence `scenario.json` emitted by `agents-shipgate feedback capture`
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
