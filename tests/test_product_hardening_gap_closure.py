@@ -47,9 +47,15 @@ def test_self_gate_workflow_uses_local_action_in_advisory_verify_mode():
 def test_governance_benchmark_catalog_covers_major_risk_classes():
     catalog = _yaml("benchmark/agent-pr-governance/cases.yaml")
     cases = catalog["cases"]
+    readme = (REPO_ROOT / "benchmark/agent-pr-governance/README.md").read_text(
+        encoding="utf-8"
+    )
 
     assert catalog["schema_version"] == "0.1"
+    assert catalog["name"] == "AgentPR Governance Case Catalog"
     assert len(cases) == 50
+    assert "case catalog and acceptance spec" in readme
+    assert "not an executable benchmark yet" in readme
 
     counts = Counter(case["category"] for case in cases)
     assert counts == {
@@ -79,6 +85,8 @@ def test_governance_benchmark_catalog_covers_major_risk_classes():
         assert case["next_actor"] in valid_actors
         assert case["artifacts"], case["id"]
         assert case["evidence"], case["id"]
+
+    assert any(case["decision"] == "insufficient_evidence" for case in cases)
 
 
 def test_agent_trace_event_schema_validates_observable_event():
@@ -144,6 +152,18 @@ def test_agent_workflow_evidence_bundle_schema_validates_replay_intake():
         "redaction_note": "No secrets or private chain-of-thought included.",
     }
     Draft202012Validator(schema).validate(sample)
+
+
+def test_new_evidence_schema_ids_are_resolvable_raw_urls():
+    for path in (
+        "docs/agent-trace-event-schema.v0.1.json",
+        "docs/agent-workflow-evidence-bundle-schema.v0.1.json",
+    ):
+        schema = json.loads((REPO_ROOT / path).read_text(encoding="utf-8"))
+        assert schema["$id"].startswith(
+            "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/"
+        )
+        assert "/blob/" not in schema["$id"]
 
 
 def test_policy_pack_docs_require_tests_and_explain_contribution_rules():

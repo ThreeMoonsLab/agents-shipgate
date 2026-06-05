@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/attestation-schema.v0.1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.1.json",
   "title": "Agents Shipgate Release Attestation v0.1",
   "description": "A deterministic, local release attestation derived from verifier.json by `agents-shipgate attest`. Records which capability shipped, under which verdict, acknowledged by whom. Carries no wall-clock timestamp; it is content-addressed by git SHAs and artifact hashes. It does not gate — release_decision.decision remains the only gate.",
   "type": "object",

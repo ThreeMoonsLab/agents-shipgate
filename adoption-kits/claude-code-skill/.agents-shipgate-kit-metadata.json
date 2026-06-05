@@ -7,13 +7,17 @@
       "5ab92f77352ea31ad03c28e1d596b20ada24fa4176a5e0b0b38990e4a00fb5bb",
       "9ce82bdc41f2e1ea28c7fec3aaeec0137efeacf8986b66a9ac0e3eccc5abd834",
       "e1713eecbbb1538987b7bf2cbe90bcdac9c4491f250105b6c68e788c81d49de3",
-      "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5"
+      "bd4755e06715c839608c09da302ed844c764fd3e4047d7bdf495d68dc559c2a5",
+      "b442316b7bbdb4b2a84b8543f3589e1bb1d8d2bfd968637db99bd07835c406fd"
     ],
     "prompts/add-shipgate-to-repo.md": [
       "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
     ],
     "prompts/stabilize-strict-mode.md": [
       "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"
+    ],
+    "prompts/verify-agent-diff.md": [
+      "2242305c28828f8d08bae1d0e4f60042f256e61949bc8f388d43c791c6b3f615"
     ]
   },
   "bootstrap_legacy_sha256": {

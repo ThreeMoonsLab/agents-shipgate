@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the repo's advisory self-dogfood Shipgate workflow, product-hardening
+  gap-closure docs, Agent Workflow Evidence schemas, and the AgentPR Governance
+  case catalog / acceptance spec.
+
 ## 0.11.0 - 2026-05-31
 
 - **Verifier adoption-loop release prep.** Public docs and discovery metadata now

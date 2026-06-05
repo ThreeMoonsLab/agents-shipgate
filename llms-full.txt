@@ -101,12 +101,13 @@ exists, run the deterministic verifier on the diff and read its JSON first:
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD \
   --ci-mode advisory --format json
 ```
 
-Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
-scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
-after making the base ref available. Read
+For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
 unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and

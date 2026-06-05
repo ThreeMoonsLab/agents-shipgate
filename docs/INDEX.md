@@ -14,7 +14,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
 - [`agent-native-merge-contract.md`](agent-native-merge-contract.md) — the agent-native protocol map: the eight merge contracts, each mapped to the artifact that implements it
-- [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance benchmark, policy-pack tests, trace contract, and runtime-inventory boundary
+- [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance case catalog, policy-pack tests, trace contract, and runtime-inventory boundary
 - [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do

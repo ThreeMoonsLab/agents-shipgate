@@ -55,11 +55,11 @@ For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
 
   agents-shipgate verify --workspace . --config shipgate.yaml \\
-      --ci-mode advisory --format json
+      --base origin/main --head HEAD --ci-mode advisory --format json
 
-Omit `--base` and `--head` for local pre-commit work so uncommitted edits are
-scanned; add `--base origin/main --head HEAD` only for committed PR/CI
-verification after making the base ref available.
+For local uncommitted work, omit `--base` and `--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches.
 
 Read `agents-shipgate-reports/verifier.json` first. Lead with
 `merge_verdict`, then inspect `capability_review.top_changes[]`,

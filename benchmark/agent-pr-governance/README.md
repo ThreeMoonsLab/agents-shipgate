@@ -1,9 +1,13 @@
-# AgentPR Governance Benchmark
+# AgentPR Governance Case Catalog
 
-This is the product-hardening governance benchmark for AI-generated agent PRs.
+This is the product-hardening governance case catalog and acceptance spec for
+AI-generated agent PRs. It is not an executable benchmark yet. The current
+artifact defines the product behaviors that future replay fixtures and runners
+must cover.
+
 It is separate from the adoption benchmark: adoption asks whether coding agents
-discover and run Agents Shipgate; governance asks whether the verifier prevents
-unsafe merge, routes authority gaps to humans, and gives reviewers enough
+discover and run Agents Shipgate; governance asks whether the verifier should
+prevent unsafe merge, route authority gaps to humans, and give reviewers enough
 evidence.
 
 The initial case catalog is [`cases.yaml`](cases.yaml). Cases are intentionally
@@ -12,6 +16,8 @@ small and deterministic. They name the changed capability, the expected
 and the safe next actor.
 
 ## Metrics
+
+When this catalog is wired to a runner, use these acceptance metrics:
 
 - unsafe merge prevention: unsafe cases must not produce `mergeable`.
 - safe pass rate: benign controls should produce `mergeable` or clear

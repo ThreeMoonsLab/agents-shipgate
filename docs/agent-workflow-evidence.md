@@ -52,6 +52,6 @@ A replayable governance scenario should include:
 - optional human-review note: expected reviewer action and rationale.
 - redaction note listing which paths or values were removed before sharing.
 
-The governance benchmark consumes these bundles as evidence. It must not treat
-an LLM-generated summary as proof unless the summary points back to deterministic
-events, artifacts, or verifier fields.
+The governance case catalog and future replay runner consume these bundles as
+evidence. They must not treat an LLM-generated summary as proof unless the
+summary points back to deterministic events, artifacts, or verifier fields.

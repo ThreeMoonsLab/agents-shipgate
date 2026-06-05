@@ -178,12 +178,12 @@ Open Codex in the project and run these checks:
    Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
-   `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
+   `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
    or report the exact `agents-shipgate trigger` skip verdict.
 
-   Add `--base origin/main --head HEAD` only for committed PR/CI verification
-   after making the base ref available. Omit both for local pre-commit work so
-   uncommitted edits are scanned.
+   For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+   scanned. For committed PR/CI refs, make the base ref available first because
+   `verify` never fetches.
 
 If these pass, Codex can install, invoke, and operate the Shipgate workflow.
 

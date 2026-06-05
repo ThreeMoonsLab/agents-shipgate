@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/feedback-schema.v0.1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/feedback-schema.v0.1.json",
   "title": "Agents Shipgate Feedback Export v0.1",
   "type": "object",
   "additionalProperties": false,

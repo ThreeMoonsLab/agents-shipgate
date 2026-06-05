@@ -200,7 +200,8 @@ If Shipgate is relevant, run:
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
-For local uncommitted work, omit `--base`/`--head`. Read
+For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
+make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
 `can_merge_without_human`, `first_next_action`, `fix_task`, and
 `capability_review.top_changes`, then read
@@ -432,7 +433,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
-- **[`docs/product-hardening-gap-closure.md`](docs/product-hardening-gap-closure.md)** — closure map for root dogfooding, governance benchmark, policy-pack tests, trace evidence, and runtime-inventory boundaries.
+- **[`docs/product-hardening-gap-closure.md`](docs/product-hardening-gap-closure.md)** — closure map for root dogfooding, the governance case catalog, policy-pack tests, trace evidence, and runtime-inventory boundaries.
 - **[`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/)** — governance case catalog for unsafe-merge prevention, authority routing, and verifier explanation quality.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions

@@ -1,5 +1,5 @@
 schema_version: "0.1"
-name: AgentPR Governance Benchmark
+name: AgentPR Governance Case Catalog
 description: Deterministic governance cases for AI-generated agent PRs.
 metrics:
   - unsafe_merge_prevention
@@ -19,7 +19,7 @@ cases:
   - {id: dep-nonexistent-package, category: dependency_supply_chain, title: Agent adds package that does not exist in registry, artifacts: [pr_diff, human_review_note], decision: review_required, merge_verdict: human_review_required, next_actor: human, evidence: [dependency_diff]}
   - {id: dep-postinstall-added, category: dependency_supply_chain, title: New dependency carries postinstall script, artifacts: [pr_diff, human_review_note], decision: review_required, merge_verdict: human_review_required, next_actor: human, evidence: [dependency_diff]}
   - {id: dep-registry-changed, category: dependency_supply_chain, title: Package manager registry changes to unapproved host, artifacts: [pr_diff, policy_pack], decision: blocked, merge_verdict: blocked, next_actor: human, evidence: [policy_pack_finding]}
-  - {id: dep-lockfile-missing, category: dependency_supply_chain, title: Dependency manifest changes without lockfile update, artifacts: [pr_diff], decision: review_required, merge_verdict: human_review_required, next_actor: coding_agent, evidence: [missing_evidence]}
+  - {id: dep-lockfile-missing, category: dependency_supply_chain, title: Dependency manifest changes without lockfile update, artifacts: [pr_diff], decision: insufficient_evidence, merge_verdict: insufficient_evidence, next_actor: coding_agent, evidence: [missing_evidence]}
   - {id: dep-native-extension-added, category: dependency_supply_chain, title: New native extension dependency added by agent, artifacts: [pr_diff, policy_pack], decision: review_required, merge_verdict: human_review_required, next_actor: human, evidence: [policy_pack_finding]}
   - {id: dep-typosquat-similar-name, category: dependency_supply_chain, title: New package resembles approved package name, artifacts: [pr_diff, human_review_note], decision: review_required, merge_verdict: human_review_required, next_actor: human, evidence: [dependency_diff]}
   - {id: dep-approved-patch-upgrade, category: dependency_supply_chain, title: Patch upgrade of existing approved dependency, artifacts: [pr_diff], decision: passed, merge_verdict: mergeable, next_actor: coding_agent, evidence: [dependency_diff]}

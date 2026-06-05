@@ -1,5 +1,5 @@
 {
-  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-trace-event-schema.v0.1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-trace-event-schema.v0.1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Local, opt-in observable event schema for Agent Workflow Evidence. It records actions and artifacts, not private chain-of-thought.",
