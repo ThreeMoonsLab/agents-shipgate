@@ -32,15 +32,18 @@ into replayable evidence. Active themes, in priority order:
    `human_ack`, `verifier.json`). Document the protocol substrate that already
    exists; do not invent new architecture.
 
-2. **Workflow-evidence flywheel.** Extend `feedback export` beyond the verdict
-   into an opt-in, locally redacted *Agent Workflow Evidence* capture: diff,
-   agent transcript, repair attempt, verifier-before/after, and the human
-   decision. Every real pilot PR becomes a replayable benchmark scenario, so the
-   deterministic verdict is regression-tested against real agent behavior — not
-   just synthetic archetypes. The local event contract is documented in
+2. **Workflow-evidence flywheel.** *(First cut shipped — `agents-shipgate
+   feedback capture`.)* An opt-in, locally redacted *Agent Workflow Evidence*
+   capture from a verify before/after pair: the verdict transition, a
+   gate-integrity signal (`suspected_gate_bypass`), the capability delta, and
+   prompt / diff / transcript provenance. Every real pilot PR becomes a
+   replayable benchmark scenario, so the deterministic verdict is
+   regression-tested against real agent behavior — not just synthetic
+   archetypes. The local event and replay-bundle contracts are documented in
    [`docs/agent-workflow-evidence.md`](docs/agent-workflow-evidence.md), and the
    initial governance case catalog lives under
    [`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/).
+   Remaining: full raw-bundle replay and a `scenario replay` harness.
 
 3. **Pre-emptive authority surface.** Today the trust root is enforced
    *reactively* — a weakening shows up in the diff, and Shipgate escalates.

@@ -31,6 +31,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
 - [`agent-trace-event-schema.v0.1.json`](agent-trace-event-schema.v0.1.json) — JSON Schema for local, opt-in AgentTraceEvent records used by Agent Workflow Evidence
 - [`agent-workflow-evidence-bundle-schema.v0.1.json`](agent-workflow-evidence-bundle-schema.v0.1.json) — JSON Schema for local, opt-in replay bundles that combine verifier artifacts, trace files, and expected governance outcomes
+- [`scenario-schema.v0.1.json`](scenario-schema.v0.1.json) — JSON Schema for the workflow-evidence `scenario.json` emitted by `agents-shipgate feedback capture`
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
