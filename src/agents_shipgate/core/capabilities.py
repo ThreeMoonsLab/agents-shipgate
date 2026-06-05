@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agents_shipgate.core.domain import Action, Scope, Tool
-from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.lenses.action_surface import build_action
 from agents_shipgate.schemas.capability_change import CapabilitySubjectKind
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind
@@ -31,8 +31,8 @@ class CapabilityIdentity(BaseModel):
     provider: str
     operation: str
     subject_kind: CapabilitySubjectKind = "action"
-    resource: str | None = None
-    scope: str | None = None
+    resource: tuple[str, ...] = Field(default_factory=tuple)
+    scope: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class CapabilityEffect(BaseModel):
@@ -69,7 +69,7 @@ class CapabilityControls(BaseModel):
 
     approval_required: bool | None = None
     approval_threshold: str | None = None
-    confirmation_required: bool | None = None
+    confirmation_required: bool = False
     safeguard_idempotency: bool | None = None
     safeguard_audit_log: bool | None = None
     safeguard_rollback: bool | None = None
@@ -107,6 +107,8 @@ class CapabilityHashes(BaseModel):
     authority_hash: str
     control_hash: str
     schema_hash: str
+    risk_hash: str
+    evidence_hash: str
 
 
 class CapabilityFactV1(BaseModel):
@@ -133,7 +135,7 @@ def capability_fact_from_action(
     action: Action,
     tool: Tool | None,
     *,
-    confirmation_required: bool | None = None,
+    confirmation_required: bool = False,
 ) -> CapabilityFactV1:
     """Build one internal capability fact from a typed action.
 
@@ -160,16 +162,18 @@ def capability_fact_from_action(
     )
     evidence = _capability_evidence(action, tool)
     hashes = CapabilityHashes(
-        identity_hash=_stable_hash(identity.model_dump(mode="json")),
-        effect_hash=_stable_hash(effect.model_dump(mode="json")),
-        authority_hash=_stable_hash(authority.model_dump(mode="json")),
-        control_hash=_stable_hash(controls.model_dump(mode="json")),
-        schema_hash=_stable_hash(
+        identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
+        effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
+        authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
+        control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
+        schema_hash=_capability_stable_hash(
             {
                 "input_schema": action.input_schema,
                 "parameters": action.parameters_for_hash,
             }
         ),
+        risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
+        evidence_hash=_capability_stable_hash(evidence.model_dump(mode="json")),
     )
     return CapabilityFactV1(
         id=f"cap_{hashes.identity_hash}",
@@ -194,7 +198,7 @@ def build_capability_facts(
     declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
     confirmation_tools = manifest.policies.confirmation_tools()
     facts: list[CapabilityFactV1] = []
-    for tool in sorted(tools, key=lambda item: (item.name, item.id)):
+    for tool in tools:
         action = build_action(
             manifest,
             agent_id=agent_id,
@@ -208,6 +212,7 @@ def build_capability_facts(
                 confirmation_required=tool.name in confirmation_tools,
             )
         )
+    _validate_unique_capability_ids(facts)
     return sorted(facts, key=_capability_sort_key)
 
 
@@ -220,7 +225,7 @@ def _capability_sort_key(
         identity.provider,
         identity.operation,
         identity.tool_name,
-        identity.scope or "",
+        "\n".join(identity.scope),
         fact.id,
     )
 
@@ -253,7 +258,7 @@ def _capability_authority(action: Action, tool: Tool | None) -> CapabilityAuthor
 def _capability_controls(
     action: Action,
     *,
-    confirmation_required: bool | None,
+    confirmation_required: bool,
 ) -> CapabilityControls:
     return CapabilityControls(
         approval_required=action.approval_required,
@@ -267,6 +272,24 @@ def _capability_controls(
         evidence_runbook=action.evidence_runbook,
         evidence_approval_ticket=action.evidence_approval_ticket,
     )
+
+
+def _validate_unique_capability_ids(facts: list[CapabilityFactV1]) -> None:
+    by_id: dict[str, list[str]] = {}
+    for fact in facts:
+        by_id.setdefault(fact.id, []).append(fact.identity.tool_name)
+    duplicates = {
+        capability_id: sorted(tool_names)
+        for capability_id, tool_names in by_id.items()
+        if len(tool_names) > 1
+    }
+    if not duplicates:
+        return
+    details = "; ".join(
+        f"{capability_id!r} used by {', '.join(tool_names)}"
+        for capability_id, tool_names in sorted(duplicates.items())
+    )
+    raise ConfigError(f"Duplicate capability ids are not allowed: {details}.")
 
 
 def _capability_evidence(action: Action, tool: Tool | None) -> CapabilityEvidence:
@@ -297,31 +320,58 @@ def _provenance_kind(tool: Tool) -> ProvenanceKind:
     return "static_declaration"
 
 
-def _scope_identity(scopes: list[Scope]) -> str | None:
-    values = sorted({scope.raw for scope in scopes if scope.raw})
-    return "\n".join(values) if values else None
+def _scope_identity(scopes: list[Scope]) -> tuple[str, ...]:
+    return tuple(sorted({scope.raw for scope in scopes if scope.raw}))
 
 
-def _resource_identity(scopes: list[Scope]) -> str | None:
-    values = sorted({scope.resource for scope in scopes if scope.resource})
-    return "\n".join(values) if values else None
+def _resource_identity(scopes: list[Scope]) -> tuple[str, ...]:
+    return tuple(sorted({scope.resource for scope in scopes if scope.resource}))
 
 
-def _stable_hash(value: Any) -> str:
-    canonical = _canonicalize_for_fingerprint(value)
+def _capability_stable_hash(value: Any) -> str:
+    canonical = _canonicalize_for_capability_hash(value)
     payload = json.dumps(canonical, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def _canonicalize_for_capability_hash(value: Any) -> Any:
+    """Canonical JSON-like shape for capability hashes.
+
+    Deliberately separate from finding fingerprint canonicalization:
+    capability hashes must not inherit the finding-specific exclusion
+    list for keys such as ``observed`` or ``source_provenance``.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: _canonicalize_for_capability_hash(value[key])
+            for key in sorted(value)
+        }
+    if isinstance(value, list):
+        items = [_canonicalize_for_capability_hash(item) for item in value]
+        return sorted(
+            items,
+            key=lambda item: json.dumps(item, sort_keys=True, default=str),
+        )
+    if isinstance(value, tuple | set):
+        return _canonicalize_for_capability_hash(list(value))
+    return value
+
+
 _AST_SOURCE_TYPES = frozenset(
     {
-        "sdk_function",
-        "openai_agents_sdk",
+        # Python/static-AST extracted tools. Declarative inventories and
+        # workflow JSON surfaces (``*_inventory``, n8n, MCP, OpenAPI,
+        # OpenAI/Anthropic API artifacts) intentionally stay
+        # ``static_declaration``.
+        "crewai_class_tool",
+        "crewai_function",
+        "crewai_prebuilt_tool",
         "google_adk_function",
         "langchain_function",
         "langchain_structured_tool",
-        "crewai_function",
-        "crewai_class_tool",
+        "openai_agents_sdk",
+        "sdk_function",
     }
 )
 

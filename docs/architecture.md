@@ -246,8 +246,10 @@ the typed accessors; legacy callers may migrate incrementally.
 vocabulary on top of `Scope`, `SideEffect`, and `Action`. The main type,
 `CapabilityFactV1`, groups stable semantic identity, normalized effect,
 authority, controls, source evidence, risk tags, and separate identity /
-effect / authority / control / schema hashes. It is intended to become
-the substrate for future capability lockfiles, richer capability diffs,
+effect / authority / control / schema / risk / evidence hashes. The
+hashes use capability-specific canonical JSON so they do not inherit the
+finding fingerprint exclusion list. It is intended to become the
+substrate for future capability lockfiles, richer capability diffs,
 policy matching, and governance benchmark assertions.
 
 **Boundary.** `CapabilityFactV1` is not emitted in `report.json`, does
