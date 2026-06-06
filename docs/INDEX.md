@@ -26,7 +26,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` alongside v0.21's `heuristics_filter` envelope)
+- [`report-schema.v0.23.json`](report-schema.v0.23.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.23"`, adding semantic metadata to `capability_change` members while preserving the existing capability-change buckets)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — experimental JSON Schema for `capabilities.lock.json` and capability-lock diff artifacts emitted by `agents-shipgate capability`; non-gating and not part of `report.json`
@@ -36,6 +36,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.22.json`](report-schema.v0.22.json) — frozen v0.22 reference schema; pre-v0.23 reports validate against this
 - [`report-schema.v0.21.json`](report-schema.v0.21.json) — frozen v0.21 reference schema; pre-v0.22 reports validate against this
 - [`report-schema.v0.20.json`](report-schema.v0.20.json) — frozen v0.20 reference schema; pre-v0.21 reports validate against this
 - [`report-schema.v0.19.json`](report-schema.v0.19.json) — frozen v0.19 reference schema; pre-v0.20 reports validate against this

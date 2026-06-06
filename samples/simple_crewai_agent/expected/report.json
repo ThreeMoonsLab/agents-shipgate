@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.22",
+  "report_schema_version": "0.23",
   "run_id": "agents_shipgate_75f9c3e73779b880",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
@@ -401,10 +401,7 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/tmp/claude-501/tmp909b2zp4/report.json",
-    "packet_md": "/private/tmp/claude-501/tmp909b2zp4/packet.md",
-    "packet_json": "/private/tmp/claude-501/tmp909b2zp4/packet.json",
-    "packet_html": "/private/tmp/claude-501/tmp909b2zp4/packet.html"
+    "json": "samples/simple_crewai_agent/expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -480,10 +477,7 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json",
-      "packet_html",
-      "packet_json",
-      "packet_md"
+      "json"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

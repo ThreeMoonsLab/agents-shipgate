@@ -28,6 +28,11 @@ from __future__ import annotations
 
 import hashlib
 
+from agents_shipgate.core.capability_delta import (
+    CapabilityDeltaRow,
+    CapabilityFactContext,
+    diff_capability_fact_sets,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeMember,
@@ -39,7 +44,9 @@ from agents_shipgate.schemas.capability_change import (
     VerifierReasonCodeCount,
     VerifierSummary,
 )
+from agents_shipgate.schemas.capability_semantics import CapabilitySemanticChange
 from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
 # ---------------------------------------------------------------------------
 # Shared deterministic helpers
@@ -114,6 +121,11 @@ class _MemberFactory:
         risk_tags: list[str] | None = None,
         confidence: str = "high",
         rationale: str = "",
+        before_capability_id: str | None = None,
+        after_capability_id: str | None = None,
+        changed_hashes: list[str] | None = None,
+        semantic_direction: str = "unknown",
+        semantic_changes: list[CapabilitySemanticChange] | None = None,
     ) -> CapabilityChangeMember:
         tool = tool or ""
         related = self._by_tool.get(tool, [])
@@ -130,6 +142,11 @@ class _MemberFactory:
             scope=scope,
             before_scope=before_scope,
             after_scope=after_scope,
+            before_capability_id=before_capability_id,
+            after_capability_id=after_capability_id,
+            changed_hashes=changed_hashes or [],
+            semantic_direction=semantic_direction,  # type: ignore[arg-type]
+            semantic_changes=semantic_changes or [],
             risk_tags=sorted(risk_tags or []),
             release_impact=impact,
             provenance_kind="static_declaration",
@@ -169,13 +186,34 @@ def _dedup_members(
         if existing is None:
             by_id[member.id] = member
             continue
+        if existing.semantic_direction == "unknown" and member.semantic_direction != "unknown":
+            existing.semantic_direction = member.semantic_direction
+        if member.semantic_changes:
+            existing.semantic_changes = sorted(
+                [*existing.semantic_changes, *member.semantic_changes],
+                key=lambda change: (change.kind, change.field, str(change.before), str(change.after)),
+            )
+            existing.rationale = member.rationale or existing.rationale
+        existing.changed_hashes = sorted(
+            set(existing.changed_hashes) | set(member.changed_hashes)
+        )
+        existing.before_capability_id = (
+            existing.before_capability_id or member.before_capability_id
+        )
+        existing.after_capability_id = (
+            existing.after_capability_id or member.after_capability_id
+        )
         existing.related_finding_ids = sorted(
             set(existing.related_finding_ids) | set(member.related_finding_ids)
         )
     return list(by_id.values())
 
 
-def build_capability_change(report: ReadinessReport) -> CapabilityChangeBlock:
+def build_capability_change(
+    report: ReadinessReport,
+    *,
+    base_action_surface_facts: ActionSurfaceFacts | None = None,
+) -> CapabilityChangeBlock:
     """Project the capability delta from the report's surface diffs.
 
     Returns a deterministic disabled/empty block when neither surface
@@ -194,6 +232,15 @@ def build_capability_change(report: ReadinessReport) -> CapabilityChangeBlock:
     removed: list[CapabilityChangeMember] = []
     broadened: list[CapabilityChangeMember] = []
     narrowed: list[CapabilityChangeMember] = []
+    _extend_semantic_members(
+        report,
+        factory,
+        base_action_surface_facts,
+        added=added,
+        removed=removed,
+        broadened=broadened,
+        narrowed=narrowed,
+    )
 
     # --- action surface ------------------------------------------------
     if action_enabled:
@@ -355,6 +402,172 @@ def build_capability_change(report: ReadinessReport) -> CapabilityChangeBlock:
         broadened=_dedup_members(broadened),
         narrowed=_dedup_members(narrowed),
     )
+
+
+def _extend_semantic_members(
+    report: ReadinessReport,
+    factory: _MemberFactory,
+    base_action_surface_facts: ActionSurfaceFacts | None,
+    *,
+    added: list[CapabilityChangeMember],
+    removed: list[CapabilityChangeMember],
+    broadened: list[CapabilityChangeMember],
+    narrowed: list[CapabilityChangeMember],
+) -> None:
+    if base_action_surface_facts is None:
+        return
+    diff = diff_capability_fact_sets(
+        _action_contexts(base_action_surface_facts.actions),
+        _action_contexts(report.action_surface_facts.actions),
+    )
+    for ctx in diff.added:
+        added.append(_member_from_added_context(factory, ctx))
+    for ctx in diff.removed:
+        removed.append(_member_from_removed_context(factory, ctx))
+    for row in (*diff.changed, *diff.reidentified):
+        direction = _member_direction(row.semantic_direction)
+        if direction is None:
+            continue
+        member = _member_from_delta_row(factory, row, direction)
+        if direction == "narrowed":
+            narrowed.append(member)
+        else:
+            broadened.append(member)
+
+
+def _action_contexts(actions: list[ActionFact]) -> list[CapabilityFactContext]:
+    from agents_shipgate.core.capabilities import capability_fact_from_action_fact
+
+    return [
+        CapabilityFactContext(
+            fact=capability_fact_from_action_fact(action),
+            action_id=action.action_id,
+            input_fields=tuple(action.input_fields),
+            required_input_fields=tuple(action.required_input_fields),
+        )
+        for action in sorted(actions, key=lambda item: item.action_id)
+    ]
+
+
+def _member_from_added_context(
+    factory: _MemberFactory,
+    ctx: CapabilityFactContext,
+) -> CapabilityChangeMember:
+    return factory.make(
+        "added",
+        "action",
+        ctx.fact.identity.tool_name,
+        action=ctx.action_id or ctx.fact.identity.operation,
+        rationale="Capability added.",
+        after_capability_id=ctx.fact.id,
+        changed_hashes=["identity_hash"],
+        semantic_direction="added",
+        semantic_changes=[
+            CapabilitySemanticChange(
+                kind="capability_added",
+                field="capability",
+                before=None,
+                after=ctx.fact.id,
+                rationale="Capability added.",
+            )
+        ],
+    )
+
+
+def _member_from_removed_context(
+    factory: _MemberFactory,
+    ctx: CapabilityFactContext,
+) -> CapabilityChangeMember:
+    return factory.make(
+        "removed",
+        "action",
+        ctx.fact.identity.tool_name,
+        action=ctx.action_id or ctx.fact.identity.operation,
+        rationale="Capability removed.",
+        before_capability_id=ctx.fact.id,
+        changed_hashes=["identity_hash"],
+        semantic_direction="removed",
+        semantic_changes=[
+            CapabilitySemanticChange(
+                kind="capability_removed",
+                field="capability",
+                before=ctx.fact.id,
+                after=None,
+                rationale="Capability removed.",
+            )
+        ],
+    )
+
+
+def _member_from_delta_row(
+    factory: _MemberFactory,
+    row: CapabilityDeltaRow,
+    direction: str,
+) -> CapabilityChangeMember:
+    subject_kind, action, scope = _semantic_subject(row)
+    return factory.make(
+        direction,
+        subject_kind,
+        row.after.identity.tool_name,
+        action=action,
+        scope=scope,
+        before_scope=", ".join(row.before.identity.scope) or None,
+        after_scope=", ".join(row.after.identity.scope) or None,
+        risk_tags=list(row.after.risk_tags),
+        confidence="high" if row.semantic_direction in {"broadened", "narrowed"} else "medium",
+        rationale=_semantic_rationale(row),
+        before_capability_id=row.before.id,
+        after_capability_id=row.after.id,
+        changed_hashes=list(row.changed_hashes),
+        semantic_direction=row.semantic_direction,
+        semantic_changes=list(row.semantic_changes),
+    )
+
+
+def _member_direction(semantic_direction: str) -> str | None:
+    if semantic_direction == "evidence_only":
+        return None
+    if semantic_direction == "narrowed":
+        return "narrowed"
+    return "broadened"
+
+
+def _semantic_subject(row: CapabilityDeltaRow) -> tuple[str, str | None, str | None]:
+    if row.after_context and row.after_context.action_id:
+        return "action", row.after_context.action_id, None
+    fields = {change.field for change in row.semantic_changes}
+    if fields & {"identity.scope", "authority.scopes", "authority.broad_scopes"}:
+        return "scope", None, _scope_delta_label(row)
+    if any(field.startswith("controls.") for field in fields):
+        control_field = next(
+            change.field.removeprefix("controls.")
+            for change in row.semantic_changes
+            if change.field.startswith("controls.")
+        )
+        return "policy", control_field, None
+    action = (
+        row.after_context.action_id
+        if row.after_context and row.after_context.action_id
+        else row.after.identity.operation
+    )
+    return "action", action, None
+
+
+def _scope_delta_label(row: CapabilityDeltaRow) -> str | None:
+    before = set(row.before.identity.scope)
+    after = set(row.after.identity.scope)
+    changed = sorted((before ^ after) or before or after)
+    return ", ".join(changed) if changed else None
+
+
+def _semantic_rationale(row: CapabilityDeltaRow) -> str:
+    if not row.semantic_changes:
+        return f"Capability semantic direction: {row.semantic_direction}."
+    rationales = []
+    for change in row.semantic_changes:
+        if change.rationale not in rationales:
+            rationales.append(change.rationale)
+    return " ".join(rationales[:3])
 
 
 # ---------------------------------------------------------------------------

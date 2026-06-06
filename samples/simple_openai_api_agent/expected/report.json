@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.22",
+  "report_schema_version": "0.23",
   "run_id": "agents_shipgate_529a14acc6ebdc81",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
@@ -2405,10 +2405,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/tmp/claude-501/tmpkkxh0vit/report.json",
-    "packet_md": "/private/tmp/claude-501/tmpkkxh0vit/packet.md",
-    "packet_json": "/private/tmp/claude-501/tmpkkxh0vit/packet.json",
-    "packet_html": "/private/tmp/claude-501/tmpkkxh0vit/packet.html"
+    "json": "samples/simple_openai_api_agent/expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2479,10 +2476,7 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json",
-      "packet_html",
-      "packet_json",
-      "packet_md"
+      "json"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

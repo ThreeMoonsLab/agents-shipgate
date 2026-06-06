@@ -1,4 +1,4 @@
-"""Verifier-cycle capability-change domain types (report schema v0.22).
+"""Verifier-cycle capability-change domain types (report schema v0.23).
 
 These are the additive v0.22 report blocks for the AI coding workflow
 verifier (see docs/engineering/ai-coding-workflow-verifier.md §7, §8):
@@ -8,6 +8,8 @@ verifier (see docs/engineering/ai-coding-workflow-verifier.md §7, §8):
   member lists. A reviewer-facing *projection* over the existing
   ``action_surface_diff`` / ``tool_surface_diff`` facts; it never gates
   on its own (Principle 1/2: legibility layer, one decision engine).
+  v0.23 adds semantic metadata fields to each member while preserving
+  the existing buckets.
 - ``ProtectedSurfaceChange`` / list — touched protected paths/policies.
 - ``EffectivePolicy`` — a normalized policy snapshot block.
 - ``HumanAck`` — declared human-acknowledgement state.
@@ -31,10 +33,16 @@ wall-clock, no randomness, no set-iteration order leaks into output.
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.schemas.capability_semantics import (
+    CapabilityHashName,
+    CapabilitySemanticChange,
+    CapabilitySemanticDirection,
+)
 from agents_shipgate.schemas.common import Confidence, ReleaseDecisionStatus
 
 # --- Capability change -------------------------------------------------------
@@ -108,6 +116,11 @@ class CapabilityChangeMember(BaseModel):
     # ``None`` for ``added`` / ``removed`` membership changes.
     before_scope: str | None = None
     after_scope: str | None = None
+    before_capability_id: str | None = None
+    after_capability_id: str | None = None
+    changed_hashes: list[CapabilityHashName] = Field(default_factory=list)
+    semantic_direction: CapabilitySemanticDirection = "unknown"
+    semantic_changes: list[CapabilitySemanticChange] = Field(default_factory=list)
     risk_tags: list[str] = Field(default_factory=list)
     release_impact: CapabilityReleaseImpact = "informational"
     provenance_kind: str | None = None
@@ -120,6 +133,16 @@ class CapabilityChangeMember(BaseModel):
         # Deterministic ordering — sort the free lists so the same logical
         # member serializes byte-identically regardless of build order.
         self.risk_tags = sorted(self.risk_tags)
+        self.changed_hashes = sorted(set(self.changed_hashes))
+        self.semantic_changes = sorted(
+            self.semantic_changes,
+            key=lambda change: (
+                change.kind,
+                change.field,
+                json.dumps(change.before, sort_keys=True, default=str),
+                json.dumps(change.after, sort_keys=True, default=str),
+            ),
+        )
         self.related_finding_ids = sorted(self.related_finding_ids)
         return self
 

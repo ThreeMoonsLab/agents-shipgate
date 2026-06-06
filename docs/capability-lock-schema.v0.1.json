@@ -574,6 +574,27 @@
           "title": "Operation",
           "type": "string"
         },
+        "semantic_changes": {
+          "items": {
+            "$ref": "#/$defs/CapabilitySemanticChange"
+          },
+          "title": "Semantic Changes",
+          "type": "array"
+        },
+        "semantic_direction": {
+          "default": "unknown",
+          "enum": [
+            "added",
+            "removed",
+            "broadened",
+            "narrowed",
+            "mixed",
+            "unknown",
+            "evidence_only"
+          ],
+          "title": "Semantic Direction",
+          "type": "string"
+        },
         "tool_name": {
           "title": "Tool Name",
           "type": "string"
@@ -640,8 +661,8 @@
           "$ref": "#/$defs/CapabilityLockRef"
         },
         "capability_lock_diff_schema_version": {
-          "const": "0.1",
-          "default": "0.1",
+          "const": "0.2",
+          "default": "0.2",
           "title": "Capability Lock Diff Schema Version",
           "type": "string"
         },
@@ -927,6 +948,39 @@
         }
       },
       "title": "CapabilityLockSummary",
+      "type": "object"
+    },
+    "CapabilitySemanticChange": {
+      "additionalProperties": false,
+      "description": "One semantic explanation for a capability delta.",
+      "properties": {
+        "after": {
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "default": null,
+          "title": "Before"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "field",
+        "rationale"
+      ],
+      "title": "CapabilitySemanticChange",
       "type": "object"
     }
   },

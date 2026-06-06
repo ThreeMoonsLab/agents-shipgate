@@ -636,7 +636,10 @@ class ReadinessReport(BaseModel):
     # (``release_decision.decision`` remains the only gate). Emitted as
     # deterministic projections or empty/default shapes when no evidence
     # exists; older consumers ignore them.
-    report_schema_version: str = "0.22"
+    # v0.23: additive semantic metadata on capability_change members.
+    # Existing buckets and summary counts stay intact; new fields explain
+    # the capability-hash / semantic reason behind each row when proven.
+    report_schema_version: str = "0.23"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

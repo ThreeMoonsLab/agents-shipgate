@@ -122,6 +122,8 @@ def test_exported_lock_is_deterministic_and_has_no_timestamp() -> None:
     assert first == second
     assert "timestamp" not in first
     assert "generated_at" not in first
+    assert "semantic_direction" not in first
+    assert "semantic_changes" not in first
     payload = json.loads(first)
     assert payload["capability_lock_schema_version"] == "0.1"
     assert payload["experimental"] is True
@@ -191,6 +193,7 @@ def test_source_location_only_changes_land_in_evidence_changed() -> None:
     assert diff.summary.changed == 0
     assert diff.summary.evidence_changed == 1
     assert diff.evidence_changed[0].changed_hashes == ("evidence_hash",)
+    assert diff.evidence_changed[0].semantic_direction == "evidence_only"
 
 
 def test_scope_change_reidentifies_capability_instead_of_unrelated_add_remove() -> None:
@@ -216,6 +219,8 @@ def test_scope_change_reidentifies_capability_instead_of_unrelated_add_remove() 
     assert row.before.id != row.after.id
     assert "identity_hash" in row.changed_hashes
     assert "authority_hash" in row.changed_hashes
+    assert row.semantic_direction == "broadened"
+    assert any(change.field == "identity.scope" for change in row.semantic_changes)
     assert row.before.authority.scopes == ("payments:write",)
     assert row.after.authority.scopes == ("payments:admin", "payments:write")
 
@@ -229,6 +234,11 @@ def test_non_scope_authority_change_lands_in_changed() -> None:
     assert diff.summary.reidentified == 0
     assert diff.summary.changed == 1
     assert diff.changed[0].changed_hashes == ("authority_hash",)
+    assert diff.changed[0].semantic_direction == "unknown"
+    assert any(
+        change.field == "authority.auth_type"
+        for change in diff.changed[0].semantic_changes
+    )
 
 
 def test_semantic_hash_changes_land_in_changed() -> None:
@@ -265,6 +275,7 @@ def test_semantic_hash_changes_land_in_changed() -> None:
     assert diff.summary.changed == 1
     assert diff.summary.evidence_changed == 0
     assert "schema_hash" in diff.changed[0].changed_hashes
+    assert diff.changed[0].semantic_direction == "unknown"
 
 
 def test_added_and_removed_facts_sort_stably() -> None:
@@ -303,6 +314,7 @@ def test_capability_lock_and_diff_validate_against_schema() -> None:
 
     jsonschema.validate(json.loads(render_capability_lock_json(base)), SCHEMA)
     jsonschema.validate(json.loads(render_capability_lock_diff_json(diff)), SCHEMA)
+    assert diff.capability_lock_diff_schema_version == "0.2"
 
 
 def test_capability_export_writes_default_lock_and_report_copy(
