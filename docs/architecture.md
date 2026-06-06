@@ -262,6 +262,38 @@ existing scan pipeline. Phase-0 capability facts are built from typed
 same provider, operation, scope, effect, approval, safeguard, and
 evidence semantics as Action Surface Diff.
 
+## Experimental capability locks
+
+`agents-shipgate capability export` builds an experimental local
+capability lock from the same static source-loading path used by scans,
+but stops after enriched tools and typed `Action` objects are available.
+It does not run findings, write `report.json`, invoke `verify`, or
+produce a release decision. By default it writes the reviewed envelope
+to `.agents-shipgate/capabilities.lock.json` and a byte-identical
+generated copy to `agents-shipgate-reports/capabilities.lock.json`.
+
+`agents-shipgate capability diff --base ... --head ...` compares two
+lockfiles by `CapabilityFactV1.id`. Semantic hash drift on a stable id
+(`effect`, non-scope `authority`, `control`, `schema`, or `risk`) is
+reported as `changed`; source-provenance-only drift is reported as
+`evidence_changed`. Scope/resource changes intentionally re-identify a
+capability because scope is part of durable identity, so the diff pairs
+same agent/provider/operation/tool rows and reports them as
+`reidentified` instead of unrelated add/remove churn. Added and removed
+capability facts are listed separately.
+
+The v0.1 lock is an enumerable-tools envelope. Dynamic toolkit scope
+bounds parsed from factories are counted in `source.toolkit_bound_count`
+but are not yet emitted as capability facts, so widening a dynamic
+factory's authority bound is a known limitation until a later phase
+adds non-enumerable authority facts. The current schema is
+[`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
+and is experimental: it is not part of `report.json`, does not bump
+`report_schema_version`, does not feed policy packs, and does not gate.
+The committed lock is deterministic for the same manifest-relative
+inputs; `cli_version` is provenance and may change on scanner upgrades.
+The release decision remains `release_decision.decision`.
+
 ## Reviewer surfaces: five lenses + three audit envelopes
 
 The emitted `report.json` and the Release Evidence Packet expose

@@ -2,133 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal
-
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
 
 from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.lenses.action_surface import build_action
-from agents_shipgate.schemas.capability_change import CapabilitySubjectKind
-from agents_shipgate.schemas.common import Confidence, ProvenanceKind
+from agents_shipgate.schemas.capabilities import (
+    CapabilityAuthority,
+    CapabilityControls,
+    CapabilityEffect,
+    CapabilityEvidence,
+    CapabilityFactV1,
+    CapabilityHashes,
+    CapabilityIdentity,
+    capability_fact_sort_key,
+)
+from agents_shipgate.schemas.common import ProvenanceKind
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-from agents_shipgate.schemas.surfaces import ActionEffect
-
-
-class CapabilityIdentity(BaseModel):
-    """Stable semantic identity for an agent capability.
-
-    This is an internal, non-wire substrate. Source location, evidence,
-    controls, and schema details intentionally live outside identity so
-    unrelated file moves or metadata edits do not churn capability ids.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    agent_id: str
-    tool_id: str
-    tool_name: str
-    provider: str
-    operation: str
-    subject_kind: CapabilitySubjectKind = "action"
-    resource: tuple[str, ...] = Field(default_factory=tuple)
-    scope: tuple[str, ...] = Field(default_factory=tuple)
-
-
-class CapabilityEffect(BaseModel):
-    """Normalized side-effect view derived from ``SideEffect``."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    effect: ActionEffect
-    externally_visible: bool = False
-    handles_sensitive_data: bool = False
-    financial: bool = False
-    code_execution: bool = False
-    reversibility: Literal["reversible", "irreversible", "unknown"] = "unknown"
-    idempotency_known: bool | None = None
-    high_risk: bool = False
-
-
-class CapabilityAuthority(BaseModel):
-    """Authority source and scope facts for a capability."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    auth_type: str | None = None
-    credential_mode: str | None = None
-    source: str | None = None
-    scopes: tuple[str, ...] = Field(default_factory=tuple)
-    broad_scopes: tuple[str, ...] = Field(default_factory=tuple)
-
-
-class CapabilityControls(BaseModel):
-    """Policy and safeguard controls already known to the action surface."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    approval_required: bool | None = None
-    approval_threshold: str | None = None
-    confirmation_required: bool = False
-    safeguard_idempotency: bool | None = None
-    safeguard_audit_log: bool | None = None
-    safeguard_rollback: bool | None = None
-    safeguard_dry_run: bool | None = None
-    evidence_owner: str | None = None
-    evidence_runbook: str | None = None
-    evidence_approval_ticket: str | None = None
-
-
-class CapabilityEvidence(BaseModel):
-    """Structured source provenance for a capability fact."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    source_type: str
-    source_id: str | None = None
-    source_ref: str | None = None
-    source_location: str | None = None
-    source_path: str | None = None
-    source_start_line: int | None = None
-    source_end_line: int | None = None
-    source_start_column: int | None = None
-    source_pointer: str | None = None
-    provenance_kind: ProvenanceKind = "static_declaration"
-    confidence: Confidence = "medium"
-
-
-class CapabilityHashes(BaseModel):
-    """Separate hashes for the future lock/diff substrate."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    identity_hash: str
-    effect_hash: str
-    authority_hash: str
-    control_hash: str
-    schema_hash: str
-    risk_hash: str
-    evidence_hash: str
-
-
-class CapabilityFactV1(BaseModel):
-    """Internal durable capability fact.
-
-    Phase 0 deliberately keeps this out of report.json and CLI output. It
-    is the substrate future lockfiles, policy matching, and governance
-    benchmarks can build on without changing the current release gate.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    id: str
-    identity: CapabilityIdentity
-    effect: CapabilityEffect
-    authority: CapabilityAuthority
-    controls: CapabilityControls
-    evidence: CapabilityEvidence
-    risk_tags: tuple[str, ...] = Field(default_factory=tuple)
-    hashes: CapabilityHashes
 
 
 def capability_fact_from_action(
@@ -213,21 +103,7 @@ def build_capability_facts(
             )
         )
     _validate_unique_capability_ids(facts)
-    return sorted(facts, key=_capability_sort_key)
-
-
-def _capability_sort_key(
-    fact: CapabilityFactV1,
-) -> tuple[str, str, str, str, str, str]:
-    identity = fact.identity
-    return (
-        identity.agent_id,
-        identity.provider,
-        identity.operation,
-        identity.tool_name,
-        "\n".join(identity.scope),
-        fact.id,
-    )
+    return sorted(facts, key=capability_fact_sort_key)
 
 
 def _capability_effect(action: Action) -> CapabilityEffect:

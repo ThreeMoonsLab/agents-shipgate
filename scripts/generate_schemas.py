@@ -15,6 +15,9 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
+- docs/capability-lock-schema.v0.1.json
+                                (from agents_shipgate.schemas.capabilities.
+                                 CapabilityLockArtifactV1; experimental)
 
 ``--check`` mode is the M4 trust-hardening gate: it generates each schema in
 memory (running the same post-processing as ``write``) and compares it to the
@@ -1150,6 +1153,44 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_capability_lock_schema() -> tuple[Path, str]:
+    """Generate the experimental capability-lock schema."""
+
+    from agents_shipgate.schemas.capabilities import (
+        CAPABILITY_LOCK_SCHEMA_VERSION,
+        CapabilityLockArtifactV1,
+    )
+
+    schema = CapabilityLockArtifactV1.model_json_schema()
+    minor = CAPABILITY_LOCK_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-lock-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Capability Lock v{minor} (Experimental)"
+    schema["description"] = (
+        "Experimental JSON Schema for capability lock and capability lock diff "
+        "artifacts. Generated from agents_shipgate.schemas.capabilities. "
+        "It is non-gating and is not part of report.json; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"capability-lock-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def write_capability_lock_schema(
+    *, check_only: bool = False, drift: list[str] | None = None
+) -> bool:
+    target, content = build_capability_lock_schema()
+    return _emit(
+        target,
+        content,
+        check_only=check_only,
+        drift=drift if drift is not None else [],
+    )
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1158,6 +1199,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("report", build_report_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
+    ("capability_lock", build_capability_lock_schema),
 )
 
 

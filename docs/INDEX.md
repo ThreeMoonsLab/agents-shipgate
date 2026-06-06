@@ -29,6 +29,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` alongside v0.21's `heuristics_filter` envelope)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
+- [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — experimental JSON Schema for `capabilities.lock.json` and capability-lock diff artifacts emitted by `agents-shipgate capability`; non-gating and not part of `report.json`
 - [`agent-trace-event-schema.v0.1.json`](agent-trace-event-schema.v0.1.json) — JSON Schema for local, opt-in AgentTraceEvent records used by Agent Workflow Evidence
 - [`agent-workflow-evidence-bundle-schema.v0.1.json`](agent-workflow-evidence-bundle-schema.v0.1.json) — JSON Schema for local, opt-in replay bundles that combine verifier artifacts, trace files, and expected governance outcomes
 - [`scenario-schema.v0.1.json`](scenario-schema.v0.1.json) — JSON Schema for the workflow-evidence `scenario.json` emitted by `agents-shipgate feedback capture`

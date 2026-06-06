@@ -44,6 +44,14 @@ payload as provisional during the v0.11 design-partner cycle; the schema file is
 published so consumers can validate it, and any incompatible change must bump
 `feedback_schema_version`.
 
+`agents-shipgate capability export` and `agents-shipgate capability diff` are
+introduced as experimental capability-lock helpers. Current `export` flags are
+`--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`,
+`--json`, `--no-plugins`, and `--verbose`; current `diff` flags are `--base`,
+`--head`, `--out`, and `--json`. Treat the command group and
+`capability_lock_schema_version: "0.1"` payloads as provisional; incompatible
+changes must bump the capability-lock schema version.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -780,6 +788,30 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `human_ack` (`required`, `satisfied`, `outstanding`)
 - `policy_snapshot_sha256`
 - `artifact_sha256`
+
+### Capability Lock (Experimental)
+
+`agents-shipgate capability export` writes an experimental local capability
+envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
+byte-identical generated mirror at
+`agents-shipgate-reports/capabilities.lock.json`. `agents-shipgate capability
+diff` compares two such lockfiles and emits added, removed, `reidentified`,
+semantic `changed`, and `evidence_changed` rows. `reidentified` is the
+scope/resource case: scope is part of capability identity, so a scope escalation
+changes the id and is paired by agent/provider/operation/tool instead of being
+reported as unrelated add/remove churn.
+
+The current experimental schema is
+[`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
+The lock is an enumerable-tools envelope. Dynamic toolkit scope bounds are
+disclosed by `source.toolkit_bound_count` but not emitted as capability facts in
+v0.1. `cli_version` is provenance and may change on scanner upgrades; it is not
+part of the semantic capability-set hash.
+
+This artifact is deterministic and carries no wall-clock timestamp, but it is
+not yet a stable agent contract: it is not emitted in `report.json`, is not
+advertised as a `.well-known` output, does not bump `report_schema_version`, and
+does not gate. `release_decision.decision` remains the only gate.
 
 ### Workflow-evidence capture
 
