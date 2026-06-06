@@ -18,6 +18,12 @@ Writes / verifies:
 - docs/capability-lock-schema.v0.1.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockArtifactV1; experimental)
+- docs/governance-benchmark-catalog-schema.v0.2.json
+                                (from agents_shipgate.schemas.governance_benchmark.
+                                 GovernanceBenchmarkCatalogArtifactV1; experimental)
+- docs/governance-benchmark-result-schema.v0.1.json
+                                (from agents_shipgate.schemas.governance_benchmark.
+                                 GovernanceBenchmarkResultArtifactV1; experimental)
 
 ``--check`` mode is the M4 trust-hardening gate: it generates each schema in
 memory (running the same post-processing as ``write``) and compares it to the
@@ -1191,6 +1197,56 @@ def write_capability_lock_schema(
     )
 
 
+def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
+    """Generate the experimental governance-benchmark catalog schema."""
+
+    from agents_shipgate.schemas.governance_benchmark import (
+        GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+        GovernanceBenchmarkCatalogArtifactV1,
+    )
+
+    schema = GovernanceBenchmarkCatalogArtifactV1.model_json_schema()
+    minor = GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/governance-benchmark-catalog-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Governance Benchmark Catalog v{minor} (Experimental)"
+    schema["description"] = (
+        "Experimental JSON Schema for the AgentPR governance benchmark catalog. "
+        "Generated from agents_shipgate.schemas.governance_benchmark. "
+        "It is an eval substrate and does not gate releases."
+    )
+    target = DOCS / f"governance-benchmark-catalog-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_governance_benchmark_result_schema() -> tuple[Path, str]:
+    """Generate the experimental governance-benchmark result schema."""
+
+    from agents_shipgate.schemas.governance_benchmark import (
+        GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+        GovernanceBenchmarkResultArtifactV1,
+    )
+
+    schema = GovernanceBenchmarkResultArtifactV1.model_json_schema()
+    minor = GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/governance-benchmark-result-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Governance Benchmark Result v{minor} (Experimental)"
+    schema["description"] = (
+        "Experimental JSON Schema for governance benchmark result artifacts. "
+        "Generated from agents_shipgate.schemas.governance_benchmark. "
+        "It is an eval substrate and does not gate releases."
+    )
+    target = DOCS / f"governance-benchmark-result-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1200,6 +1256,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
     ("capability_lock", build_capability_lock_schema),
+    ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
+    ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )
 
 

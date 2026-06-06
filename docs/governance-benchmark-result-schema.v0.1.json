@@ -1,0 +1,395 @@
+{
+  "$defs": {
+    "GovernanceBenchmarkMetricSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "default": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "metric": {
+          "enum": [
+            "unsafe_merge_prevention",
+            "safe_pass_rate",
+            "authority_routing",
+            "explanation_usefulness",
+            "remediation_boundary",
+            "capability_semantic_fidelity"
+          ],
+          "title": "Metric",
+          "type": "string"
+        },
+        "passed": {
+          "default": 0,
+          "title": "Passed",
+          "type": "integer"
+        },
+        "total": {
+          "default": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "metric"
+      ],
+      "title": "GovernanceBenchmarkMetricSummaryV1",
+      "type": "object"
+    },
+    "GovernanceBenchmarkResultV1": {
+      "additionalProperties": false,
+      "description": "Deterministic benchmark result artifact.",
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/GovernanceCaseResultV1"
+          },
+          "title": "Cases",
+          "type": "array"
+        },
+        "catalog_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Path"
+        },
+        "catalog_schema_version": {
+          "title": "Catalog Schema Version",
+          "type": "string"
+        },
+        "experimental": {
+          "const": true,
+          "default": true,
+          "title": "Experimental",
+          "type": "boolean"
+        },
+        "governance_benchmark_result_schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Governance Benchmark Result Schema Version",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/GovernanceBenchmarkMetricSummaryV1"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/GovernanceBenchmarkSummaryV1"
+        }
+      },
+      "required": [
+        "catalog_schema_version",
+        "summary"
+      ],
+      "title": "GovernanceBenchmarkResultV1",
+      "type": "object"
+    },
+    "GovernanceBenchmarkSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_only_cases": {
+          "default": 0,
+          "title": "Catalog Only Cases",
+          "type": "integer"
+        },
+        "executable_cases": {
+          "default": 0,
+          "title": "Executable Cases",
+          "type": "integer"
+        },
+        "external_evidence_cases": {
+          "default": 0,
+          "title": "External Evidence Cases",
+          "type": "integer"
+        },
+        "failed_cases": {
+          "default": 0,
+          "title": "Failed Cases",
+          "type": "integer"
+        },
+        "passed_cases": {
+          "default": 0,
+          "title": "Passed Cases",
+          "type": "integer"
+        },
+        "selected_cases": {
+          "default": 0,
+          "title": "Selected Cases",
+          "type": "integer"
+        },
+        "skipped_cases": {
+          "default": 0,
+          "title": "Skipped Cases",
+          "type": "integer"
+        },
+        "total_cases": {
+          "default": 0,
+          "title": "Total Cases",
+          "type": "integer"
+        }
+      },
+      "title": "GovernanceBenchmarkSummaryV1",
+      "type": "object"
+    },
+    "GovernanceCapabilityDiffActualV1": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "changed": {
+          "default": 0,
+          "title": "Changed",
+          "type": "integer"
+        },
+        "evidence_changed": {
+          "default": 0,
+          "title": "Evidence Changed",
+          "type": "integer"
+        },
+        "reidentified": {
+          "default": 0,
+          "title": "Reidentified",
+          "type": "integer"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "unchanged": {
+          "default": 0,
+          "title": "Unchanged",
+          "type": "integer"
+        }
+      },
+      "title": "GovernanceCapabilityDiffActualV1",
+      "type": "object"
+    },
+    "GovernanceCaseResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GovernanceGateActualV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "capability_diff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GovernanceCapabilityDiffActualV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "expected": {
+          "additionalProperties": true,
+          "title": "Expected",
+          "type": "object"
+        },
+        "failures": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failures",
+          "type": "array"
+        },
+        "fixture": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fixture"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "metric_results": {
+          "items": {
+            "$ref": "#/$defs/GovernanceMetricResultV1"
+          },
+          "title": "Metric Results",
+          "type": "array"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "skipped": {
+          "default": false,
+          "title": "Skipped",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "executable",
+            "catalog_only",
+            "external_evidence"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "title",
+        "status",
+        "passed"
+      ],
+      "title": "GovernanceCaseResultV1",
+      "type": "object"
+    },
+    "GovernanceGateActualV1": {
+      "additionalProperties": false,
+      "properties": {
+        "can_merge_without_human": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Can Merge Without Human"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "fix_task_actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Task Actor"
+        },
+        "fix_task_safe_to_attempt": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Task Safe To Attempt"
+        },
+        "merge_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Verdict"
+        },
+        "next_actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Actor"
+        }
+      },
+      "title": "GovernanceGateActualV1",
+      "type": "object"
+    },
+    "GovernanceMetricResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "enum": [
+            "unsafe_merge_prevention",
+            "safe_pass_rate",
+            "authority_routing",
+            "explanation_usefulness",
+            "remediation_boundary",
+            "capability_semantic_fidelity"
+          ],
+          "title": "Metric",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric",
+        "passed",
+        "rationale"
+      ],
+      "title": "GovernanceMetricResultV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.1.json",
+  "$ref": "#/$defs/GovernanceBenchmarkResultV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Experimental JSON Schema for governance benchmark result artifacts. Generated from agents_shipgate.schemas.governance_benchmark. It is an eval substrate and does not gate releases.",
+  "title": "Agents Shipgate Governance Benchmark Result v0.1 (Experimental)"
+}

@@ -51,11 +51,11 @@ def test_governance_benchmark_catalog_covers_major_risk_classes():
         encoding="utf-8"
     )
 
-    assert catalog["schema_version"] == "0.1"
+    assert catalog["schema_version"] == "0.2"
     assert catalog["name"] == "AgentPR Governance Case Catalog"
     assert len(cases) == 50
-    assert "case catalog and acceptance spec" in readme
-    assert "not an executable benchmark yet" in readme
+    assert "governance benchmark and case catalog" in readme
+    assert "runs the real verifier" in readme
 
     counts = Counter(case["category"] for case in cases)
     assert counts == {
@@ -79,14 +79,23 @@ def test_governance_benchmark_catalog_covers_major_risk_classes():
         "unknown",
     }
     valid_actors = {"human", "coding_agent"}
+    valid_statuses = {"executable", "catalog_only", "external_evidence"}
     for case in cases:
         assert case["decision"] in valid_decisions
         assert case["merge_verdict"] in valid_verdicts
         assert case["next_actor"] in valid_actors
+        assert case["status"] in valid_statuses
         assert case["artifacts"], case["id"]
         assert case["evidence"], case["id"]
 
     assert any(case["decision"] == "insufficient_evidence" for case in cases)
+    status_counts = Counter(case["status"] for case in cases)
+    assert status_counts == {
+        "executable": 10,
+        "catalog_only": 27,
+        "external_evidence": 13,
+    }
+    assert any(case.get("capability_expectations") for case in cases)
 
 
 def test_agent_trace_event_schema_validates_observable_event():
