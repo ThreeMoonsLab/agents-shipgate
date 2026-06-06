@@ -67,7 +67,7 @@ def capability_export(
 
     try:
         configure_logging(verbose=verbose)
-        lock = _build_lock_from_config(
+        lock = build_capability_lock_from_config(
             config=config,
             no_plugins=no_plugins,
             verbose=verbose,
@@ -155,12 +155,19 @@ def capability_diff(
     )
 
 
-def _build_lock_from_config(
+def build_capability_lock_from_config(
     *,
     config: Path,
     no_plugins: bool,
     verbose: bool,
 ):
+    """Build an experimental capability lock from a manifest path.
+
+    Shared by the CLI command and internal benchmark scripts. This stops at
+    static tool loading plus typed action construction; it does not run
+    findings, write reports, invoke verify, or gate.
+    """
+
     resolved = _prepare_scan(
         config_path=config,
         ci_mode=None,
@@ -202,4 +209,4 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-__all__ = ["capability_app"]
+__all__ = ["build_capability_lock_from_config", "capability_app"]

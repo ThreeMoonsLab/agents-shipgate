@@ -308,12 +308,15 @@ locks, compare them through the shared capability-lock diff engine, and assert
 both gate behavior and `CapabilityFactV1` semantic deltas.
 
 The internal runner is `python scripts/run_governance_benchmark.py --catalog
-benchmark/agent-pr-governance/cases.yaml --json`. It emits deterministic
+benchmark/agent-pr-governance/cases.yaml --json`. Benchmark orchestration lives
+in the script layer, not in `src/agents_shipgate`, so the eval harness does not
+ship in the scanner package or expand the audited scanner trust surface. Git
+fixture materialization reuses the existing fixture helper rather than adding a
+benchmark-specific subprocess call site. The runner emits deterministic
 `governance_benchmark_result_schema_version: "0.1"` JSON with no wall-clock
-timestamp. The benchmark is product-evaluation infrastructure only: it does
-not add public report fields, policy behavior, GitHub Action outputs, or a
-second verdict. `report.json.release_decision.decision` remains the only
-release gate.
+timestamp. The benchmark is product-evaluation infrastructure only: it does not
+add public report fields, policy behavior, GitHub Action outputs, or a second
+verdict. `report.json.release_decision.decision` remains the only release gate.
 
 ## Reviewer surfaces: five lenses + three audit envelopes
 

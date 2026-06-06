@@ -8,19 +8,19 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.governance_benchmark import (
-    GovernanceBenchmarkOptions,
-    benchmark_exit_code,
-    load_governance_benchmark_catalog,
-    render_governance_benchmark_result_json,
-    run_governance_benchmark,
-)
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.governance_benchmark import GovernanceBenchmarkCatalogV1
 from agents_shipgate.schemas.report import ReadinessReport
+from scripts.run_governance_benchmark import (
+    GovernanceBenchmarkOptions,
+    benchmark_exit_code,
+    load_governance_benchmark_catalog,
+    render_governance_benchmark_result_json,
+    run_governance_benchmark,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = REPO_ROOT / "benchmark/agent-pr-governance/cases.yaml"
@@ -131,6 +131,32 @@ def test_include_catalog_only_rows_are_skipped_unless_strict(tmp_path: Path) -> 
     assert result.cases[0].status == "external_evidence"
     assert strict_result.summary.failed_cases == 1
     assert benchmark_exit_code(strict_result) == 1
+
+
+def test_explicit_non_executable_case_selection_is_not_silently_empty(
+    tmp_path: Path,
+) -> None:
+    result = run_governance_benchmark(
+        _catalog(),
+        catalog_path=CATALOG_PATH,
+        options=GovernanceBenchmarkOptions(case_ids=frozenset({"dep-registry-changed"})),
+        work_root=tmp_path / "explicit-non-executable",
+    )
+
+    assert result.summary.selected_cases == 1
+    assert result.summary.skipped_cases == 1
+    assert result.summary.failed_cases == 0
+    assert result.cases[0].id == "dep-registry-changed"
+    assert result.cases[0].status == "external_evidence"
+
+
+def test_unknown_case_id_raises_config_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="Unknown governance benchmark case id"):
+        run_governance_benchmark(
+            _catalog(),
+            options=GovernanceBenchmarkOptions(case_ids=frozenset({"no-such-case"})),
+            work_root=tmp_path / "unknown",
+        )
 
 
 def test_capability_expectation_failure_exits_one(tmp_path: Path) -> None:

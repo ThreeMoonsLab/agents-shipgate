@@ -32,6 +32,12 @@ python scripts/run_governance_benchmark.py \
   --include-catalog-only --json
 ```
 
+The runner lives in `scripts/`; benchmark orchestration does not ship inside
+`src/agents_shipgate`. Git fixture materialization reuses the existing audited
+fixture helper instead of carrying a benchmark-specific subprocess copy.
+Result JSON has no wall-clock timestamp and is deterministic for the same
+catalog, fixtures, scanner version, and local git behavior.
+
 ## Metrics
 
 The runner computes these acceptance metrics:
@@ -41,9 +47,13 @@ The runner computes these acceptance metrics:
   not-applicable routing.
 - authority routing: human-only gaps must route to `human`, not `coding_agent`.
 - explanation usefulness: `capability_review.top_changes[]` or
-  `release_decision.review_items[]` must point at the changed capability.
+  `release_decision.review_items[]` must point at the changed capability. This
+  v0 signal is intentionally coarse and should not be treated as proof of
+  reviewer-quality prose.
 - remediation boundary: mechanical fixes may be agent-routable; approval,
   idempotency, broad-scope, waiver, baseline, and trust-root gaps may not.
+- capability semantic fidelity: declared `CapabilityFactV1` / lock-diff
+  expectations must match the actual capability diff.
 
 ## Adding A Case
 
