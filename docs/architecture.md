@@ -298,6 +298,23 @@ deterministic for the same manifest-relative inputs; `cli_version` is
 provenance and may change on scanner upgrades. The release decision
 remains `release_decision.decision`.
 
+## Governance benchmark substrate
+
+`benchmark/agent-pr-governance/` is the executable eval substrate for the
+capability model. Its v0.2 catalog distinguishes executable rows from
+catalog-only and external-evidence backlog rows. Executable cases materialize
+small base/head git repos, run the real verifier, export base/head capability
+locks, compare them through the shared capability-lock diff engine, and assert
+both gate behavior and `CapabilityFactV1` semantic deltas.
+
+The internal runner is `python scripts/run_governance_benchmark.py --catalog
+benchmark/agent-pr-governance/cases.yaml --json`. It emits deterministic
+`governance_benchmark_result_schema_version: "0.1"` JSON with no wall-clock
+timestamp. The benchmark is product-evaluation infrastructure only: it does
+not add public report fields, policy behavior, GitHub Action outputs, or a
+second verdict. `report.json.release_decision.decision` remains the only
+release gate.
+
 ## Reviewer surfaces: five lenses + three audit envelopes
 
 The emitted `report.json` and the Release Evidence Packet expose

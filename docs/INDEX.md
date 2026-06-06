@@ -30,6 +30,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — experimental JSON Schema for `capabilities.lock.json` and capability-lock diff artifacts emitted by `agents-shipgate capability`; non-gating and not part of `report.json`
+- [`governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json) — experimental JSON Schema for `benchmark/agent-pr-governance/cases.yaml`; an eval substrate, not a release gate
+- [`governance-benchmark-result-schema.v0.1.json`](governance-benchmark-result-schema.v0.1.json) — experimental JSON Schema for governance benchmark result artifacts emitted by `scripts/run_governance_benchmark.py`; non-gating and not part of `report.json`
 - [`agent-trace-event-schema.v0.1.json`](agent-trace-event-schema.v0.1.json) — JSON Schema for local, opt-in AgentTraceEvent records used by Agent Workflow Evidence
 - [`agent-workflow-evidence-bundle-schema.v0.1.json`](agent-workflow-evidence-bundle-schema.v0.1.json) — JSON Schema for local, opt-in replay bundles that combine verifier artifacts, trace files, and expected governance outcomes
 - [`scenario-schema.v0.1.json`](scenario-schema.v0.1.json) — JSON Schema for the workflow-evidence `scenario.json` emitted by `agents-shipgate feedback capture`
