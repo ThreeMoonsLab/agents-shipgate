@@ -125,6 +125,8 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
     side_effect = derive_side_effect(
         effect=action.effect,
         risk_tags=action.risk_tags,
+        # Only positive idempotency evidence narrows the effect model.
+        # Explicit False remains visible on controls.safeguard_idempotency.
         idempotency_known=(
             action.safeguards.idempotency
             if action.safeguards.idempotency is True

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
+from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
 from agents_shipgate.schemas.capabilities import (
     CapabilityFactV1,
     capability_fact_sort_key,
@@ -12,6 +12,7 @@ from agents_shipgate.schemas.capability_semantics import (
     CapabilityHashName,
     CapabilitySemanticChange,
     CapabilitySemanticDirection,
+    capability_semantic_change_sort_key,
 )
 
 SEMANTIC_CAPABILITY_HASH_FIELDS: tuple[CapabilityHashName, ...] = (
@@ -27,17 +28,6 @@ ALL_CAPABILITY_HASH_FIELDS: tuple[CapabilityHashName, ...] = (
     "evidence_hash",
 )
 
-_EFFECT_RANK = {
-    "read": 0,
-    "privileged_data_access": 1,
-    "write": 2,
-    "external_communication": 3,
-    "financial_write": 4,
-    "production_operation": 4,
-    "identity_access": 4,
-    "code_execution": 4,
-    "destructive": 5,
-}
 _REVERSIBILITY_RANK = {"reversible": 0, "unknown": 1, "irreversible": 2}
 _CONTROL_FIELDS = (
     "approval_required",
@@ -243,7 +233,7 @@ def classify_capability_delta(
         "effect.effect",
         before_ctx.fact.effect.effect,
         after_ctx.fact.effect.effect,
-        _EFFECT_RANK,
+        ACTION_EFFECT_RANK,
         up_rationale="Capability effect escalated.",
         down_rationale="Capability effect reduced.",
     )
@@ -343,7 +333,10 @@ def classify_capability_delta(
         )
 
     semantic_changes = tuple(
-        change for _, change in sorted(changes, key=lambda item: _change_sort_key(item[1]))
+        change
+        for _, change in sorted(
+            changes, key=lambda item: capability_semantic_change_sort_key(item[1])
+        )
     )
     return _semantic_direction(direction for direction, _ in changes), semantic_changes
 
@@ -681,15 +674,6 @@ def _hash_name_explained(name: CapabilityHashName, fields: set[str]) -> bool:
         "risk_hash": ("risk_tags",),
     }
     return any(field.startswith(prefix) for prefix in prefixes.get(name, ()) for field in fields)
-
-
-def _change_sort_key(change: CapabilitySemanticChange) -> tuple[str, str, str, str]:
-    return (
-        change.kind,
-        change.field,
-        json.dumps(change.before, sort_keys=True, default=str),
-        json.dumps(change.after, sort_keys=True, default=str),
-    )
 
 
 def _compact_source(fact: CapabilityFactV1) -> dict[str, Any]:

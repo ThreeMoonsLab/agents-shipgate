@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -37,8 +38,20 @@ class CapabilitySemanticChange(BaseModel):
     rationale: str
 
 
+def capability_semantic_change_sort_key(
+    change: CapabilitySemanticChange,
+) -> tuple[str, str, str, str]:
+    return (
+        change.kind,
+        change.field,
+        json.dumps(change.before, sort_keys=True, default=str),
+        json.dumps(change.after, sort_keys=True, default=str),
+    )
+
+
 __all__ = [
     "CapabilityHashName",
     "CapabilitySemanticChange",
     "CapabilitySemanticDirection",
+    "capability_semantic_change_sort_key",
 ]

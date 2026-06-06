@@ -44,7 +44,10 @@ from agents_shipgate.schemas.capability_change import (
     VerifierReasonCodeCount,
     VerifierSummary,
 )
-from agents_shipgate.schemas.capability_semantics import CapabilitySemanticChange
+from agents_shipgate.schemas.capability_semantics import (
+    CapabilitySemanticChange,
+    capability_semantic_change_sort_key,
+)
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
@@ -191,7 +194,7 @@ def _dedup_members(
         if member.semantic_changes:
             existing.semantic_changes = sorted(
                 [*existing.semantic_changes, *member.semantic_changes],
-                key=lambda change: (change.kind, change.field, str(change.before), str(change.after)),
+                key=capability_semantic_change_sort_key,
             )
             existing.rationale = member.rationale or existing.rationale
         existing.changed_hashes = sorted(
@@ -533,31 +536,12 @@ def _member_direction(semantic_direction: str) -> str | None:
 
 
 def _semantic_subject(row: CapabilityDeltaRow) -> tuple[str, str | None, str | None]:
-    if row.after_context and row.after_context.action_id:
-        return "action", row.after_context.action_id, None
-    fields = {change.field for change in row.semantic_changes}
-    if fields & {"identity.scope", "authority.scopes", "authority.broad_scopes"}:
-        return "scope", None, _scope_delta_label(row)
-    if any(field.startswith("controls.") for field in fields):
-        control_field = next(
-            change.field.removeprefix("controls.")
-            for change in row.semantic_changes
-            if change.field.startswith("controls.")
-        )
-        return "policy", control_field, None
-    action = (
-        row.after_context.action_id
-        if row.after_context and row.after_context.action_id
-        else row.after.identity.operation
-    )
-    return "action", action, None
-
-
-def _scope_delta_label(row: CapabilityDeltaRow) -> str | None:
-    before = set(row.before.identity.scope)
-    after = set(row.after.identity.scope)
-    changed = sorted((before ^ after) or before or after)
-    return ", ".join(changed) if changed else None
+    # Public report semantic deltas are derived from comparable ActionFact
+    # snapshots. Keep their member identity at the action level so v0.23
+    # enriches the v0.22 action-surface row instead of adding parallel
+    # scope/policy rows; the field-level detail lives in semantic_changes[].
+    action = row.after_context.action_id if row.after_context else None
+    return "action", action or row.after.identity.operation, None
 
 
 def _semantic_rationale(row: CapabilityDeltaRow) -> str:

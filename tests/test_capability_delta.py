@@ -145,6 +145,15 @@ def test_control_removed_and_added_are_classified() -> None:
     )
 
 
+def test_action_fact_idempotency_false_is_not_positive_evidence() -> None:
+    fact = capability_fact_from_action_fact(
+        _action(safeguards=ActionSafeguardsFact(idempotency=False))
+    )
+
+    assert fact.controls.safeguard_idempotency is False
+    assert fact.effect.idempotency_known is None
+
+
 def test_schema_broadening_and_narrowing_are_classified_from_context() -> None:
     broadened = _changed(
         _action(input_fields=["query"], schema_hash="a"),

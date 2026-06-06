@@ -2880,7 +2880,10 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "samples/support_refund_agent/expected/report.json"
+    "json": "/private/tmp/claude-501/tmpa4lg2zvc/report.json",
+    "packet_md": "/private/tmp/claude-501/tmpa4lg2zvc/packet.md",
+    "packet_json": "/private/tmp/claude-501/tmpa4lg2zvc/packet.json",
+    "packet_html": "/private/tmp/claude-501/tmpa4lg2zvc/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3042,7 +3045,7 @@
   ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt.",
+    "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt. 2 active findings block release.",
     "blocker_count": 2,
     "review_item_count": 16,
     "auto_appliable_patches": 0,
@@ -3063,7 +3066,10 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "packet_html",
+      "packet_json",
+      "packet_md"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

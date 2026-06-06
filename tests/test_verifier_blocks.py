@@ -504,6 +504,9 @@ def test_capability_change_enriches_semantic_fields_from_action_facts():
 
     assert len(block.broadened) == 1
     member = block.broadened[0]
+    assert member.subject_kind == "action"
+    assert member.action == "agent:openapi:support:refunds.create"
+    assert member.scope is None
     assert member.semantic_direction == "broadened"
     assert member.before_capability_id
     assert member.after_capability_id

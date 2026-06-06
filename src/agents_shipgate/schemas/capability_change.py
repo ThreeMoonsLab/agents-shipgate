@@ -33,7 +33,6 @@ wall-clock, no randomness, no set-iteration order leaks into output.
 
 from __future__ import annotations
 
-import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -42,6 +41,7 @@ from agents_shipgate.schemas.capability_semantics import (
     CapabilityHashName,
     CapabilitySemanticChange,
     CapabilitySemanticDirection,
+    capability_semantic_change_sort_key,
 )
 from agents_shipgate.schemas.common import Confidence, ReleaseDecisionStatus
 
@@ -136,12 +136,7 @@ class CapabilityChangeMember(BaseModel):
         self.changed_hashes = sorted(set(self.changed_hashes))
         self.semantic_changes = sorted(
             self.semantic_changes,
-            key=lambda change: (
-                change.kind,
-                change.field,
-                json.dumps(change.before, sort_keys=True, default=str),
-                json.dumps(change.after, sort_keys=True, default=str),
-            ),
+            key=capability_semantic_change_sort_key,
         )
         self.related_finding_ids = sorted(self.related_finding_ids)
         return self

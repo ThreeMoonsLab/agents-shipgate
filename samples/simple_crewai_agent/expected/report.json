@@ -401,7 +401,10 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "samples/simple_crewai_agent/expected/report.json"
+    "json": "/private/tmp/claude-501/tmp909b2zp4/report.json",
+    "packet_md": "/private/tmp/claude-501/tmp909b2zp4/packet.md",
+    "packet_json": "/private/tmp/claude-501/tmp909b2zp4/packet.json",
+    "packet_html": "/private/tmp/claude-501/tmp909b2zp4/packet.html"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -477,7 +480,10 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "packet_html",
+      "packet_json",
+      "packet_md"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
