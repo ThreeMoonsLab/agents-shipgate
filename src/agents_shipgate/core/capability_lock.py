@@ -8,11 +8,14 @@ from typing import Any
 from pydantic import ValidationError
 
 from agents_shipgate.core.capabilities import build_capability_facts
+from agents_shipgate.core.capability_delta import (
+    CapabilityDeltaRow,
+    diff_capability_fact_sets,
+)
 from agents_shipgate.core.domain import Agent, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.capabilities import (
     CapabilityFactV1,
-    CapabilityHashName,
     CapabilityLockChangedFact,
     CapabilityLockDiffSummary,
     CapabilityLockDiffV1,
@@ -28,19 +31,6 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 DEFAULT_CAPABILITY_LOCK_PATH = Path(".agents-shipgate") / "capabilities.lock.json"
 DEFAULT_CAPABILITY_LOCK_REPORT_PATH = (
     Path("agents-shipgate-reports") / "capabilities.lock.json"
-)
-
-SEMANTIC_CAPABILITY_HASH_FIELDS: tuple[CapabilityHashName, ...] = (
-    "identity_hash",
-    "effect_hash",
-    "authority_hash",
-    "control_hash",
-    "schema_hash",
-    "risk_hash",
-)
-ALL_CAPABILITY_HASH_FIELDS: tuple[CapabilityHashName, ...] = (
-    *SEMANTIC_CAPABILITY_HASH_FIELDS,
-    "evidence_hash",
 )
 
 
@@ -104,56 +94,19 @@ def diff_capability_locks(
     base_path: Path | None = None,
     head_path: Path | None = None,
 ) -> CapabilityLockDiffV1:
-    base_by_id = {fact.id: fact for fact in base.capabilities}
-    head_by_id = {fact.id: fact for fact in head.capabilities}
-
-    raw_added = _sort_facts(
-        [
-            head_by_id[capability_id]
-            for capability_id in head_by_id.keys() - base_by_id.keys()
-        ]
-    )
-    raw_removed = _sort_facts(
-        [
-            base_by_id[capability_id]
-            for capability_id in base_by_id.keys() - head_by_id.keys()
-        ]
-    )
-    reidentified, added, removed = _reidentified_changes(raw_removed, raw_added)
-    changed: list[CapabilityLockChangedFact] = []
-    evidence_changed: list[CapabilityLockChangedFact] = []
-    unchanged_count = 0
-
-    for capability_id in sorted(base_by_id.keys() & head_by_id.keys()):
-        before = base_by_id[capability_id]
-        after = head_by_id[capability_id]
-        changed_hashes = _changed_hashes(before, after)
-        if not changed_hashes:
-            unchanged_count += 1
-            continue
-        row = CapabilityLockChangedFact(
-            id=capability_id,
-            tool_name=after.identity.tool_name,
-            operation=after.identity.operation,
-            changed_hashes=changed_hashes,
-            before=before,
-            after=after,
-        )
-        if any(name in SEMANTIC_CAPABILITY_HASH_FIELDS for name in changed_hashes):
-            changed.append(row)
-        else:
-            evidence_changed.append(row)
-
-    changed.sort(key=_changed_sort_key)
-    evidence_changed.sort(key=_changed_sort_key)
-    reidentified.sort(key=_changed_sort_key)
+    semantic_diff = diff_capability_fact_sets(base.capabilities, head.capabilities)
+    added = _sort_facts([ctx.fact for ctx in semantic_diff.added])
+    removed = _sort_facts([ctx.fact for ctx in semantic_diff.removed])
+    reidentified = [_lock_changed_fact(row) for row in semantic_diff.reidentified]
+    changed = [_lock_changed_fact(row) for row in semantic_diff.changed]
+    evidence_changed = [_lock_changed_fact(row) for row in semantic_diff.evidence_changed]
     summary = CapabilityLockDiffSummary(
         added=len(added),
         removed=len(removed),
         reidentified=len(reidentified),
         changed=len(changed),
         evidence_changed=len(evidence_changed),
-        unchanged=unchanged_count,
+        unchanged=semantic_diff.unchanged_count,
     )
     return CapabilityLockDiffV1(
         base=_lock_ref(base, path=base_path),
@@ -243,78 +196,21 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
     )
 
 
-def _changed_hashes(
-    before: CapabilityFactV1,
-    after: CapabilityFactV1,
-) -> tuple[CapabilityHashName, ...]:
-    return tuple(
-        name
-        for name in ALL_CAPABILITY_HASH_FIELDS
-        if getattr(before.hashes, name) != getattr(after.hashes, name)
-    )
-
-
-def _reidentified_changes(
-    removed: list[CapabilityFactV1],
-    added: list[CapabilityFactV1],
-) -> tuple[
-    list[CapabilityLockChangedFact],
-    list[CapabilityFactV1],
-    list[CapabilityFactV1],
-]:
-    added_by_key: dict[tuple[str, str, str, str, str], list[CapabilityFactV1]] = {}
-    for fact in added:
-        added_by_key.setdefault(_lineage_key(fact), []).append(fact)
-    for facts in added_by_key.values():
-        facts.sort(key=capability_fact_sort_key)
-
-    reidentified: list[CapabilityLockChangedFact] = []
-    remaining_removed: list[CapabilityFactV1] = []
-    consumed_added_ids: set[str] = set()
-
-    for before in removed:
-        candidates = added_by_key.get(_lineage_key(before), [])
-        after = next((fact for fact in candidates if fact.id not in consumed_added_ids), None)
-        if after is None:
-            remaining_removed.append(before)
-            continue
-        consumed_added_ids.add(after.id)
-        reidentified.append(
-            CapabilityLockChangedFact(
-                id=f"{before.id}->{after.id}",
-                tool_name=after.identity.tool_name,
-                operation=after.identity.operation,
-                changed_hashes=_changed_hashes(before, after),
-                before=before,
-                after=after,
-            )
-        )
-
-    remaining_added = [fact for fact in added if fact.id not in consumed_added_ids]
-    return (
-        sorted(reidentified, key=_changed_sort_key),
-        _sort_facts(remaining_added),
-        _sort_facts(remaining_removed),
-    )
-
-
-def _lineage_key(fact: CapabilityFactV1) -> tuple[str, str, str, str, str]:
-    identity = fact.identity
-    return (
-        identity.agent_id,
-        identity.provider,
-        identity.operation,
-        identity.tool_name,
-        identity.subject_kind,
+def _lock_changed_fact(row: CapabilityDeltaRow) -> CapabilityLockChangedFact:
+    return CapabilityLockChangedFact(
+        id=row.id,
+        tool_name=row.after.identity.tool_name,
+        operation=row.after.identity.operation,
+        changed_hashes=row.changed_hashes,
+        semantic_direction=row.semantic_direction,
+        semantic_changes=row.semantic_changes,
+        before=row.before,
+        after=row.after,
     )
 
 
 def _sort_facts(facts: list[CapabilityFactV1]) -> list[CapabilityFactV1]:
     return sorted(facts, key=capability_fact_sort_key)
-
-
-def _changed_sort_key(row: CapabilityLockChangedFact) -> tuple[str, str, str]:
-    return (row.tool_name, row.operation, row.id)
 
 
 def _manifest_relative_path(path: Path, manifest_dir: Path) -> str:

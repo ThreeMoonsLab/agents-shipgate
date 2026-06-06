@@ -43,6 +43,6 @@ surface before production-like permissions are granted.
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)
-- [Report schema v0.22](report-schema.v0.22.json) (current; v0.21 frozen at [report-schema.v0.21.json](report-schema.v0.21.json), v0.20 frozen at [report-schema.v0.20.json](report-schema.v0.20.json), v0.19 frozen at [report-schema.v0.19.json](report-schema.v0.19.json))
+- [Report schema v0.23](report-schema.v0.23.json) (current; v0.22 frozen at [report-schema.v0.22.json](report-schema.v0.22.json), v0.21 frozen at [report-schema.v0.21.json](report-schema.v0.21.json), v0.20 frozen at [report-schema.v0.20.json](report-schema.v0.20.json))
 - [Trust model](trust-model.md)
 - [Agent instructions](../AGENTS.md)

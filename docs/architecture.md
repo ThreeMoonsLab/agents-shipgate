@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-05-23; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.22`, packet schema `v0.6`.
+runtime contract `1`, report schema `v0.23`, packet schema `v0.6`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -252,15 +252,15 @@ finding fingerprint exclusion list. It is intended to become the
 substrate for future capability lockfiles, richer capability diffs,
 policy matching, and governance benchmark assertions.
 
-**Boundary.** `CapabilityFactV1` is not emitted in `report.json`, does
-not bump `report_schema_version`, and does not gate release. The release
-decision remains `release_decision.decision`; current public surfaces
-(`action_surface_facts`, `tool_surface_facts`, `capability_change`,
-`verifier.json`, and the Action outputs) remain projections of the
-existing scan pipeline. Phase-0 capability facts are built from typed
-`Action` objects via `build_capability_facts(...)` so they reuse the
-same provider, operation, scope, effect, approval, safeguard, and
-evidence semantics as Action Surface Diff.
+**Boundary.** Full `CapabilityFactV1` records are not emitted in
+`report.json` and do not gate release. The release decision remains
+`release_decision.decision`; public surfaces remain projections of the
+existing scan pipeline. v0.23 uses the shared semantic delta classifier
+to add explanatory metadata to `capability_change` members, but the
+existing buckets and Action outputs stay compatible. Capability facts are
+built from typed `Action` objects via `build_capability_facts(...)` for
+locks, and from public `ActionFact` snapshots for report-comparable
+semantic deltas.
 
 ## Experimental capability locks
 
@@ -275,12 +275,13 @@ generated copy to `agents-shipgate-reports/capabilities.lock.json`.
 `agents-shipgate capability diff --base ... --head ...` compares two
 lockfiles by `CapabilityFactV1.id`. Semantic hash drift on a stable id
 (`effect`, non-scope `authority`, `control`, `schema`, or `risk`) is
-reported as `changed`; source-provenance-only drift is reported as
-`evidence_changed`. Scope/resource changes intentionally re-identify a
-capability because scope is part of durable identity, so the diff pairs
-same agent/provider/operation/tool rows and reports them as
-`reidentified` instead of unrelated add/remove churn. Added and removed
-capability facts are listed separately.
+reported as `changed` with `semantic_direction` and `semantic_changes`;
+source-provenance-only drift is reported as `evidence_changed`.
+Scope/resource changes intentionally re-identify a capability because
+scope is part of durable identity, so the diff pairs same
+agent/provider/operation/tool rows and reports them as `reidentified`
+instead of unrelated add/remove churn. Added and removed capability facts
+are listed separately.
 
 The v0.1 lock is an enumerable-tools envelope. Dynamic toolkit scope
 bounds parsed from factories are counted in `source.toolkit_bound_count`
@@ -288,11 +289,14 @@ but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
 [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
-and is experimental: it is not part of `report.json`, does not bump
-`report_schema_version`, does not feed policy packs, and does not gate.
-The committed lock is deterministic for the same manifest-relative
-inputs; `cli_version` is provenance and may change on scanner upgrades.
-The release decision remains `release_decision.decision`.
+and is experimental: lock exports still carry
+`capability_lock_schema_version: "0.1"`, while diff artifacts carry
+`capability_lock_diff_schema_version: "0.2"` for the additive semantic
+metadata on changed rows. Capability locks are not part of `report.json`,
+do not feed policy packs, and do not gate. The committed lock is
+deterministic for the same manifest-relative inputs; `cli_version` is
+provenance and may change on scanner upgrades. The release decision
+remains `release_decision.decision`.
 
 ## Reviewer surfaces: five lenses + three audit envelopes
 
@@ -597,7 +601,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.22"`; older schemas frozen as
+  `report_schema_version: "0.23"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.6"`; older schemas frozen.

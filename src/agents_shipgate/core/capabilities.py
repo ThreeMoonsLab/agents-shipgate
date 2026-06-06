@@ -7,6 +7,7 @@ from typing import Any
 from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.lenses.action_surface import build_action
+from agents_shipgate.core.risk_hints import derive_side_effect
 from agents_shipgate.schemas.capabilities import (
     CapabilityAuthority,
     CapabilityControls,
@@ -19,6 +20,7 @@ from agents_shipgate.schemas.capabilities import (
 )
 from agents_shipgate.schemas.common import ProvenanceKind
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
 
 def capability_fact_from_action(
@@ -104,6 +106,94 @@ def build_capability_facts(
         )
     _validate_unique_capability_ids(facts)
     return sorted(facts, key=capability_fact_sort_key)
+
+
+def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
+    """Build a comparable capability fact from public ``ActionFact`` data."""
+
+    scopes = [Scope.parse(raw) for raw in action.required_scopes]
+    identity = CapabilityIdentity(
+        agent_id=action.agent_id,
+        tool_id=action.tool_id,
+        tool_name=action.tool_name,
+        provider=action.provider,
+        operation=action.operation,
+        subject_kind="action",
+        resource=_resource_identity(scopes),
+        scope=_scope_identity(scopes),
+    )
+    side_effect = derive_side_effect(
+        effect=action.effect,
+        risk_tags=action.risk_tags,
+        # Only positive idempotency evidence narrows the effect model.
+        # Explicit False remains visible on controls.safeguard_idempotency.
+        idempotency_known=(
+            action.safeguards.idempotency
+            if action.safeguards.idempotency is True
+            else None
+        ),
+    )
+    effect = CapabilityEffect(
+        effect=side_effect.effect,
+        externally_visible=side_effect.externally_visible,
+        handles_sensitive_data=side_effect.handles_sensitive_data,
+        financial=side_effect.financial,
+        code_execution=side_effect.code_execution,
+        reversibility=side_effect.reversibility,
+        idempotency_known=side_effect.idempotency_known,
+        high_risk=side_effect.is_high_risk,
+    )
+    authority = CapabilityAuthority(
+        scopes=tuple(sorted(set(action.required_scopes))),
+        broad_scopes=tuple(sorted(scope.raw for scope in scopes if scope.is_broad())),
+    )
+    controls = CapabilityControls(
+        approval_required=action.approval_policy.required,
+        approval_threshold=action.approval_policy.threshold,
+        confirmation_required=False,
+        safeguard_idempotency=action.safeguards.idempotency,
+        safeguard_audit_log=action.safeguards.audit_log,
+        safeguard_rollback=action.safeguards.rollback,
+        safeguard_dry_run=action.safeguards.dry_run,
+        evidence_owner=action.evidence.owner,
+        evidence_runbook=action.evidence.runbook,
+        evidence_approval_ticket=action.evidence.approval_ticket,
+    )
+    evidence = CapabilityEvidence(
+        source_type=action.source_type,
+        source_id=action.source_id,
+        provenance_kind="static_declaration",
+        confidence="medium",
+    )
+    hashes = CapabilityHashes(
+        identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
+        effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
+        authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
+        control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
+        schema_hash=action.input_schema_hash,
+        risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
+        evidence_hash=_capability_stable_hash(evidence.model_dump(mode="json")),
+    )
+    return CapabilityFactV1(
+        id=f"cap_{hashes.identity_hash}",
+        identity=identity,
+        effect=effect,
+        authority=authority,
+        controls=controls,
+        evidence=evidence,
+        risk_tags=tuple(sorted(set(action.risk_tags))),
+        hashes=hashes,
+    )
+
+
+def capability_facts_from_action_surface_facts(
+    facts: ActionSurfaceFacts,
+) -> list[CapabilityFactV1]:
+    capability_facts = [
+        capability_fact_from_action_fact(action) for action in facts.actions
+    ]
+    _validate_unique_capability_ids(capability_facts)
+    return sorted(capability_facts, key=capability_fact_sort_key)
 
 
 def _capability_effect(action: Action) -> CapabilityEffect:
@@ -261,5 +351,7 @@ __all__ = [
     "CapabilityHashes",
     "CapabilityIdentity",
     "build_capability_facts",
+    "capability_fact_from_action_fact",
+    "capability_facts_from_action_surface_facts",
     "capability_fact_from_action",
 ]

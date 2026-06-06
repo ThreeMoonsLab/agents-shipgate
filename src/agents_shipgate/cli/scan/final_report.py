@@ -98,7 +98,10 @@ def _build_final_report(
     # policy, and human-ack blocks are built first, then verifier_summary is
     # composed last so it can mirror release_decision.decision and the
     # human_ack flags.
-    report.capability_change = build_capability_change(report)
+    report.capability_change = build_capability_change(
+        report,
+        base_action_surface_facts=sanitized.base_action_surface_facts,
+    )
     report.protected_surface_changes = build_protected_surface_changes(report)
     report.effective_policy = build_effective_policy_snapshot(
         sanitized.manifest,

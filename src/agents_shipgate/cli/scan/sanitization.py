@@ -210,6 +210,7 @@ def _sanitize_for_output(
 
     (
         public_diff_reference,
+        public_base_action_surface_facts,
         public_action_surface_facts,
         public_action_surface_diff,
     ) = _public_action_surfaces(
@@ -301,6 +302,7 @@ def _sanitize_for_output(
         loaded_plugins=public_loaded_plugins,
         loaded_adapters=public_loaded_adapters,
         diff_reference=public_diff_reference,
+        base_action_surface_facts=public_base_action_surface_facts,
         action_surface_facts=public_action_surface_facts,
         action_surface_diff=public_action_surface_diff,
         tool_surface_facts=public_tool_surface_facts,
@@ -353,6 +355,7 @@ def _public_action_surfaces(
     )
     return (
         public_diff_reference,
+        public_action_reference.facts if public_action_reference else None,
         public_action_surface_facts,
         public_action_surface_diff,
     )

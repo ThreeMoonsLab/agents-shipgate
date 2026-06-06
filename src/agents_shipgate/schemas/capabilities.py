@@ -5,21 +5,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from agents_shipgate.schemas.capability_change import CapabilitySubjectKind
+from agents_shipgate.schemas.capability_semantics import (
+    CapabilityHashName,
+    CapabilitySemanticChange,
+    CapabilitySemanticDirection,
+)
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 CAPABILITY_LOCK_SCHEMA_VERSION = "0.1"
-CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.1"
-
-CapabilityHashName = Literal[
-    "identity_hash",
-    "effect_hash",
-    "authority_hash",
-    "control_hash",
-    "schema_hash",
-    "risk_hash",
-    "evidence_hash",
-]
+CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.2"
 
 
 class CapabilityIdentity(BaseModel):
@@ -223,6 +218,8 @@ class CapabilityLockChangedFact(BaseModel):
     tool_name: str
     operation: str
     changed_hashes: tuple[CapabilityHashName, ...] = Field(default_factory=tuple)
+    semantic_direction: CapabilitySemanticDirection = "unknown"
+    semantic_changes: tuple[CapabilitySemanticChange, ...] = Field(default_factory=tuple)
     before: CapabilityFactV1
     after: CapabilityFactV1
 
@@ -230,7 +227,7 @@ class CapabilityLockChangedFact(BaseModel):
 class CapabilityLockDiffV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_diff_schema_version: Literal["0.1"] = (
+    capability_lock_diff_schema_version: Literal["0.2"] = (
         CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     )
     experimental: Literal[True] = True
@@ -268,5 +265,7 @@ __all__ = [
     "CapabilityLockRef",
     "CapabilityLockSource",
     "CapabilityLockSummary",
+    "CapabilitySemanticChange",
+    "CapabilitySemanticDirection",
     "capability_fact_sort_key",
 ]

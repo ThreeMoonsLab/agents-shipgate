@@ -161,6 +161,7 @@ class _SanitizedSurfaces:
     loaded_plugins: Any
     loaded_adapters: Any  # v0.20: list[dict[str, Any]]; sanitized via redact_data
     diff_reference: ToolSurfaceDiffReference | None
+    base_action_surface_facts: ActionSurfaceFacts | None
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any
     tool_surface_facts: Any
