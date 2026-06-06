@@ -26,7 +26,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 - CLI preflight: run `command -v agents-shipgate` and `agents-shipgate --version`. Continue only when the installed CLI is `>=0.11.0`; if it is missing or stale, ask the user to run `pipx install agents-shipgate` followed by `pipx upgrade agents-shipgate`, or `python -m pip install -U "agents-shipgate>=0.11"` when `pipx` is unavailable.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
-- Local agent-related diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`. Add `--base origin/main --head HEAD` only for committed PR/CI verification after making the base ref available.
+- Agent-related PR/CI diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
 - Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.
 - First GitHub CI: copy `assets/advisory-pr-comment.yml` to `.github/workflows/agents-shipgate.yml`.
 - Explain one finding: run `agents-shipgate explain-finding <fingerprint> --from agents-shipgate-reports/report.json --json`.

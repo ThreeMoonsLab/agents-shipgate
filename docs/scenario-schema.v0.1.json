@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/scenario-schema.v0.1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",
   "title": "Agents Shipgate Workflow-Evidence Scenario v0.1",
   "description": "A deterministic, local, replayable record of one real coding-agent pilot loop, captured by `agents-shipgate feedback capture` from a verify before/after pair. Feeds the benchmark flywheel; it does not gate. Redacted by default (provenance only — no raw prompt/diff/transcript content).",
   "type": "object",

@@ -76,12 +76,13 @@ For ongoing PRs, type `/shipgate verify`. Claude Code should read
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD \
   --ci-mode advisory --format json
 ```
 
-Add `--base origin/main --head HEAD` only for committed PR/CI verification
-after making the base ref available. Omit both for local pre-commit work so
-uncommitted edits are scanned.
+For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches.
 
 It should then summarize `verifier.json.merge_verdict`,
 `capability_review.top_changes[]`, `first_next_action.actor`,

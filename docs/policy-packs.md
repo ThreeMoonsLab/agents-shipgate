@@ -78,3 +78,32 @@ Reports include `loaded_policy_packs` with pack name, version, path, and rule
 count. Policy-pack findings support suppressions, severity overrides,
 release-blocking `block: true`, baselines, Markdown, JSON, and SARIF like
 built-in findings.
+
+## Testing And Explanation
+
+Policy packs are release rules, so they need tests just like code. The
+recommended test harness is a pair of tiny static fixtures per rule:
+
+- a positive fixture whose local tool source should match the rule.
+- a negative fixture that is close but should not match.
+- a release-decision assertion for `release_decision.decision`,
+  `release_decision.blockers[]`, and `release_decision.review_items[]`.
+- an explanation assertion against `release_decision.contribution_rules[]`.
+
+`contribution_rules[]` is the deterministic explanation layer for policy-pack
+findings. A matching `block: true` rule should appear as a blocker with rule
+`policy_block_new`; a non-blocking medium-or-higher rule should appear as a
+review item with rule `review_required`; a suppressed policy-pack finding should
+appear as `excluded` with rule `suppressed`.
+
+Use ordinary scan calls in tests:
+
+```bash
+agents-shipgate scan -c shipgate.yaml \
+  --policy-pack policies/org-release.yaml \
+  --format json
+```
+
+Do not use an LLM to decide whether a policy pack passed. LLMs may help draft
+candidate rules or fixture names, but the accepted policy pack must be proven by
+deterministic scans and contribution-rule assertions.

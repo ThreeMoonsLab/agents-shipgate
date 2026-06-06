@@ -40,9 +40,10 @@ Read `agents-shipgate-reports/verifier.json` first and lead with
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
-verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
-edits are scanned; add `--base origin/main --head HEAD` only for committed
-PR/CI verification after making the base ref available.
+verdict. For committed PR/CI verification, pass
+`--base origin/main --head HEAD` after making the base ref available. For local
+uncommitted work, omit `--base` and `--head` so uncommitted edits are scanned.
+`verify` never fetches.
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
 accepts human review.

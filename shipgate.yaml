@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+version: "0.1"
+
+project:
+  name: agents-shipgate
+  owner: Three Moons Lab
+  repo: ThreeMoonsLab/agents-shipgate
+
+agent:
+  name: Agents Shipgate Codex plugin
+  declared_purpose:
+    - teach coding agents to add and verify Agents Shipgate release gates
+    - surface deterministic verifier results without fabricating human authority
+    - triage Tool-Use Readiness findings from local static evidence
+  prohibited_actions:
+    - execute agent, tool, MCP server, or LLM calls during static scanning
+    - weaken Shipgate release policy or CI to make a verifier run pass
+    - fabricate approval, confirmation, idempotency, or runtime-trace evidence
+  instructions_preview: |
+    The canonical Codex plugin and marketplace entry teach Codex to run
+    Agents Shipgate detect, init, verify, scan, report-reading, and finding
+    triage workflows. The plugin supplies workflow instructions only; the
+    scanner binary runs from the local agents-shipgate CLI.
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: codex_plugin_marketplace
+    type: codex_plugin
+    mode: marketplace
+    path: .agents/plugins/marketplace.json
+
+ci:
+  mode: advisory
+  fail_on:
+    - critical
+    - high
+  pr_comment: false
+  upload_artifact: true
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
+    - sarif
