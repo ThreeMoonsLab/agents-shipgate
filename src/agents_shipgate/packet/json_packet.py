@@ -33,6 +33,7 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     """
 
     payload = sanitize_packet_payload(packet.model_dump(mode="json"))
+    _strip_report_only_fields(payload)
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload
@@ -138,6 +139,23 @@ def _upgrade_action_surface_v05(payload: dict[str, Any]) -> None:
             "notes": ["No action-surface diff was recorded."],
         },
     )
+
+
+def _strip_report_only_fields(value: Any) -> None:
+    """Remove report-only additive fields before packet serialization.
+
+    ``EvidencePacket`` reuses ``ReleaseDecisionItem`` from the report schema.
+    v0.24 report items carry ``capability_refs``; packet v0.6 deliberately
+    remains unchanged, so the packet serializer drops that report-only key.
+    """
+
+    if isinstance(value, dict):
+        value.pop("capability_refs", None)
+        for item in value.values():
+            _strip_report_only_fields(item)
+    elif isinstance(value, list):
+        for item in value:
+            _strip_report_only_fields(item)
 
 
 def _upgrade_evidence_matrix_v06(payload: dict[str, Any]) -> None:

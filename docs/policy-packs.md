@@ -2,7 +2,9 @@
 
 Policy packs are local YAML files for organization-specific release rules. They
 are declarative data, not Python plugins, and are enabled by default only when
-declared in `shipgate.yaml` or passed on the CLI.
+declared in `shipgate.yaml` or passed on the CLI. The machine-readable schema is
+[`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json); policy-pack
+files do not need to declare a schema-version key.
 
 ```yaml
 checks:
@@ -53,7 +55,7 @@ Supported rule fields:
 - `recommendation`: required remediation text.
 - `match`: required static predicate object.
 
-Supported match fields:
+Supported legacy match fields:
 
 - `risk_tags`: fires when the tool has any listed medium-or-higher risk tag.
 - `source_types`: fires only for matching normalized tool source types.
@@ -66,6 +68,56 @@ Supported match fields:
 
 Parameter predicates support `name`, `names`, `types`, `missing_maximum`, and
 `required`.
+
+Phase 4 evaluates both legacy match fields and built-in policy checks through
+capability-policy subjects backed by deterministic `CapabilityFactV1` objects.
+Existing pack behavior is preserved: top-level fields are ANDed together, list
+values are ORed within one field, and every parameter predicate must match at
+least one parameter.
+
+Policy packs can also use capability-native selectors under `match.capability`:
+
+```yaml
+rules:
+  - id: ORG-FINANCIAL-WRITE-MISSING-CONTROLS
+    title: Financial write capability lacks release controls
+    category: org_policy
+    severity: critical
+    block: true
+    confidence: high
+    recommendation: Add explicit approval, confirmation, and idempotency evidence.
+    match:
+      capability:
+        providers: [api]
+        effects: [financial_write]
+        risk_tags: [financial_action]
+        financial: true
+        high_risk: true
+        missing_approval_policy: true
+        missing_confirmation_policy: true
+        missing_idempotency_policy: true
+```
+
+Supported `match.capability` fields:
+
+- `tool_names`, `providers`, `operations`, `source_types`, `effects`,
+  `risk_tags`, and `scopes`: list selectors. A capability matches when the
+  actual value intersects the list.
+- `broad_scope`, `externally_visible`, `handles_sensitive_data`, `financial`,
+  `code_execution`, and `high_risk`: boolean selectors over normalized
+  capability authority/effect fields.
+- `auth_types` and `credential_modes`: list selectors over normalized
+  capability authority.
+- `missing_owner`, `missing_auth_scopes`, `missing_approval_policy`,
+  `missing_confirmation_policy`, and `missing_idempotency_policy`: boolean
+  selectors over effective controls.
+- `parameters`: the same parameter predicate list used by legacy rules.
+
+When a built-in policy check or policy-pack rule matches a capability, the
+report finding carries `capability_refs[]` and may carry
+`capability_policy_evidence`. These fields are reviewer/audit metadata only.
+They are not included in finding fingerprints, and `release_decision.decision`
+remains the only gate.
 
 ## Trust Model
 

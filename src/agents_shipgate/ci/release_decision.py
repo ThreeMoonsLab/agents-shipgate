@@ -358,6 +358,7 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
         blocks_release=finding.blocks_release,
         source=finding.source,
         policy_evidence_source=finding.policy_evidence_source,
+        capability_refs=list(finding.capability_refs),
     )
 
 

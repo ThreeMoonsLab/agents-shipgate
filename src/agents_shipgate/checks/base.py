@@ -11,7 +11,7 @@ from agents_shipgate.schemas.common import (
     parse_severity,
 )
 from agents_shipgate.schemas.patches import Patch
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import CapabilityPolicyEvidence, Finding
 
 
 def tool_finding(
@@ -28,6 +28,8 @@ def tool_finding(
     provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
     policy_evidence_pointer: str | None = None,
+    capability_refs: list[str] | None = None,
+    capability_policy_evidence: CapabilityPolicyEvidence | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -53,6 +55,8 @@ def tool_finding(
         policy_evidence_source=_policy_evidence_source(
             context, policy_evidence_pointer
         ),
+        capability_refs=capability_refs or [],
+        capability_policy_evidence=capability_policy_evidence,
         recommendation=recommendation,
         patches=patches,
     )

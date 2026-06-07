@@ -76,6 +76,11 @@ def _run_id(
                     # run_id — same rationale as the v0.11 exclusion
                     # above.
                     "policy_evidence_source": True,
+                    # v0.24 capability-policy evidence is explanatory
+                    # reviewer metadata. It must not churn run_id for
+                    # otherwise-identical policy findings.
+                    "capability_refs": True,
+                    "capability_policy_evidence": True,
                 },
                 exclude_none=False,
             )

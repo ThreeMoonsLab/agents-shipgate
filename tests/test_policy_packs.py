@@ -87,6 +87,10 @@ checks:
     assert finding.severity == "medium"
     assert finding.suppressed is True
     assert finding.evidence["default_severity"] == "high"
+    assert finding.evidence["risk_tags"] == ["financial_action"]
+    assert finding.capability_refs
+    assert finding.capability_policy_evidence is not None
+    assert finding.capability_policy_evidence.capability_id in finding.capability_refs
     markdown = (tmp_path / "reports" / "report.md").read_text(encoding="utf-8")
     assert "Loaded Policy Packs" in markdown
     sarif = (tmp_path / "reports" / "report.sarif").read_text(encoding="utf-8")
@@ -165,6 +169,83 @@ rules:
     assert finding.blocks_release is True
     assert report.release_decision is not None
     assert any(item.check_id == "ORG-MEDIUM-BLOCKER" for item in report.release_decision.blockers)
+
+
+def test_policy_pack_capability_selector_matches_semantic_subject(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "capability-pack.yaml").write_text(
+        """
+name: Capability Policy
+rules:
+  - id: ORG-FINANCIAL-CAPABILITY-APPROVAL
+    title: Financial capability needs approval
+    category: org_policy
+    severity: critical
+    recommendation: Add approval for the financial capability.
+    match:
+      capability:
+        tool_names: [create_refund]
+        providers: [api]
+        effects: [financial_write]
+        risk_tags: [financial_action]
+        source_types: [openapi]
+        financial: true
+        high_risk: true
+        missing_owner: true
+        missing_auth_scopes: true
+        missing_approval_policy: true
+        missing_confirmation_policy: true
+        missing_idempotency_policy: true
+        parameters:
+          - name: amount
+            types: [number]
+            required: true
+            missing_maximum: true
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+checks:
+  policy_packs:
+    - path: capability-pack.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-FINANCIAL-CAPABILITY-APPROVAL"
+    )
+    assert finding.tool_name == "create_refund"
+    assert finding.capability_refs
+    assert finding.capability_policy_evidence is not None
+    evidence = finding.capability_policy_evidence
+    assert evidence.capability_id == finding.capability_refs[0]
+    assert evidence.identity["tool_name"] == "create_refund"
+    assert evidence.effect["effect"] == "financial_write"
+    assert evidence.matched_predicates["capability"]["risk_tags"] == [
+        "financial_action"
+    ]
+    assert evidence.matched_predicates["capability"]["parameters"] == [
+        {"name": "amount", "type": "number", "required": True, "maximum": None}
+    ]
+    assert report.release_decision is not None
+    blocker = next(
+        item
+        for item in report.release_decision.blockers
+        if item.check_id == "ORG-FINANCIAL-CAPABILITY-APPROVAL"
+    )
+    assert blocker.capability_refs == finding.capability_refs
 
 
 def test_scan_cli_accepts_policy_pack_override(tmp_path):

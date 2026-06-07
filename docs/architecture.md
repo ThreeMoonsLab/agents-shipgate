@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-05-23; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.23`, packet schema `v0.6`.
+runtime contract `1`, report schema `v0.24`, packet schema `v0.6`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -261,6 +261,23 @@ existing buckets and Action outputs stay compatible. Capability facts are
 built from typed `Action` objects via `build_capability_facts(...)` for
 locks, and from public `ActionFact` snapshots for report-comparable
 semantic deltas.
+
+## Capability-native policy matching
+
+`core/capability_policy.py` builds an internal `CapabilityPolicySubject`
+for each `CapabilityFactV1`. The subject pairs the durable capability fact
+with the existing `ActionFact`, `Tool`, parameter schema, and effective
+controls that built-in policy checks and policy packs already need.
+Policy matching now runs through this substrate instead of raw `Tool`
+field predicates, while legacy policy-pack syntax keeps the same behavior.
+
+Reports expose only lightweight audit references:
+`findings[].capability_refs`, optional
+`findings[].capability_policy_evidence`, and mirrored
+`release_decision.{blockers,review_items}[].capability_refs`. These fields
+are not fingerprint inputs and do not create an independent verdict.
+`release_decision.decision` remains the only gate. Capability lock schema
+`0.1`, lock diff schema `0.2`, and packet schema `0.6` are unchanged.
 
 ## Experimental capability locks
 
@@ -621,7 +638,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.23"`; older schemas frozen as
+  `report_schema_version: "0.24"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.6"`; older schemas frozen.

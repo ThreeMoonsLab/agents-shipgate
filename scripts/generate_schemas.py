@@ -11,6 +11,9 @@ Writes / verifies:
 - docs/report-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.report.ReadinessReport;
                                  minor derived from report_schema_version default)
+- docs/policy-pack-schema.v0.1.json
+                                (from agents_shipgate.schemas.policy_pack.
+                                 PolicyPackArtifactV1)
 - docs/packet-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
@@ -393,6 +396,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "blocks_release",
                 "suppressed",
                 "baseline_status",
+                "capability_refs",
                 # v0.12: deterministic projection field. Optional in
                 # Python (so test helpers can construct minimal Findings)
                 # but required + non-nullable on the wire — every
@@ -629,6 +633,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "title",
                 "baseline_status",
                 "blocks_release",
+                "capability_refs",
             ]
         )
     if "EvidenceCoverageDecision" in defs:
@@ -1066,6 +1071,43 @@ def write_report_schema(*, check_only: bool = False, drift: list[str] | None = N
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_policy_pack_schema() -> tuple[Path, str]:
+    """Generate docs/policy-pack-schema.v0.1.json from PolicyPackArtifactV1."""
+
+    from agents_shipgate.schemas.policy_pack import (
+        POLICY_PACK_SCHEMA_VERSION,
+        PolicyPackArtifactV1,
+    )
+
+    schema = PolicyPackArtifactV1.model_json_schema()
+    minor = POLICY_PACK_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/policy-pack-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Policy Pack v{minor}"
+    schema["description"] = (
+        "JSON Schema for local Agents Shipgate policy-pack YAML files. "
+        "Generated from agents_shipgate.schemas.policy_pack.PolicyPackArtifactV1. "
+        "Do not edit by hand."
+    )
+    target = DOCS / f"policy-pack-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def write_policy_pack_schema(
+    *, check_only: bool = False, drift: list[str] | None = None
+) -> bool:
+    target, content = build_policy_pack_schema()
+    return _emit(
+        target,
+        content,
+        check_only=check_only,
+        drift=drift if drift is not None else [],
+    )
+
+
 def build_checks_catalog() -> tuple[Path, str]:
     from agents_shipgate.checks.registry import check_catalog
 
@@ -1124,6 +1166,20 @@ def build_packet_schema() -> tuple[Path, str]:
         "JSON Schema for packet.json. Generated from "
         "agents_shipgate.schemas.packet.EvidencePacket. Do not edit by hand."
     )
+    # EvidencePacket intentionally reuses report ReleaseDecisionItem models for
+    # in-memory building, but packet v0.6 serialization strips v0.24's
+    # report-only capability_refs field. Keep the generated packet schema
+    # aligned with the packet wire contract unless packet_schema_version bumps.
+    release_item = schema.get("$defs", {}).get("ReleaseDecisionItem")
+    if isinstance(release_item, dict):
+        properties = release_item.get("properties")
+        if isinstance(properties, dict):
+            properties.pop("capability_refs", None)
+        required = release_item.get("required")
+        if isinstance(required, list):
+            release_item["required"] = [
+                item for item in required if item != "capability_refs"
+            ]
     target = DOCS / f"packet-schema.v{minor}.json"
     return target, _canonical_json(schema)
 
@@ -1253,6 +1309,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("manifest", build_manifest_schema),
     ("checks_catalog", build_checks_catalog),
     ("report", build_report_schema),
+    ("policy_pack", build_policy_pack_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
     ("capability_lock", build_capability_lock_schema),

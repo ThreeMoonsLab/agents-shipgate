@@ -30,6 +30,26 @@ from agents_shipgate.schemas.surfaces import (
 )
 
 
+class CapabilityPolicyEvidence(BaseModel):
+    """Capability-level audit evidence for a policy match.
+
+    This is explanatory metadata only. It lets reviewers see which durable
+    capability fact matched a policy rule without folding that metadata into
+    the legacy ``Finding.evidence`` fingerprint input.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    capability_id: str
+    identity: dict[str, Any]
+    effect: dict[str, Any]
+    authority: dict[str, Any]
+    controls: dict[str, Any]
+    hashes: dict[str, str]
+    matched_predicates: dict[str, Any] = Field(default_factory=dict)
+    source: SourceReference | None = None
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -72,6 +92,12 @@ class Finding(BaseModel):
     # number resolved through the manifest ``PositionIndex``. Optional
     # because most findings only have one provenance source.
     policy_evidence_source: SourceReference | None = None
+    # v0.24: capability-native policy/evidence integration. Policy and
+    # policy-pack checks can now cite the durable capability facts that
+    # caused the rule to match. Kept outside ``evidence`` so existing
+    # finding fingerprints do not churn.
+    capability_refs: list[str] = Field(default_factory=list)
+    capability_policy_evidence: CapabilityPolicyEvidence | None = None
     recommendation: str
     # v0.16: explicit release-blocking signal for Action Surface Diff
     # policy findings. This is orthogonal to severity: advisory CI can
@@ -173,6 +199,9 @@ class ReleaseDecisionItem(BaseModel):
     # consumers ignore the fields.
     source: SourceReference | None = None
     policy_evidence_source: SourceReference | None = None
+    # v0.24: mirror Finding.capability_refs so release-decision consumers
+    # can audit policy blockers without joining against findings[].
+    capability_refs: list[str] = Field(default_factory=list)
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -639,7 +668,10 @@ class ReadinessReport(BaseModel):
     # v0.23: additive semantic metadata on capability_change members.
     # Existing buckets and summary counts stay intact; new fields explain
     # the capability-hash / semantic reason behind each row when proven.
-    report_schema_version: str = "0.23"
+    # v0.24: additive capability-native policy/evidence fields on findings
+    # and release-decision items. release_decision.decision remains the
+    # only release gate.
+    report_schema_version: str = "0.24"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
