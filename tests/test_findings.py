@@ -62,6 +62,22 @@ def test_dedupe_findings_collapses_equivalent_evidence():
     assert dedupe_findings([first, second]) == [first]
 
 
+def test_dedupe_findings_ignores_explanatory_capability_refs():
+    first = Finding(
+        check_id="ORG-DUPLICATE",
+        title="Duplicate policy",
+        severity="medium",
+        category="org_policy",
+        tool_name="refund",
+        evidence={"a": 1},
+        recommendation="Fix duplicate.",
+        capability_refs=["cap_a"],
+    )
+    second = first.model_copy(update={"capability_refs": ["cap_b"]})
+
+    assert dedupe_findings([first, second]) == [first]
+
+
 def test_dedupe_findings_preserves_distinct_titles():
     first = Finding(
         check_id="ORG-DUPLICATE",
@@ -75,6 +91,40 @@ def test_dedupe_findings_preserves_distinct_titles():
     second = first.model_copy(update={"title": "Duplicate policy for email"})
 
     assert dedupe_findings([first, second]) == [first, second]
+
+
+def test_collision_discriminator_ignores_explanatory_capability_refs():
+    base_findings = [
+        Finding(
+            check_id="ORG-COLLISION",
+            title="First collision",
+            severity="medium",
+            category="org_policy",
+            tool_name="refund",
+            evidence={"a": 1},
+            recommendation="Fix first.",
+        ),
+        Finding(
+            check_id="ORG-COLLISION",
+            title="Second collision",
+            severity="medium",
+            category="org_policy",
+            tool_name="refund",
+            evidence={"a": 1},
+            recommendation="Fix second.",
+        ),
+    ]
+    enriched_findings = [
+        finding.model_copy(update={"capability_refs": [f"cap_{index}"]})
+        for index, finding in enumerate(base_findings, start=1)
+    ]
+
+    base_ids = [finding.id for finding in assign_finding_ids(base_findings)]
+    enriched_ids = [
+        finding.id for finding in assign_finding_ids(enriched_findings)
+    ]
+
+    assert enriched_ids == base_ids
 
 
 def test_legacy_api_operational_readiness_suppression_matches_split_check():

@@ -40,6 +40,7 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF_HEADLINE,
 )
 from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
+from agents_shipgate.packet.json_packet import _strip_report_only_fields
 from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
@@ -148,6 +149,44 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
     assert packet.packet_schema_version == "0.6"
+
+
+def test_packet_report_only_field_strip_is_scoped_to_release_items():
+    payload = {
+        "release_decision": {
+            "blockers": [
+                {"check_id": "SHIP-TEST", "capability_refs": ["cap_release"]}
+            ],
+            "review_items": [],
+        },
+        "evidence_matrix": {
+            "rows": [
+                {
+                    "blocking_findings": [
+                        {
+                            "check_id": "SHIP-MATRIX",
+                            "capability_refs": ["cap_matrix"],
+                        }
+                    ],
+                    "review_items": [],
+                }
+            ]
+        },
+        "future_packet_section": {
+            "misalignment": {"capability_refs": ["cap_misalignment"]}
+        },
+    }
+
+    _strip_report_only_fields(payload)
+
+    assert "capability_refs" not in payload["release_decision"]["blockers"][0]
+    assert (
+        "capability_refs"
+        not in payload["evidence_matrix"]["rows"][0]["blocking_findings"][0]
+    )
+    assert payload["future_packet_section"]["misalignment"]["capability_refs"] == [
+        "cap_misalignment"
+    ]
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):

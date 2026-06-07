@@ -31,7 +31,7 @@ def assign_finding_ids(findings: list[Finding]) -> list[Finding]:
 
 
 def dedupe_findings(findings: list[Finding]) -> list[Finding]:
-    seen: set[tuple[str, str, str, str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str, str]] = set()
     deduped: list[Finding] = []
     for finding in findings:
         evidence_key = json.dumps(
@@ -55,7 +55,6 @@ def dedupe_findings(findings: list[Finding]) -> list[Finding]:
             finding.tool_name or "",
             evidence_key,
             source_key,
-            json.dumps(sorted(finding.capability_refs), sort_keys=True),
         )
         if key in seen:
             continue
@@ -105,7 +104,6 @@ def _collision_discriminator(finding: Finding) -> str:
         "title": finding.title,
         "tool_id": finding.tool_id,
         "tool_name": finding.tool_name,
-        "capability_refs": sorted(finding.capability_refs),
     }
     digest = hashlib.sha256(
         json.dumps(

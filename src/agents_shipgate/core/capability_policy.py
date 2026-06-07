@@ -11,7 +11,11 @@ from agents_shipgate.core.artifact_models import (
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.domain import Tool, ToolParameter
-from agents_shipgate.core.risk_hints import CANONICAL_RISK_TAG_MAP, risk_tags
+from agents_shipgate.core.risk_hints import (
+    CANONICAL_RISK_TAG_MAP,
+    is_effectively_read_only,
+    risk_tags,
+)
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -389,9 +393,7 @@ def _subject_has_any_risk_tag(
 
 
 def _subject_is_effectively_read_only(subject: CapabilityPolicySubject) -> bool:
-    if subject.fact.effect.effect == "read":
-        return True
-    return _subject_has_any_risk_tag(subject, {"read_only"})
+    return is_effectively_read_only(subject.tool)
 
 
 def _missing_owner(subject: CapabilityPolicySubject) -> bool:
