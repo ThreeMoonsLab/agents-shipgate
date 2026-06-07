@@ -12,10 +12,10 @@ agents-shipgate contract --json
 
 - Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `1`
-- Current report schema: `0.23` — [`docs/report-schema.v0.23.json`](report-schema.v0.23.json)
+- Current report schema: `0.24` — [`docs/report-schema.v0.24.json`](report-schema.v0.24.json)
 - Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
-- Frozen-reference report schemas: [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
 ## Two read entry points
@@ -44,6 +44,7 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** Blockers take precedence. If there are no blockers, `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. One to three source warnings without blockers route to `review_required`. `insufficient_evidence` means the scan cannot confidently gate release from the available static evidence; it does not prove the agent is unsafe. Switch on the enum with a `review_required` fallback for unknown future values.
 - `release_decision.blockers[]` — items that block release on this run.
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
+- `release_decision.{blockers,review_items}[].capability_refs` (v0.24+) — stable capability IDs copied from the originating finding when a policy or policy-pack rule matched a `CapabilityFactV1`. Empty for findings that are not capability-policy matches. This is audit metadata only; `release_decision.decision` remains the gate.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.
 - `release_decision.reason` — one-sentence explanation suitable for a PR comment.
 - `release_decision.contribution_rules[]` (v0.17+) — deterministic per-finding audit explaining how each `report.findings` entry was classified. Exactly one row per finding (including suppressed). Each row carries `{finding_id, fingerprint, check_id, category, rule, rationale}`. `category` ∈ `{blocker, review_item, excluded}`; `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`. Reading the contribution rule is sufficient to predict the gate outcome for that finding without re-deriving the decision logic — the closed grammar of `(rule, category)` pairs is documented in [STABILITY.md "Release decision truth table"](../STABILITY.md#release-decision-truth-table). The audit cannot disagree with `blockers[]` / `review_items[]` (the same classification powers both).
@@ -51,6 +52,22 @@ In `agents-shipgate-reports/report.json`:
 - `reviewer_summary` (v0.20+) — deterministic projection of the reviewer lens surfaces and audit envelopes; the reviewer-side parallel to `agent_summary`. Read this block first when triaging a scan for a human reviewer. Carries `verdict` (mirrors `release_decision.decision`), `headline` (≤200 chars, PR-comment-friendly), per-lens activity counts (`tool_surface_changes`, `capability_misalignments`, `action_surface_changes`, `evidence_matrix_gaps`), per-audit-envelope counts (`severity_overrides_applied`, `severity_overrides_tier_crossed`, `privacy_redactions`, `baseline_integrity_issues`), and `first_recommended_surface: ReviewerSurfacePointer | None` — a deterministic pointer naming which lens/audit to open first (`{kind, name, path, why}` where `kind` ∈ `{release_decision, lens, audit, evidence_matrix}` and `name` ∈ `{tool_surface_diff, capability_intent_diff, action_surface_diff, evidence_matrix, policy_audit, privacy_audit, baseline_integrity, release_decision}`). Same inputs always produce the same output; this block cannot disagree with the underlying lens/audit data.
 - `heuristics_filter` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Always present, even when the flag is unset (`enabled: False` with zero counts), so the report shape is stable. Carries `enabled: bool`, `excluded_provenance_kinds: list[str]` (`["keyword_heuristic", "regex_heuristic"]`), `filtered_finding_count: int`, and `filtered_by_kind: dict[str, int]` (per-kind breakdown). When `enabled: True`, findings whose `provenance_kind` is in the excluded list have been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision was built — they remain in `findings[]` for transparency but no longer gate release. The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved when they overlap with the filter. Useful for security/GRC reviewers who want declared-only findings.
 - `verifier_summary` (v0.22+) — top-level **composition** for one-fetch controller consumption (the AI-coding-workflow verifier surface). It derives **no independent verdict**: `verdict` mirrors `release_decision.decision` exactly (Principle: one decision engine). Carries `by_severity: dict[str,int]` and `by_reason_code: dict[str,int]` (active-finding histograms — the complete per-code map), `capability_delta_summary: {added, removed, broadened, narrowed}` (equal by construction to the `capability_change` member-list lengths), `protected_surface_touched: bool`, `policy_weakened: bool`, `human_ack_required: bool`, `human_ack_satisfied: bool`, and `top_reason_codes: list[{reason_code, count}]` — the ranked top-five highlight (severity desc → count desc → code asc; the full set stays in `by_reason_code`). This block cannot introduce a finding-independent blocker.
+
+In `findings[]`, v0.24 adds capability-native policy evidence for built-in
+policy checks and policy packs:
+
+- `capability_refs: list[str]` — stable `CapabilityFactV1.id` values that
+  matched the rule. It is emitted as an empty list for findings that are not
+  capability-policy matches.
+- `capability_policy_evidence | null` — optional typed audit metadata with the
+  matched capability identity, effect, authority, controls, semantic hashes,
+  matched predicates, and source provenance. It is explanatory only and is not
+  included in finding fingerprint inputs.
+
+Existing `finding.evidence` keys remain stable for legacy readers. Policy
+matching is capability-native internally, but policy-pack behavior, suppressions,
+severity overrides, baselines, SARIF, Markdown, and GitHub Action outputs remain
+compatible.
 
 The remaining v0.22 verifier blocks are reviewer-facing projections / declared inputs — none gates independently (`release_decision.decision` stays the only gate). They populate with real values only under `verify` mode (a `VerificationContext` from `agents-shipgate verify` or an equivalent scan context); a plain `scan` emits their stable empty shape:
 
@@ -295,7 +312,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.23.json`](report-schema.v0.23.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.24.json`](report-schema.v0.24.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

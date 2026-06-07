@@ -434,6 +434,10 @@ def test_report_sensitive_field_inventory_covers_current_report_fields():
     assert set(ReadinessReport.model_fields) <= report_paths
     assert {
         "findings",
+        "findings[].capability_policy_evidence",
+        "findings[].capability_policy_evidence.authority.scopes",
+        "findings[].capability_policy_evidence.hashes",
+        "findings[].capability_policy_evidence.source",
         "source_warnings",
         "tool_inventory",
         "tool_surface_facts",

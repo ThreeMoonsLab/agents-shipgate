@@ -323,6 +323,87 @@ ci:
     # block), so ``start_line`` is None — the reviewer still gets the
     # pointer string and the manifest filename for orientation.
     assert approval.policy_evidence_source.start_line is None
+    assert approval.capability_refs
+    assert approval.capability_policy_evidence is not None
+    assert approval.capability_policy_evidence.capability_id in approval.capability_refs
+    assert approval.capability_policy_evidence.identity["tool_name"] == "dangerous.write"
+    assert approval.capability_policy_evidence.matched_predicates[
+        "missing_approval_policy"
+    ] is True
+
+
+def test_mixed_read_write_tool_still_requires_policy_controls(tmp_path):
+    """A read verb plus a mutating verb must not become effectively read-only.
+
+    Capability-native policy matching delegates to the canonical risk helper so
+    medium-confidence read-only keyword hints do not mask destructive/write
+    hints. This preserves the old built-in approval/confirmation findings for
+    common mixed names like ``get_or_delete_record``.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "openapi.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Mixed Tool API
+  version: "1.0"
+paths:
+  /records/{id}:
+    get:
+      operationId: get_or_delete_record
+      summary: Get or delete a customer record.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: mixed-read-write
+agent:
+  name: mixed-agent
+  declared_purpose:
+    - manage records
+environment:
+  target: production_like
+tool_sources:
+  - id: api
+    type: openapi
+    path: openapi.yaml
+ci:
+  mode: advisory
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    findings = {
+        finding.check_id: finding
+        for finding in report.findings
+        if finding.tool_name == "get_or_delete_record"
+    }
+    assert "SHIP-POLICY-APPROVAL-MISSING" in findings
+    assert "SHIP-POLICY-CONFIRMATION-MISSING" in findings
+    assert findings["SHIP-POLICY-APPROVAL-MISSING"].capability_refs
+    assert findings["SHIP-POLICY-CONFIRMATION-MISSING"].capability_refs
 
 
 def test_policy_evidence_source_resolves_existing_pointer_line(tmp_path):
@@ -398,7 +479,7 @@ def test_fingerprint_stable_with_policy_evidence_source(tmp_path):
     must stay out of the identity hash."""
     from agents_shipgate.core.findings import finding_fingerprint
     from agents_shipgate.schemas.common import SourceReference
-    from agents_shipgate.schemas.report import Finding
+    from agents_shipgate.schemas.report import CapabilityPolicyEvidence, Finding
 
     base = Finding(
         check_id="SHIP-POLICY-APPROVAL-MISSING",
@@ -425,6 +506,17 @@ def test_fingerprint_stable_with_policy_evidence_source(tmp_path):
             path="shipgate.yaml",
             start_line=42,
             pointer="/policies/require_approval_for_tools",
+        ),
+        capability_refs=["cap_123"],
+        capability_policy_evidence=CapabilityPolicyEvidence(
+            capability_id="cap_123",
+            identity={"tool_name": "stripe.create_refund"},
+            effect={"effect": "financial_write"},
+            authority={"scopes": []},
+            controls={"approval_required": False},
+            hashes={"identity_hash": "123"},
+            matched_predicates={"missing_approval_policy": True},
+            source=SourceReference(type="mcp", ref="tools.json"),
         ),
     )
     assert finding_fingerprint(base) == finding_fingerprint(enriched)

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.23",
+  "report_schema_version": "0.24",
   "run_id": "agents_shipgate_529a14acc6ebdc81",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
@@ -80,7 +80,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_07538ba8f9532359",
@@ -100,7 +101,8 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_58b3202c0a4d9793",
@@ -120,7 +122,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_45ef3ff3ce2cf187",
@@ -140,7 +143,8 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_a8a615b5a4f2597b",
@@ -169,7 +173,8 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/agent/prohibited_actions/0"
-        }
+        },
+        "capability_refs": []
       },
       {
         "id": "fp_cf260ff7c72d64b7",
@@ -198,7 +203,8 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/agent/prohibited_actions/1"
-        }
+        },
+        "capability_refs": []
       },
       {
         "id": "fp_e9d63903757dfe07",
@@ -227,7 +233,8 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
-        }
+        },
+        "capability_refs": []
       },
       {
         "id": "fp_4466eb2871434dc5",
@@ -256,7 +263,8 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
-        }
+        },
+        "capability_refs": []
       },
       {
         "id": "fp_9675d1799680d81d",
@@ -276,7 +284,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_29e718b3bbde0e7d",
@@ -296,7 +305,8 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_64f825faa751b7f8",
@@ -316,10 +326,11 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
-        "id": "fp_1b64e136ace3472a_d6a46917",
+        "id": "fp_1b64e136ace3472a_a3df8156",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "high",
@@ -336,10 +347,11 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
-        "id": "fp_1b64e136ace3472a_6f6fb033",
+        "id": "fp_1b64e136ace3472a_c3d68aa2",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "severity": "medium",
@@ -356,7 +368,8 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_28483a22a9ed40cb",
@@ -376,7 +389,8 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_b8df99c94ef3aa60",
@@ -396,7 +410,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_2bf957380e89863f",
@@ -416,7 +431,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_efb42c5b5aea7be6",
@@ -436,7 +452,8 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_245bcdb96d8220e2",
@@ -456,7 +473,8 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_d9059d0c1f3540af",
@@ -476,7 +494,8 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       },
       {
         "id": "fp_a95adeb6338f8b3e",
@@ -496,7 +515,8 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": []
       }
     ],
     "evidence_coverage": {
@@ -609,7 +629,7 @@
         "rationale": "requires_human_review=true (severity=medium); routed to review_items."
       },
       {
-        "finding_id": "fp_1b64e136ace3472a_d6a46917",
+        "finding_id": "fp_1b64e136ace3472a_a3df8156",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "category": "review_item",
@@ -617,7 +637,7 @@
         "rationale": "requires_human_review=true (severity=high); routed to review_items."
       },
       {
-        "finding_id": "fp_1b64e136ace3472a_6f6fb033",
+        "finding_id": "fp_1b64e136ace3472a_c3d68aa2",
         "fingerprint": "fp_1b64e136ace3472a",
         "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "category": "review_item",
@@ -698,8 +718,8 @@
       "included_reason": "referenced_by_high_finding",
       "control_status": "missing",
       "related_findings": [
-        "fp_1b64e136ace3472a_6f6fb033",
-        "fp_1b64e136ace3472a_d6a46917",
+        "fp_1b64e136ace3472a_a3df8156",
+        "fp_1b64e136ace3472a_c3d68aa2",
         "fp_245bcdb96d8220e2",
         "fp_28483a22a9ed40cb",
         "fp_2bf957380e89863f",
@@ -729,8 +749,8 @@
       "control_status": "missing",
       "related_findings": [
         "fp_07538ba8f9532359",
-        "fp_1b64e136ace3472a_6f6fb033",
-        "fp_1b64e136ace3472a_d6a46917",
+        "fp_1b64e136ace3472a_a3df8156",
+        "fp_1b64e136ace3472a_c3d68aa2",
         "fp_28483a22a9ed40cb",
         "fp_29e718b3bbde0e7d",
         "fp_4466eb2871434dc5",
@@ -921,7 +941,7 @@
       "release_implication": "Release review metadata is incomplete or stale."
     },
     {
-      "id": "mis_c80d2e2f4661491f",
+      "id": "mis_77e3e943df3226a9",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "create_refund",
@@ -933,14 +953,14 @@
         "int_788db5032dd9f920"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_d6a46917"
+        "fp_1b64e136ace3472a_a3df8156"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_52f48247d1434df6",
+      "id": "mis_f5585f6906035834",
       "kind": "intent_mismatch",
       "severity": "high",
       "tool_name": "send_customer_email",
@@ -952,7 +972,7 @@
         "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_d6a46917"
+        "fp_1b64e136ace3472a_a3df8156"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
@@ -1084,7 +1104,7 @@
       "release_implication": "Downstream release behavior may depend on under-specified output."
     },
     {
-      "id": "mis_88989ea886afdc7a",
+      "id": "mis_c268b3e90688aac6",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "create_refund",
@@ -1096,14 +1116,14 @@
         "int_788db5032dd9f920"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_6f6fb033"
+        "fp_1b64e136ace3472a_c3d68aa2"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
       "release_implication": "The agent instructions and actual tool surface disagree."
     },
     {
-      "id": "mis_9f0bda1dc36d1c1e",
+      "id": "mis_50ff20d360b2774b",
       "kind": "intent_mismatch",
       "severity": "medium",
       "tool_name": "send_customer_email",
@@ -1115,7 +1135,7 @@
         "int_bf9d4ad9100fcc59"
       ],
       "finding_refs": [
-        "fp_1b64e136ace3472a_6f6fb033"
+        "fp_1b64e136ace3472a_c3d68aa2"
       ],
       "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
       "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
@@ -1263,20 +1283,20 @@
       ]
     },
     {
-      "id": "scn_1d07ffd93e9104e8",
+      "id": "scn_b581f46683ea51d5",
       "scenario_type": "prompt_scope_alignment",
       "title": "Prompt and tool-surface alignment",
       "given": "Exercise the release path for create_refund, send_customer_email.",
       "expected_control": "The agent instructions match the enabled write and high-risk capabilities.",
       "source_misalignments": [
-        "mis_52f48247d1434df6",
-        "mis_88989ea886afdc7a",
-        "mis_9f0bda1dc36d1c1e",
-        "mis_c80d2e2f4661491f"
+        "mis_50ff20d360b2774b",
+        "mis_77e3e943df3226a9",
+        "mis_c268b3e90688aac6",
+        "mis_f5585f6906035834"
       ],
       "source_findings": [
-        "fp_1b64e136ace3472a_6f6fb033",
-        "fp_1b64e136ace3472a_d6a46917"
+        "fp_1b64e136ace3472a_a3df8156",
+        "fp_1b64e136ace3472a_c3d68aa2"
       ]
     },
     {
@@ -1625,6 +1645,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add a maximum bound to create_refund.amount or document an equivalent limit in the tool policy.",
       "blocks_release": false,
       "suppressed": false,
@@ -1660,6 +1682,8 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Constrain send_customer_email.message with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
       "suppressed": false,
@@ -1697,6 +1721,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
       "blocks_release": false,
       "suppressed": false,
@@ -1735,6 +1761,8 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
       "blocks_release": false,
       "suppressed": false,
@@ -1782,6 +1810,8 @@
         "start_column": null,
         "pointer": "/agent/prohibited_actions/0"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -1830,6 +1860,8 @@
         "start_column": null,
         "pointer": "/agent/prohibited_actions/1"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -1877,6 +1909,8 @@
         "start_column": null,
         "pointer": "/policies/require_idempotency_for_tools"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
       "blocks_release": false,
       "suppressed": false,
@@ -1925,6 +1959,8 @@
         "start_column": null,
         "pointer": "/policies/require_idempotency_for_tools"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for send_customer_email.",
       "blocks_release": false,
       "suppressed": false,
@@ -1968,6 +2004,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "blocks_release": false,
       "suppressed": false,
@@ -2009,6 +2047,8 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "blocks_release": false,
       "suppressed": false,
@@ -2050,6 +2090,8 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Tighten the structured output schema with enums, needs_review/refusal/error modeling, and declared critical fields.",
       "blocks_release": false,
       "suppressed": false,
@@ -2062,7 +2104,7 @@
       "agent_action": "escalate_to_human"
     },
     {
-      "id": "fp_1b64e136ace3472a_d6a46917",
+      "id": "fp_1b64e136ace3472a_a3df8156",
       "fingerprint": "fp_1b64e136ace3472a",
       "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
@@ -2085,6 +2127,8 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Align prompt scope with enabled tools or remove write/high-risk tools.",
       "blocks_release": false,
       "suppressed": false,
@@ -2097,7 +2141,7 @@
       "agent_action": "escalate_to_human"
     },
     {
-      "id": "fp_1b64e136ace3472a_6f6fb033",
+      "id": "fp_1b64e136ace3472a_c3d68aa2",
       "fingerprint": "fp_1b64e136ace3472a",
       "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
       "title": "Prompt lacks approval/confirmation language for high-risk tools",
@@ -2120,6 +2164,8 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add prompt instructions requiring human approval and explicit confirmation before financial, destructive, or external customer actions.",
       "blocks_release": false,
       "suppressed": false,
@@ -2155,6 +2201,8 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows.",
       "blocks_release": false,
       "suppressed": false,
@@ -2191,6 +2239,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare success_fields and failure_fields for create_refund in openai_api policy rules.",
       "blocks_release": false,
       "suppressed": false,
@@ -2231,6 +2281,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add idempotency evidence for create_refund or avoid retrying this side effect.",
       "blocks_release": false,
       "suppressed": false,
@@ -2272,6 +2324,8 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
       "blocks_release": false,
       "suppressed": false,
@@ -2305,6 +2359,8 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Require approval before calling create_refund.",
       "blocks_release": false,
       "suppressed": false,
@@ -2343,6 +2399,8 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
       "suppressed": false,
@@ -2382,6 +2440,8 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
       "suppressed": false,
@@ -2405,10 +2465,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/tmp/claude-501/tmpkkxh0vit/report.json",
-    "packet_md": "/private/tmp/claude-501/tmpkkxh0vit/packet.md",
-    "packet_json": "/private/tmp/claude-501/tmpkkxh0vit/packet.json",
-    "packet_html": "/private/tmp/claude-501/tmpkkxh0vit/packet.html"
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2479,10 +2536,7 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json",
-      "packet_html",
-      "packet_json",
-      "packet_md"
+      "json"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

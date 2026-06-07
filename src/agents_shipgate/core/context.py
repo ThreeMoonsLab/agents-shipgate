@@ -15,6 +15,7 @@ from agents_shipgate.core.artifact_models import (
     ValidationArtifacts,
 )
 from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.capability_policy import CapabilityPolicySubject
 from agents_shipgate.core.domain import (
     Agent,
     Tool,
@@ -22,6 +23,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
+from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 from agents_shipgate.schemas.verification import VerificationContext
@@ -50,6 +52,10 @@ class ScanContext:
     config_path: Path
     framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
     action_surface_facts: ActionSurfaceFacts = field(default_factory=ActionSurfaceFacts)
+    capability_facts: list[CapabilityFactV1] = field(default_factory=list)
+    capability_policy_subjects: list[CapabilityPolicySubject] = field(
+        default_factory=list
+    )
     # v0.19 reviewer-grade provenance: JSON-pointer → ``(line, col)``
     # index built from the manifest YAML so agent-level and
     # tool-level high-risk emitters can attach ``shipgate.yaml:N``

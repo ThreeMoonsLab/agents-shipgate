@@ -1,4 +1,4 @@
-"""Verifier-cycle capability-change domain types (report schema v0.23).
+"""Verifier-cycle capability-change domain types (introduced in report v0.23).
 
 These are the additive v0.22 report blocks for the AI coding workflow
 verifier (see docs/engineering/ai-coding-workflow-verifier.md §7, §8):

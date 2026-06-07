@@ -33,6 +33,7 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     """
 
     payload = sanitize_packet_payload(packet.model_dump(mode="json"))
+    _strip_report_only_fields(payload)
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload
@@ -138,6 +139,52 @@ def _upgrade_action_surface_v05(payload: dict[str, Any]) -> None:
             "notes": ["No action-surface diff was recorded."],
         },
     )
+
+
+def _strip_report_only_fields(value: Any) -> None:
+    """Remove report-only additive fields before packet serialization.
+
+    ``EvidencePacket`` reuses ``ReleaseDecisionItem`` from the report schema.
+    v0.24 report items carry ``capability_refs``; packet v0.6 deliberately
+    remains unchanged, so the packet serializer drops that report-only key from
+    the packet sections that carry release-decision items. Do not strip by key
+    globally: report-era ``capability_refs`` also appears on other public report
+    models, and future packet sections may embed those models unchanged.
+    """
+
+    if not isinstance(value, dict):
+        return
+
+    _strip_release_item_lists(value.get("release_decision"), ("blockers", "review_items"))
+    evidence_matrix = value.get("evidence_matrix")
+    if isinstance(evidence_matrix, dict):
+        rows = evidence_matrix.get("rows")
+        if isinstance(rows, list):
+            for row in rows:
+                _strip_release_item_lists(
+                    row,
+                    ("blocking_findings", "review_items"),
+                )
+    _strip_release_item_lists(
+        value.get("capability_intent"),
+        ("divergence_findings",),
+    )
+    _strip_release_item_lists(value.get("approval_coverage"), ("gap_findings",))
+    _strip_release_item_lists(value.get("idempotency_risk"), ("gap_findings",))
+    _strip_release_item_lists(value.get("scope_coverage"), ("gap_findings",))
+    _strip_release_item_lists(value.get("human_in_the_loop"), ("trace_findings",))
+
+
+def _strip_release_item_lists(value: Any, fields: tuple[str, ...]) -> None:
+    if not isinstance(value, dict):
+        return
+    for field in fields:
+        items = value.get(field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                item.pop("capability_refs", None)
 
 
 def _upgrade_evidence_matrix_v06(payload: dict[str, Any]) -> None:

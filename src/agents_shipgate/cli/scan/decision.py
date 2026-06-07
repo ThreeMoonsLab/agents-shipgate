@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.checks.registry import check_catalog, run_checks
+from agents_shipgate.core.capability_policy import build_capability_policy_subjects
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
 from agents_shipgate.core.findings.identity import dedupe_findings, finding_fingerprint
@@ -61,6 +62,13 @@ def _run_checks_and_decide(
         agent_id=tools_and_agent.agent.id,
         tools=tools_and_agent.tools,
     )
+    capability_facts, capability_policy_subjects = build_capability_policy_subjects(
+        manifest,
+        agent_id=tools_and_agent.agent.id,
+        tools=tools_and_agent.tools,
+        action_surface_facts=action_surface_facts,
+        artifact_bag=inputs.artifact_bag,
+    )
     action_reference = action_reference_from_scan_reference(diffs.diff_reference)
     action_surface_diff = compute_action_surface_diff(
         action_surface_facts,
@@ -77,6 +85,8 @@ def _run_checks_and_decide(
         config_path=config_path.resolve(),
         framework_artifacts=inputs.artifact_bag,
         action_surface_facts=action_surface_facts,
+        capability_facts=capability_facts,
+        capability_policy_subjects=capability_policy_subjects,
         manifest_positions=manifest_positions,
         verification=verification_context,
         # M3: expose the --diff-from base report so the Tier B

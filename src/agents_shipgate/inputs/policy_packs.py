@@ -2,21 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
 
-from agents_shipgate.core.artifact_models import OpenAIApiArtifacts
+from agents_shipgate.core.capability_policy import match_policy_pack_subject
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.domain import Tool, ToolParameter
 from agents_shipgate.core.errors import ConfigError, InputParseError
-from agents_shipgate.core.risk_hints import risk_tags
 from agents_shipgate.inputs.common import load_structured_file, resolve_input_path
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, PolicyPackConfig
 from agents_shipgate.schemas.policy_pack import (
     PolicyPackFile,
-    PolicyPackParameterMatch,
     PolicyPackRule,
 )
 from agents_shipgate.schemas.report import (
@@ -89,9 +85,17 @@ def run_policy_pack_rules(
 ) -> list[Finding]:
     findings: list[Finding] = []
     for resolved in policy_packs.rules:
-        for tool in context.tools:
-            evidence = _match_evidence(tool, context, resolved)
-            if evidence is None:
+        for subject in context.capability_policy_subjects:
+            match = match_policy_pack_subject(
+                subject,
+                resolved.rule.match,
+                environment_target=context.manifest.environment.target,
+                base_evidence={
+                    "policy_pack": resolved.pack.id,
+                    "policy_pack_path": resolved.pack.path,
+                },
+            )
+            if match is None:
                 continue
             rule = resolved.rule
             title = rule.title or rule.description or f"Policy pack rule {rule.id} matched"
@@ -101,13 +105,15 @@ def run_policy_pack_rules(
                     title=title,
                     severity=rule.severity,
                     category=rule.category,
-                    tool_id=tool.id,
-                    tool_name=tool.name,
+                    tool_id=subject.tool.id,
+                    tool_name=subject.tool.name,
                     agent_id=context.agent.id,
-                    evidence=evidence,
+                    evidence=match.evidence,
                     confidence=rule.confidence,
                     provenance_kind="policy_pack",
                     source=SourceReference(type="policy_pack", ref=resolved.pack.path),
+                    capability_refs=[subject.fact.id],
+                    capability_policy_evidence=match.capability_policy_evidence,
                     recommendation=rule.recommendation,
                     blocks_release=rule.block,
                 )
@@ -131,139 +137,6 @@ def _validate_rule_ids(rules: list[ResolvedPolicyPackRule]) -> None:
                 f"already declared in {previous}."
             )
         seen[rule_id] = resolved.pack.path
-
-
-def _match_evidence(
-    tool: Tool,
-    context: ScanContext,
-    resolved: ResolvedPolicyPackRule,
-) -> dict[str, Any] | None:
-    rule_match = resolved.rule.match
-    evidence: dict[str, Any] = {
-        "policy_pack": resolved.pack.id,
-        "policy_pack_path": resolved.pack.path,
-    }
-    tags = risk_tags(tool, min_confidence="medium")
-    if rule_match.risk_tags:
-        matched_tags = sorted(set(tags).intersection(rule_match.risk_tags))
-        if not matched_tags:
-            return None
-        evidence["risk_tags"] = matched_tags
-    if rule_match.source_types:
-        if tool.source_type not in rule_match.source_types:
-            return None
-        evidence["source_type"] = tool.source_type
-    if rule_match.environment_targets:
-        target = context.manifest.environment.target
-        if target not in rule_match.environment_targets:
-            return None
-        evidence["environment_target"] = target
-    if rule_match.missing_owner is not None:
-        missing = not bool(tool.owner)
-        if missing is not rule_match.missing_owner:
-            return None
-        evidence["missing_owner"] = missing
-    if rule_match.missing_auth_scopes is not None:
-        missing = not bool(tool.auth.scopes)
-        if missing is not rule_match.missing_auth_scopes:
-            return None
-        evidence["missing_auth_scopes"] = missing
-    if rule_match.missing_approval_policy is not None:
-        missing = tool.name not in _approval_tools(context)
-        if missing is not rule_match.missing_approval_policy:
-            return None
-        evidence["missing_approval_policy"] = missing
-    if rule_match.missing_confirmation_policy is not None:
-        missing = tool.name not in _confirmation_tools(context)
-        if missing is not rule_match.missing_confirmation_policy:
-            return None
-        evidence["missing_confirmation_policy"] = missing
-    if rule_match.missing_idempotency_policy is not None:
-        missing = not _has_idempotency_evidence(tool, context)
-        if missing is not rule_match.missing_idempotency_policy:
-            return None
-        evidence["missing_idempotency_policy"] = missing
-    if rule_match.parameters:
-        matched_parameters = _matched_parameters(tool.parameters, rule_match.parameters)
-        if len(matched_parameters) != len(rule_match.parameters):
-            return None
-        evidence["parameters"] = matched_parameters
-    return evidence
-
-
-def _matched_parameters(
-    parameters: list[ToolParameter],
-    predicates: list[PolicyPackParameterMatch],
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    for predicate in predicates:
-        matched = next(
-            (parameter for parameter in parameters if _parameter_matches(parameter, predicate)),
-            None,
-        )
-        if matched is None:
-            continue
-        matches.append(
-            {
-                "name": matched.name,
-                "type": matched.type,
-                "required": matched.required,
-                "maximum": matched.maximum,
-            }
-        )
-    return matches
-
-
-def _parameter_matches(
-    parameter: ToolParameter,
-    predicate: PolicyPackParameterMatch,
-) -> bool:
-    names = set(predicate.names)
-    if predicate.name:
-        names.add(predicate.name)
-    if names and parameter.name not in names:
-        return False
-    if predicate.types and parameter.type not in predicate.types:
-        return False
-    if predicate.missing_maximum is not None:
-        missing = parameter.maximum is None
-        if missing is not predicate.missing_maximum:
-            return False
-    if predicate.required is not None and parameter.required is not predicate.required:
-        return False
-    return True
-
-
-def _approval_tools(context: ScanContext) -> set[str]:
-    tools = context.manifest.policies.approval_tools()
-    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
-    if api_artifacts:
-        tools |= api_artifacts.approval_tools()
-    return tools
-
-
-def _confirmation_tools(context: ScanContext) -> set[str]:
-    tools = context.manifest.policies.confirmation_tools()
-    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
-    if api_artifacts:
-        tools |= api_artifacts.confirmation_tools()
-    return tools
-
-
-def _idempotency_tools(context: ScanContext) -> set[str]:
-    tools = context.manifest.policies.idempotency_tools()
-    api_artifacts = context.artifact("openai_api", OpenAIApiArtifacts)
-    if api_artifacts:
-        tools |= api_artifacts.idempotency_tools()
-    return tools
-
-
-def _has_idempotency_evidence(tool: Tool, context: ScanContext) -> bool:
-    if tool.name in _idempotency_tools(context):
-        return True
-    if tool.annotations.get("idempotentHint") is True:
-        return True
-    return any(parameter.name == "idempotency_key" for parameter in tool.parameters)
 
 
 def _relative_display_path(path: Path, base_dir: Path) -> str:
