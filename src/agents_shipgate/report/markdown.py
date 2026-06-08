@@ -114,6 +114,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
     _append_loaded_adapters(lines, report)
     _append_tool_surface(lines, report)
     _append_action_surface_diff(lines, report)
+    _append_capability_runtime_evidence(lines, report)
     _append_tool_surface_diff(lines, report)
     _append_api_surface(lines, report)
     _append_frameworks(lines, report)
@@ -381,6 +382,56 @@ def _append_capability_intent_diff(
         )
     else:
         lines.append("- No additional validation scenarios suggested.")
+    lines.append("")
+
+
+def _append_capability_runtime_evidence(
+    lines: list[str],
+    report: ReadinessReport,
+) -> None:
+    evidence = report.capability_runtime_evidence
+    lines.extend(["## Capability Runtime Evidence", ""])
+    if not evidence.enabled:
+        lines.extend(
+            [
+                "No local runtime trace artifacts were declared for capability evidence.",
+                "",
+            ]
+        )
+        return
+    summary = evidence.summary
+    lines.extend(
+        [
+            f"- Sources: {summary.source_count}",
+            f"- Trace rows: {summary.trace_count}",
+            f"- Matched rows: {summary.matched_trace_count}",
+            f"- Unmatched rows: {summary.unmatched_trace_count}",
+            f"- Warnings: {summary.warning_count}",
+            "",
+        ]
+    )
+    if evidence.matched:
+        lines.append("Matched trace rows:")
+        for row in evidence.matched[:5]:
+            target = row.tool_name or row.matched_capability_id or row.id
+            lines.append(
+                f"- `{_safe_markdown_text(row.id)}` "
+                f"{_safe_markdown_text(target)} "
+                f"({row.source_type}, {row.match_reason})"
+            )
+        lines.append("")
+    if evidence.unmatched:
+        lines.append("Unmatched trace rows:")
+        for row in evidence.unmatched[:5]:
+            target = row.tool_name or row.capability_id or row.id
+            lines.append(
+                f"- `{_safe_markdown_text(row.id)}` "
+                f"{_safe_markdown_text(target)} "
+                f"({row.source_type}, {row.match_reason})"
+            )
+        lines.append("")
+    for note in evidence.notes:
+        lines.append(f"- {_safe_markdown_text(note)}")
     lines.append("")
 
 

@@ -44,6 +44,7 @@ def test_provenance_kind_enum_values():
         "keyword_heuristic",
         "regex_heuristic",
         "policy_pack",
+        "runtime_trace",
     }
 
 
@@ -132,6 +133,7 @@ def test_provenance_kind_counts_cover_all_values_and_suppression():
         "ast_extraction",
         "regex_heuristic",
         "policy_pack",
+        "runtime_trace",
     ):
         assert active_counts[kind] == 1
         assert all_counts[kind] == 1

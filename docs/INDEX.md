@@ -26,7 +26,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.24.json`](report-schema.v0.24.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.24"`, adding capability-native policy evidence while preserving existing findings, fingerprints, policy-pack behavior, and the release gate)
+- [`report-schema.v0.25.json`](report-schema.v0.25.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.25"`, adding opt-in capability-linked local trace/provenance evidence while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — JSON Schema for local policy-pack YAML files, including legacy match syntax and optional `match.capability` selectors
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
@@ -39,6 +39,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.24.json`](report-schema.v0.24.json) — frozen v0.24 reference schema; pre-v0.25 reports validate against this
 - [`report-schema.v0.23.json`](report-schema.v0.23.json) — frozen v0.23 reference schema; pre-v0.24 reports validate against this
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — frozen v0.22 reference schema; pre-v0.23 reports validate against this
 - [`report-schema.v0.21.json`](report-schema.v0.21.json) — frozen v0.21 reference schema; pre-v0.22 reports validate against this
@@ -57,7 +58,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.6"`, adding the top-level `evidence_matrix` section (PR #104) and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance (PR #103) on top of v0.5)
+- [`packet-schema.v0.7.json`](packet-schema.v0.7.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.7"`, adding capability-linked local trace evidence summary and trace refs under `human_in_the_loop`)
+- [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — frozen v0.6 reference packet schema; pre-v0.7 packets validate against this
 - [`packet-schema.v0.5.json`](packet-schema.v0.5.json) — frozen v0.5 reference packet schema; pre-v0.6 packets validate against this
 - [`packet-schema.v0.4.json`](packet-schema.v0.4.json) — frozen v0.4 reference packet schema
 - [`packet-schema.v0.3.json`](packet-schema.v0.3.json) — frozen v0.3 reference packet schema

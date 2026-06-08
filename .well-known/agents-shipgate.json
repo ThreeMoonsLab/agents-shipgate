@@ -129,9 +129,9 @@
   "trust_model": "static_by_default",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
-    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.24.json",
+    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.25.json",
     "verifier": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.1.json",
-    "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.6.json",
+    "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.7.json",
     "feedback": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/feedback-schema.v0.1.json",
     "attestation": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.1.json",
     "scenario": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/scenario-schema.v0.1.json",

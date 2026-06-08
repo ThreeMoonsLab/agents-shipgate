@@ -5,7 +5,7 @@
 - Environment: production\_like
 - Run id: agents\_shipgate\_ebb71d7248235cc3
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.6
+- Packet schema: 0\.7
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -182,6 +182,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Configured: yes
 - Human review recommended: yes
 - Provenance mode: `fresh\_scan`
+- Capability-linked trace rows: 0/0 matched (0 source(s))
 - HITL evidence is local review evidence only. Missing local evidence does not prove a runtime control is absent, and present local evidence does not certify runtime enforcement.
 
 ### Approval-required tools

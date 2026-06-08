@@ -559,6 +559,12 @@ def _append_human_in_the_loop(
         f"{'yes' if section.human_review_recommended else 'no'}"
     )
     lines.append(f"- Provenance mode: `{_escape(section.provenance_mode)}`")
+    summary = section.capability_trace_summary
+    lines.append(
+        "- Capability-linked trace rows: "
+        f"{summary.matched_trace_count}/{summary.trace_count} matched "
+        f"({summary.source_count} source(s))"
+    )
     lines.append(f"- {_escape(section.runtime_control_disclaimer)}")
     lines.append("")
     if section.approval_required_tools:
@@ -577,10 +583,23 @@ def _append_human_in_the_loop(
         lines.append("### HITL evidence gaps")
         lines.append("")
         for item in section.trace_findings:
+            ref_suffix = (
+                f" — trace refs: `{_escape(', '.join(item.capability_trace_refs))}`"
+                if item.capability_trace_refs
+                else ""
+            )
             lines.append(
                 f"- `{_escape(item.check_id)}` ({item.severity}): "
-                f"{_escape(item.title)}"
+                f"{_escape(item.title)}{ref_suffix}"
             )
+        lines.append("")
+    if section.capability_trace_refs:
+        lines.append("### Capability trace refs")
+        lines.append("")
+        for ref in section.capability_trace_refs[:10]:
+            lines.append(f"- `{_escape(ref)}`")
+        if len(section.capability_trace_refs) > 10:
+            lines.append(f"- +{len(section.capability_trace_refs) - 10} more")
         lines.append("")
     if section.source_provenance:
         lines.append("### Source provenance")

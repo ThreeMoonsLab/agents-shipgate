@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import load_structured_file, load_text_file, resolve_input_path
 from agents_shipgate.schemas.manifest import ArtifactPathConfig
+
+TRACE_SOURCE_KEY = "_shipgate_source"
+
+
+@dataclass(frozen=True)
+class _TraceInput:
+    item: dict[str, Any]
+    line: int | None = None
+    pointer: str | None = None
+    index: int = 0
 
 
 def load_trace_artifacts(
@@ -15,6 +26,8 @@ def load_trace_artifacts(
     warnings: list[str],
     *,
     label: str,
+    source_type: str,
+    warn_optional_fail: bool = True,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     traces: list[dict[str, Any]] = []
@@ -25,12 +38,24 @@ def load_trace_artifacts(
         except InputParseError:
             if not ref.optional:
                 raise
-            warnings.append(f"Optional {label} trace artifact {ref.path!r} failed to load.")
+            if warn_optional_fail:
+                warnings.append(
+                    f"Optional {label} trace artifact {ref.path!r} failed to load."
+                )
             continue
-        files.append(_display_path(path, base_dir))
-        for item in raw_items:
-            normalized = normalize_trace_event(item)
+        display_path = _display_path(path, base_dir)
+        files.append(display_path)
+        for raw in raw_items:
+            normalized = normalize_trace_event(raw.item)
             if normalized:
+                normalized[TRACE_SOURCE_KEY] = {
+                    "source_type": source_type,
+                    "source_ref": ref.path,
+                    "source_path": display_path,
+                    "source_line": raw.line,
+                    "source_pointer": raw.pointer,
+                    "source_index": raw.index,
+                }
                 traces.append(normalized)
             else:
                 warnings.append(
@@ -55,14 +80,32 @@ def normalize_trace_event(item: dict[str, Any]) -> dict[str, Any] | None:
     if not tool_name:
         return None
     normalized: dict[str, Any] = {"tool_name": tool_name}
+    for key in ("provider", "operation", "capability_id"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
     for key in ("approved", "confirmed", "success"):
         value = item.get(key)
         if isinstance(value, bool):
             normalized[key] = value
-    error = item.get("error") or item.get("error_message")
-    if isinstance(error, str) and error:
+    error = item.get("error")
+    if error is None:
+        error = item.get("error_message")
+    if isinstance(error, str) and error.strip():
+        normalized["error"] = error.strip()
+        normalized.setdefault("success", False)
+    elif isinstance(error, bool):
         normalized["error"] = error
         normalized.setdefault("success", False)
+    for key in ("reason", "actor", "trace_id", "run_id", "call_id"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
+    timestamp = item.get("timestamp")
+    if isinstance(timestamp, str) and timestamp.strip():
+        normalized["timestamp"] = timestamp.strip()
+    elif isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
+        normalized["timestamp"] = str(timestamp)
     return normalized
 
 
@@ -70,9 +113,10 @@ def _load_trace_items(
     path: Path,
     ref: str,
     warnings: list[str],
-) -> list[dict[str, Any]]:
+) -> list[_TraceInput]:
     if path.suffix.lower() == ".jsonl":
-        items: list[dict[str, Any]] = []
+        items: list[_TraceInput] = []
+        event_index = 0
         for line_number, line in enumerate(load_text_file(path).splitlines(), start=1):
             if not line.strip():
                 continue
@@ -83,19 +127,35 @@ def _load_trace_items(
                     f"Unable to parse JSONL trace {path}:{line_number}: {exc}"
                 ) from exc
             if isinstance(item, dict):
-                items.append(item)
+                items.append(
+                    _TraceInput(
+                        item=item,
+                        line=line_number,
+                        pointer=None,
+                        index=event_index,
+                    )
+                )
+                event_index += 1
             else:
                 warnings.append(f"Trace artifact {ref!r} line {line_number} is not an object.")
         return items
     data = load_structured_file(path)
     if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
+        return [
+            _TraceInput(item=item, pointer=f"/{index}", index=index)
+            for index, item in enumerate(data)
+            if isinstance(item, dict)
+        ]
     if isinstance(data, dict):
         for key in ("trace_samples", "traces", "events", "tool_calls"):
             value = data.get(key)
             if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return [data]
+                return [
+                    _TraceInput(item=item, pointer=f"/{key}/{index}", index=index)
+                    for index, item in enumerate(value)
+                    if isinstance(item, dict)
+                ]
+        return [_TraceInput(item=data, pointer="", index=0)]
     raise InputParseError(f"Trace artifact must be an object or array: {path}")
 
 

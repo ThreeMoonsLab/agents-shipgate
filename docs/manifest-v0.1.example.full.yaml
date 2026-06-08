@@ -81,6 +81,8 @@ validation:
   evidence:
     approval_traces:
       - path: validation/approval-traces.jsonl
+    agent_traces:
+      - path: validation/agent-traces.jsonl
     override_logs:
       - path: validation/override-log.jsonl
     high_risk_exclusions:

@@ -154,6 +154,17 @@ def test_openai_api_scan_runs_new_and_existing_checks(tmp_path):
     assert "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING" in check_ids
     assert "SHIP-SCHEMA-MISSING-BOUNDS" in check_ids
     assert "SHIP-SIDEFX-IDEMPOTENCY-MISSING" in check_ids
+    trace_finding = next(
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-API-TRACE-APPROVAL-MISSING"
+    )
+    assert trace_finding.provenance_kind == "runtime_trace"
+    assert trace_finding.capability_refs
+    assert trace_finding.capability_trace_refs
+    assert report.capability_runtime_evidence.enabled is True
+    assert report.capability_runtime_evidence.summary.trace_count == 1
+    assert report.capability_runtime_evidence.summary.matched_trace_count == 1
 
 
 def test_openai_api_source_wins_duplicate_tool_names(tmp_path):

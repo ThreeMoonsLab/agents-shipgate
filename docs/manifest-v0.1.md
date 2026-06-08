@@ -512,6 +512,8 @@ validation:
   evidence:
     approval_traces:
       - path: validation/approval-traces.jsonl
+    agent_traces:
+      - path: validation/agent-traces.jsonl
     override_logs:
       - path: validation/override-log.jsonl
     high_risk_exclusions:
@@ -544,7 +546,7 @@ promotion control is absent. Present local evidence does not certify runtime
 enforcement. Reports and packets include `source_provenance[]` entries so a
 reviewer can trace each HITL evidence source back to local files:
 
-- `type`: `approval_trace`, `override_log`, `high_risk_exclusion`,
+- `type`: `approval_trace`, `agent_trace`, `override_log`, `high_risk_exclusion`,
   `promotion_criteria`, or `manifest_requirement`
 - `ref`: relative local path, or the manifest filename
 - `location`: `ref#<json-pointer>`; whole-file sources use `path#`
@@ -552,16 +554,23 @@ reviewer can trace each HITL evidence source back to local files:
   `loaded`, or `loaded_with_warnings`
 - `detail`: deterministic local context, with no timestamps or absolute paths
 
-`approval_traces` are JSON arrays or JSONL. They use the same normalized trace
-fields as OpenAI API traces:
+`approval_traces` and `agent_traces` are JSON arrays or JSONL. They use the
+same normalized trace fields as OpenAI API traces:
 
 ```json
-{"tool_name":"issue_refund","approved":true,"success":true}
+{"tool_name":"issue_refund","approved":true,"confirmed":true,"success":true}
 ```
 
 A JSON object without a recognized list key is treated as one trace event for
 compatibility with the existing trace loader; prefer arrays or JSONL for
 multi-event files.
+
+Trace normalization keeps only allowlisted scalar fields: `tool_name`, optional
+`provider`, `operation`, `capability_id`, `approved`, `confirmed`, `success`,
+`error`, `reason`, `actor`, `trace_id`, `run_id`, `call_id`, and `timestamp`.
+Prompts, messages, tool arguments, tool outputs, and arbitrary payload bodies
+are discarded before report/packet output. `agent_traces` are audit-only unless
+they support an existing validation evidence requirement.
 
 `override_logs` are JSON arrays or JSONL. The scanner reads only the
 framework-neutral fields below and preserves other fields for the producing

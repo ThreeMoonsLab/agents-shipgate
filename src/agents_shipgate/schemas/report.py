@@ -50,6 +50,71 @@ class CapabilityPolicyEvidence(BaseModel):
     source: SourceReference | None = None
 
 
+CapabilityTraceMatchReason = Literal[
+    "capability_id",
+    "tool_name",
+    "unknown_tool",
+    "ambiguous_tool",
+    "invalid_capability_id",
+    "missing_tool_name",
+]
+
+
+class CapabilityTraceEvidenceSummary(BaseModel):
+    """Deterministic counts for opt-in local runtime trace evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_count: int = 0
+    trace_count: int = 0
+    matched_trace_count: int = 0
+    unmatched_trace_count: int = 0
+    approval_trace_count: int = 0
+    agent_trace_count: int = 0
+    api_trace_count: int = 0
+    warning_count: int = 0
+
+
+class CapabilityTraceEvidenceV1(BaseModel):
+    """Allowlisted local trace event linked to a durable capability fact.
+
+    Raw prompts, messages, tool arguments, outputs, and arbitrary payloads
+    are intentionally absent. ``observed`` contains only normalized scalar
+    evidence from the allowlist enforced by ``inputs.traces``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source_type: str
+    source: SourceReference | None = None
+    tool_name: str | None = None
+    provider: str | None = None
+    operation: str | None = None
+    capability_id: str | None = None
+    matched_capability_id: str | None = None
+    matched: bool = False
+    match_reason: CapabilityTraceMatchReason
+    observed: dict[str, Any] = Field(default_factory=dict)
+    event_hash: str
+    source_hash: str
+
+
+class CapabilityRuntimeEvidence(BaseModel):
+    """Top-level audit block for declared local runtime trace artifacts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    summary: CapabilityTraceEvidenceSummary = Field(
+        default_factory=CapabilityTraceEvidenceSummary
+    )
+    matched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
+    unmatched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
+    source_provenance: list[SourceReference] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -98,6 +163,10 @@ class Finding(BaseModel):
     # finding fingerprints do not churn.
     capability_refs: list[str] = Field(default_factory=list)
     capability_policy_evidence: CapabilityPolicyEvidence | None = None
+    # v0.25: opt-in local runtime trace/provenance evidence linked to
+    # capability facts. Kept outside ``evidence`` so fingerprints,
+    # baselines, run IDs, and de-dupe identity do not churn.
+    capability_trace_refs: list[str] = Field(default_factory=list)
     recommendation: str
     # v0.16: explicit release-blocking signal for Action Surface Diff
     # policy findings. This is orthogonal to severity: advisory CI can
@@ -202,6 +271,8 @@ class ReleaseDecisionItem(BaseModel):
     # v0.24: mirror Finding.capability_refs so release-decision consumers
     # can audit policy blockers without joining against findings[].
     capability_refs: list[str] = Field(default_factory=list)
+    # v0.25: mirror Finding.capability_trace_refs for blocker/review rows.
+    capability_trace_refs: list[str] = Field(default_factory=list)
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -671,7 +742,11 @@ class ReadinessReport(BaseModel):
     # v0.24: additive capability-native policy/evidence fields on findings
     # and release-decision items. release_decision.decision remains the
     # only release gate.
-    report_schema_version: str = "0.24"
+    # v0.25: additive opt-in local runtime trace/provenance evidence
+    # linked to capability facts. Runtime trace evidence is declared
+    # local audit metadata only; it is not live collection and it is not
+    # part of the static capability lock envelope.
+    report_schema_version: str = "0.25"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -703,6 +778,9 @@ class ReadinessReport(BaseModel):
     # static tool surface plus optional manifest action declarations.
     action_surface_facts: ActionSurfaceFacts = Field(default_factory=ActionSurfaceFacts)
     action_surface_diff: ActionSurfaceDiff = Field(default_factory=ActionSurfaceDiff)
+    capability_runtime_evidence: CapabilityRuntimeEvidence = Field(
+        default_factory=CapabilityRuntimeEvidence
+    )
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None
     frameworks: dict[str, Any] = Field(default_factory=dict)

@@ -107,6 +107,8 @@ def _result(finding: Finding) -> dict[str, Any]:
             "evidence": _summarize_evidence(finding.evidence),
             "tool_name": finding.tool_name,
             "tags": _sarif_tags(finding),
+            "capability_refs": list(finding.capability_refs),
+            "capability_trace_refs": list(finding.capability_trace_refs),
         },
     }
     if finding.fingerprint:

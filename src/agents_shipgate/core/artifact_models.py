@@ -147,6 +147,8 @@ class ValidationArtifacts(BaseModel):
 
     approval_trace_files: list[str] = Field(default_factory=list)
     approval_traces: list[dict[str, Any]] = Field(default_factory=list)
+    agent_trace_files: list[str] = Field(default_factory=list)
+    agent_traces: list[dict[str, Any]] = Field(default_factory=list)
     override_log_files: list[str] = Field(default_factory=list)
     override_events: list[dict[str, Any]] = Field(default_factory=list)
     high_risk_exclusion_files: list[str] = Field(default_factory=list)

@@ -6,6 +6,7 @@ from typing import Any
 
 from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.core.capability_policy import build_capability_policy_subjects
+from agents_shipgate.core.capability_traces import build_capability_runtime_evidence
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
 from agents_shipgate.core.findings.identity import dedupe_findings, finding_fingerprint
@@ -97,6 +98,7 @@ def _run_checks_and_decide(
         # HEAD-side toolkit scope bounds for the capability-scope check.
         toolkit_bounds=tools_and_agent.toolkit_bounds,
     )
+    context.capability_runtime_evidence = build_capability_runtime_evidence(context)
     loaded_plugins: list[dict[str, str | None]] = []
     findings = run_checks(
         context,

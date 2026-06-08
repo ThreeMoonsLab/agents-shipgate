@@ -8,12 +8,17 @@ from agents_shipgate.core.artifact_models import (
     OpenAIApiArtifacts,
     ValidationArtifacts,
 )
+from agents_shipgate.core.capability_traces import (
+    capability_refs_for_tool,
+    capability_trace_refs_for_tool,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.schemas.common import (
     HitlProvenanceType,
     HitlSourceProvenance,
+    ProvenanceKind,
     sorted_hitl_source_provenance,
 )
 from agents_shipgate.schemas.report import Finding
@@ -106,6 +111,13 @@ def _approval_trace_findings(context: ScanContext) -> list[Finding]:
                 ),
                 policy_evidence_pointer=(
                     "/validation/required_evidence/approval_trace_required"
+                ),
+                provenance_kind="runtime_trace" if traces else "static_declaration",
+                capability_refs=capability_refs_for_tool(context, tool_name),
+                capability_trace_refs=capability_trace_refs_for_tool(
+                    context,
+                    tool_name,
+                    source_types={"validation_approval_trace"},
                 ),
             )
         )
@@ -431,6 +443,9 @@ def _evidence_finding_for_tool(
     evidence: dict[str, object],
     recommendation: str,
     policy_evidence_pointer: str | None = None,
+    provenance_kind: ProvenanceKind = "static_declaration",
+    capability_refs: list[str] | None = None,
+    capability_trace_refs: list[str] | None = None,
 ) -> Finding:
     if tool is not None:
         return tool_finding(
@@ -443,8 +458,10 @@ def _evidence_finding_for_tool(
             confidence="high",
             recommendation=recommendation,
             context=context,
-            provenance_kind="static_declaration",
+            provenance_kind=provenance_kind,
             policy_evidence_pointer=policy_evidence_pointer,
+            capability_refs=capability_refs,
+            capability_trace_refs=capability_trace_refs,
         )
     return agent_finding(
         check_id=check_id,
@@ -455,8 +472,10 @@ def _evidence_finding_for_tool(
         confidence="medium",
         recommendation=recommendation,
         context=context,
-        provenance_kind="static_declaration",
+        provenance_kind=provenance_kind,
         policy_evidence_pointer=policy_evidence_pointer,
+        capability_refs=capability_refs,
+        capability_trace_refs=capability_trace_refs,
     )
 
 
@@ -508,6 +527,7 @@ def _declared_evidence_sources(
     return bool(
         {
             "approval_trace": evidence.approval_traces,
+            "agent_trace": evidence.agent_traces,
             "override_log": evidence.override_logs,
             "high_risk_exclusion": evidence.high_risk_exclusions,
             "promotion_criteria": evidence.promotion_criteria,

@@ -81,6 +81,9 @@ def _run_id(
                     # otherwise-identical policy findings.
                     "capability_refs": True,
                     "capability_policy_evidence": True,
+                    # v0.25 trace refs are explanatory runtime-audit
+                    # metadata and must not churn run_id.
+                    "capability_trace_refs": True,
                 },
                 exclude_none=False,
             )

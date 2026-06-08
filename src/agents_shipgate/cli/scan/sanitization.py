@@ -40,7 +40,12 @@ from agents_shipgate.core.privacy import (
     sanitize_tools,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-from agents_shipgate.schemas.report import BaselineSummary, LoadedPolicyPack, PolicyAudit
+from agents_shipgate.schemas.report import (
+    BaselineSummary,
+    CapabilityRuntimeEvidence,
+    LoadedPolicyPack,
+    PolicyAudit,
+)
 from agents_shipgate.schemas.surfaces import ToolSurfaceFacts
 
 from .models import (
@@ -132,6 +137,12 @@ def _sanitize_for_output(
     public_tools = sanitize_tools(tools_and_agent.tools, stats=privacy_stats)
     public_findings = sanitize_findings(decision.findings, stats=privacy_stats)
     assign_finding_ids(public_findings)
+    public_capability_runtime_evidence = sanitize_model(
+        decision.context.capability_runtime_evidence,
+        CapabilityRuntimeEvidence,
+        stats=privacy_stats,
+        path="capability_runtime_evidence",
+    )
 
     public_project = redact_data(
         public_manifest.project.model_dump(exclude_none=True),
@@ -305,6 +316,7 @@ def _sanitize_for_output(
         base_action_surface_facts=public_base_action_surface_facts,
         action_surface_facts=public_action_surface_facts,
         action_surface_diff=public_action_surface_diff,
+        capability_runtime_evidence=public_capability_runtime_evidence,
         tool_surface_facts=public_tool_surface_facts,
         tool_surface_diff=public_tool_surface_diff,
         baseline_summary=baseline_summary,

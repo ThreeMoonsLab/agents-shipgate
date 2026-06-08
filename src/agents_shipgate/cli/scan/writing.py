@@ -47,6 +47,7 @@ def _write_outputs(
             tool_surface_diff=report.tool_surface_diff,
             action_surface_diff=report.action_surface_diff,
             report_payload=public_report_payload,
+            capability_runtime_evidence=report.capability_runtime_evidence,
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )

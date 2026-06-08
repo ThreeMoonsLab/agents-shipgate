@@ -12,7 +12,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
-from agents_shipgate.inputs.traces import normalize_trace_event
+from agents_shipgate.inputs.traces import load_trace_artifacts
 from agents_shipgate.schemas.common import (
     HitlProvenanceStatus,
     HitlProvenanceType,
@@ -41,14 +41,29 @@ def load_validation_artifacts(
     artifacts = ValidationArtifacts()
     evidence = config.evidence
 
-    files, traces = _load_approval_traces(
+    files, traces = _load_validation_traces(
         evidence.approval_traces,
         base_dir,
         artifacts.warnings,
         artifacts.source_provenance,
+        label="approval trace",
+        provenance_type="approval_trace",
+        source_type="validation_approval_trace",
     )
     artifacts.approval_trace_files.extend(files)
     artifacts.approval_traces.extend(traces)
+
+    files, traces = _load_validation_traces(
+        evidence.agent_traces,
+        base_dir,
+        artifacts.warnings,
+        artifacts.source_provenance,
+        label="agent trace",
+        provenance_type="agent_trace",
+        source_type="validation_agent_trace",
+    )
+    artifacts.agent_trace_files.extend(files)
+    artifacts.agent_traces.extend(traces)
 
     files, events = _load_override_logs(
         evidence.override_logs,
@@ -83,50 +98,56 @@ def load_validation_artifacts(
     return artifacts
 
 
-def _load_approval_traces(
+def _load_validation_traces(
     refs: list[ArtifactPathConfig],
     base_dir: Path,
     warnings: list[str],
     provenance: list[HitlSourceProvenance],
+    *,
+    label: str,
+    provenance_type: HitlProvenanceType,
+    source_type: str,
 ) -> tuple[list[str], list[dict[str, Any]]]:
+    if not refs:
+        return [], []
     files: list[str] = []
     traces: list[dict[str, Any]] = []
     for ref in refs:
         warning_count = len(warnings)
-        loaded = _load_stream_items(
-            ref,
+        loaded_files, loaded_traces = load_trace_artifacts(
+            [ref],
             base_dir,
             warnings,
-            provenance,
-            "approval trace",
-            provenance_type="approval_trace",
+            label=label,
+            source_type=source_type,
+            warn_optional_fail=False,
         )
-        if loaded is None:
+        if not loaded_files and ref.optional:
+            warnings.append(
+                f"validation: optional {label} artifact {ref.path!r} failed to load."
+            )
+            _append_provenance(
+                provenance,
+                type=provenance_type,
+                ref=ref.path,
+                location=f"{ref.path}#",
+                status="source_load_failed",
+                detail=f"optional {label} source failed to load",
+            )
             continue
-        path, items = loaded
-        display = _display_path(path, base_dir)
-        files.append(display)
-        normalized_count = 0
-        for item in items:
-            normalized = normalize_trace_event(item)
-            if normalized is None:
-                warnings.append(
-                    "validation: approval trace artifact "
-                    f"{ref.path!r} contains an entry that could not be normalized."
-                )
-                continue
-            traces.append(normalized)
-            normalized_count += 1
-        _append_provenance(
-            provenance,
-            type="approval_trace",
-            ref=display,
-            location=f"{display}#",
-            status="loaded_with_warnings"
-            if len(warnings) > warning_count
-            else "loaded",
-            detail=f"normalized approval trace events: {normalized_count}",
-        )
+        files.extend(loaded_files)
+        traces.extend(loaded_traces)
+        for display in loaded_files:
+            _append_provenance(
+                provenance,
+                type=provenance_type,
+                ref=display,
+                location=f"{display}#",
+                status="loaded_with_warnings"
+                if len(warnings) > warning_count
+                else "loaded",
+                detail=f"normalized {label} events: {len(loaded_traces)}",
+            )
     return files, traces
 
 

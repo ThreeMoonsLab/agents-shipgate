@@ -76,11 +76,12 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 
 | Provenance kind | Active findings |
 | --- | ---: |
-| `static_declaration` | 14 |
+| `static_declaration` | 13 |
 | `ast_extraction` | 0 |
 | `keyword_heuristic` | 6 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
+| `runtime_trace` | 1 |
 
 Suppressed findings excluded: 0
 
@@ -153,6 +154,20 @@ Next validation:
 
 - Status: disabled - No action-surface comparison source was provided.
 - Base: none
+
+## Capability Runtime Evidence
+
+- Sources: 1
+- Trace rows: 1
+- Matched rows: 1
+- Unmatched rows: 0
+- Warnings: 0
+
+Matched trace rows:
+- `ctrace\_8669c1b40747c28a` create\_refund (openai_api_trace, tool_name)
+
+- Declared local trace artifacts are audit evidence only; no live trace collection or tool execution occurred.
+- Trace normalization retains only allowlisted scalar fields and discards prompts, messages, arguments, outputs, and payload bodies.
 
 ## Tool Surface Diff
 
