@@ -75,6 +75,15 @@ Existing pack behavior is preserved: top-level fields are ANDed together, list
 values are ORed within one field, and every parameter predicate must match at
 least one parameter.
 
+Compatibility note: `missing_approval_policy`,
+`missing_confirmation_policy`, and `missing_idempotency_policy` evaluate the
+same effective controls used by built-in checks. That includes manifest policy
+lists, OpenAI API policy artifacts, Anthropic policy artifacts, and
+capability/action control facts. A rule that previously matched an Anthropic
+tool because only manifest/OpenAI policy inputs were considered may now see
+`missing_*: false` when the Anthropic policy artifact explicitly covers the
+tool; this aligns policy-pack evidence with the built-in policy checks.
+
 Policy packs can also use capability-native selectors under `match.capability`:
 
 ```yaml
