@@ -429,6 +429,12 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json) | `0.7` |
 | Packet schema (v0.6 frozen reference) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
 | Packet schema (v0.5 frozen reference) | [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json) | `0.5` |
+| Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.1` |
+| Capability lock schema | [`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json) | `0.2` |
+| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json) | `0.3` |
+| Capability lock schema (v0.1 frozen experimental reference) | [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json) | `0.1` |
+| Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
+| Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -517,7 +523,7 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.
 - New checks must include: code in `src/agents_shipgate/checks/<category>.py` plus a `BUILTIN_CHECKS` entry in `checks/registry.py`, metadata in `docs/checks/<category>.yaml` (loaded into `CHECK_METADATA` at registry import time by `agents_shipgate.checks._metadata_loader`), a test in `tests/`, and a row in `docs/checks.md`. After editing YAML, regenerate `docs/checks.json` with `python scripts/generate_schemas.py`.
 - Do not change check IDs in published versions; always add new ones.
-- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit `docs/manifest-v0.1.json` + `docs/checks.json`.
+- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit every changed file under `docs/`.
 
 ---
 

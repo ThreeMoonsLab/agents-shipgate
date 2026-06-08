@@ -13,7 +13,7 @@ from agents_shipgate.schemas.surfaces import ActionEffect
 from agents_shipgate.schemas.verifier import MergeVerdict
 
 GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION = "0.2"
-GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION = "0.1"
+GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION = "0.2"
 
 GovernanceCaseStatus = Literal["executable", "catalog_only", "external_evidence"]
 GovernanceMetricName = Literal[
@@ -181,10 +181,10 @@ class GovernanceBenchmarkResultV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    governance_benchmark_result_schema_version: Literal["0.1"] = (
+    governance_benchmark_result_schema_version: Literal["0.2"] = (
         GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
     )
-    experimental: Literal[True] = True
+    experimental: Literal[False] = False
     catalog_schema_version: str
     catalog_path: str | None = None
     summary: GovernanceBenchmarkSummaryV1

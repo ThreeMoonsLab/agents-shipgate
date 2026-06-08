@@ -433,8 +433,9 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
+- **[`docs/capability-standard.md`](docs/capability-standard.md)** — stable non-gating capability lock/diff standard for external integrations and research tooling.
 - **[`docs/product-hardening-gap-closure.md`](docs/product-hardening-gap-closure.md)** — closure map for root dogfooding, the governance case catalog, policy-pack tests, trace evidence, and runtime-inventory boundaries.
-- **[`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/)** — governance case catalog for unsafe-merge prevention, authority routing, and verifier explanation quality.
+- **[`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/)** + **[`docs/governance-benchmark.md`](docs/governance-benchmark.md)** — stable research benchmark for unsafe-merge prevention, authority routing, and verifier explanation quality.
 - **[`AGENTS.md`](AGENTS.md)** — canonical agent-facing instructions: install, run, common tasks, JSON-mode flags, error semantics
 - **[`STABILITY.md`](STABILITY.md)** — what won't break across `0.x` versions
 - **[`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)** — copyable snippets for adding Shipgate trigger rules to downstream agent repos
@@ -445,6 +446,8 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.25"`). v0.25 adds opt-in capability-linked local trace/provenance evidence (`capability_runtime_evidence`, `findings[].capability_trace_refs`, and mirrored `ReleaseDecisionItem.capability_trace_refs`) while preserving fingerprints, baselines, capability locks, and release gating. v0.24 added capability-native policy evidence (`findings[].capability_refs`, optional `findings[].capability_policy_evidence`, and mirrored `ReleaseDecisionItem.capability_refs`). v0.23 added semantic metadata to `capability_change` members while preserving the existing buckets and release gate. v0.22 added the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
+- **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability`; non-gating and separate from `report.json`.
+- **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
 Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
@@ -724,6 +727,10 @@ readers and AI search ingest.
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
 - [JSON report schema v0.25](docs/report-schema.v0.25.json)
+- [Capability standard](docs/capability-standard.md)
+- [Capability lock schema v0.2](docs/capability-lock-schema.v0.2.json)
+- [Capability lock diff schema v0.3](docs/capability-lock-diff-schema.v0.3.json)
+- [Governance benchmark](docs/governance-benchmark.md)
 - [Feedback export schema v0.1](docs/feedback-schema.v0.1.json)
 - [Privacy and redaction](docs/privacy.md)
 - [Terms](docs/terms.md)

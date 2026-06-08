@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-05-23; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.25`, packet schema `v0.7`.
+2026-06-08; auto-checked against `agents-shipgate contract --json`:
+runtime contract `2`, report schema `v0.25`, packet schema `v0.7`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -242,24 +242,25 @@ the typed accessors; legacy callers may migrate incrementally.
 
 ## Internal capability substrate: `CapabilityFactV1`
 
-`core/capabilities.py` defines an internal, non-wire durable capability
-vocabulary on top of `Scope`, `SideEffect`, and `Action`. The main type,
-`CapabilityFactV1`, groups stable semantic identity, normalized effect,
-authority, controls, source evidence, risk tags, and separate identity /
-effect / authority / control / schema / risk / evidence hashes. The
-hashes use capability-specific canonical JSON so they do not inherit the
-finding fingerprint exclusion list. It is intended to become the
-substrate for future capability lockfiles, richer capability diffs,
-policy matching, and governance benchmark assertions.
+`core/capabilities.py` builds a durable capability vocabulary on top of
+`Scope`, `SideEffect`, and `Action`. The public schema models live in
+`agents_shipgate.schemas.capabilities`; internal builders remain under
+`core.*`. The main type, `CapabilityFactV1`, groups stable semantic
+identity, normalized effect, authority, controls, source evidence, risk
+tags, and separate identity / effect / authority / control / schema /
+risk / evidence hashes. The hashes use capability-specific canonical JSON
+so they do not inherit the finding fingerprint exclusion list. It is the
+substrate for stable capability locks, richer semantic diffs, policy
+matching, and governance benchmark assertions.
 
-**Boundary.** Full `CapabilityFactV1` records are not emitted in
-`report.json` and do not gate release. The release decision remains
-`release_decision.decision`; public surfaces remain projections of the
-existing scan pipeline. v0.23 uses the shared semantic delta classifier
-to add explanatory metadata to `capability_change` members, but the
-existing buckets and Action outputs stay compatible. Capability facts are
-built from typed `Action` objects via `build_capability_facts(...)` for
-locks, and from public `ActionFact` snapshots for report-comparable
+**Boundary.** `CapabilityFactV1` records are emitted through capability
+locks, not `report.json`, and do not gate release. The release decision
+remains `release_decision.decision`; public report surfaces remain
+projections of the scan pipeline. v0.23 uses the shared semantic delta
+classifier to add explanatory metadata to `capability_change` members,
+but the existing buckets and Action outputs stay compatible. Capability
+facts are built from typed `Action` objects via `build_capability_facts(...)`
+for locks, and from public `ActionFact` snapshots for report-comparable
 semantic deltas.
 
 ## Capability-native policy matching
@@ -276,19 +277,19 @@ Reports expose only lightweight audit references:
 `findings[].capability_policy_evidence`, and mirrored
 `release_decision.{blockers,review_items}[].capability_refs`. These fields
 are not fingerprint inputs and do not create an independent verdict.
-`release_decision.decision` remains the only gate. Capability lock schema
-`0.1` and lock diff schema `0.2` are unchanged. Packet schema `0.7`
-adds report-derived capability trace evidence metadata.
+`release_decision.decision` remains the only gate. Packet schema `0.7`
+adds report-derived capability trace evidence metadata, but runtime trace
+evidence stays out of static capability locks.
 
-## Experimental capability locks
+## Capability standard and locks
 
-`agents-shipgate capability export` builds an experimental local
-capability lock from the same static source-loading path used by scans,
-but stops after enriched tools and typed `Action` objects are available.
-It does not run findings, write `report.json`, invoke `verify`, or
-produce a release decision. By default it writes the reviewed envelope
-to `.agents-shipgate/capabilities.lock.json` and a byte-identical
-generated copy to `agents-shipgate-reports/capabilities.lock.json`.
+`agents-shipgate capability export` builds a stable local capability lock
+from the same static source-loading path used by scans, but stops after
+enriched tools and typed `Action` objects are available. It does not run
+findings, write `report.json`, invoke `verify`, or produce a release
+decision. By default it writes the reviewed envelope to
+`.agents-shipgate/capabilities.lock.json` and a byte-identical generated
+copy to `agents-shipgate-reports/capabilities.lock.json`.
 
 `agents-shipgate capability diff --base ... --head ...` compares two
 lockfiles by `CapabilityFactV1.id`. Semantic hash drift on a stable id
@@ -301,20 +302,22 @@ agent/provider/operation/tool rows and reports them as `reidentified`
 instead of unrelated add/remove churn. Added and removed capability facts
 are listed separately.
 
-The v0.1 lock is an enumerable-tools envelope. Dynamic toolkit scope
+The v0.2 lock is an enumerable-tools envelope. Dynamic toolkit scope
 bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
-and is experimental: lock exports still carry
-`capability_lock_schema_version: "0.1"`, while diff artifacts carry
-`capability_lock_diff_schema_version: "0.2"` for the additive semantic
-metadata on changed rows. Capability locks are not part of `report.json`,
-do not feed policy packs, and do not gate. The committed lock is
-deterministic for the same manifest-relative inputs; `cli_version` is
-provenance and may change on scanner upgrades. The release decision
-remains `release_decision.decision`.
+[`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json);
+diff artifacts use
+[`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json).
+Both carry `experimental: false`. Old experimental v0.1 lock inputs
+remain readable by `capability diff`, but new exports use v0.2.
+Capability locks are not part of `report.json`, do not include runtime
+trace evidence, and do not gate. The committed lock is deterministic for
+the same manifest-relative inputs; `cli_version` is provenance and may
+change on scanner upgrades. The release decision remains
+`release_decision.decision`. The public spec is
+[`capability-standard.md`](capability-standard.md).
 
 ## Governance benchmark substrate
 
@@ -331,10 +334,11 @@ in the script layer, not in `src/agents_shipgate`, so the eval harness does not
 ship in the scanner package or expand the audited scanner trust surface. Git
 fixture materialization reuses the existing fixture helper rather than adding a
 benchmark-specific subprocess call site. The runner emits deterministic
-`governance_benchmark_result_schema_version: "0.1"` JSON with no wall-clock
-timestamp. The benchmark is product-evaluation infrastructure only: it does not
-add public report fields, policy behavior, GitHub Action outputs, or a second
-verdict. `report.json.release_decision.decision` remains the only release gate.
+`governance_benchmark_result_schema_version: "0.2"` JSON with no wall-clock
+timestamp and `experimental: false`. The benchmark is research infrastructure
+only: it does not add public report fields, policy behavior, GitHub Action
+outputs, or a second verdict. `report.json.release_decision.decision` remains
+the only release gate. See [`governance-benchmark.md`](governance-benchmark.md).
 
 ## Reviewer surfaces: five lenses + three audit envelopes
 

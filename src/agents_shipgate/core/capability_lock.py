@@ -15,6 +15,7 @@ from agents_shipgate.core.capability_delta import (
 from agents_shipgate.core.domain import Agent, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_SCHEMA_VERSION,
     CapabilityFactV1,
     CapabilityLockChangedFact,
     CapabilityLockDiffSummary,
@@ -82,8 +83,11 @@ def load_capability_lock(path: Path) -> CapabilityLockFileV1:
     if not path.exists():
         raise InputParseError(f"Capability lock not found: {path}")
     try:
-        return CapabilityLockFileV1.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError, ValueError) as exc:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            payload = _normalize_capability_lock_payload(payload)
+        return CapabilityLockFileV1.model_validate(payload)
+    except (OSError, ValidationError, ValueError, TypeError) as exc:
         raise InputParseError(f"Invalid capability lock file {path}: {exc}") from exc
 
 
@@ -194,6 +198,16 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
         source_set_hash=lock.hashes.source_set_hash,
         capability_count=lock.summary.capability_count,
     )
+
+
+def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    version = payload.get("capability_lock_schema_version")
+    if version == "0.1":
+        normalized = dict(payload)
+        normalized["capability_lock_schema_version"] = CAPABILITY_LOCK_SCHEMA_VERSION
+        normalized["experimental"] = False
+        return normalized
+    return payload
 
 
 def _lock_changed_fact(row: CapabilityDeltaRow) -> CapabilityLockChangedFact:
