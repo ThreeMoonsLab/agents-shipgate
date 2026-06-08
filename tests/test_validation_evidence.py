@@ -271,7 +271,12 @@ validation:
     )
     assert exit_code == 0
     assert finding.evidence["reason"] == "file_missing"
-    assert any("optional approval trace" in warning for warning in report.source_warnings)
+    approval_trace_warnings = [
+        warning
+        for warning in report.source_warnings
+        if "optional approval trace" in warning
+    ]
+    assert len(approval_trace_warnings) == 1
     provenance = finding.evidence["source_provenance"]
     assert any(
         item["type"] == "approval_trace"

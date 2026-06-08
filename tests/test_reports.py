@@ -61,6 +61,39 @@ def test_sample_markdown_report_matches_golden(tmp_path):
     assert actual == expected
 
 
+def test_markdown_keeps_intent_diff_sections_when_runtime_traces_absent(tmp_path):
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["markdown", "json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert report.misalignments
+    assert not report.capability_runtime_evidence.enabled
+
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    markers = [
+        "## Capability <-> Intent Diff",
+        "\nActual capabilities:\n\n",
+        "\nPolicy/control gaps:\n\n",
+        "\nRelease implication:\n\n- Decision: blocked",
+        "\nNext validation:\n\n",
+        "## Recommended Next Actions",
+        "## Capability Runtime Evidence",
+    ]
+    positions = [markdown.index(marker) for marker in markers]
+
+    assert positions == sorted(positions)
+    assert "stripe.create\\_refund lacks a declared approval policy." in markdown
+    assert "stripe.create\\_refund lacks idempotency evidence." in markdown
+    assert (
+        "No local runtime trace artifacts were declared for capability evidence."
+        in markdown
+    )
+
+
 def test_openai_api_markdown_report_matches_golden(tmp_path):
     run_scan(
         config_path=OPENAI_API_SAMPLE,

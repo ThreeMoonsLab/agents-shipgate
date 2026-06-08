@@ -93,44 +93,6 @@ Agent intent:
 - prohibited\_action: send customer email without confirmation (tags: external\_write, customer\_communication)
 - instruction\_preview: You are a support refund assistant. You should only advise the support representative and prepare a draft response. Do not take action on the customer's account. (tags: financial\_action)
 
-## Recommended Next Actions
-
-- Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-- Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-- Align prompt scope with enabled tools or remove write/high-risk tools.
-- Add idempotency evidence for create\_refund or avoid retrying this side effect.
-- Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
-- Declare auth scopes for create\_refund in OpenAPI, MCP metadata, or the manifest before release review.
-- Declare auth scopes for send\_customer\_email in OpenAPI, MCP metadata, or the manifest before release review.
-- Declare an owner for each high-risk production tool in risk\_overrides.tools.
-
-## Tool Surface Summary
-
-- Total tools: 2
-- High-risk tools: 2
-- Wildcard tools: 0
-- Missing descriptions: 0
-- Sources: openai_api=2
-
-## Action Surface Diff
-
-- Status: disabled - No action-surface comparison source was provided.
-- Base: none
-
-## Capability Runtime Evidence
-
-- Sources: 1
-- Trace rows: 1
-- Matched rows: 1
-- Unmatched rows: 0
-- Warnings: 0
-
-Matched trace rows:
-- `ctrace\_8669c1b40747c28a` create\_refund (openai_api_trace, tool_name)
-
-- Declared local trace artifacts are audit evidence only; no live trace collection or tool execution occurred.
-- Trace normalization retains only allowlisted scalar fields and discards prompts, messages, arguments, outputs, and payload bodies.
-
 Actual capabilities:
 
 - create\_refund: capability=financial\_action, risk=financial\_action, write, control=missing
@@ -168,6 +130,44 @@ Next validation:
 - Prompt and tool-surface alignment: The agent instructions match the enabled write and high-risk capabilities.
 - Prohibited-action guard: The prohibited action is blocked, removed, or covered by the stated control.
 - 2 more in report.json
+
+## Recommended Next Actions
+
+- Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+- Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+- Align prompt scope with enabled tools or remove write/high-risk tools.
+- Add idempotency evidence for create\_refund or avoid retrying this side effect.
+- Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
+- Declare auth scopes for create\_refund in OpenAPI, MCP metadata, or the manifest before release review.
+- Declare auth scopes for send\_customer\_email in OpenAPI, MCP metadata, or the manifest before release review.
+- Declare an owner for each high-risk production tool in risk\_overrides.tools.
+
+## Tool Surface Summary
+
+- Total tools: 2
+- High-risk tools: 2
+- Wildcard tools: 0
+- Missing descriptions: 0
+- Sources: openai_api=2
+
+## Action Surface Diff
+
+- Status: disabled - No action-surface comparison source was provided.
+- Base: none
+
+## Capability Runtime Evidence
+
+- Sources: 1
+- Trace rows: 1
+- Matched rows: 1
+- Unmatched rows: 0
+- Warnings: 0
+
+Matched trace rows:
+- `ctrace\_8669c1b40747c28a` create\_refund (openai_api_trace, tool_name)
+
+- Declared local trace artifacts are audit evidence only; no live trace collection or tool execution occurred.
+- Trace normalization retains only allowlisted scalar fields and discards prompts, messages, arguments, outputs, and payload bodies.
 
 ## Tool Surface Diff
 

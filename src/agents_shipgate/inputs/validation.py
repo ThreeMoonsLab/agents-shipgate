@@ -120,8 +120,9 @@ def _load_validation_traces(
             warnings,
             label=label,
             source_type=source_type,
+            warn_optional_fail=False,
         )
-        if not loaded_files and ref.optional and len(warnings) > warning_count:
+        if not loaded_files and ref.optional:
             warnings.append(
                 f"validation: optional {label} artifact {ref.path!r} failed to load."
             )

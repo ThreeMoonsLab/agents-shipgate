@@ -27,6 +27,7 @@ def load_trace_artifacts(
     *,
     label: str,
     source_type: str,
+    warn_optional_fail: bool = True,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     files: list[str] = []
     traces: list[dict[str, Any]] = []
@@ -37,7 +38,10 @@ def load_trace_artifacts(
         except InputParseError:
             if not ref.optional:
                 raise
-            warnings.append(f"Optional {label} trace artifact {ref.path!r} failed to load.")
+            if warn_optional_fail:
+                warnings.append(
+                    f"Optional {label} trace artifact {ref.path!r} failed to load."
+                )
             continue
         display_path = _display_path(path, base_dir)
         files.append(display_path)
