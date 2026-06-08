@@ -129,6 +129,8 @@ static capability envelope.
 New exports use `capability_lock_schema_version: "0.2"` and
 `experimental: false`. `agents-shipgate capability diff` continues to accept
 old experimental `0.1` lock inputs and normalizes them before comparison.
+Diff metadata reports the normalized current lock schema version for such
+legacy inputs.
 
 New diffs use `capability_lock_diff_schema_version: "0.3"` and
 `experimental: false`. The older combined
