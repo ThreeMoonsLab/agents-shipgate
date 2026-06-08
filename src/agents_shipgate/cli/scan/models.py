@@ -164,6 +164,7 @@ class _SanitizedSurfaces:
     base_action_surface_facts: ActionSurfaceFacts | None
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any
+    capability_runtime_evidence: Any
     tool_surface_facts: Any
     tool_surface_diff: Any
     baseline_summary: Any

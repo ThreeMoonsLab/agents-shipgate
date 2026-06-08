@@ -165,7 +165,12 @@ def test_keep_list_is_explicit_and_non_overlapping() -> None:
     valid = set(get_args(ProvenanceKind))
     excluded = set(NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS)
     expected_exclude = {"keyword_heuristic", "regex_heuristic"}
-    expected_keep = {"static_declaration", "ast_extraction", "policy_pack"}
+    expected_keep = {
+        "static_declaration",
+        "ast_extraction",
+        "policy_pack",
+        "runtime_trace",
+    }
     assert excluded == expected_exclude, (
         f"NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS drifted from the pinned "
         f"set: got {excluded}, expected {expected_exclude}. Update the "

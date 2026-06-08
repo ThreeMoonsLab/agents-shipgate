@@ -134,6 +134,7 @@ def load_google_adk_artifacts(
             base_dir,
             artifacts.warnings,
             label="Google ADK",
+            source_type="google_adk_trace",
         )
         artifacts.trace_sample_files.extend(files)
         artifacts.trace_samples.extend(traces)

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.24",
+  "report_schema_version": "0.25",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -110,7 +110,8 @@
         },
         "capability_refs": [
           "cap_c80f118600dfb076"
-        ]
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_dac8011e14c53777",
@@ -140,7 +141,8 @@
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
         },
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       }
     ],
     "review_items": [
@@ -163,7 +165,8 @@
           "pointer": "/wildcard"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_ab60b01cb53cfcbe",
@@ -184,7 +187,8 @@
           "pointer": "/paths/~1refunds/post"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_ff2f028953d1c220",
@@ -205,7 +209,8 @@
           "pointer": "/paths/~1tickets~1{ticket_id}/patch"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_acd63b899d49aa1c",
@@ -226,7 +231,8 @@
           "pointer": "/tools/1"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_85f8513ad72cd9ea",
@@ -247,7 +253,8 @@
           "pointer": null
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_d27325cbdbbf5483",
@@ -268,7 +275,8 @@
           "pointer": "/permissions/scopes"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_83852fbd6b440524",
@@ -289,7 +297,8 @@
           "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_d8e6d1865dae97cc",
@@ -310,7 +319,8 @@
           "pointer": "/tools/0"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_1f6cfd6b7daa9b7c",
@@ -331,7 +341,8 @@
           "pointer": "/tools/1"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_12985c36a06026de",
@@ -361,7 +372,8 @@
           "start_column": null,
           "pointer": "/agent/prohibited_actions/0"
         },
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_e090c62e390e70ab",
@@ -391,7 +403,8 @@
           "start_column": null,
           "pointer": "/agent/prohibited_actions/2"
         },
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_a62ca2fd9a68a1d1",
@@ -423,7 +436,8 @@
         },
         "capability_refs": [
           "cap_c80f118600dfb076"
-        ]
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_8e08a4fe6b0917f6",
@@ -455,7 +469,8 @@
         },
         "capability_refs": [
           "cap_744255729df4139a"
-        ]
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_0f8aaa912d589cf0",
@@ -485,7 +500,8 @@
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
         },
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_fd2577850cef1f87",
@@ -506,7 +522,8 @@
           "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_39b9ae878f343d1b",
@@ -527,7 +544,8 @@
           "pointer": null
         },
         "policy_evidence_source": null,
-        "capability_refs": []
+        "capability_refs": [],
+        "capability_trace_refs": []
       }
     ],
     "evidence_coverage": {
@@ -2117,6 +2135,23 @@
       "No action-surface comparison source was provided."
     ]
   },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {},
@@ -2149,6 +2184,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
       "blocks_release": false,
       "suppressed": false,
@@ -2188,6 +2224,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy.",
       "blocks_release": false,
       "suppressed": false,
@@ -2227,6 +2264,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
       "suppressed": false,
@@ -2264,6 +2302,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Constrain gmail.send_customer_email.body with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
       "suppressed": false,
@@ -2300,6 +2339,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context.",
       "blocks_release": false,
       "suppressed": false,
@@ -2339,6 +2379,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2387,6 +2428,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2433,6 +2475,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2479,6 +2522,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for gmail.send_customer_email to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2531,6 +2575,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -2580,6 +2625,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove gmail.send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -2711,6 +2757,7 @@
           "pointer": "/paths/~1refunds/post"
         }
       },
+      "capability_trace_refs": [],
       "recommendation": "Declare an approval policy for stripe.create_refund or remove this tool from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2842,6 +2889,7 @@
           "pointer": "/paths/~1refunds/post"
         }
       },
+      "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2969,6 +3017,7 @@
           "pointer": "/tools/1"
         }
       },
+      "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for gmail.send_customer_email or remove this action from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -3021,6 +3070,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund.",
       "blocks_release": false,
       "suppressed": false,
@@ -3070,6 +3120,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for gmail.send_customer_email.",
       "blocks_release": false,
       "suppressed": false,
@@ -3112,6 +3163,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
       "suppressed": false,
@@ -3153,6 +3205,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove unused manifest scopes or add tool metadata showing why they are required.",
       "blocks_release": false,
       "suppressed": false,
@@ -3176,6 +3229,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
+    "markdown": "expected/report.md",
     "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
@@ -3359,7 +3413,8 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

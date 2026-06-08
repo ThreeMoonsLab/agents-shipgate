@@ -13,12 +13,12 @@ from agents_shipgate.schemas.capabilities import (
     CapabilityControls,
     CapabilityEffect,
     CapabilityEvidence,
+    CapabilityEvidenceProvenanceKind,
     CapabilityFactV1,
     CapabilityHashes,
     CapabilityIdentity,
     capability_fact_sort_key,
 )
-from agents_shipgate.schemas.common import ProvenanceKind
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
@@ -280,7 +280,7 @@ def _capability_evidence(action: Action, tool: Tool | None) -> CapabilityEvidenc
     )
 
 
-def _provenance_kind(tool: Tool) -> ProvenanceKind:
+def _provenance_kind(tool: Tool) -> CapabilityEvidenceProvenanceKind:
     if tool.source_type in _AST_SOURCE_TYPES:
         return "ast_extraction"
     return "static_declaration"

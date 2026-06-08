@@ -149,7 +149,19 @@ required_evidence:
 
     assert artifacts is not None
     assert artifacts.approval_traces == [
-        {"tool_name": "issue_refund", "approved": True, "success": True}
+        {
+            "tool_name": "issue_refund",
+            "approved": True,
+            "success": True,
+            "_shipgate_source": {
+                "source_type": "validation_approval_trace",
+                "source_ref": "validation/approval-traces.jsonl",
+                "source_path": "validation/approval-traces.jsonl",
+                "source_line": 1,
+                "source_pointer": None,
+                "source_index": 0,
+            },
+        }
     ]
     assert artifacts.override_events == [
         {
@@ -272,6 +284,7 @@ validation:
     ("field", "path"),
     [
         ("approval_traces", "../outside.jsonl"),
+        ("agent_traces", "../outside.jsonl"),
         ("override_logs", "../outside.jsonl"),
         ("high_risk_exclusions", "../outside.yaml"),
         ("promotion_criteria", "../outside.yaml"),

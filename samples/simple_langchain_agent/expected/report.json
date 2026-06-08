@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.24",
+  "report_schema_version": "0.25",
   "run_id": "agents_shipgate_e6307029b0ddfba5",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
@@ -321,6 +321,23 @@
       "No action-surface comparison source was provided."
     ]
   },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {
@@ -340,6 +357,7 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
+    "markdown": "expected/report.md",
     "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
@@ -401,7 +419,8 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

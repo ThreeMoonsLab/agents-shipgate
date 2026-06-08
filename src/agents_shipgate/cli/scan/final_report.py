@@ -75,6 +75,7 @@ def _build_final_report(
         tool_surface_diff=sanitized.tool_surface_diff,
         action_surface_facts=sanitized.action_surface_facts,
         action_surface_diff=sanitized.action_surface_diff,
+        capability_runtime_evidence=sanitized.capability_runtime_evidence,
         # v0.17 (M1): top-of-report policy audit. Always emitted (may
         # be an empty envelope) so consumers can rely on the field
         # existing in v0.17 reports.

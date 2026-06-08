@@ -7,6 +7,7 @@ from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
+    CapabilityRuntimeEvidence,
     Finding,
     HeuristicsFilter,
     LoadedPolicyPack,
@@ -57,6 +58,7 @@ def build_report(
     tool_surface_diff: ToolSurfaceDiff | None = None,
     action_surface_facts: ActionSurfaceFacts | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
+    capability_runtime_evidence: CapabilityRuntimeEvidence | None = None,
     policy_audit: PolicyAudit | None = None,
     privacy_audit: PrivacyAudit | None = None,
     heuristics_filter: HeuristicsFilter | None = None,
@@ -73,6 +75,9 @@ def build_report(
         tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
         action_surface_facts=action_surface_facts or ActionSurfaceFacts(),
         action_surface_diff=action_surface_diff or ActionSurfaceDiff(),
+        capability_runtime_evidence=(
+            capability_runtime_evidence or CapabilityRuntimeEvidence()
+        ),
         api_surface=api_surface,
         anthropic_surface=anthropic_surface,
         frameworks=frameworks or {},

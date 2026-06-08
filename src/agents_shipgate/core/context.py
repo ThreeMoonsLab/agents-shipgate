@@ -25,6 +25,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.report import CapabilityRuntimeEvidence
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -55,6 +56,9 @@ class ScanContext:
     capability_facts: list[CapabilityFactV1] = field(default_factory=list)
     capability_policy_subjects: list[CapabilityPolicySubject] = field(
         default_factory=list
+    )
+    capability_runtime_evidence: CapabilityRuntimeEvidence = field(
+        default_factory=CapabilityRuntimeEvidence
     )
     # v0.19 reviewer-grade provenance: JSON-pointer → ``(line, col)``
     # index built from the manifest YAML so agent-level and

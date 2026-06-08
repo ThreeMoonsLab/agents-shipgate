@@ -25,6 +25,7 @@ from agents_shipgate.inputs.common import (
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.inputs.traces import load_trace_artifacts
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ArtifactPathConfig,
@@ -148,20 +149,15 @@ def load_openai_api_artifacts(
         )
         artifacts.test_cases.extend(_case_items(data, test_ref.path))
 
-    for trace_ref in config.trace_samples:
-        data = _load_trace_sample(trace_ref, base_dir, artifacts.warnings)
-        if data is None:
-            continue
-        artifacts.trace_sample_files.append(
-            _display_path(_resolve(base_dir, trace_ref.path), base_dir)
-        )
-        artifacts.trace_samples.extend(data)
-        unsupported = sum(1 for item in data if not isinstance(item.get("tool_name"), str))
-        if unsupported:
-            artifacts.warnings.append(
-                f"OpenAI API trace sample {trace_ref.path!r} contains {unsupported} "
-                "entries without tool_name."
-            )
+    files, traces = load_trace_artifacts(
+        config.trace_samples,
+        base_dir,
+        artifacts.warnings,
+        label="OpenAI API",
+        source_type="openai_api_trace",
+    )
+    artifacts.trace_sample_files.extend(files)
+    artifacts.trace_samples.extend(traces)
 
     for policy_ref in config.policy_rules:
         data = _load_required_or_optional(
@@ -261,44 +257,6 @@ def _merge_list_values(existing: list[Any], incoming: list[Any]) -> list[Any]:
         merged.append(item)
         seen.add(marker)
     return merged
-
-
-def _load_trace_sample(
-    ref: ArtifactPathConfig,
-    base_dir: Path,
-    warnings: list[str],
-) -> list[dict[str, Any]] | None:
-    path = _resolve(base_dir, ref.path)
-    try:
-        if path.suffix.lower() == ".jsonl":
-            items: list[dict[str, Any]] = []
-            for line_number, line in enumerate(
-                load_text_file(path).splitlines(), start=1
-            ):
-                if not line.strip():
-                    continue
-                try:
-                    item = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise InputParseError(
-                        f"Unable to parse JSONL trace {path}:{line_number}: {exc}"
-                    ) from exc
-                if isinstance(item, dict):
-                    items.append(item)
-                else:
-                    warnings.append(
-                        f"OpenAI API trace sample {ref.path!r} line {line_number} is not an object."
-                    )
-            return items
-        data = load_structured_file(path)
-        return _trace_items(data, ref.path, warnings)
-    except InputParseError:
-        if not ref.optional:
-            raise
-        warnings.append(
-            f"Optional OpenAI API trace artifact {ref.path!r} failed to load."
-        )
-        return None
 
 
 def _tool_from_openai_function(
@@ -407,27 +365,6 @@ def _case_items(data: Any, source_ref: str) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         raise InputParseError(f"OpenAI API test cases must be a list: {source_ref}")
     return [item for item in data if isinstance(item, dict)]
-
-
-def _trace_items(
-    data: Any, source_ref: str, warnings: list[str] | None = None
-) -> list[dict[str, Any]]:
-    if isinstance(data, dict):
-        for key in ("trace_samples", "events", "tool_calls"):
-            if isinstance(data.get(key), list):
-                data = data[key]
-                break
-    if not isinstance(data, list):
-        raise InputParseError(
-            f"OpenAI API trace samples must be a list or JSONL: {source_ref}"
-        )
-    items = [item for item in data if isinstance(item, dict)]
-    skipped = len(data) - len(items)
-    if skipped and warnings is not None:
-        warnings.append(
-            f"OpenAI API trace sample {source_ref!r} contains {skipped} unsupported entries."
-        )
-    return items
 
 
 def _looks_like_json_schema(value: dict[str, Any]) -> bool:

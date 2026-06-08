@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-05-23; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.24`, packet schema `v0.6`.
+runtime contract `1`, report schema `v0.25`, packet schema `v0.7`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -147,8 +147,8 @@ build_reviewer_summary             populate v0.20 reviewer_summary from
                                    post-filter)
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
-packet/builder.build_packet        Release Evidence Packet (v0.6) including
-                                   the evidence_matrix lens
+packet/builder.build_packet        Release Evidence Packet (v0.7) including
+                                   evidence_matrix and capability trace refs
                                      ↓
 cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
                                    nine sequential phase helpers
@@ -277,7 +277,8 @@ Reports expose only lightweight audit references:
 `release_decision.{blockers,review_items}[].capability_refs`. These fields
 are not fingerprint inputs and do not create an independent verdict.
 `release_decision.decision` remains the only gate. Capability lock schema
-`0.1`, lock diff schema `0.2`, and packet schema `0.6` are unchanged.
+`0.1` and lock diff schema `0.2` are unchanged. Packet schema `0.7`
+adds report-derived capability trace evidence metadata.
 
 ## Experimental capability locks
 
@@ -490,11 +491,11 @@ without a per-call-site allowlist with literal-anchor snippet;
 files outside the manifest directory rejected (path-traversal
 containment); files larger than 10 MB rejected.
 
-## Release Evidence Packet (v0.6)
+## Release Evidence Packet (v0.7)
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.6.json`](packet-schema.v0.6.json))
+own JSON contract ([`packet-schema.v0.7.json`](packet-schema.v0.7.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -638,10 +639,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.24"`; older schemas frozen as
+  `report_schema_version: "0.25"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.6"`; older schemas frozen.
+  `packet_schema_version: "0.7"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

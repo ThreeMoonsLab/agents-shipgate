@@ -135,6 +135,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.24.json`](report-schema.v0.24.json) (v0.23 frozen at [`report-schema.v0.23.json`](report-schema.v0.23.json), v0.22 frozen at [`report-schema.v0.22.json`](report-schema.v0.22.json))
-- Packet schema (current): [`packet-schema.v0.6.json`](packet-schema.v0.6.json)
+- Report schema (current): [`report-schema.v0.25.json`](report-schema.v0.25.json) (v0.24 frozen at [`report-schema.v0.24.json`](report-schema.v0.24.json), v0.23 frozen at [`report-schema.v0.23.json`](report-schema.v0.23.json), v0.22 frozen at [`report-schema.v0.22.json`](report-schema.v0.22.json))
+- Packet schema (current): [`packet-schema.v0.7.json`](packet-schema.v0.7.json) (v0.6 frozen at [`packet-schema.v0.6.json`](packet-schema.v0.6.json))
 - Check catalog: [`checks.json`](checks.json)

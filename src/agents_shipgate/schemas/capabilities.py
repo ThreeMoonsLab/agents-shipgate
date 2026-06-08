@@ -10,11 +10,18 @@ from agents_shipgate.schemas.capability_semantics import (
     CapabilitySemanticChange,
     CapabilitySemanticDirection,
 )
-from agents_shipgate.schemas.common import Confidence, ProvenanceKind
+from agents_shipgate.schemas.common import Confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 CAPABILITY_LOCK_SCHEMA_VERSION = "0.1"
 CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.2"
+CapabilityEvidenceProvenanceKind = Literal[
+    "static_declaration",
+    "ast_extraction",
+    "keyword_heuristic",
+    "regex_heuristic",
+    "policy_pack",
+]
 
 
 class CapabilityIdentity(BaseModel):
@@ -90,7 +97,7 @@ class CapabilityEvidence(BaseModel):
     source_end_line: int | None = None
     source_start_column: int | None = None
     source_pointer: str | None = None
-    provenance_kind: ProvenanceKind = "static_declaration"
+    provenance_kind: CapabilityEvidenceProvenanceKind = "static_declaration"
     confidence: Confidence = "medium"
 
 
@@ -252,6 +259,7 @@ __all__ = [
     "CapabilityControls",
     "CapabilityEffect",
     "CapabilityEvidence",
+    "CapabilityEvidenceProvenanceKind",
     "CapabilityFactV1",
     "CapabilityHashName",
     "CapabilityHashes",

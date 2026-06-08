@@ -1582,6 +1582,13 @@
     "ValidationEvidenceConfig": {
       "additionalProperties": false,
       "properties": {
+        "agent_traces": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Agent Traces",
+          "type": "array"
+        },
         "approval_traces": {
           "items": {
             "$ref": "#/$defs/ArtifactPathConfig"
