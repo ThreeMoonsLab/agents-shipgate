@@ -22,7 +22,7 @@ from agents_shipgate.core.logging import configure_logging
 
 capability_app = typer.Typer(
     help=(
-        "Experimental capability lock commands. Local-only and non-gating; "
+        "Stable capability lock commands. Local-only and non-gating; "
         "release_decision.decision remains the only gate."
     )
 )
@@ -63,7 +63,7 @@ def capability_export(
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Enable debug logs."),
 ) -> None:
-    """Export the current static capability envelope as an experimental lock."""
+    """Export the current static capability envelope as a stable lock."""
 
     try:
         configure_logging(verbose=verbose)
@@ -118,7 +118,7 @@ def capability_diff(
         help="Print the diff JSON to stdout.",
     ),
 ) -> None:
-    """Compare two experimental capability locks.
+    """Compare two static capability locks.
 
     Capability differences are reported in the JSON payload and do not
     change the process exit code. Nonzero exits are reserved for malformed
@@ -161,7 +161,7 @@ def build_capability_lock_from_config(
     no_plugins: bool,
     verbose: bool,
 ):
-    """Build an experimental capability lock from a manifest path.
+    """Build a static capability lock from a manifest path.
 
     Shared by the CLI command and internal benchmark scripts. This stops at
     static tool loading plus typed action construction; it does not run

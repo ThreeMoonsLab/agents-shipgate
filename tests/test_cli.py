@@ -13,10 +13,20 @@ from agents_shipgate.checks import registry
 from agents_shipgate.cli._helpers import _safe_output_name
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    CAPABILITY_LOCK_SCHEMA_VERSION,
+    CAPABILITY_STANDARD_VERSION,
+)
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
+    EXTERNAL_INTEGRATION_SURFACES,
     GATING_SIGNAL,
     MANUAL_REVIEW_SIGNALS,
+)
+from agents_shipgate.schemas.governance_benchmark import (
+    GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+    GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
@@ -154,6 +164,12 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version",
         "report_schema_version",
         "packet_schema_version",
+        "capability_lock_schema_version",
+        "capability_lock_diff_schema_version",
+        "capability_standard_version",
+        "governance_benchmark_catalog_schema_version",
+        "governance_benchmark_result_schema_version",
+        "external_integration_surfaces",
         "gating_signal",
         "manual_review_signals",
     ]
@@ -166,6 +182,16 @@ def test_cli_contract_json_outputs_runtime_contract():
         "packet_schema_version": str(
             EvidencePacket.model_fields["packet_schema_version"].default
         ),
+        "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
+        "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        "capability_standard_version": CAPABILITY_STANDARD_VERSION,
+        "governance_benchmark_catalog_schema_version": (
+            GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
+        ),
+        "governance_benchmark_result_schema_version": (
+            GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
+        ),
+        "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),
         "gating_signal": GATING_SIGNAL,
         "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
     }

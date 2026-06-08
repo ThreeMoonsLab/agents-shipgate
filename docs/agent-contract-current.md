@@ -11,12 +11,18 @@ agents-shipgate contract --json
 ```
 
 - Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `1`
+- Runtime contract: `2`
 - Current report schema: `0.25` — [`docs/report-schema.v0.25.json`](report-schema.v0.25.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
+- Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
+- Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
+- Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
+- Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
+- Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: [`v0.24`](report-schema.v0.24.json), [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
+- Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
 ## Two read entry points
 
@@ -216,6 +222,15 @@ installed CLI's stable list of report/packet fields to inspect for human review
 work. `findings[].provenance_kind` is included there as a filter/review signal
 only; it never changes the release decision, severity, fingerprints, baselines,
 or CI exit behavior.
+
+Runtime contract `2` also exposes stable non-gating integration fields:
+`capability_lock_schema_version`, `capability_lock_diff_schema_version`,
+`capability_standard_version`,
+`governance_benchmark_catalog_schema_version`,
+`governance_benchmark_result_schema_version`, and
+`external_integration_surfaces[]`. These advertise capability lock/diff and
+benchmark artifacts for integrations and research. They do not change the gate:
+`release_decision.decision` remains the only release decision signal.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:
 

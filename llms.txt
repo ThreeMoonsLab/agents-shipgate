@@ -64,6 +64,11 @@
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
+- Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json
+- Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
+- Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
 - Release gating signal: `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` in `report.json` (baseline-aware; v0.8+; `insufficient_evidence` added v0.14; consumers should treat unknown future values as `review_required`).
 - Installed CLI contract: `agents-shipgate contract --json`.
@@ -79,6 +84,8 @@
 - Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and `capability_review.top_changes`. Then read `report.json.release_decision.decision`; it is the release gate.
 - Run the verify-native demo fixture: `agents-shipgate fixture run ai_generated_refund_pr`.
 - Scan a static repo/report fixture when you need the lower-level report path: `agents-shipgate fixture run support_refund_agent`.
+- Export a stable static capability lock: `agents-shipgate capability export -c shipgate.yaml`.
+- Compare static capability locks: `agents-shipgate capability diff --base .agents-shipgate/capabilities.lock.json --head agents-shipgate-reports/head.capabilities.lock.json --json`.
 - Export redacted design-partner feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
 - Do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, weaken agent instructions, or assert approval/idempotency evidence to pass.
 - GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.11.0`.
@@ -123,6 +130,10 @@
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.25.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.7.json
+- Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json
+- Governance benchmark: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 
 ## Category vocabulary
@@ -138,8 +149,8 @@
 
 ## Trajectory
 
-- Today: local-first, static merge verdicts for AI-generated agent capability PRs, backed by Tool-Use Readiness reports.
-- Next: design-partner feedback artifacts, benchmark PR corpus, and org-level policy/retention workflows.
+- Today: local-first, static merge verdicts for AI-generated agent capability PRs, backed by Tool-Use Readiness reports, stable capability locks/diffs, and a governance benchmark research asset.
+- Next: design-partner feedback loops and org-level policy/retention workflows.
 
 ## Maintainer
 

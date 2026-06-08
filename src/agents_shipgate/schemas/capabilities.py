@@ -13,8 +13,9 @@ from agents_shipgate.schemas.capability_semantics import (
 from agents_shipgate.schemas.common import Confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-CAPABILITY_LOCK_SCHEMA_VERSION = "0.1"
-CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.2"
+CAPABILITY_LOCK_SCHEMA_VERSION = "0.2"
+CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.3"
+CAPABILITY_STANDARD_VERSION = "0.1"
 CapabilityEvidenceProvenanceKind = Literal[
     "static_declaration",
     "ast_extraction",
@@ -116,7 +117,7 @@ class CapabilityHashes(BaseModel):
 
 
 class CapabilityFactV1(BaseModel):
-    """Durable capability fact used by experimental locks."""
+    """Durable capability fact used by stable capability locks."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -182,8 +183,8 @@ class CapabilityLockHashes(BaseModel):
 class CapabilityLockFileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_schema_version: Literal["0.1"] = CAPABILITY_LOCK_SCHEMA_VERSION
-    experimental: Literal[True] = True
+    capability_lock_schema_version: Literal["0.2"] = CAPABILITY_LOCK_SCHEMA_VERSION
+    experimental: Literal[False] = False
     cli_version: str
     source: CapabilityLockSource
     summary: CapabilityLockSummary
@@ -234,10 +235,10 @@ class CapabilityLockChangedFact(BaseModel):
 class CapabilityLockDiffV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_diff_schema_version: Literal["0.2"] = (
+    capability_lock_diff_schema_version: Literal["0.3"] = (
         CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     )
-    experimental: Literal[True] = True
+    experimental: Literal[False] = False
     base: CapabilityLockRef
     head: CapabilityLockRef
     summary: CapabilityLockDiffSummary
@@ -252,9 +253,18 @@ class CapabilityLockArtifactV1(RootModel[CapabilityLockFileV1 | CapabilityLockDi
     root: CapabilityLockFileV1 | CapabilityLockDiffV1
 
 
+class CapabilityLockFileArtifactV1(RootModel[CapabilityLockFileV1]):
+    root: CapabilityLockFileV1
+
+
+class CapabilityLockDiffArtifactV1(RootModel[CapabilityLockDiffV1]):
+    root: CapabilityLockDiffV1
+
+
 __all__ = [
     "CAPABILITY_LOCK_DIFF_SCHEMA_VERSION",
     "CAPABILITY_LOCK_SCHEMA_VERSION",
+    "CAPABILITY_STANDARD_VERSION",
     "CapabilityAuthority",
     "CapabilityControls",
     "CapabilityEffect",
@@ -266,8 +276,10 @@ __all__ = [
     "CapabilityIdentity",
     "CapabilityLockArtifactV1",
     "CapabilityLockChangedFact",
+    "CapabilityLockDiffArtifactV1",
     "CapabilityLockDiffSummary",
     "CapabilityLockDiffV1",
+    "CapabilityLockFileArtifactV1",
     "CapabilityLockFileV1",
     "CapabilityLockHashes",
     "CapabilityLockRef",

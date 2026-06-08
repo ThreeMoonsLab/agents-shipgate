@@ -16,6 +16,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`agent-native-merge-contract.md`](agent-native-merge-contract.md) — the agent-native protocol map: the eight merge contracts, each mapped to the artifact that implements it
 - [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance case catalog, policy-pack tests, trace contract, and runtime-inventory boundary
 - [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
+- [`capability-standard.md`](capability-standard.md) — stable static capability lock/diff standard for external integrations and research
+- [`governance-benchmark.md`](governance-benchmark.md) — stable research benchmark for evaluating agent governance behavior
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
 - [`baseline.md`](baseline.md) — baseline workflow
@@ -30,9 +32,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — JSON Schema for local policy-pack YAML files, including legacy match syntax and optional `match.capability` selectors
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
-- [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — experimental JSON Schema for `capabilities.lock.json` and capability-lock diff artifacts emitted by `agents-shipgate capability`; non-gating and not part of `report.json`
-- [`governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json) — experimental JSON Schema for `benchmark/agent-pr-governance/cases.yaml`; an eval substrate, not a release gate
-- [`governance-benchmark-result-schema.v0.1.json`](governance-benchmark-result-schema.v0.1.json) — experimental JSON Schema for governance benchmark result artifacts emitted by `scripts/run_governance_benchmark.py`; non-gating and not part of `report.json`
+- [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
+- [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — stable JSON Schema for semantic capability-lock diff artifacts emitted by `agents-shipgate capability diff`; non-gating and not part of `report.json`
+- [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — frozen experimental reference for old capability lock and diff artifacts; `capability diff` still accepts old lock inputs
+- [`governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json) — stable JSON Schema for `benchmark/agent-pr-governance/cases.yaml`; an eval substrate, not a release gate
+- [`governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json) — stable JSON Schema for governance benchmark result artifacts emitted by `scripts/run_governance_benchmark.py`; non-gating and not part of `report.json`
+- [`governance-benchmark-result-schema.v0.1.json`](governance-benchmark-result-schema.v0.1.json) — frozen experimental benchmark result reference
 - [`agent-trace-event-schema.v0.1.json`](agent-trace-event-schema.v0.1.json) — JSON Schema for local, opt-in AgentTraceEvent records used by Agent Workflow Evidence
 - [`agent-workflow-evidence-bundle-schema.v0.1.json`](agent-workflow-evidence-bundle-schema.v0.1.json) — JSON Schema for local, opt-in replay bundles that combine verifier artifacts, trace files, and expected governance outcomes
 - [`scenario-schema.v0.1.json`](scenario-schema.v0.1.json) — JSON Schema for the workflow-evidence `scenario.json` emitted by `agents-shipgate feedback capture`

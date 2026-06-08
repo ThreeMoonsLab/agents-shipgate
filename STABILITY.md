@@ -26,6 +26,8 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate findings` (v0.20+) | `--from` (default: `agents-shipgate-reports/report.json`), `--provenance-kind`, `--include-suppressed`, `--json` |
 | `agents-shipgate trigger` (v0.11+) | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
+| `agents-shipgate capability export` | `--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`, `--json`, `--no-plugins`, `--verbose` |
+| `agents-shipgate capability diff` | `--base`, `--head`, `--out`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
 | `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |
@@ -43,14 +45,6 @@ feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
 payload as provisional during the v0.11 design-partner cycle; the schema file is
 published so consumers can validate it, and any incompatible change must bump
 `feedback_schema_version`.
-
-`agents-shipgate capability export` and `agents-shipgate capability diff` are
-introduced as experimental capability-lock helpers. Current `export` flags are
-`--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`,
-`--json`, `--no-plugins`, and `--verbose`; current `diff` flags are `--base`,
-`--head`, `--out`, and `--json`. Treat the command group and
-`capability_lock_schema_version: "0.1"` payloads as provisional; incompatible
-changes must bump the capability-lock schema version.
 
 ### Exit codes
 
@@ -78,6 +72,17 @@ Stable JSON fields:
   `ReadinessReport`.
 - `packet_schema_version` — current packet schema version from
   `EvidencePacket`.
+- `capability_lock_schema_version` — current stable capability lock schema
+  emitted by `agents-shipgate capability export`.
+- `capability_lock_diff_schema_version` — current stable semantic diff schema
+  emitted by `agents-shipgate capability diff`.
+- `capability_standard_version` — current capability standard version.
+- `governance_benchmark_catalog_schema_version` — current benchmark catalog
+  schema version.
+- `governance_benchmark_result_schema_version` — current benchmark result
+  schema version.
+- `external_integration_surfaces[]` — stable non-gating integration and
+  research surfaces exposed by the contract.
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
@@ -792,29 +797,43 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `policy_snapshot_sha256`
 - `artifact_sha256`
 
-### Capability Lock (Experimental)
+### Capability Lock And Diff
 
-`agents-shipgate capability export` writes an experimental local capability
+`agents-shipgate capability export` writes a stable local static capability
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
-`agents-shipgate-reports/capabilities.lock.json`. `agents-shipgate capability
-diff` compares two such lockfiles and emits added, removed, `reidentified`,
-semantic `changed`, and `evidence_changed` rows. `reidentified` is the
-scope/resource case: scope is part of capability identity, so a scope escalation
-changes the id and is paired by agent/provider/operation/tool instead of being
-reported as unrelated add/remove churn.
+`agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
+[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)
+and emitted locks carry `capability_lock_schema_version: "0.2"` plus
+`experimental: false`.
 
-The current experimental schema is
-[`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
+`agents-shipgate capability diff` compares two lockfiles and emits added,
+removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
+current diff schema is
+[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.3"` plus
+`experimental: false`. `reidentified` is the scope/resource case: scope is part
+of capability identity, so a scope escalation changes the id and is paired by
+agent/provider/operation/tool instead of being reported as unrelated add/remove
+churn.
+
 The lock is an enumerable-tools envelope. Dynamic toolkit scope bounds are
-disclosed by `source.toolkit_bound_count` but not emitted as capability facts in
-v0.1. `cli_version` is provenance and may change on scanner upgrades; it is not
-part of the semantic capability-set hash.
+disclosed by `source.toolkit_bound_count` but are not emitted as capability facts
+yet. `cli_version` is provenance and may change on scanner upgrades; it is not
+part of the semantic capability-set hash. Runtime trace evidence, findings, and
+gate verdicts are intentionally excluded from capability locks and semantic lock
+hashes.
 
-This artifact is deterministic and carries no wall-clock timestamp, but it is
-not yet a stable agent contract: it is not emitted in `report.json`, is not
-advertised as a `.well-known` output, does not bump `report_schema_version`, and
-does not gate. `release_decision.decision` remains the only gate.
+Capability lock/diff artifacts are deterministic and carry no wall-clock
+timestamp. They are stable non-gating artifacts for external integrations and
+research; they are not emitted in `report.json` and do not gate.
+`release_decision.decision` remains the only gate. Old experimental
+`capability_lock_schema_version: "0.1"` lock files remain readable by
+`agents-shipgate capability diff`; the old combined schema remains a frozen
+reference at
+[`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
+The public standard is documented in
+[`docs/capability-standard.md`](docs/capability-standard.md).
 
 ### Workflow-evidence capture
 

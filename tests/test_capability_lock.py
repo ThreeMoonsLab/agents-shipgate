@@ -17,12 +17,18 @@ from agents_shipgate.core.capability_lock import (
 )
 from agents_shipgate.core.domain import Agent, AuthInfo, Tool, ToolParameter, ToolRiskHint
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = json.loads(
-    (REPO_ROOT / "docs/capability-lock-schema.v0.1.json").read_text(encoding="utf-8")
+LOCK_SCHEMA = json.loads(
+    (REPO_ROOT / "docs/capability-lock-schema.v0.2.json").read_text(encoding="utf-8")
+)
+DIFF_SCHEMA = json.loads(
+    (REPO_ROOT / "docs/capability-lock-diff-schema.v0.3.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
@@ -125,8 +131,8 @@ def test_exported_lock_is_deterministic_and_has_no_timestamp() -> None:
     assert "semantic_direction" not in first
     assert "semantic_changes" not in first
     payload = json.loads(first)
-    assert payload["capability_lock_schema_version"] == "0.1"
-    assert payload["experimental"] is True
+    assert payload["capability_lock_schema_version"] == "0.2"
+    assert payload["experimental"] is False
     assert payload["summary"]["capability_count"] == 1
     assert payload["hashes"]["semantic_capability_set_hash"]
 
@@ -312,9 +318,63 @@ def test_capability_lock_and_diff_validate_against_schema() -> None:
     head = _lock([_tool("beta.read", scopes=["beta:read"])])
     diff = diff_capability_locks(base, head)
 
-    jsonschema.validate(json.loads(render_capability_lock_json(base)), SCHEMA)
-    jsonschema.validate(json.loads(render_capability_lock_diff_json(diff)), SCHEMA)
-    assert diff.capability_lock_diff_schema_version == "0.2"
+    jsonschema.validate(json.loads(render_capability_lock_json(base)), LOCK_SCHEMA)
+    jsonschema.validate(json.loads(render_capability_lock_diff_json(diff)), DIFF_SCHEMA)
+    assert diff.capability_lock_diff_schema_version == "0.3"
+    assert diff.experimental is False
+
+
+def test_capability_standard_examples_validate() -> None:
+    lock_example = json.loads(
+        (REPO_ROOT / "docs/examples/capability-lock.v0.2.example.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    diff_example = json.loads(
+        (
+            REPO_ROOT / "docs/examples/capability-lock-diff.v0.3.example.json"
+        ).read_text(encoding="utf-8")
+    )
+    fact_example = json.loads(
+        (REPO_ROOT / "docs/examples/capability-fact.v0.1.example.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    jsonschema.validate(lock_example, LOCK_SCHEMA)
+    jsonschema.validate(diff_example, DIFF_SCHEMA)
+    CapabilityFactV1.model_validate(fact_example)
+
+
+def test_legacy_v01_lock_loads_and_diffs(tmp_path: Path) -> None:
+    base = _lock([_tool("alpha.read", scopes=["alpha:read"])])
+    head = _lock(
+        [
+            _tool("alpha.read", scopes=["alpha:read"]),
+            _tool("beta.read", scopes=["beta:read"]),
+        ]
+    )
+    base_payload = json.loads(render_capability_lock_json(base))
+    base_payload["capability_lock_schema_version"] = "0.1"
+    base_payload["experimental"] = True
+    base_path = tmp_path / "base.v01.lock.json"
+    head_path = tmp_path / "head.lock.json"
+    base_path.write_text(json.dumps(base_payload, indent=2) + "\n", encoding="utf-8")
+    head_path.write_text(render_capability_lock_json(head), encoding="utf-8")
+
+    loaded_base = load_capability_lock(base_path)
+    loaded_head = load_capability_lock(head_path)
+    diff = diff_capability_locks(
+        loaded_base,
+        loaded_head,
+        base_path=base_path,
+        head_path=head_path,
+    )
+
+    assert loaded_base.capability_lock_schema_version == "0.2"
+    assert loaded_base.experimental is False
+    assert diff.summary.added == 1
+    assert diff.base.capability_lock_schema_version == "0.2"
 
 
 def test_capability_export_writes_default_lock_and_report_copy(

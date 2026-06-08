@@ -12,7 +12,10 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
 )
-from agents_shipgate.schemas.governance_benchmark import GovernanceBenchmarkCatalogV1
+from agents_shipgate.schemas.governance_benchmark import (
+    GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+    GovernanceBenchmarkCatalogV1,
+)
 from agents_shipgate.schemas.report import ReadinessReport
 from scripts.run_governance_benchmark import (
     GovernanceBenchmarkOptions,
@@ -210,7 +213,7 @@ def test_governance_benchmark_schemas_validate_catalog_and_result(tmp_path: Path
         )
     )
     result_schema = json.loads(
-        (REPO_ROOT / "docs/governance-benchmark-result-schema.v0.1.json").read_text(
+        (REPO_ROOT / "docs/governance-benchmark-result-schema.v0.2.json").read_text(
             encoding="utf-8"
         )
     )
@@ -219,9 +222,12 @@ def test_governance_benchmark_schemas_validate_catalog_and_result(tmp_path: Path
     Draft202012Validator.check_schema(result_schema)
     Draft202012Validator(catalog_schema).validate(catalog.model_dump(mode="json"))
     Draft202012Validator(result_schema).validate(result.model_dump(mode="json"))
+    assert result.governance_benchmark_result_schema_version == "0.2"
+    assert result.experimental is False
 
 
 def test_governance_benchmark_preserves_public_schema_boundaries() -> None:
     assert ReadinessReport.model_fields["report_schema_version"].default == "0.25"
-    assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.1"
-    assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.2"
+    assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.2"
+    assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.3"
+    assert GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION == "0.2"

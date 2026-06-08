@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""Run the experimental AgentPR governance benchmark.
+"""Run the AgentPR governance benchmark.
 
-This runner is intentionally internal: it emits a deterministic eval artifact
-for product development, not a stable user-facing CLI surface. It is kept in
-``scripts/`` so benchmark orchestration does not ship in the scanner package or
-expand the audited trust surface.
+This runner emits a deterministic research artifact, not a release gate or a
+stable user-facing CLI surface. It is kept in ``scripts/`` so benchmark
+orchestration does not ship in the scanner package or expand the audited trust
+surface.
 """
 
 from __future__ import annotations
@@ -891,7 +891,7 @@ __all__ = [
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="run_governance_benchmark",
-        description="Run the experimental AgentPR governance benchmark.",
+        description="Run the AgentPR governance benchmark.",
     )
     parser.add_argument(
         "--catalog",

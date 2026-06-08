@@ -29,6 +29,10 @@ import pytest
 from agents_shipgate import __version__
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.report.markdown import DISCLAIMER
+from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    CAPABILITY_LOCK_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -37,6 +41,10 @@ from agents_shipgate.schemas.contract import (
     build_contract_payload,
 )
 from agents_shipgate.schemas.diagnostics import NextActionKind
+from agents_shipgate.schemas.governance_benchmark import (
+    GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+    GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
@@ -351,6 +359,39 @@ def test_well_known_metadata_lists_packet_outputs():
     assert "feedback-schema.v0.1.json" in feedback_url, (
         ".well-known schemas.feedback must point to docs/feedback-schema.v0.1.json; "
         f"got {feedback_url!r}."
+    )
+    capability_lock_url = schemas.get("capability_lock", "")
+    assert f"capability-lock-schema.v{CAPABILITY_LOCK_SCHEMA_VERSION}.json" in (
+        capability_lock_url
+    ), (
+        ".well-known schemas.capability_lock must point to the current "
+        f"capability lock schema; got {capability_lock_url!r}."
+    )
+    capability_diff_url = schemas.get("capability_lock_diff", "")
+    assert (
+        f"capability-lock-diff-schema.v{CAPABILITY_LOCK_DIFF_SCHEMA_VERSION}.json"
+        in capability_diff_url
+    ), (
+        ".well-known schemas.capability_lock_diff must point to the current "
+        f"capability lock diff schema; got {capability_diff_url!r}."
+    )
+    benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
+    assert (
+        "governance-benchmark-catalog-schema."
+        f"v{GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION}.json"
+        in benchmark_catalog_url
+    ), (
+        ".well-known schemas.governance_benchmark_catalog must point to the "
+        f"current catalog schema; got {benchmark_catalog_url!r}."
+    )
+    benchmark_result_url = schemas.get("governance_benchmark_result", "")
+    assert (
+        "governance-benchmark-result-schema."
+        f"v{GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION}.json"
+        in benchmark_result_url
+    ), (
+        ".well-known schemas.governance_benchmark_result must point to the "
+        f"current result schema; got {benchmark_result_url!r}."
     )
 
 

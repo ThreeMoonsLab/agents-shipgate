@@ -385,6 +385,6 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json",
   "$ref": "#/$defs/GovernanceBenchmarkCatalogV1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Experimental JSON Schema for the AgentPR governance benchmark catalog. Generated from agents_shipgate.schemas.governance_benchmark. It is an eval substrate and does not gate releases.",
-  "title": "Agents Shipgate Governance Benchmark Catalog v0.2 (Experimental)"
+  "description": "Stable JSON Schema for the AgentPR governance benchmark catalog. Generated from agents_shipgate.schemas.governance_benchmark. It is an eval substrate and does not gate releases.",
+  "title": "Agents Shipgate Governance Benchmark Catalog v0.2"
 }
