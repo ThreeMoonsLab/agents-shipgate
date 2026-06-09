@@ -678,38 +678,33 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
 
 
 # --- Path classification --------------------------------------------------------
+#
+# Host-boundary semantics evaluate REPO-ROOT host configuration only. A
+# copy nested under samples/, fixtures/, or another package directory is
+# not a grant the host actually loads — GitHub executes only the root
+# `.github/workflows/`, and Claude Code reads the root `.mcp.json` /
+# `.claude/settings*.json` for the opened workspace. Nested copies stay
+# covered by the *coarse* trust-root layer (`checks/verify.py` uses
+# `**/`-wide globs and routes to review); only the fine, block-capable
+# layer here is root-anchored. The repo's own dogfood verifier caught
+# exactly this false positive on the fixture sample workflow.
 
 
 def _is_mcp_server_path(path: str) -> bool:
-    return (
-        path == ".mcp.json"
-        or path.endswith("/.mcp.json")
-        or path == ".cursor/mcp.json"
-        or path.endswith("/.cursor/mcp.json")
-        or path == ".vscode/mcp.json"
-        or path.endswith("/.vscode/mcp.json")
-    )
+    return path in (".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json")
 
 
 def _is_claude_settings_path(path: str) -> bool:
-    return (
-        path == ".claude/settings.json"
-        or path.endswith("/.claude/settings.json")
-        or path == ".claude/settings.local.json"
-        or path.endswith("/.claude/settings.local.json")
-    )
+    return path in (".claude/settings.json", ".claude/settings.local.json")
 
 
 def _is_workflow_path(path: str) -> bool:
     if not (path.endswith(".yml") or path.endswith(".yaml")):
         return False
-    if path.startswith(".github/workflows/"):
-        remainder = path[len(".github/workflows/") :]
-    else:
-        marker = "/.github/workflows/"
-        index = path.find(marker)
-        if index == -1:
-            return False
-        remainder = path[index + len(marker) :]
+    if not path.startswith(".github/workflows/"):
+        # Nested copies (samples/x/.github/workflows/…) never execute;
+        # see the root-anchoring note above.
+        return False
+    remainder = path[len(".github/workflows/") :]
     # GitHub only runs workflows directly inside .github/workflows/.
     return bool(remainder) and "/" not in remainder

@@ -582,3 +582,50 @@ def test_same_diff_twice_produces_identical_findings(tmp_path: Path) -> None:
         f.model_dump(mode="json") for f in second
     ]
     assert len(first) == 4
+
+
+def test_nested_sample_workflow_is_not_a_host_grant(tmp_path: Path) -> None:
+    """A workflow file nested under samples/ (or any non-root directory)
+    never executes on GitHub, so it must not fire host-boundary rules.
+    Regression: the repo's own dogfood verifier blocked PR #192 on its
+    fixture sample workflow before path classification was root-anchored.
+    Nested copies remain covered by the coarse trust-root review layer."""
+    workflow = "\n".join(
+        [
+            "name: sample",
+            "on:",
+            "  pull_request:",
+            "permissions:",
+            "  contents: read",
+            "  pull-requests: write",
+            "jobs:",
+            "  x:",
+            "    runs-on: ubuntu-latest",
+            "    permissions: write-all",
+            "    steps:",
+            "      - run: echo hi",
+            "",
+        ]
+    )
+    diff = _new_file_diff(
+        "samples/agent_weakens_gate/.github/workflows/agents-shipgate.yml",
+        workflow,
+    )
+    violations, _diagnostics = evaluate_host_boundary(
+        workspace=tmp_path, diff_text=diff
+    )
+    assert violations == []
+
+
+def test_nested_mcp_and_claude_settings_are_not_host_grants(tmp_path: Path) -> None:
+    """Same root-anchoring for .mcp.json and .claude settings: nested
+    copies under fixtures/packages are not loaded by the host."""
+    mcp = json.dumps({"mcpServers": {"evil": {"command": "npx"}}}, indent=2)
+    settings = json.dumps({"permissions": {"allow": ["Bash(*)"]}}, indent=2)
+    diff = _new_file_diff("samples/demo/.mcp.json", mcp) + _new_file_diff(
+        "fixtures/x/.claude/settings.json", settings
+    )
+    violations, _diagnostics = evaluate_host_boundary(
+        workspace=tmp_path, diff_text=diff
+    )
+    assert violations == []
