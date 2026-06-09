@@ -74,7 +74,7 @@ def _report_payload() -> dict:
 def test_build_attestation_core_fields() -> None:
     att = build_attestation_payload(
         _verifier_payload(),
-        source=Path("agents-shipgate-reports/verifier.json"),
+        source=Path("verifier.json"),
         redacted=True,
         report=_report_payload(),
     )

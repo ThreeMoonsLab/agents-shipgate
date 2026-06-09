@@ -396,9 +396,10 @@ tests on every CI run, not by convention:
     only. **Plus** one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled trigger catalog.
   - **`cli/verify/git.py`** — one shared `subprocess.run` helper invokes
-    local `git rev-parse`, `git diff`, `git ls-files`, and `git archive`
-    for verify base/head and working-tree orchestration. It never fetches,
-    uses fixed argv, captures output, and never executes user code.
+    local `git rev-parse`, `git diff`, `git ls-files`, `git show`, and
+    `git archive` for verify base/head and working-tree orchestration. It
+    never fetches, uses fixed argv, captures output, and never executes user
+    code.
   - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
     `git init`, `git config`, `git add`, `git commit`, and `git update-ref`
     against a temporary bundled fixture copy so

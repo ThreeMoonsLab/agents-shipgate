@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Phase 7 makes capability diff the default verifier review primitive when a
+  reviewed base lock is committed: `verify` emits head capability locks plus
+  semantic diff JSON/Markdown review artifacts when available, and attestation
+  output moves from schema `0.1` to `0.2` to bind capability lock/diff hashes.
+
 - Add the repo's advisory self-dogfood Shipgate workflow, product-hardening
   gap-closure docs, Agent Workflow Evidence schemas, and the AgentPR Governance
   case catalog / acceptance spec.

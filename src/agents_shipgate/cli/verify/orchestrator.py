@@ -14,8 +14,9 @@ from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
+    DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
     diff_capability_locks,
-    load_capability_lock,
+    load_capability_lock_json,
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
@@ -48,6 +49,7 @@ from .git import (
     diff_context,
     ensure_git_workspace,
     git_path,
+    read_file_at_ref,
     ref_exists,
     tree_sha,
     working_tree_context,
@@ -301,16 +303,18 @@ def run_verify(
         )
         head_status = "succeeded"
         if head_capability_lock is not None:
-            capability_lock_diff = _write_capability_review_artifacts(
-                git_root=git_root,
-                out_dir=out_dir,
-                base=base,
-                base_exists=base_exists,
-                head_lock=head_capability_lock,
-                base_notes=base_notes,
-            )
-            capability_lock_written = True
-            capability_lock_diff_written = capability_lock_diff is not None
+            try:
+                capability_lock_diff = _write_capability_review_artifacts(
+                    git_root=git_root,
+                    out_dir=out_dir,
+                    base=base,
+                    head_lock=head_capability_lock,
+                    base_notes=base_notes,
+                )
+                capability_lock_written = True
+                capability_lock_diff_written = capability_lock_diff is not None
+            except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
+                base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
         scan_error = exc
         head_exit_code = 2
@@ -938,7 +942,6 @@ def _write_capability_review_artifacts(
     git_root: Path,
     out_dir: Path,
     base: str | None,
-    base_exists: bool,
     head_lock: CapabilityLockFileV1,
     base_notes: list[str],
 ) -> CapabilityLockDiffV1 | None:
@@ -948,8 +951,6 @@ def _write_capability_review_artifacts(
         base_notes.append(
             "Capability lock diff unavailable: no --base ref was provided."
         )
-        return None
-    if not base_exists:
         return None
     base_lock = _load_base_capability_lock(
         git_root=git_root,
@@ -962,7 +963,7 @@ def _write_capability_review_artifacts(
         base_lock,
         head_lock,
         base_path=DEFAULT_CAPABILITY_LOCK_PATH,
-        head_path=Path("agents-shipgate-reports") / "capabilities.lock.json",
+        head_path=DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
     )
     (out_dir / "capability-lock-diff.json").write_text(
         render_capability_lock_diff_json(diff),
@@ -985,29 +986,23 @@ def _load_base_capability_lock(
     base: str,
     base_notes: list[str],
 ) -> CapabilityLockFileV1 | None:
-    with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-lock-") as tmp:
-        base_tree_dir = Path(tmp) / "base"
-        try:
-            archive_tree(git_root, base, base_tree_dir)
-        except Exception as exc:  # noqa: BLE001 - optional review artifact.
-            base_notes.append(
-                f"Capability lock diff unavailable: could not materialize base tree: {exc}"
-            )
-            return None
-        base_lock_path = base_tree_dir / DEFAULT_CAPABILITY_LOCK_PATH
-        if not base_lock_path.is_file():
-            base_notes.append(
-                "Capability lock diff unavailable: base tree does not contain "
-                f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
-            )
-            return None
-        try:
-            return load_capability_lock(base_lock_path)
-        except InputParseError as exc:
-            base_notes.append(
-                f"Capability lock diff unavailable: base lock is invalid: {exc}"
-            )
-            return None
+    content = read_file_at_ref(git_root, base, DEFAULT_CAPABILITY_LOCK_PATH)
+    if content is None:
+        base_notes.append(
+            "Capability lock diff unavailable: base tree does not contain "
+            f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+        )
+        return None
+    try:
+        return load_capability_lock_json(
+            content,
+            source=f"{base}:{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}",
+        )
+    except InputParseError as exc:
+        base_notes.append(
+            f"Capability lock diff unavailable: base lock is invalid: {exc}"
+        )
+        return None
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
