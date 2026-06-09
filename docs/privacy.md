@@ -15,6 +15,8 @@ Public scan artifacts are redacted by default before they are written:
 - `report.json`, `report.md`, and `report.sarif`
 - Release Evidence Packet outputs (`packet.json`, `packet.md`, `packet.html`,
   and `packet.pdf` when PDF support is installed)
+- Verify artifacts derived from the redacted report and verifier projections:
+  `verifier.json`, `agent-result.json`, and `pr-comment.md`
 - GitHub step summaries
 - `explain-finding` output loaded from an existing `report.json`
 - JSON logs under `AGENTS_SHIPGATE_LOG_FORMAT=json`

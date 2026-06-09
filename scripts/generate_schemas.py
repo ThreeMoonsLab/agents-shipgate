@@ -1234,7 +1234,8 @@ def build_agent_result_schema() -> tuple[Path, str]:
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "Agents Shipgate Agent Result v1"
     schema["description"] = (
-        "JSON Schema for shipgate check --format agent-json. Generated from "
+        "JSON Schema for shipgate check --format agent-json and "
+        "agents-shipgate-reports/agent-result.json. Generated from "
         "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
     )
     target = DOCS / "agent-result-schema.v1.json"

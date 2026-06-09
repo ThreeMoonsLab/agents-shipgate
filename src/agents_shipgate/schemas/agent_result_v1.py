@@ -42,8 +42,30 @@ class AgentResultDiagnostic(BaseModel):
     path: str | None = None
 
 
+class AgentResultAffectedFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    start_line: int | None = None
+    end_line: int | None = None
+    pointer: str | None = None
+    source_type: str | None = None
+
+
+class AgentResultTraceEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    summary: str
+
+
 class AgentResultV1(BaseModel):
-    """Single-object JSON contract for local coding-agent preflight checks."""
+    """Single-object JSON contract for coding-agent gate projections.
+
+    Emitted by both the local Codex preflight check and the GitHub/verify
+    artifact projection. Fields that are only available to one producer are
+    optional so every emitted object still validates against this one v1 schema.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +83,14 @@ class AgentResultV1(BaseModel):
     release_decision: dict[str, Any] | None = None
     trigger: dict[str, Any] | None = None
     finding_fingerprints: list[str] = Field(default_factory=list)
+    required_reviewers: list[str] | None = None
+    affected_files: list[AgentResultAffectedFile] | None = None
+    suggested_fixes: list[str] | None = None
+    agent_repair_instructions: list[str] | None = None
+    policy_snapshot_sha256: str | None = None
+    trace: list[AgentResultTraceEvent] | None = None
+    source_artifacts: dict[str, str] | None = None
+    exit_code_hint: int | None = None
 
     @model_validator(mode="after")
     def _action_matches_decision(self) -> AgentResultV1:
@@ -85,4 +115,3 @@ class AgentResultV1(BaseModel):
             if self.first_next_action.kind != "stop":
                 raise ValueError("block results must use kind='stop'")
         return self
-

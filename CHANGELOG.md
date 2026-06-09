@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add a GitHub/verify `agent-result.json` artifact that uses the existing
+  `agent_result_v1` schema instead of introducing a second agent-result
+  contract. The Action exposes `agent_decision`, `risk_level`, `audit_id`,
+  `required_reviewers`, and `policy_snapshot_sha256`, and the opt-in
+  `fail_on_decisions` input now fails closed when configured but no compact
+  agent decision is available.
+- SARIF results now prefer stable policy rule IDs when a finding carries one,
+  while preserving the built-in Shipgate `check_id` in properties. Existing
+  GitHub code-scanning alerts keyed by the previous rule ID may close/reopen
+  on the first upgrade run.
 - Add the repo's advisory self-dogfood Shipgate workflow, product-hardening
   gap-closure docs, Agent Workflow Evidence schemas, and the AgentPR Governance
   case catalog / acceptance spec.

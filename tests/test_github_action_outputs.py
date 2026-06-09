@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.github_action_outputs import extract_outputs, trigger_action
+from scripts.github_action_outputs import (
+    decision_policy_exit_code,
+    extract_outputs,
+    trigger_action,
+)
 
 
 @pytest.mark.parametrize(
@@ -141,6 +145,51 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     assert outputs["capability_changes_removed"] == 3
     assert outputs["trust_root_touched"] == "true"
     assert outputs["policy_weakened"] == "true"
+
+
+def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "report.json",
+        {
+            "summary": {"status": "clean"},
+            "release_decision": {
+                "decision": "passed",
+                "blockers": [],
+                "review_items": [],
+                "fail_policy": {"would_fail_ci": False, "exit_code": 0},
+            },
+        },
+    )
+    _write_json(output_dir / "verifier.json", {"head_status": "succeeded"})
+    _write_json(
+        output_dir / "agent-result.json",
+        {
+            "decision": "require_review",
+            "risk_level": "high",
+            "audit_id": "sg_audit_abc",
+            "required_reviewers": ["security", "agent-platform"],
+            "policy_snapshot_sha256": "b" * 64,
+        },
+    )
+
+    outputs = extract_outputs(output_dir)
+
+    assert outputs["agent_result_json"] == output_dir / "agent-result.json"
+    assert outputs["agent_decision"] == "require_review"
+    assert outputs["risk_level"] == "high"
+    assert outputs["audit_id"] == "sg_audit_abc"
+    assert outputs["required_reviewers"] == "security,agent-platform"
+    assert outputs["policy_snapshot_sha256"] == "b" * 64
+
+
+def test_decision_policy_exit_code_is_opt_in() -> None:
+    assert decision_policy_exit_code("block", "") == 0
+    assert decision_policy_exit_code("block", "block") == 20
+    assert decision_policy_exit_code("require_review", "block") == 0
+    assert decision_policy_exit_code("require_review", "block, require_review") == 20
+    assert decision_policy_exit_code("", "block") == 21
 
 
 def _write_json(path: Path, payload: dict) -> None:
