@@ -1,0 +1,65 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "decision": "require_review",
+  "risk_level": "medium",
+  "audit_id": "codex_boundary_9bc89e7cace6bb3c81f4ebe8",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) require human review.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "first_next_action": {
+    "actor": "human",
+    "kind": "review",
+    "why": "Codex config could not be parsed"
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-CONFIG-PARSE-FAILED",
+      "check_id": "SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "Codex config could not be parsed",
+      "path": ".codex/config.toml",
+      "evidence": {
+        "kind": "toml_parse_failed",
+        "error": "Expected ']' at the end of a table declaration (at line 1, column 31)"
+      },
+      "recommendation": "Fix the TOML or have a human review the Codex boundary change."
+    }
+  ],
+  "diagnostics": [],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+      }
+    ],
+    "changed_files": [
+      ".codex/config.toml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --diff <diff> --format agent-json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_47002f39a1dc0601"
+  ]
+}

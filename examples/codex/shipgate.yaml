@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+version: "0.1"
+project:
+  name: codex-local-boundary-example
+agent:
+  name: codex-local-boundary
+  declared_purpose:
+    - Review repo-local Codex execution boundary changes before local continuation.
+environment:
+  target: local
+tool_sources:
+  - id: codex_config
+    type: codex_config
+    path: .
+  - id: codex_plugins
+    type: codex_plugin
+    mode: package
+    path: plugins/agents-shipgate
+    optional: true
+checks:
+  policy_packs: []
+output:
+  packet:
+    enabled: false
+

@@ -1,0 +1,42 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "decision": "allow",
+  "risk_level": "none",
+  "audit_id": "codex_boundary_ac2b61e8f5b08f7ea1009557",
+  "policy_version": "1",
+  "summary": "No Codex boundary changes require action.",
+  "changed_files": [
+    "src/example.py"
+  ],
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "continue",
+    "why": "No Codex boundary rule requires review or blocking."
+  },
+  "violated_rules": [],
+  "diagnostics": [],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": false,
+    "run_shipgate": false,
+    "skip": true,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": "no_match",
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "No rules matched; nothing in this PR signals a tool-surface change.",
+    "matched_rules": [],
+    "changed_files": [
+      "src/example.py"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "none",
+      "command": null,
+      "why": "No rules matched; nothing in this PR signals a tool-surface change."
+    }
+  },
+  "finding_fingerprints": []
+}

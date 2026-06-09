@@ -8,9 +8,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex plugin · n8n
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 - **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL with human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/). The site also serves a [/.well-known/agents-shipgate.json](https://threemoonslab.com/.well-known/agents-shipgate.json) discovery file **pinned to the latest released tag** for external consumers and AI search. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the released file) for schema-version and gating-signal decisions.**
@@ -227,6 +227,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes Codex repo config, hooks, or permission profiles | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |

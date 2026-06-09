@@ -271,6 +271,7 @@ def run_verify(
             no_heuristics=no_heuristics,
             verification_context=VerificationContext(
                 changed_files=changed_files,
+                diff_text=diff_text,
                 diff_text_available=bool(diff_text),
                 trigger_result=trigger,
             ),

@@ -341,6 +341,16 @@ def test_predicate_none_match_glob_any_of_all_of():
             "",
             "TRIGGER-CODEX-PLUGIN-CHANGED",
         ),
+        (
+            [".codex/config.toml"],
+            "",
+            "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            ["packages/agent/.codex/hooks.json"],
+            "",
+            "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        ),
         (["tools/agent/.mcp.json"], "", "TRIGGER-CODEX-PLUGIN-CHANGED"),
         (["skills/x/SKILL.md"], "", "TRIGGER-CODEX-PLUGIN-CHANGED"),
         (

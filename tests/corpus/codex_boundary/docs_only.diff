@@ -1,0 +1,7 @@
+diff --git a/docs/readme.md b/docs/readme.md
+index 1111111..2222222 100644
+--- a/docs/readme.md
++++ b/docs/readme.md
+@@ -1 +1,2 @@
+ # Notes
++This documents a UI label.

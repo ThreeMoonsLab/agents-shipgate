@@ -5,7 +5,7 @@ description: Use when the user wants to add or run the deterministic merge gate 
 
 # agents-shipgate skill
 
-`agents-shipgate` is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic verifier artifacts, findings, Markdown, JSON, and SARIF.
+`agents-shipgate` is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It analyzes `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API artifacts, Google ADK files, LangChain/LangGraph files, CrewAI files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON) and emits deterministic verifier artifacts, findings, Markdown, JSON, and SARIF.
 
 It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or send telemetry by default. Static analysis only; audited exceptions are pinned in `tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`.
 

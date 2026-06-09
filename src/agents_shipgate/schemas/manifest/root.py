@@ -81,6 +81,9 @@ class AgentsShipgateManifest(BaseModel):
         has_codex_plugin = any(
             source.type == "codex_plugin" for source in self.tool_sources
         )
+        has_codex_config = any(
+            source.type == "codex_config" for source in self.tool_sources
+        )
         has_n8n = self.n8n is not None and self.n8n.has_inputs()
         has_anthropic = self.anthropic is not None and self.anthropic.has_inputs()
         if (
@@ -92,10 +95,11 @@ class AgentsShipgateManifest(BaseModel):
             and not has_crewai
             and not has_n8n
             and not has_codex_plugin
+            and not has_codex_config
         ):
             raise ValueError(
                 "At least one of tool_sources, openai_api, anthropic, google_adk, "
-                "langchain, crewai, n8n, or codex_plugin is required"
+                "langchain, crewai, n8n, codex_config, or codex_plugin is required"
             )
         if (
             not self.agent.declared_purpose
@@ -107,11 +111,12 @@ class AgentsShipgateManifest(BaseModel):
             and not has_crewai
             and not has_n8n
             and not has_codex_plugin
+            and not has_codex_config
         ):
             raise ValueError(
                 "agent.declared_purpose, agent.instructions_preview, "
                 "openai_api.prompt_files, anthropic.prompt_files, framework "
-                "inputs, n8n inputs, or codex_plugin inputs are required"
+                "inputs, n8n inputs, codex_config, or codex_plugin inputs are required"
             )
         return self
 

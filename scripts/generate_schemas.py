@@ -18,6 +18,9 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
+- docs/agent-result-schema.v1.json
+                                (from agents_shipgate.schemas.agent_result_v1.
+                                 AgentResultV1)
 - docs/capability-lock-schema.v0.2.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1218,6 +1221,26 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_agent_result_schema() -> tuple[Path, str]:
+    """Generate docs/agent-result-schema.v1.json from AgentResultV1."""
+
+    from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+
+    schema = AgentResultV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/agent-result-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Result v1"
+    schema["description"] = (
+        "JSON Schema for shipgate check --format agent-json. Generated from "
+        "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
+    )
+    target = DOCS / "agent-result-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
 def build_capability_lock_schema() -> tuple[Path, str]:
     """Generate the stable capability-lock schema."""
 
@@ -1353,6 +1376,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("policy_pack", build_policy_pack_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
+    ("agent_result", build_agent_result_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),

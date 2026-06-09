@@ -1,0 +1,76 @@
+id: codex-boundary
+name: Codex Boundary Local Policy
+version: "1"
+rules:
+  - id: CODEX-CONFIG-PARSE-FAILED
+    check_id: SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED
+    title: Codex config could not be parsed
+    action: require_review
+    risk_level: medium
+    recommendation: Fix the TOML or have a human review the Codex boundary change.
+  - id: CODEX-UNKNOWN-PERMISSION-KEY
+    check_id: SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
+    title: Unknown Codex permission key
+    action: require_review
+    risk_level: medium
+    recommendation: Review the unknown permission key before trusting the boundary.
+  - id: CODEX-NETWORK-WILDCARD
+    check_id: SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD
+    title: Codex network profile allows a wildcard domain
+    action: require_review
+    risk_level: high
+    recommendation: Replace wildcard network access with explicit allowed domains.
+  - id: CODEX-NETWORK-EXPANDED
+    check_id: SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED
+    title: Codex network access expanded
+    action: require_review
+    risk_level: high
+    recommendation: Have a human approve the expanded Codex network boundary.
+  - id: CODEX-DANGER-FULL-ACCESS
+    check_id: SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS
+    title: Codex full-access sandbox selected
+    action: require_review
+    risk_level: critical
+    recommendation: Use a narrower permission profile or get explicit human approval.
+  - id: CODEX-MCP-AUTO-APPROVE-WRITE
+    check_id: SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+    title: Codex MCP write tool is auto-approved
+    action: block
+    risk_level: critical
+    recommendation: Do not auto-approve write/destructive MCP tools.
+  - id: CODEX-MCP-AUTO-APPROVE-UNKNOWN
+    check_id: SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN
+    title: Codex MCP tool surface is auto-approved but not enumerable
+    action: require_review
+    risk_level: high
+    recommendation: Enumerate the MCP tools or require prompts before approval.
+  - id: CODEX-APP-AUTO-APPROVE
+    check_id: SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE
+    title: Codex app connector tool is auto-approved
+    action: require_review
+    risk_level: high
+    recommendation: Review app connector approval changes before local automation.
+  - id: CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
+    check_id: SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
+    title: AGENTS.md removed a Shipgate requirement
+    action: require_review
+    risk_level: medium
+    recommendation: Have a human confirm the agent instructions were not weakened.
+  - id: CODEX-CI-GATE-REMOVED
+    check_id: SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
+    title: Shipgate GitHub Action no longer invokes the gate
+    action: block
+    risk_level: critical
+    recommendation: Restore the Shipgate workflow or get human approval to remove it.
+  - id: CODEX-HOOK-COMMAND-CHANGED
+    check_id: SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
+    title: Codex executable hook changed
+    action: require_review
+    risk_level: high
+    recommendation: Review executable hooks before letting Codex rely on them.
+  - id: CODEX-SKILL-COMMAND-CHANGED
+    check_id: SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
+    title: Codex skill gained command-bearing instructions
+    action: require_review
+    risk_level: medium
+    recommendation: Review command-bearing skill changes before local automation.

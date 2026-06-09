@@ -28,5 +28,6 @@ class VerificationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     changed_files: list[str] = Field(default_factory=list)
+    diff_text: str | None = None
     diff_text_available: bool = False
     trigger_result: dict[str, Any] = Field(default_factory=dict)
