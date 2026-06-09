@@ -193,6 +193,101 @@ index 1111111..2222222 100644
     assert result.violated_rules == []
 
 
+def test_codex_config_hooks_are_delta_scoped(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'model = "old"\n'
+        "[hooks.pre_command]\n"
+        'type = "command"\n'
+        'command = "echo existing"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,4 +1,4 @@
+-model = "old"
++model = "new"
+ [hooks.pre_command]
+ type = "command"
+ command = "echo existing"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "allow"
+    assert result.violated_rules == []
+
+
+def test_codex_hooks_json_is_delta_scoped(tmp_path: Path) -> None:
+    hooks = tmp_path / ".codex" / "hooks.json"
+    hooks.parent.mkdir()
+    hooks.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "hooks": {
+                    "pre_command": [
+                        {"type": "command", "command": "echo existing"}
+                    ]
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/hooks.json b/.codex/hooks.json
+index 1111111..2222222 100644
+--- a/.codex/hooks.json
++++ b/.codex/hooks.json
+@@ -1,5 +1,5 @@
+ {
+-  "version": 1,
++  "version": 2,
+   "hooks": {
+     "pre_command": [
+       {
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "allow"
+    assert result.violated_rules == []
+
+
+def test_codex_hook_command_change_requires_review(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'model = "gpt-5"\n'
+        "[hooks.pre_command]\n"
+        'type = "command"\n'
+        'command = "echo old"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,4 +1,4 @@
+ model = "gpt-5"
+ [hooks.pre_command]
+ type = "command"
+-command = "echo old"
++command = "echo new"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-HOOK-COMMAND-CHANGED"
+    ]
+
+
 def test_codex_mcp_auto_approve_tokenizes_risky_tool_names(tmp_path: Path) -> None:
     diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
 new file mode 100644
@@ -213,6 +308,28 @@ index 0000000..1111111
     ]
 
 
+def test_codex_mcp_auto_approve_blocks_inflected_destructive_tools(
+    tmp_path: Path,
+) -> None:
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.codex/config.toml
+@@ -0,0 +1,3 @@
++[mcp_servers.dangerous]
++default_tools_approval_mode = "approve"
++enabled_tools = ["deletes_records", "writes_file", "sends_email", "removes_all", "wipe_db", "drop_table", "truncate_table", "revoke_access", "grant_role", "destroy_user", "purge_cache", "overwrite_file", "kill_job", "terminate_instance"]
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "block"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-MCP-AUTO-APPROVE-WRITE"
+    ]
+
+
 def test_codex_agents_softening_keeps_shipgate_term_requires_review(
     tmp_path: Path,
 ) -> None:
@@ -223,6 +340,26 @@ index 1111111..2222222 100644
 @@ -1 +1 @@
 -You MUST run agents-shipgate verify before completion.
 +agents-shipgate verify is optional and can be skipped.
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"
+    ]
+
+
+def test_codex_agents_reworded_requirement_without_marker_requires_review(
+    tmp_path: Path,
+) -> None:
+    diff_text = """diff --git a/AGENTS.md b/AGENTS.md
+index 1111111..2222222 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1 +1 @@
+-You MUST run agents-shipgate verify before completion.
++Running agents-shipgate verify is now advisory and at your discretion.
 """
 
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
@@ -287,6 +424,59 @@ index 1111111..2222222 100644
     assert safe_result.decision == "allow"
     assert risky_result.decision == "allow"
     assert safe_result.audit_id != risky_result.audit_id
+
+
+def test_codex_check_mismatched_workspace_content_fails_closed(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text('model = "unexpected"\n', encoding="utf-8")
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1 +1 @@
+-model = "old"
++model = "new"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert result.diagnostics[0].code == "content_source"
+    assert "diff_workspace_mismatch" in result.diagnostics[0].message
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-CONFIG-PARSE-FAILED"
+    ]
+
+
+def test_codex_check_accepts_already_applied_insertion_diff(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'model = "gpt-5"\n'
+        "[sandbox_workspace_write]\n"
+        "network_access = true\n",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1 +1,3 @@
+ model = "gpt-5"
++[sandbox_workspace_write]
++network_access = true
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert "workspace_already_contains_diff_head" in result.diagnostics[0].message
+    assert [item.id for item in result.violated_rules] == ["CODEX-NETWORK-EXPANDED"]
 
 
 def test_agent_result_never_contradicts_release_decision(tmp_path: Path) -> None:

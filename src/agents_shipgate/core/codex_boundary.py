@@ -38,31 +38,73 @@ _SHIPGATE_TERMS = (
     "shipgate scan",
 )
 _RISKY_ACTION_TOKENS = {
-    "write",
-    "delete",
-    "remove",
-    "update",
-    "create",
-    "edit",
-    "patch",
     "apply",
-    "run",
-    "exec",
-    "execute",
-    "send",
-    "post",
-    "put",
-    "merge",
-    "deploy",
     "approve",
-    "commit",
-    "push",
-    "release",
-    "publish",
     "cancel",
+    "commit",
+    "edit",
+    "create",
+    "delete",
+    "deploy",
+    "destroy",
+    "drop",
+    "execute",
+    "exec",
+    "grant",
+    "kill",
+    "merge",
+    "overwrite",
+    "patch",
+    "post",
+    "publish",
+    "purge",
+    "push",
+    "put",
+    "release",
+    "remove",
+    "revoke",
+    "run",
+    "send",
+    "terminate",
     "transfer",
+    "truncate",
+    "update",
+    "wipe",
+    "write",
 }
 _RISKY_NOUN_TOKENS = {"payment", "refund"}
+_INFLECTED_RISKY_ACTION_TOKENS = {
+    "approves": "approve",
+    "cancels": "cancel",
+    "commits": "commit",
+    "creates": "create",
+    "deletes": "delete",
+    "deploys": "deploy",
+    "destroys": "destroy",
+    "drops": "drop",
+    "edits": "edit",
+    "executes": "execute",
+    "grants": "grant",
+    "kills": "kill",
+    "merges": "merge",
+    "overwrites": "overwrite",
+    "patches": "patch",
+    "posts": "post",
+    "publishes": "publish",
+    "purges": "purge",
+    "pushes": "push",
+    "puts": "put",
+    "releases": "release",
+    "removes": "remove",
+    "revokes": "revoke",
+    "sends": "send",
+    "terminates": "terminate",
+    "transfers": "transfer",
+    "truncates": "truncate",
+    "updates": "update",
+    "wipes": "wipe",
+    "writes": "write",
+}
 _SAFE_READ_PREFIXES = {
     "compute",
     "describe",
@@ -75,6 +117,8 @@ _SAFE_READ_PREFIXES = {
     "show",
 }
 _WEAKENING_TERMS = (
+    "advisory",
+    "at your discretion",
     "bypass",
     "can be skipped",
     "disable",
@@ -87,6 +131,11 @@ _WEAKENING_TERMS = (
     "optional",
     "skip",
     "unnecessary",
+)
+_REQUIREMENT_MARKER_RE = re.compile(
+    r"\b(?:always|must|required|requires?|shall)\b|"
+    r"\bbefore\b.{0,80}\b(?:complet\w*|finish\w*|report\w*)\b",
+    re.IGNORECASE,
 )
 _SHIPGATE_INVOCATION_RE = re.compile(
     r"^\s*(?:-\s*)?(?:run:\s*)?"
@@ -589,7 +638,7 @@ def _evaluate_config_file(
         add,
     )
     _evaluate_plugin_mcp_servers(old_data.get("plugins"), data.get("plugins"), path, add)
-    _evaluate_hooks(data.get("hooks"), path, add)
+    _evaluate_hooks(old_data.get("hooks"), data.get("hooks"), path, add)
     _evaluate_apps(old_data.get("apps"), data.get("apps"), path, add)
 
 
@@ -806,13 +855,30 @@ def _evaluate_hooks_json(
         )
         return
     hooks = data.get("hooks") if isinstance(data, dict) else data
-    _evaluate_hooks(hooks, path, add)
+    if not resolved.old_text:
+        old_hooks = None
+    else:
+        try:
+            old_data = json.loads(resolved.old_text)
+        except json.JSONDecodeError as exc:
+            add(
+                "CODEX-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence={"kind": "old_hooks_json_parse_failed", "error": str(exc)},
+            )
+            return
+        old_hooks = old_data.get("hooks") if isinstance(old_data, dict) else old_data
+    _evaluate_hooks(old_hooks, hooks, path, add)
 
 
-def _evaluate_hooks(hooks: Any, path: str, add) -> None:
+def _evaluate_hooks(old_hooks: Any, hooks: Any, path: str, add) -> None:
+    old_command_handlers = _hook_command_signatures_by_event(old_hooks)
     for event, group in _iter_hook_groups(hooks):
         for hook in _hook_handlers(group):
             if isinstance(hook, dict) and (hook.get("type") == "command" or hook.get("command")):
+                signature = _canonical_json(hook)
+                if signature in old_command_handlers.get(event, set()):
+                    continue
                 add(
                     "CODEX-HOOK-COMMAND-CHANGED",
                     path=path,
@@ -827,11 +893,20 @@ def _evaluate_hooks(hooks: Any, path: str, add) -> None:
 def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
     removed_shipgate = any(_contains_shipgate_term(line) for line in diff_file.removed_lines)
     added_shipgate = any(_contains_shipgate_term(line) for line in diff_file.added_lines)
+    removed_requirement = any(
+        _contains_shipgate_requirement(line) for line in diff_file.removed_lines
+    )
+    added_requirement = any(
+        _contains_shipgate_requirement(line) for line in diff_file.added_lines
+    )
     softened_shipgate = any(
         _contains_shipgate_term(line) and _contains_weakening_term(line)
         for line in diff_file.added_lines
     )
-    if diff_file.is_deleted or (removed_shipgate and (not added_shipgate or softened_shipgate)):
+    if diff_file.is_deleted or (
+        removed_shipgate
+        and (not added_shipgate or softened_shipgate or (removed_requirement and not added_requirement))
+    ):
         add(
             "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
             path=diff_file.path,
@@ -840,6 +915,8 @@ def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
                 "deleted": diff_file.is_deleted,
                 "removed_shipgate_lines": removed_shipgate,
                 "softened_shipgate_lines": softened_shipgate,
+                "removed_requirement_lines": removed_requirement,
+                "replacement_requirement_lines": added_requirement,
             },
         )
 
@@ -925,6 +1002,19 @@ def _resolve_changed_file_text(
             )
         )
         return resolved
+
+    if _is_insertion_only_change(diff_file):
+        reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
+        if reversed_text is not None:
+            resolved = ResolvedFileText(
+                old_text=reversed_text,
+                new_text=workspace_text,
+                source="workspace_already_contains_diff_head",
+                old_sha256=_sha256_text(reversed_text),
+                new_sha256=_sha256_text(workspace_text),
+            )
+            diagnostics.append(_content_source_diagnostic(path, resolved))
+            return resolved
 
     applied = _apply_hunks(workspace_text, diff_file.hunks, direction="forward")
     if applied is not None:
@@ -1024,11 +1114,23 @@ def _apply_hunks(
         index = start + offset
         if index < 0:
             return None
+        if index > len(lines):
+            return None
+        if index + len(expected) > len(lines):
+            return None
         if lines[index : index + len(expected)] != expected:
             return None
         lines[index : index + len(expected)] = replacement
         offset += len(replacement) - len(expected)
     return _join_lines(lines, final_newline=text.endswith("\n"))
+
+
+def _is_insertion_only_change(diff_file: DiffFile) -> bool:
+    return any(
+        any(kind == "+" for kind, _ in hunk.lines)
+        and not any(kind == "-" for kind, _ in hunk.lines)
+        for hunk in diff_file.hunks
+    )
 
 
 def _join_lines(lines: list[str], *, final_newline: bool = True) -> str:
@@ -1040,6 +1142,10 @@ def _join_lines(lines: list[str], *, final_newline: bool = True) -> str:
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _changed_to(
@@ -1091,6 +1197,15 @@ def _hook_handlers(group: Any) -> list[Any]:
             return hooks
         return [group]
     return []
+
+
+def _hook_command_signatures_by_event(hooks: Any) -> dict[str, set[str]]:
+    signatures: dict[str, set[str]] = {}
+    for event, group in _iter_hook_groups(hooks):
+        for hook in _hook_handlers(group):
+            if isinstance(hook, dict) and (hook.get("type") == "command" or hook.get("command")):
+                signatures.setdefault(event, set()).add(_canonical_json(hook))
+    return signatures
 
 
 def _server_tool_names(server: dict[str, Any]) -> set[str]:
@@ -1281,9 +1396,11 @@ def _is_allow(value: Any) -> bool:
 
 def _is_risky_tool_name(value: str) -> bool:
     tokens = _name_tokens(value)
-    if any(token in _RISKY_ACTION_TOKENS for token in tokens):
+    action_tokens = {variant for token in tokens for variant in _token_variants(token)}
+    if any(token in _RISKY_ACTION_TOKENS for token in action_tokens):
         return True
-    if not tokens or tokens[0] in _SAFE_READ_PREFIXES:
+    first_token_variants = _token_variants(tokens[0]) if tokens else set()
+    if not tokens or first_token_variants & _SAFE_READ_PREFIXES:
         return False
     return any(token in _RISKY_NOUN_TOKENS for token in tokens)
 
@@ -1293,9 +1410,26 @@ def _name_tokens(value: str) -> list[str]:
     return [token.lower() for token in re.findall(r"[A-Za-z0-9]+", spaced)]
 
 
+def _token_variants(token: str) -> set[str]:
+    variants = {token}
+    if token in _INFLECTED_RISKY_ACTION_TOKENS:
+        variants.add(_INFLECTED_RISKY_ACTION_TOKENS[token])
+    if token.endswith("ed") and len(token) > 4:
+        variants.add(token[:-1])
+        variants.add(token[:-2])
+    if token.endswith("ing") and len(token) > 5:
+        variants.add(token[:-3])
+        variants.add(f"{token[:-3]}e")
+    return variants
+
+
 def _contains_shipgate_term(value: str) -> bool:
     lowered = value.lower()
     return any(term in lowered for term in _SHIPGATE_TERMS)
+
+
+def _contains_shipgate_requirement(value: str) -> bool:
+    return _contains_shipgate_term(value) and bool(_REQUIREMENT_MARKER_RE.search(value))
 
 
 def _contains_weakening_term(value: str) -> bool:

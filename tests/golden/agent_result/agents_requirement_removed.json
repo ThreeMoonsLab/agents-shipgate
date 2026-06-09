@@ -1,67 +1,69 @@
 {
-  "schema_version": "agent_result_v1",
   "agent": "codex",
-  "decision": "require_review",
-  "risk_level": "medium",
-  "audit_id": "codex_boundary_eeac3a3c4caa591ebf1a4aab",
-  "policy_version": "1",
-  "summary": "1 Codex boundary change(s) require human review.",
+  "audit_id": "codex_boundary_b256965e23dd4cc4c9d0abd2",
   "changed_files": [
     "AGENTS.md"
+  ],
+  "decision": "require_review",
+  "diagnostics": [],
+  "finding_fingerprints": [
+    "fp_e3eff6c19a8ab16d"
   ],
   "first_next_action": {
     "actor": "human",
     "kind": "review",
     "why": "AGENTS.md removed a Shipgate requirement"
   },
-  "violated_rules": [
-    {
-      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-      "action": "require_review",
-      "risk_level": "medium",
-      "title": "AGENTS.md removed a Shipgate requirement",
-      "path": "AGENTS.md",
-      "evidence": {
-        "kind": "shipgate_instruction_removed",
-        "deleted": false,
-        "removed_shipgate_lines": true,
-        "softened_shipgate_lines": false
-      },
-      "recommendation": "Have a human confirm the agent instructions were not weakened."
-    }
-  ],
-  "diagnostics": [],
+  "policy_version": "1",
+  "risk_level": "medium",
+  "schema_version": "agent_result_v1",
+  "summary": "1 Codex boundary change(s) require human review.",
   "trigger": {
-    "schema_version": "0.1",
-    "should_run": false,
-    "run_shipgate": false,
-    "skip": true,
-    "force_run": false,
-    "dry_run_recommended": false,
-    "skip_reason": "skip_rule",
-    "stop_conditions_fired": false,
-    "stop_conditions_evaluated": false,
-    "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
-    "matched_rules": [
-      {
-        "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
-        "action": "skip_shipgate",
-        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
-        "command": null
-      }
-    ],
     "changed_files": [
       "AGENTS.md"
     ],
     "diff_tokens": [],
+    "dry_run_recommended": false,
+    "force_run": false,
+    "matched_rules": [
+      {
+        "action": "skip_shipgate",
+        "command": null,
+        "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate."
+      }
+    ],
     "next_action": {
-      "kind": "none",
       "command": null,
+      "kind": "none",
       "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
-    }
+    },
+    "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
+    "run_shipgate": false,
+    "schema_version": "0.1",
+    "should_run": false,
+    "skip": true,
+    "skip_reason": "skip_rule",
+    "stop_conditions_evaluated": false,
+    "stop_conditions_fired": false
   },
-  "finding_fingerprints": [
-    "fp_4ba72a729e079dc9"
+  "violated_rules": [
+    {
+      "action": "require_review",
+      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "evidence": {
+        "deleted": false,
+        "kind": "shipgate_instruction_removed",
+        "removed_requirement_lines": true,
+        "removed_shipgate_lines": true,
+        "replacement_requirement_lines": false,
+        "softened_shipgate_lines": false
+      },
+      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "path": "AGENTS.md",
+      "recommendation": "Have a human confirm the agent instructions were not weakened.",
+      "risk_level": "medium",
+      "title": "AGENTS.md removed a Shipgate requirement"
+    }
   ]
 }
