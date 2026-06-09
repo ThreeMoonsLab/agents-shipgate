@@ -16,13 +16,21 @@
       "ec2c3378a8a73e7b259664170fdcd33fa3242f9adb3c9b83b0ae616609fa6c4a"
     ],
     "prompts/add-shipgate-to-repo.md": [
-      "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1"
+      "c67aa56813d76ddafd4091b2120d914fab6e0590b46e3598d856b7c4e6443fb1",
+      "ea3c37cfbbd42c40d164abfe21d468a3a5550d5384125f94a53c947dea6b4b2a"
     ],
     "prompts/stabilize-strict-mode.md": [
-      "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc"
+      "ac9a176738ab2538d725c29ba302637bac6b287588e07d952aae352f85ab98cc",
+      "3e5c320b57c57ce91d5dcdf2b584d71c229cb5b046bda944b68dc2056693ec6a"
     ],
     "prompts/verify-agent-diff.md": [
       "2242305c28828f8d08bae1d0e4f60042f256e61949bc8f388d43c791c6b3f615"
+    ],
+    "ci-recipes/advisory-pr-comment.yml": [
+      "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
+    ],
+    "prompts/decide-shipgate-relevance.md": [
+      "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
     ]
   },
   "bootstrap_legacy_sha256": {

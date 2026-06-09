@@ -2,7 +2,7 @@
 # repo root when a downstream project uses
 #   repos:
 #     - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-#       rev: v0.11.0
+#       rev: v0.12.0
 #       hooks:
 #         - id: <hook id below>
 #

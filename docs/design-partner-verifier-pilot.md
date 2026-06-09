@@ -1,6 +1,6 @@
 # Design Partner Verifier Pilot
 
-Use this runbook to get three design partners through the v0.11.0 verifier
+Use this runbook to get three design partners through the v0.12.0 verifier
 loop on one real or sanitized AI-generated agent PR each.
 
 ## Goal
@@ -73,11 +73,11 @@ success path.
 ## Pilot Commands
 
 Run these from the target repo root. The `verify` and `feedback` commands
-require agents-shipgate >=0.11.0, so the block leads with `pipx install`
+require agents-shipgate >=0.12.0, so the block leads with `pipx install`
 then `pipx upgrade`: a plain `pipx install` is a no-op when an older build
 is already installed, and the follow-up `pipx upgrade` brings a stale copy
 current. If `pipx` is unavailable, use
-`python -m pip install -U "agents-shipgate>=0.11"` and verify with
+`python -m pip install -U "agents-shipgate>=0.12"` and verify with
 `agents-shipgate --version`. For committed PR/CI refs, make `origin/main`
 and `HEAD` available before the final verify command.
 
@@ -125,13 +125,13 @@ Paste this into the partner's coding agent from the target repo root:
 Add Agents Shipgate as an advisory verifier for this AI-generated
 agent-capability PR.
 
-Use the v0.11.0 verifier-first path:
-1. Install or upgrade agents-shipgate (the pilot needs >=0.11.0):
+Use the v0.12.0 verifier-first path:
+1. Install or upgrade agents-shipgate (the pilot needs >=0.12.0):
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    A plain pipx install is a no-op when an older build is already installed,
    so the follow-up pipx upgrade brings a stale copy current. If pipx is
-   unavailable, use python -m pip install -U "agents-shipgate>=0.11" and
+   unavailable, use python -m pip install -U "agents-shipgate>=0.12" and
    verify with agents-shipgate --version.
 2. Run:
    agents-shipgate verify --preview --json

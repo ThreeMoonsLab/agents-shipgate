@@ -19,13 +19,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.12.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.12.0'
       - name: Fail blocked capability changes
         if: steps.shipgate.outputs.merge_verdict == 'blocked'
         run: exit 1

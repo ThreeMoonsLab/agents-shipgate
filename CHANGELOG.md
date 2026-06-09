@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-06-09
 
 - **Actionable `insufficient_evidence` (report schema v0.26).**
   `release_decision.evidence_coverage.evidence_gaps[]` now lists one
