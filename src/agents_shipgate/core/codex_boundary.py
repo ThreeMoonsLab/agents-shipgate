@@ -143,6 +143,11 @@ _SHIPGATE_INVOCATION_RE = re.compile(
     r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
     r"\s+(?:verify|scan|check)\b"
 )
+_SHIPGATE_CLI_COMMAND_RE = re.compile(
+    r"^\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+|env)\s+)*"
+    r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
+    r"(?:\s|$)"
+)
 _SHIPGATE_ACTION_RE = re.compile(
     r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
@@ -1466,7 +1471,30 @@ def _workspace_declares_shipgate_action(workspace: Path) -> bool:
     if not isinstance(payload, dict):
         return False
     name = str(payload.get("name") or "").strip().lower()
-    return name == "agents shipgate"
+    return name == "agents shipgate" and _root_action_invokes_shipgate(payload)
+
+
+def _root_action_invokes_shipgate(payload: dict[str, Any]) -> bool:
+    runs = payload.get("runs")
+    if not isinstance(runs, dict):
+        return False
+    steps = runs.get("steps")
+    if not isinstance(steps, list):
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        run = step.get("run")
+        if isinstance(run, str) and _run_script_invokes_shipgate(run):
+            return True
+        uses = step.get("uses")
+        if isinstance(uses, str) and _SHIPGATE_ACTION_RE.search(f"uses: {uses}"):
+            return True
+    return False
+
+
+def _run_script_invokes_shipgate(value: str) -> bool:
+    return any(_SHIPGATE_CLI_COMMAND_RE.search(line) for line in value.splitlines())
 
 
 def _is_codex_config_path(path: str) -> bool:
