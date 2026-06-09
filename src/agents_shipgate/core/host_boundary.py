@@ -7,11 +7,11 @@ MCP server declarations (``.mcp.json``, ``.cursor/mcp.json``,
 ``.vscode/mcp.json``), and GitHub workflow permission expansion
 (``.github/workflows/*.yml|yaml``).
 
-NOTE: this module is the second consumer of the codex boundary diff
-plumbing (``parse_unified_diff``, ``_resolve_changed_file_text``, the
-canonical-JSON and dedupe helpers). Importing those private helpers from
-the sibling module is deliberate for now; a future split will move the
-shared diff plumbing into a common module.
+NOTE: the shared diff plumbing (``parse_unified_diff``,
+``_resolve_changed_file_text``, the canonical-JSON helper) now lives in
+``agents_shipgate.core.boundary_diff`` and is imported from there. Only
+the policy/decision helpers (rank tables, dedupe, display path) are
+still imported from the sibling ``codex_boundary`` module.
 
 Static-only contract: pure parsing via ``json.loads`` / ``yaml.safe_load``
 only — no subprocess, no network, no exec/eval/importlib. Enforced by
@@ -28,16 +28,18 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from agents_shipgate.core.boundary_diff import (
+    _canonical_json,
+    _resolve_changed_file_text,
+    parse_unified_diff,
+)
 from agents_shipgate.core.codex_boundary import (
     _DECISION_RANK,
     _RISK_BY_ACTION,
     _RISK_RANK,
     DEFAULT_POLICY_VERSION,
-    _canonical_json,
     _dedupe_violations,
     _display_path,
-    _resolve_changed_file_text,
-    parse_unified_diff,
 )
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
