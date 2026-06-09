@@ -31,3 +31,37 @@ def test_self_check_json_output_is_well_formed():
     # Bundled fixtures should run successfully.
     for name, status in payload["fixtures_run"].items():
         assert status == "ok", f"fixture {name} not ok: {status}"
+
+
+def test_logging_handler_survives_stream_swap_between_invocations(capsys):
+    """Regression for the flaky CI self-check JSON failure (PR #192):
+    a logging handler bound to a since-closed stderr (an earlier
+    in-process CLI invocation's capture buffer) must not raise and must
+    not print '--- Logging error ---' into a later invocation's output.
+    The handler resolves sys.stderr at emit time."""
+    import io
+    import logging
+    import sys
+
+    from agents_shipgate.core.logging import configure_logging
+
+    old_stderr = sys.stderr
+    first = io.StringIO()
+    try:
+        # Invocation A configures logging while its capture is active...
+        sys.stderr = first
+        configure_logging(verbose=True, force=True)
+        # ...then A's stream is closed, as CliRunner does on exit.
+        first.close()
+
+        # Invocation B runs with a fresh stderr; emitting must write to
+        # B's live stream, not A's closed buffer.
+        second = io.StringIO()
+        sys.stderr = second
+        logging.getLogger("agents_shipgate.test").debug("checks completed")
+
+        assert "checks completed" in second.getvalue()
+        assert "Logging error" not in second.getvalue()
+    finally:
+        sys.stderr = old_stderr
+        configure_logging(verbose=False, force=True)
