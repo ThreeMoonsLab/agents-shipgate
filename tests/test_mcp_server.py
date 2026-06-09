@@ -135,3 +135,19 @@ def test_build_server_registers_three_tools() -> None:
         "shipgate_verify",
         "shipgate_explain_finding",
     } <= names
+
+
+def test_verify_tool_defaults_to_working_tree_without_base_or_head(
+    refund_pr_workspace: Path,
+) -> None:
+    """Omitting base/head must verify local work like the CLI does
+    (head defaults to HEAD, no archive) — not fail on an empty head ref.
+    Regression for the `head or ""` bug caught in PR #192 review."""
+    result = verify_tool(workspace=str(refund_pr_workspace))
+    assert "error" not in result, result
+    assert result["merge_verdict"] in {
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+    }

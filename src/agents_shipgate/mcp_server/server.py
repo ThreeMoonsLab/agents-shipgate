@@ -107,11 +107,14 @@ def verify_tool(
     from agents_shipgate.cli.verify.orchestrator import run_verify
 
     try:
+        # Mirror the CLI's defaults exactly (cli/verify/command.py): an
+        # omitted head verifies the working tree against HEAD without
+        # archiving; an explicit head scans an isolated archive of it.
         verifier, _report, _exit_code = run_verify(
             workspace=Path(workspace),
             config=Path(config),
             base=base or None,
-            head=head or "",
+            head=head or "HEAD",
             archive_head=bool(head),
             out=None,
             ci_mode=ci_mode,
