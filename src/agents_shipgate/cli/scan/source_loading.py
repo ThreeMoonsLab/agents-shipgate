@@ -282,6 +282,7 @@ def _source_priority(tool: Tool) -> int:
         "codex_plugin_mcp_inventory": 25,
         "n8n_inventory": 25,
         "mcp": 20,
+        "codex_config_mcp": 18,
         "google_adk_function": 10,
         "langchain_function": 10,
         "langchain_structured_tool": 10,

@@ -1,0 +1,65 @@
+# Check catalog · category: mcp_permissions
+#
+# Loaded by agents_shipgate.checks._metadata_loader.
+checks:
+- id: SHIP-MCP-ENV-SECRET-PASSTHROUGH
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: MCP server passes through secret environment variables.
+  rationale: Secret-bearing environment pass-through expands the credential boundary
+    available to a tool server.
+  fires_when: A statically parsed MCP server declares secret-like env vars or passes
+    through secret-like host env references.
+  evidence_fields: [source_id, env_secret_names]
+  recommendation: Review the secret boundary or replace pass-through with a narrower
+    credential mechanism.
+- id: SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+  default_severity: critical
+  floor_severity: critical
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: MCP side-effecting tool is auto-approved.
+  rationale: Auto-approved side-effecting MCP tools can let an agent write, publish,
+    destroy, operate production systems, or make financial changes without review.
+  fires_when: A tool classified as write, destructive, external, financial, or
+    production has approval mode approve.
+  evidence_fields: [permission_classes, risk_score, approval_mode]
+  recommendation: Do not auto-approve side-effecting MCP tools.
+- id: SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: MCP tool side effect cannot be proven from static schema.
+  rationale: Incomplete or wildcard MCP metadata cannot prove the callable tool
+    surface is read-only.
+  fires_when: A new or changed MCP capability has no explicit tool schema or is a
+    wildcard server surface.
+  evidence_fields: [source_id, wildcard, approval_mode]
+  recommendation: Provide an explicit MCP tool inventory/schema or keep the server
+    behind human review.
+- id: SHIP-MCP-PERMISSION-EXPANDED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: MCP capability permissions expanded.
+  rationale: MCP capability broadening changes the agent's static tool authority.
+  fires_when: A diffed MCP capability broadens scope, effect, risk tags, controls,
+    or schema according to the capability lattice.
+  evidence_fields: [capability_id, semantic_direction, semantic_changes]
+  recommendation: Review the expanded MCP capability; narrow tools/scopes or add
+    explicit approval evidence.
+- id: SHIP-MCP-READONLY-SERVER-ADDED
+  default_severity: low
+  mvp_tier: lifecycle
+  requires_human_review: false
+  description: Read-only local documentation MCP server added.
+  rationale: Local read-only documentation servers are low risk but should remain
+    visible in capability review.
+  fires_when: A new local documentation MCP capability is classified as read-only.
+  evidence_fields: [capability_id, permission_classes, risk_score]
+  recommendation: Keep the MCP server read-only and local; review if it gains write,
+    network, or secret access.

@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from agents_shipgate.inputs.mcp_manifest import normalize_codex_config_mcp_servers
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultNextAction,
@@ -1209,6 +1210,20 @@ def _hook_command_signatures_by_event(hooks: Any) -> dict[str, set[str]]:
 
 
 def _server_tool_names(server: dict[str, Any]) -> set[str]:
+    normalized = normalize_codex_config_mcp_servers(
+        {"mcp_servers": {"server": server}},
+        source_ref=".codex/config.toml",
+        source_path=".codex/config.toml",
+    )
+    if normalized:
+        names = {
+            tool.name
+            for item in normalized
+            for tool in item.tools
+            if not tool.name.endswith(".*")
+        }
+        if names:
+            return names
     names: set[str] = set()
     enabled = server.get("enabled_tools")
     if isinstance(enabled, list):

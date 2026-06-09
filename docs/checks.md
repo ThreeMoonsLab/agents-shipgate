@@ -871,6 +871,40 @@ coding agent cannot self-approve the broadening; a human must re-apply a
 least-privilege configuration or explicitly approve the expanded surface. A
 narrowing (bound added or tightened) emits nothing.
 
+### SHIP-MCP-ENV-SECRET-PASSTHROUGH
+
+Fires when a statically parsed MCP server passes through secret-like
+environment variables, such as token, password, API key, or credential
+names. Secret pass-through changes the credential boundary available to the
+server, so Shipgate routes the change to human review without exposing raw
+secret values in evidence.
+
+### SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+
+Fires when an MCP tool classified as write, destructive, external,
+financial, or production is configured with approval mode `approve`. This is
+an explicit release blocker because auto-approved side-effecting MCP tools
+can let an agent act outside the review boundary.
+
+### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+
+Fires for new or changed MCP capabilities whose static metadata cannot prove
+the callable surface and side effect, including wildcard server exposure.
+Provide an explicit local MCP inventory/schema or keep the server behind
+human review.
+
+### SHIP-MCP-PERMISSION-EXPANDED
+
+Fires when the MCP capability diff broadens scope, effect, risk tags,
+controls, or accepted input schema. Narrowing and pure least-privilege
+downgrades do not block by default.
+
+### SHIP-MCP-READONLY-SERVER-ADDED
+
+Fires as a low-severity warning when a new local documentation MCP server is
+classified as read-only. It keeps benign expansion visible in review
+artifacts while remaining non-blocking by default.
+
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 
 Common tags:
