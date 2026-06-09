@@ -55,6 +55,19 @@ def diff_context(workspace: Path, base: str, head: str) -> tuple[list[str], str]
     return paths, body.stdout
 
 
+def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
+    """Return one file's text at ``ref`` without materializing the tree."""
+
+    result = _run_git(
+        workspace,
+        ["show", f"{ref}:{path.as_posix()}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
 def working_tree_context(workspace: Path) -> tuple[list[str], str]:
     """Return uncommitted changed paths and tracked-file diff text.
 
@@ -116,6 +129,7 @@ __all__ = [
     "diff_context",
     "ensure_git_workspace",
     "git_path",
+    "read_file_at_ref",
     "ref_exists",
     "tree_sha",
     "working_tree_context",

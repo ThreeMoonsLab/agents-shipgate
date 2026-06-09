@@ -130,9 +130,10 @@ protected* — never a new way to decide.
 - **Implements it:** `agents-shipgate attest` derives a deterministic, local,
   JSON-first attestation from `verifier.json` (+ the sibling `report.json`) —
   base/head SHAs, the verdict, the capability delta, declared `human_ack` state,
-  a policy-snapshot hash, and content hashes of every verify artifact. It is
+  a policy-snapshot hash, content hashes of every verify artifact, and
+  capability lock/diff hash bindings when verify emitted them. It is
   content-addressed (no wall-clock timestamp) and does not gate. Schema:
-  [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json).
+  [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json).
 - **Agent reads:** the attestation is a durable record for humans and
   registries, not a control signal — the agent still acts on `agent_controller`
   (contracts 3–5).

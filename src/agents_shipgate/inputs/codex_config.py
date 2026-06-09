@@ -67,4 +67,3 @@ def _relative(path: Path, root: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
-

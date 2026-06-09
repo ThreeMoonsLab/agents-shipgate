@@ -83,12 +83,23 @@ def load_capability_lock(path: Path) -> CapabilityLockFileV1:
     if not path.exists():
         raise InputParseError(f"Capability lock not found: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise InputParseError(f"Invalid capability lock file {path}: {exc}") from exc
+    return load_capability_lock_json(
+        content,
+        source=str(path),
+    )
+
+
+def load_capability_lock_json(content: str, *, source: str) -> CapabilityLockFileV1:
+    try:
+        payload = json.loads(content)
         if isinstance(payload, dict):
             payload = _normalize_capability_lock_payload(payload)
         return CapabilityLockFileV1.model_validate(payload)
-    except (OSError, ValidationError, ValueError, TypeError) as exc:
-        raise InputParseError(f"Invalid capability lock file {path}: {exc}") from exc
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise InputParseError(f"Invalid capability lock file {source}: {exc}") from exc
 
 
 def diff_capability_locks(
@@ -257,6 +268,7 @@ __all__ = [
     "diff_capability_locks",
     "build_capability_lock",
     "load_capability_lock",
+    "load_capability_lock_json",
     "render_capability_lock_diff_json",
     "render_capability_lock_json",
 ]
