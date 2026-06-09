@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_f429865214a1edfbf4d2ad69",
+  "audit_id": "codex_boundary_eeac3a3c4caa591ebf1a4aab",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -25,7 +25,8 @@
       "evidence": {
         "kind": "shipgate_instruction_removed",
         "deleted": false,
-        "removed_shipgate_lines": true
+        "removed_shipgate_lines": true,
+        "softened_shipgate_lines": false
       },
       "recommendation": "Have a human confirm the agent instructions were not weakened."
     }
@@ -61,6 +62,6 @@
     }
   },
   "finding_fingerprints": [
-    "fp_1312ee8d2ccc70b8"
+    "fp_4ba72a729e079dc9"
   ]
 }

@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_9bc89e7cace6bb3c81f4ebe8",
+  "audit_id": "codex_boundary_0d65ee4be6f5f3b3e11ad753",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -29,7 +29,14 @@
       "recommendation": "Fix the TOML or have a human review the Codex boundary change."
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -60,6 +67,6 @@
     }
   },
   "finding_fingerprints": [
-    "fp_47002f39a1dc0601"
+    "fp_86fb9b0faf6ca539"
   ]
 }

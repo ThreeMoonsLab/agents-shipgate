@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_6c13756500f0ae849d8a37a4",
+  "audit_id": "codex_boundary_414a9d1fbe4b7c9ee6f657a0",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
@@ -35,7 +35,14 @@
       "recommendation": "Do not auto-approve write/destructive MCP tools."
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -66,6 +73,6 @@
     }
   },
   "finding_fingerprints": [
-    "fp_2500236fe4d8b1c0"
+    "fp_71c94cd92ba68747"
   ]
 }

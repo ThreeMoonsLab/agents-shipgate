@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "codex_boundary_ac2b61e8f5b08f7ea1009557",
+  "audit_id": "codex_boundary_f914b4f91d1af1b2358fa8ea",
   "policy_version": "1",
   "summary": "No Codex boundary changes require action.",
   "changed_files": [

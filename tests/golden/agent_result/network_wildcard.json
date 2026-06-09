@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "codex_boundary_7bf769f247ce08813c3a9663",
+  "audit_id": "codex_boundary_6dd0d9cdecee7e09803914ec",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -31,7 +31,14 @@
       "recommendation": "Replace wildcard network access with explicit allowed domains."
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -62,6 +69,6 @@
     }
   },
   "finding_fingerprints": [
-    "fp_20e9f67e1e094c36"
+    "fp_97b6fa25c1f62073"
   ]
 }

@@ -3,7 +3,7 @@
   "agent": "codex",
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_bc89686b669c809006701846",
+  "audit_id": "codex_boundary_10c94aa7199b51a6e45e22f8",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -30,7 +30,14 @@
       "recommendation": "Review the unknown permission key before trusting the boundary."
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -61,6 +68,6 @@
     }
   },
   "finding_fingerprints": [
-    "fp_2f4dc808db0892cd"
+    "fp_b75e128442b5e376"
   ]
 }

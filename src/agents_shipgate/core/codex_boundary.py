@@ -37,10 +37,65 @@ _SHIPGATE_TERMS = (
     "shipgate verify",
     "shipgate scan",
 )
-_RISKY_TOOL_RE = re.compile(
-    r"(write|delete|remove|update|create|edit|patch|apply|run|exec|execute|"
-    r"send|post|put|merge|deploy|approve|commit|push|release|publish|refund|"
-    r"cancel|transfer|payment)",
+_RISKY_ACTION_TOKENS = {
+    "write",
+    "delete",
+    "remove",
+    "update",
+    "create",
+    "edit",
+    "patch",
+    "apply",
+    "run",
+    "exec",
+    "execute",
+    "send",
+    "post",
+    "put",
+    "merge",
+    "deploy",
+    "approve",
+    "commit",
+    "push",
+    "release",
+    "publish",
+    "cancel",
+    "transfer",
+}
+_RISKY_NOUN_TOKENS = {"payment", "refund"}
+_SAFE_READ_PREFIXES = {
+    "compute",
+    "describe",
+    "fetch",
+    "get",
+    "list",
+    "lookup",
+    "read",
+    "search",
+    "show",
+}
+_WEAKENING_TERMS = (
+    "bypass",
+    "can be skipped",
+    "disable",
+    "disabled",
+    "do not run",
+    "don't run",
+    "ignore",
+    "no need",
+    "not required",
+    "optional",
+    "skip",
+    "unnecessary",
+)
+_SHIPGATE_INVOCATION_RE = re.compile(
+    r"^\s*(?:-\s*)?(?:run:\s*)?"
+    r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+|env)\s+)*"
+    r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
+    r"\s+(?:verify|scan|check)\b"
+)
+_SHIPGATE_ACTION_RE = re.compile(
+    r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
 )
 _COMMAND_SKILL_RE = re.compile(
@@ -75,17 +130,36 @@ _NETWORK_KEYS = {
 
 
 @dataclass(frozen=True)
+class DiffHunk:
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    lines: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class DiffFile:
     old_path: str | None
     new_path: str | None
     added_lines: list[str] = field(default_factory=list)
     removed_lines: list[str] = field(default_factory=list)
+    hunks: list[DiffHunk] = field(default_factory=list)
     is_deleted: bool = False
     is_new: bool = False
 
     @property
     def path(self) -> str:
         return self.new_path or self.old_path or ""
+
+
+@dataclass(frozen=True)
+class ResolvedFileText:
+    old_text: str | None
+    new_text: str | None
+    source: str
+    old_sha256: str | None
+    new_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -223,6 +297,7 @@ def evaluate_codex_boundary_result(
         policy_path=policy_path or DEFAULT_POLICY_PATH,
     )
     violations: list[AgentResultViolatedRule] = []
+    evaluated_files: list[dict[str, Any]] = []
 
     def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
         rule = policy.rules.get(rule_id) or DEFAULT_RULES[rule_id]
@@ -245,13 +320,19 @@ def evaluate_codex_boundary_result(
             continue
         normalized = path.replace("\\", "/")
         if _is_codex_config_path(normalized):
-            _evaluate_config_file(workspace, diff_file, add)
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            _evaluate_config_file(diff_file, resolved, add)
         if _is_codex_hooks_path(normalized):
-            _evaluate_hooks_json(workspace, diff_file, add)
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            _evaluate_hooks_json(diff_file, resolved, add)
         if _is_agent_instructions_path(normalized):
             _evaluate_agent_instructions(diff_file, add)
         if _is_shipgate_workflow_path(normalized):
-            _evaluate_shipgate_workflow(workspace, diff_file, add)
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            _evaluate_shipgate_workflow(diff_file, resolved, add)
         if _is_codex_skill_path(normalized):
             _evaluate_skill(diff_file, add)
 
@@ -264,6 +345,7 @@ def evaluate_codex_boundary_result(
         diff_files=diff_files,
         policy=policy,
         finding_fingerprints=finding_fingerprints,
+        evaluated_files=evaluated_files,
     )
     return AgentResultV1(
         decision=decision,  # type: ignore[arg-type]
@@ -284,17 +366,22 @@ def evaluate_codex_boundary_result(
 def parse_unified_diff(diff_text: str) -> list[DiffFile]:
     files_out: list[DiffFile] = []
     current: dict[str, Any] | None = None
+    current_hunk: DiffHunk | None = None
 
     def finish() -> None:
-        nonlocal current
+        nonlocal current, current_hunk
         if current is None:
             return
+        if current_hunk is not None:
+            current.setdefault("hunks", []).append(current_hunk)
+            current_hunk = None
         files_out.append(
             DiffFile(
                 old_path=current.get("old_path"),
                 new_path=current.get("new_path"),
                 added_lines=current.get("added_lines", []),
                 removed_lines=current.get("removed_lines", []),
+                hunks=current.get("hunks", []),
                 is_deleted=bool(current.get("is_deleted")),
                 is_new=bool(current.get("is_new")),
             )
@@ -312,9 +399,11 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 "new_path": new_path,
                 "added_lines": [],
                 "removed_lines": [],
+                "hunks": [],
                 "is_deleted": False,
                 "is_new": False,
             }
+            current_hunk = None
             continue
         if current is None:
             continue
@@ -330,10 +419,20 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             current["new_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
             if value == "/dev/null":
                 current["is_deleted"] = True
+        elif raw_line.startswith("@@ "):
+            if current_hunk is not None:
+                current.setdefault("hunks", []).append(current_hunk)
+            current_hunk = _parse_hunk_header(raw_line)
         elif raw_line.startswith("+") and not raw_line.startswith("+++"):
             current["added_lines"].append(raw_line[1:])
+            if current_hunk is not None:
+                current_hunk.lines.append(("+", raw_line[1:]))
         elif raw_line.startswith("-") and not raw_line.startswith("---"):
             current["removed_lines"].append(raw_line[1:])
+            if current_hunk is not None:
+                current_hunk.lines.append(("-", raw_line[1:]))
+        elif raw_line.startswith(" ") and current_hunk is not None:
+            current_hunk.lines.append((" ", raw_line[1:]))
     finish()
     return files_out
 
@@ -408,22 +507,30 @@ def load_codex_boundary_policy(
 
 
 def _evaluate_config_file(
-    workspace: Path,
     diff_file: DiffFile,
+    resolved: ResolvedFileText,
     add,
 ) -> None:
     path = diff_file.path
-    text = _head_text_or_added_lines(workspace, diff_file)
-    if text is None:
+    if resolved.new_text is None:
         if diff_file.is_deleted:
             add(
                 "CODEX-UNKNOWN-PERMISSION-KEY",
                 path=path,
                 evidence={"kind": "codex_config_deleted"},
             )
+        else:
+            add(
+                "CODEX-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence={
+                    "kind": "codex_config_content_unresolved",
+                    "source": resolved.source,
+                },
+            )
         return
     try:
-        data = tomllib.loads(text)
+        data = tomllib.loads(resolved.new_text)
     except tomllib.TOMLDecodeError as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -431,40 +538,77 @@ def _evaluate_config_file(
             evidence={"kind": "toml_parse_failed", "error": str(exc)},
         )
         return
-    if data.get("sandbox_mode") == "danger-full-access":
+    try:
+        old_data = tomllib.loads(resolved.old_text or "")
+    except tomllib.TOMLDecodeError as exc:
+        add(
+            "CODEX-CONFIG-PARSE-FAILED",
+            path=path,
+            evidence={"kind": "old_toml_parse_failed", "error": str(exc)},
+        )
+        return
+    if _changed_to(old_data, data, ("sandbox_mode",), "danger-full-access"):
         add(
             "CODEX-DANGER-FULL-ACCESS",
             path=path,
             evidence={"kind": "sandbox_mode", "value": "danger-full-access"},
         )
-    if data.get("default_permissions") == ":danger-full-access":
+    if _changed_to(
+        old_data,
+        data,
+        ("default_permissions",),
+        ":danger-full-access",
+    ):
         add(
             "CODEX-DANGER-FULL-ACCESS",
             path=path,
             evidence={"kind": "default_permissions", "value": ":danger-full-access"},
         )
-    sandbox_write = data.get("sandbox_workspace_write")
-    if isinstance(sandbox_write, dict) and sandbox_write.get("network_access") is True:
+    if _changed_to(
+        old_data,
+        data,
+        ("sandbox_workspace_write", "network_access"),
+        True,
+    ):
         add(
             "CODEX-NETWORK-EXPANDED",
             path=path,
             evidence={"kind": "workspace_write_network_access", "value": True},
         )
-    _evaluate_permission_profiles(data.get("permissions"), path, add)
-    _evaluate_mcp_servers(data.get("mcp_servers"), path, "mcp_servers", add)
-    _evaluate_plugin_mcp_servers(data.get("plugins"), path, add)
+    _evaluate_permission_profiles(
+        old_data.get("permissions"),
+        data.get("permissions"),
+        path,
+        add,
+    )
+    _evaluate_mcp_servers(
+        old_data.get("mcp_servers"),
+        data.get("mcp_servers"),
+        path,
+        "mcp_servers",
+        add,
+    )
+    _evaluate_plugin_mcp_servers(old_data.get("plugins"), data.get("plugins"), path, add)
     _evaluate_hooks(data.get("hooks"), path, add)
-    _evaluate_apps(data.get("apps"), path, add)
+    _evaluate_apps(old_data.get("apps"), data.get("apps"), path, add)
 
 
-def _evaluate_permission_profiles(permissions: Any, path: str, add) -> None:
+def _evaluate_permission_profiles(
+    old_permissions: Any,
+    permissions: Any,
+    path: str,
+    add,
+) -> None:
     if not isinstance(permissions, dict):
         return
+    old_profiles = old_permissions if isinstance(old_permissions, dict) else {}
     for profile, profile_data in sorted(permissions.items()):
         if not isinstance(profile_data, dict):
             continue
+        old_profile = old_profiles.get(profile) if isinstance(old_profiles, dict) else None
+        old_profile = old_profile if isinstance(old_profile, dict) else {}
         for key in sorted(profile_data):
-            if key not in _PERMISSION_PROFILE_KEYS:
+            if key not in _PERMISSION_PROFILE_KEYS and old_profile.get(key) != profile_data[key]:
                 add(
                     "CODEX-UNKNOWN-PERMISSION-KEY",
                     path=path,
@@ -476,8 +620,10 @@ def _evaluate_permission_profiles(permissions: Any, path: str, add) -> None:
                 )
         network = profile_data.get("network")
         if isinstance(network, dict):
+            old_network = old_profile.get("network")
+            old_network = old_network if isinstance(old_network, dict) else {}
             for key in sorted(network):
-                if key not in _NETWORK_KEYS:
+                if key not in _NETWORK_KEYS and old_network.get(key) != network[key]:
                     add(
                         "CODEX-UNKNOWN-PERMISSION-KEY",
                         path=path,
@@ -487,7 +633,7 @@ def _evaluate_permission_profiles(permissions: Any, path: str, add) -> None:
                             "key": key,
                         },
                     )
-            if network.get("mode") == "full":
+            if network.get("mode") == "full" and old_network.get("mode") != "full":
                 add(
                     "CODEX-NETWORK-EXPANDED",
                     path=path,
@@ -495,8 +641,14 @@ def _evaluate_permission_profiles(permissions: Any, path: str, add) -> None:
                 )
             domains = network.get("domains")
             if isinstance(domains, dict):
+                old_domains = old_network.get("domains")
+                old_domains = old_domains if isinstance(old_domains, dict) else {}
                 for domain, value in sorted(domains.items()):
-                    if _is_allow(value) and "*" in str(domain):
+                    if (
+                        _is_allow(value)
+                        and "*" in str(domain)
+                        and not _is_allow(old_domains.get(domain))
+                    ):
                         add(
                             "CODEX-NETWORK-WILDCARD",
                             path=path,
@@ -509,14 +661,26 @@ def _evaluate_permission_profiles(permissions: Any, path: str, add) -> None:
                         )
 
 
-def _evaluate_mcp_servers(servers: Any, path: str, prefix: str, add) -> None:
+def _evaluate_mcp_servers(
+    old_servers: Any,
+    servers: Any,
+    path: str,
+    prefix: str,
+    add,
+) -> None:
     if not isinstance(servers, dict):
         return
+    old_servers = old_servers if isinstance(old_servers, dict) else {}
     for server_name, server in sorted(servers.items()):
         if not isinstance(server, dict) or server.get("enabled") is False:
             continue
+        old_server = old_servers.get(server_name) if isinstance(old_servers, dict) else None
+        old_server = old_server if isinstance(old_server, dict) else {}
         server_ref = f"{prefix}.{server_name}"
-        if server.get("default_tools_approval_mode") == "approve":
+        if (
+            server.get("default_tools_approval_mode") == "approve"
+            and old_server.get("default_tools_approval_mode") != "approve"
+        ):
             tool_names = _server_tool_names(server)
             risky = sorted(name for name in tool_names if _is_risky_tool_name(name))
             add(
@@ -533,8 +697,16 @@ def _evaluate_mcp_servers(servers: Any, path: str, prefix: str, add) -> None:
             )
         tools = server.get("tools")
         if isinstance(tools, dict):
+            old_tools = old_server.get("tools")
+            old_tools = old_tools if isinstance(old_tools, dict) else {}
             for tool_name, config in sorted(tools.items()):
-                if isinstance(config, dict) and config.get("approval_mode") == "approve":
+                old_tool = old_tools.get(tool_name) if isinstance(old_tools, dict) else None
+                old_tool = old_tool if isinstance(old_tool, dict) else {}
+                if (
+                    isinstance(config, dict)
+                    and config.get("approval_mode") == "approve"
+                    and old_tool.get("approval_mode") != "approve"
+                ):
                     add(
                         "CODEX-MCP-AUTO-APPROVE-WRITE"
                         if _is_risky_tool_name(str(tool_name))
@@ -548,14 +720,24 @@ def _evaluate_mcp_servers(servers: Any, path: str, prefix: str, add) -> None:
                     )
 
 
-def _evaluate_plugin_mcp_servers(plugins: Any, path: str, add) -> None:
+def _evaluate_plugin_mcp_servers(
+    old_plugins: Any,
+    plugins: Any,
+    path: str,
+    add,
+) -> None:
     if not isinstance(plugins, dict):
         return
+    old_plugins = old_plugins if isinstance(old_plugins, dict) else {}
     for plugin_name, plugin in sorted(plugins.items()):
         if not isinstance(plugin, dict):
             continue
+        old_plugin = old_plugins.get(plugin_name) if isinstance(old_plugins, dict) else None
+        old_plugin = old_plugin if isinstance(old_plugin, dict) else {}
         mcp_servers = plugin.get("mcp_servers")
+        old_mcp_servers = old_plugin.get("mcp_servers")
         _evaluate_mcp_servers(
+            old_mcp_servers,
             mcp_servers,
             path,
             f"plugins.{plugin_name}.mcp_servers",
@@ -563,17 +745,28 @@ def _evaluate_plugin_mcp_servers(plugins: Any, path: str, add) -> None:
         )
 
 
-def _evaluate_apps(apps: Any, path: str, add) -> None:
+def _evaluate_apps(old_apps: Any, apps: Any, path: str, add) -> None:
     if not isinstance(apps, dict):
         return
+    old_apps = old_apps if isinstance(old_apps, dict) else {}
     for app_name, app in sorted(apps.items()):
         if not isinstance(app, dict):
             continue
+        old_app = old_apps.get(app_name) if isinstance(old_apps, dict) else None
+        old_app = old_app if isinstance(old_app, dict) else {}
         tools = app.get("tools")
         if not isinstance(tools, dict):
             continue
+        old_tools = old_app.get("tools")
+        old_tools = old_tools if isinstance(old_tools, dict) else {}
         for tool_name, tool_config in sorted(tools.items()):
-            if isinstance(tool_config, dict) and tool_config.get("approval_mode") == "approve":
+            old_tool = old_tools.get(tool_name) if isinstance(old_tools, dict) else None
+            old_tool = old_tool if isinstance(old_tool, dict) else {}
+            if (
+                isinstance(tool_config, dict)
+                and tool_config.get("approval_mode") == "approve"
+                and old_tool.get("approval_mode") != "approve"
+            ):
                 add(
                     "CODEX-MCP-AUTO-APPROVE-WRITE"
                     if _is_risky_tool_name(str(tool_name))
@@ -587,13 +780,24 @@ def _evaluate_apps(apps: Any, path: str, add) -> None:
                 )
 
 
-def _evaluate_hooks_json(workspace: Path, diff_file: DiffFile, add) -> None:
+def _evaluate_hooks_json(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+    add,
+) -> None:
     path = diff_file.path
-    text = _head_text_or_added_lines(workspace, diff_file)
-    if text is None:
+    if resolved.new_text is None:
+        add(
+            "CODEX-CONFIG-PARSE-FAILED",
+            path=path,
+            evidence={
+                "kind": "hooks_json_content_unresolved",
+                "source": resolved.source,
+            },
+        )
         return
     try:
-        data = json.loads(text)
+        data = json.loads(resolved.new_text)
     except json.JSONDecodeError as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -623,7 +827,11 @@ def _evaluate_hooks(hooks: Any, path: str, add) -> None:
 def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
     removed_shipgate = any(_contains_shipgate_term(line) for line in diff_file.removed_lines)
     added_shipgate = any(_contains_shipgate_term(line) for line in diff_file.added_lines)
-    if diff_file.is_deleted or (removed_shipgate and not added_shipgate):
+    softened_shipgate = any(
+        _contains_shipgate_term(line) and _contains_weakening_term(line)
+        for line in diff_file.added_lines
+    )
+    if diff_file.is_deleted or (removed_shipgate and (not added_shipgate or softened_shipgate)):
         add(
             "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
             path=diff_file.path,
@@ -631,25 +839,29 @@ def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
                 "kind": "shipgate_instruction_removed",
                 "deleted": diff_file.is_deleted,
                 "removed_shipgate_lines": removed_shipgate,
+                "softened_shipgate_lines": softened_shipgate,
             },
         )
 
 
-def _evaluate_shipgate_workflow(workspace: Path, diff_file: DiffFile, add) -> None:
+def _evaluate_shipgate_workflow(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+    add,
+) -> None:
     path = diff_file.path
-    head_path = _safe_workspace_path(workspace, path)
-    text = None if head_path is None or not head_path.is_file() else head_path.read_text(
-        encoding="utf-8",
-        errors="replace",
+    invocation_present = bool(
+        resolved.new_text and _has_shipgate_gate_invocation(resolved.new_text)
     )
-    if diff_file.is_deleted or text is None or not _contains_shipgate_term(text):
+    if diff_file.is_deleted or resolved.new_text is None or not invocation_present:
         add(
             "CODEX-CI-GATE-REMOVED",
             path=path,
             evidence={
                 "kind": "shipgate_ci_gate_removed",
                 "deleted": diff_file.is_deleted,
-                "shipgate_invocation_present": bool(text and _contains_shipgate_term(text)),
+                "source": resolved.source,
+                "shipgate_invocation_present": invocation_present,
             },
         )
 
@@ -663,16 +875,202 @@ def _evaluate_skill(diff_file: DiffFile, add) -> None:
         )
 
 
-def _head_text_or_added_lines(workspace: Path, diff_file: DiffFile) -> str | None:
-    head_path = _safe_workspace_path(workspace, diff_file.path)
-    if head_path is not None and head_path.is_file():
-        try:
-            return head_path.read_text(encoding="utf-8")
-        except OSError:
-            return None
+def _resolve_changed_file_text(
+    workspace: Path,
+    diff_file: DiffFile,
+    diagnostics: list[AgentResultDiagnostic],
+) -> ResolvedFileText:
+    path = diff_file.path
+    if diff_file.is_deleted:
+        resolved = ResolvedFileText(
+            old_text=None,
+            new_text=None,
+            source="diff_deleted_file",
+            old_sha256=None,
+            new_sha256=None,
+        )
+        diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+    if diff_file.is_new:
+        new_text = _new_text_from_hunks(diff_file)
+        resolved = ResolvedFileText(
+            old_text="",
+            new_text=new_text,
+            source="diff_new_file",
+            old_sha256=_sha256_text(""),
+            new_sha256=_sha256_text(new_text),
+        )
+        diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+
+    head_path = _safe_workspace_path(workspace, path)
+    if head_path is None:
+        resolved = _unresolved_text("path_outside_workspace")
+        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
+        return resolved
+    if not head_path.is_file():
+        resolved = _unresolved_text("workspace_file_missing")
+        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
+        return resolved
+    try:
+        workspace_text = head_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        resolved = _unresolved_text("workspace_read_failed")
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="content_source",
+                message=f"Could not read changed Codex boundary file: {exc}",
+                path=path,
+            )
+        )
+        return resolved
+
+    applied = _apply_hunks(workspace_text, diff_file.hunks, direction="forward")
+    if applied is not None:
+        resolved = ResolvedFileText(
+            old_text=workspace_text,
+            new_text=applied,
+            source="diff_applied_to_workspace_base",
+            old_sha256=_sha256_text(workspace_text),
+            new_sha256=_sha256_text(applied),
+        )
+        diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+
+    reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
+    if reversed_text is not None:
+        resolved = ResolvedFileText(
+            old_text=reversed_text,
+            new_text=workspace_text,
+            source="workspace_already_contains_diff_head",
+            old_sha256=_sha256_text(reversed_text),
+            new_sha256=_sha256_text(workspace_text),
+        )
+        diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+
+    resolved = _unresolved_text("diff_workspace_mismatch")
+    diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
+    return resolved
+
+
+def _unresolved_text(source: str) -> ResolvedFileText:
+    return ResolvedFileText(
+        old_text=None,
+        new_text=None,
+        source=source,
+        old_sha256=None,
+        new_sha256=None,
+    )
+
+
+def _content_source_diagnostic(
+    path: str,
+    resolved: ResolvedFileText,
+    *,
+    level: str = "info",
+) -> AgentResultDiagnostic:
+    return AgentResultDiagnostic(
+        level=level,  # type: ignore[arg-type]
+        code="content_source",
+        message=f"Evaluated Codex boundary file from {resolved.source}.",
+        path=path,
+    )
+
+
+def _evaluated_file_record(path: str, resolved: ResolvedFileText) -> dict[str, Any]:
+    return {
+        "path": path,
+        "source": resolved.source,
+        "old_sha256": resolved.old_sha256,
+        "new_sha256": resolved.new_sha256,
+    }
+
+
+def _new_text_from_hunks(diff_file: DiffFile) -> str:
+    if diff_file.hunks:
+        lines = [
+            text
+            for hunk in diff_file.hunks
+            for kind, text in hunk.lines
+            if kind in {" ", "+"}
+        ]
+        return _join_lines(lines)
     if diff_file.added_lines:
-        return "\n".join(diff_file.added_lines) + "\n"
-    return None
+        return _join_lines(diff_file.added_lines)
+    return ""
+
+
+def _apply_hunks(
+    text: str,
+    hunks: list[DiffHunk],
+    *,
+    direction: str,
+) -> str | None:
+    if not hunks:
+        return text
+    lines = text.splitlines()
+    offset = 0
+    for hunk in hunks:
+        if direction == "forward":
+            start = hunk.old_start - 1 if hunk.old_count > 0 else hunk.old_start
+            expected = [value for kind, value in hunk.lines if kind in {" ", "-"}]
+            replacement = [value for kind, value in hunk.lines if kind in {" ", "+"}]
+        else:
+            start = hunk.new_start - 1 if hunk.new_count > 0 else hunk.new_start
+            expected = [value for kind, value in hunk.lines if kind in {" ", "+"}]
+            replacement = [value for kind, value in hunk.lines if kind in {" ", "-"}]
+        index = start + offset
+        if index < 0:
+            return None
+        if lines[index : index + len(expected)] != expected:
+            return None
+        lines[index : index + len(expected)] = replacement
+        offset += len(replacement) - len(expected)
+    return _join_lines(lines, final_newline=text.endswith("\n"))
+
+
+def _join_lines(lines: list[str], *, final_newline: bool = True) -> str:
+    if not lines:
+        return ""
+    text = "\n".join(lines)
+    return f"{text}\n" if final_newline else text
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _changed_to(
+    old_data: dict[str, Any],
+    data: dict[str, Any],
+    path: tuple[str, ...],
+    value: Any,
+) -> bool:
+    return _nested_get(data, path) == value and _nested_get(old_data, path) != value
+
+
+def _nested_get(data: Any, path: tuple[str, ...]) -> Any:
+    current = data
+    for part in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _parse_hunk_header(line: str) -> DiffHunk:
+    match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+    if not match:
+        return DiffHunk(old_start=0, old_count=0, new_start=0, new_count=0)
+    old_start, old_count, new_start, new_count = match.groups()
+    return DiffHunk(
+        old_start=int(old_start),
+        old_count=int(old_count or "1"),
+        new_start=int(new_start),
+        new_count=int(new_count or "1"),
+    )
 
 
 def _iter_hook_groups(hooks: Any):
@@ -780,6 +1178,7 @@ def _audit_id(
     diff_files: list[DiffFile],
     policy: CodexBoundaryPolicy,
     finding_fingerprints: list[str],
+    evaluated_files: list[dict[str, Any]],
 ) -> str:
     payload = {
         "schema_version": "agent_result_v1",
@@ -796,6 +1195,13 @@ def _audit_id(
             }
             for item in diff_files
         ],
+        "evaluated_files": sorted(
+            evaluated_files,
+            key=lambda item: (
+                str(item.get("path") or ""),
+                str(item.get("source") or ""),
+            ),
+        ),
         "policy_version": policy.version,
         "rule_ids": sorted(policy.rules),
         "finding_fingerprints": sorted(finding_fingerprints),
@@ -811,6 +1217,7 @@ def _violation_fingerprint(item: AgentResultViolatedRule) -> str:
         "check_id": item.check_id,
         "path": item.path,
         "action": item.action,
+        "risk_level": item.risk_level,
         "evidence": item.evidence,
     }
     digest = hashlib.sha256(
@@ -873,12 +1280,34 @@ def _is_allow(value: Any) -> bool:
 
 
 def _is_risky_tool_name(value: str) -> bool:
-    return bool(_RISKY_TOOL_RE.search(value))
+    tokens = _name_tokens(value)
+    if any(token in _RISKY_ACTION_TOKENS for token in tokens):
+        return True
+    if not tokens or tokens[0] in _SAFE_READ_PREFIXES:
+        return False
+    return any(token in _RISKY_NOUN_TOKENS for token in tokens)
+
+
+def _name_tokens(value: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+    return [token.lower() for token in re.findall(r"[A-Za-z0-9]+", spaced)]
 
 
 def _contains_shipgate_term(value: str) -> bool:
     lowered = value.lower()
     return any(term in lowered for term in _SHIPGATE_TERMS)
+
+
+def _contains_weakening_term(value: str) -> bool:
+    lowered = value.lower()
+    return any(term in lowered for term in _WEAKENING_TERMS)
+
+
+def _has_shipgate_gate_invocation(value: str) -> bool:
+    return any(
+        _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line)
+        for line in value.splitlines()
+    )
 
 
 def _is_codex_config_path(path: str) -> bool:

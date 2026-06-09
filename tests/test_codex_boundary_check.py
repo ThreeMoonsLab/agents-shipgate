@@ -115,6 +115,180 @@ def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) ->
     assert payload["violated_rules"][0]["id"] == "CODEX-CONFIG-PARSE-FAILED"
 
 
+def test_codex_check_applies_proposed_config_diff_to_workspace_base(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'sandbox_mode = "workspace-write"\nmodel = "gpt-5"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,2 +1,2 @@
+-sandbox_mode = "workspace-write"
++sandbox_mode = "danger-full-access"
+ model = "gpt-5"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-DANGER-FULL-ACCESS"
+    ]
+    assert result.diagnostics[0].code == "content_source"
+    assert "diff_applied_to_workspace_base" in result.diagnostics[0].message
+
+
+def test_codex_check_accepts_already_applied_config_diff(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'sandbox_mode = "danger-full-access"\nmodel = "gpt-5"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,2 +1,2 @@
+-sandbox_mode = "workspace-write"
++sandbox_mode = "danger-full-access"
+ model = "gpt-5"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-DANGER-FULL-ACCESS"
+    ]
+    assert "workspace_already_contains_diff_head" in result.diagnostics[0].message
+
+
+def test_codex_config_findings_are_delta_scoped(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        'sandbox_mode = "danger-full-access"\nmodel = "old"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,2 +1,2 @@
+ sandbox_mode = "danger-full-access"
+-model = "old"
++model = "new"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "allow"
+    assert result.violated_rules == []
+
+
+def test_codex_mcp_auto_approve_tokenizes_risky_tool_names(tmp_path: Path) -> None:
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.codex/config.toml
+@@ -0,0 +1,3 @@
++[mcp_servers.analytics]
++default_tools_approval_mode = "approve"
++enabled_tools = ["compute_score", "get_input", "list_runs", "get_payment_status", "underwriter_lookup", "output_summary"]
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-MCP-AUTO-APPROVE-UNKNOWN"
+    ]
+
+
+def test_codex_agents_softening_keeps_shipgate_term_requires_review(
+    tmp_path: Path,
+) -> None:
+    diff_text = """diff --git a/AGENTS.md b/AGENTS.md
+index 1111111..2222222 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1 +1 @@
+-You MUST run agents-shipgate verify before completion.
++agents-shipgate verify is optional and can be skipped.
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "require_review"
+    assert [item.id for item in result.violated_rules] == [
+        "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"
+    ]
+
+
+def test_codex_ci_gate_echoed_token_still_blocks(tmp_path: Path) -> None:
+    workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: Agents Shipgate\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    steps:\n"
+        "      - run: agents-shipgate verify --workspace . --config shipgate.yaml\n",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/agents-shipgate.yml
++++ b/.github/workflows/agents-shipgate.yml
+@@ -5 +5 @@
+-      - run: agents-shipgate verify --workspace . --config shipgate.yaml
++      - run: echo "agents-shipgate gate disabled for now"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "block"
+    assert [item.id for item in result.violated_rules] == ["CODEX-CI-GATE-REMOVED"]
+
+
+def test_codex_audit_id_reflects_evaluated_content(tmp_path: Path) -> None:
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -2 +2 @@
+-model = "old"
++model = "new"
+"""
+    safe = tmp_path / "safe"
+    risky = tmp_path / "risky"
+    for workspace, sandbox_mode in (
+        (safe, "workspace-write"),
+        (risky, "danger-full-access"),
+    ):
+        config = workspace / ".codex" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            f'sandbox_mode = "{sandbox_mode}"\nmodel = "old"\n',
+            encoding="utf-8",
+        )
+
+    safe_result = evaluate_codex_boundary_result(workspace=safe, diff_text=diff_text)
+    risky_result = evaluate_codex_boundary_result(workspace=risky, diff_text=diff_text)
+
+    assert safe_result.decision == "allow"
+    assert risky_result.decision == "allow"
+    assert safe_result.audit_id != risky_result.audit_id
+
+
 def test_agent_result_never_contradicts_release_decision(tmp_path: Path) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,

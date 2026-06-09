@@ -21,7 +21,11 @@ def check(
     diff: str = typer.Option(
         "-",
         "--diff",
-        help="Unified diff file to evaluate, or '-' to read stdin.",
+        help=(
+            "Unified diff file to evaluate, or '-' to read stdin. The workspace "
+            "may contain either the base tree or the already-applied head tree; "
+            "mismatched content fails closed."
+        ),
     ),
     format_: str = typer.Option(
         "agent-json",
@@ -66,4 +70,3 @@ def check(
         policy=policy,
     )
     typer.echo(agent_result_json(result))
-
