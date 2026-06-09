@@ -103,6 +103,16 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
 | `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | high | GitHub workflow permissions expanded. |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | critical | A GitHub workflow gained a pull_request_target trigger. |
 | `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
 | `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
 | `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
@@ -568,6 +578,63 @@ before relying on them.
 
 A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
 command-bearing skill changes before local automation.
+
+### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
+or its content cannot be resolved from the diff. Fix the malformed host config
+or have a human review the change.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+
+A changed MCP server declaration file adds a server key that did not exist
+before. Have a human review the new MCP server before the agent can use it.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+
+An existing MCP server changed its `command`, `args`, `url`, `serverUrl`, or
+`env` keys. Review the change — env var values never appear in evidence, key
+names only.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+
+A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
+allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
+`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
+commands.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+
+A changed Claude Code settings file adds a non-wildcard `permissions.allow`
+entry. Have a human approve the new permission allow rule.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+
+A changed Claude Code settings file drops an entry from `permissions.deny`.
+Have a human confirm the removed deny rule is no longer needed.
+
+### SHIP-HOST-BOUNDARY-HOOK-CHANGED
+
+A changed Claude Code settings file adds, modifies, or removes hook handlers.
+Review executable hook changes before the agent relies on them.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+
+A changed `.github/workflows` file sets `permissions: write-all` at the top
+level or for a job. Replace write-all with the minimal explicit permission
+scopes.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+
+A changed `.github/workflows` file grants an explicit write scope that the
+base did not grant, at the top level or per job. Have a human approve the
+expanded workflow write permission.
+
+### SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+
+A changed `.github/workflows` file adds `pull_request_target` to its triggers.
+Review it carefully — `pull_request_target` runs with secrets on fork PRs.
 
 ### LINT-BODY-001
 

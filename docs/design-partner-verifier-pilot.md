@@ -37,6 +37,20 @@ A partner counts as running the verifier pilot when all of these are true:
 - The partner exported a redacted feedback artifact or provided equivalent
   structured notes.
 
+## Lower-friction first touch
+
+If a partner hesitates at "bring a PR," start with the zero-config host
+audit instead — one read-only command, no manifest, no CI:
+
+```bash
+agents-shipgate audit --host
+```
+
+It prints the repo's current coding-agent grants (MCP servers, permission
+rules with wildcard flags, hooks, workflow write scopes). Reviewing that
+one page together usually surfaces the first governance question and
+motivates the verifier loop.
+
 ## Partner Fit
 
 Use the general fit criteria in [`design-partners.md`](design-partners.md).

@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 from agents_shipgate.schemas.common import Confidence, Severity
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-POLICY_PACK_SCHEMA_VERSION = "0.1"
+POLICY_PACK_SCHEMA_VERSION = "0.2"
 
 
 class PolicyPackParameterMatch(BaseModel):
@@ -16,6 +16,13 @@ class PolicyPackParameterMatch(BaseModel):
     types: list[str] = Field(default_factory=list)
     missing_maximum: bool | None = None
     required: bool | None = None
+    # v0.2: numeric bound predicates against the *declared* schema bounds
+    # (static evidence — these compare the tool's declared maximum/minimum,
+    # not runtime values). `maximum_above: 1000` matches a parameter whose
+    # declared maximum exceeds 1000; combine with `missing_maximum: true`
+    # under `any_of` to express "unbounded or above the threshold".
+    maximum_above: float | None = None
+    minimum_below: float | None = None
 
 
 class PolicyPackCapabilityMatch(BaseModel):
@@ -57,6 +64,13 @@ class PolicyPackMatch(BaseModel):
     missing_idempotency_policy: bool | None = None
     parameters: list[PolicyPackParameterMatch] = Field(default_factory=list)
     capability: PolicyPackCapabilityMatch | None = None
+    # v0.2: boolean composition. Flat fields above stay implicitly ANDed
+    # with these combinators (fully backward-compatible). Each branch is a
+    # complete nested match; an empty branch (`{}`) matches every subject,
+    # so always give branches at least one predicate.
+    all_of: list[PolicyPackMatch] = Field(default_factory=list)
+    any_of: list[PolicyPackMatch] = Field(default_factory=list)
+    none_of: list[PolicyPackMatch] = Field(default_factory=list)
 
 
 class PolicyPackRule(BaseModel):

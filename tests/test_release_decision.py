@@ -729,3 +729,86 @@ def test_contribution_rules_default_to_empty_for_legacy_report():
         ),
     )
     assert decision.contribution_rules == []
+
+
+# --- v0.26 evidence gaps ----------------------------------------------------
+
+
+def _langchain_tool(name: str, confidence: str = "medium") -> Tool:
+    return Tool(
+        id=f"tool-{name}",
+        name=name,
+        source_type="langchain_function",
+        source_location="agent.py:14",
+        auth=AuthInfo(),
+        extraction_confidence=confidence,
+    )
+
+
+def test_evidence_gaps_empty_for_clean_high_confidence_scan():
+    tools = [_tool(name="a"), _tool(name="b")]
+    decision = _build(_report(tools=tools), tools=tools)
+    assert decision.evidence_coverage.evidence_gaps == []
+
+
+def test_evidence_gaps_low_confidence_tool_points_at_inventory():
+    tools = [_langchain_tool("lookup_case")]
+    decision = _build(_report(tools=tools), tools=tools)
+
+    gaps = decision.evidence_coverage.evidence_gaps
+    assert len(gaps) == 1
+    gap = gaps[0]
+    assert gap.kind == "low_confidence_tool"
+    assert gap.subject == "lookup_case"
+    assert gap.source_type == "langchain_function"
+    assert gap.source_ref == "agent.py:14"
+    assert gap.next_action.kind == "declare_tool_inventory"
+    assert gap.next_action.path == "suggested-inventory.json"
+    assert "langchain.tool_inventories" in gap.next_action.expects
+
+
+def test_evidence_gaps_non_inventory_source_gets_provide_source():
+    tools = [_tool(name="mystery", confidence="low")]
+    decision = _build(_report(tools=tools), tools=tools)
+
+    gap = decision.evidence_coverage.evidence_gaps[0]
+    assert gap.next_action.kind == "provide_source"
+    assert gap.next_action.path is None
+
+
+def test_evidence_gaps_include_source_warnings_in_report_order():
+    tools = [_tool(name="a")]
+    warnings = ["warning B about source", "warning A about source"]
+    decision = _build(
+        _report(tools=tools, source_warnings=warnings), tools=tools
+    )
+
+    gaps = decision.evidence_coverage.evidence_gaps
+    assert [gap.kind for gap in gaps] == ["source_warning", "source_warning"]
+    assert [gap.subject for gap in gaps] == warnings
+    assert all(gap.next_action.kind == "review_warning" for gap in gaps)
+
+
+def test_evidence_gaps_are_projection_only_decision_unchanged():
+    """Gap rows never gate: the decision is derived from the counts alone."""
+    tools = [_langchain_tool("a"), _langchain_tool("b")]
+    decision = _build(_report(tools=tools), tools=tools)
+    assert decision.decision == "insufficient_evidence"
+    assert len(decision.evidence_coverage.evidence_gaps) == 2
+
+    # Sub-threshold low confidence (no warnings, no findings, no
+    # human-review flag) keeps the pre-v0.26 decision — and the gap row
+    # is still listed, proving gaps are advisory, not gating.
+    tools = [_langchain_tool("a"), _tool(name="b"), _tool(name="c")]
+    decision = _build(_report(tools=tools), tools=tools)
+    assert decision.decision == "passed"
+    assert len(decision.evidence_coverage.evidence_gaps) == 1
+
+
+def test_evidence_gaps_deterministic_ordering():
+    tools = [_langchain_tool("zeta"), _langchain_tool("alpha")]
+    decision = _build(_report(tools=tools), tools=tools)
+    subjects = [
+        gap.subject for gap in decision.evidence_coverage.evidence_gaps
+    ]
+    assert subjects == ["alpha", "zeta"]

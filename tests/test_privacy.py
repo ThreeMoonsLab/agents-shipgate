@@ -451,3 +451,44 @@ def test_report_sensitive_field_inventory_covers_current_report_fields():
         "project",
         "privacy_audit",
     } <= report_paths
+
+
+def test_redact_text_passthrough_only_for_known_marker_kinds():
+    # A genuine marker we emitted earlier must pass through unchanged
+    # (idempotent re-redaction, no spurious stats).
+    stats = RedactionStats()
+    marker = "[REDACTED:sensitive_field]"
+    assert (
+        redact_text(marker, stats=stats, path="$", force_kind="sensitive_field")
+        == marker
+    )
+    assert stats.occurrence_count == 0
+
+
+def test_redact_text_marker_lookalike_cannot_bypass_forced_redaction():
+    # A scanned value formatted like a marker but with an unknown kind is
+    # attacker-controllable text, not our marker. Under a sensitive key it
+    # must still be force-redacted — otherwise lowercase secret material
+    # can be smuggled through inside "[REDACTED:...]" syntax.
+    stats = RedactionStats()
+    smuggled = "[REDACTED:my-actual-lowercase-secret-0123]"
+    redacted = redact_text(
+        smuggled, stats=stats, path="$.password", force_kind="sensitive_field"
+    )
+    assert redacted == "[REDACTED:sensitive_field]"
+    assert "my-actual-lowercase-secret-0123" not in redacted
+    assert stats.occurrence_count == 1
+
+
+def test_redact_data_marker_lookalike_under_sensitive_key_is_redacted():
+    payload = {"api_key": "[REDACTED:password-is-hunter2]"}
+    redacted = redact_data(payload)
+    assert "hunter2" not in json.dumps(redacted)
+
+
+def test_redact_text_secret_inside_marker_lookalike_is_still_pattern_redacted():
+    # Even without a sensitive key, a real secret wrapped in marker syntax
+    # must not survive pattern redaction.
+    value = "[REDACTED:sk-aaaaaaaaaaaaaaaaaaaaaaaa]"
+    redacted = redact_text(value)
+    assert "sk-aaaaaaaaaaaaaaaaaaaaaaaa" not in redacted

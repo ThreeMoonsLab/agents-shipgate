@@ -594,3 +594,63 @@ def test_openai_sdk_static_syntax_error_is_input_parse_error(tmp_path):
         assert "Unable to parse OpenAI Agents SDK entrypoint" in str(exc)
     else:
         raise AssertionError("Expected InputParseError")
+
+
+def test_mcp_loader_rejects_symlink_escaping_manifest_dir(tmp_path):
+    """A symlink inside the manifest dir pointing outside must be rejected.
+
+    resolve() follows symlinks before the containment check, so the final
+    real path lands outside the manifest dir and relative_to() raises.
+    This test pins that behavior against regressions (e.g. a future
+    refactor that checks the lexical path instead of the resolved one).
+    """
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"tools": []}', encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "link.json").symlink_to(outside)
+
+    try:
+        load_mcp_tools(
+            ToolSourceConfig(id="link", type="mcp", path="link.json"),
+            project,
+        )
+    except InputParseError as exc:
+        assert "resolves outside manifest directory" in str(exc)
+    else:
+        raise AssertionError("Expected InputParseError")
+
+
+def test_mcp_loader_rejects_symlinked_directory_escape(tmp_path):
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    (outside_dir / "tools.json").write_text('{"tools": []}', encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "sub").symlink_to(outside_dir, target_is_directory=True)
+
+    try:
+        load_mcp_tools(
+            ToolSourceConfig(id="sub", type="mcp", path="sub/tools.json"),
+            project,
+        )
+    except InputParseError as exc:
+        assert "resolves outside manifest directory" in str(exc)
+    else:
+        raise AssertionError("Expected InputParseError")
+
+
+def test_mcp_loader_allows_symlink_resolving_inside_manifest_dir(tmp_path):
+    """Symlinks that stay inside the manifest dir are legitimate (monorepo
+    layouts) and must keep working."""
+    project = tmp_path / "project"
+    project.mkdir()
+    real = project / "real-tools.json"
+    real.write_text('{"tools": []}', encoding="utf-8")
+    (project / "alias.json").symlink_to(real)
+
+    loaded = load_mcp_tools(
+        ToolSourceConfig(id="alias", type="mcp", path="alias.json"),
+        project,
+    )
+    assert loaded.tools == []
