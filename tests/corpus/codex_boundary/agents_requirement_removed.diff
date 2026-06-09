@@ -1,0 +1,8 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 1111111..2222222 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,2 +1,2 @@
+-Run agents-shipgate verify before reporting agent capability changes complete.
++Run the normal test suite before reporting changes complete.
+ Keep changes focused.

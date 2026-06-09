@@ -51,6 +51,7 @@
     "MCP or OpenAPI surface changes",
     "SDK tool decorator changes",
     "n8n workflow JSON changes",
+    "Codex repo config changes",
     "Codex plugin package or marketplace changes",
     "permissions, scopes, approval, confirmation, prompt, or release-gate changes",
     "Shipgate CI, AGENTS.md, Claude Code skill, Cursor rule, baseline, waiver, or suppression changes"
@@ -88,7 +89,7 @@
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
   "contract_version": "2",
-  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_plugin", "n8n"],
+  "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_config", "codex_plugin", "n8n"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "pr_comment_md", "capability_lock_json", "capability_lock_diff_json", "feedback_json", "attestation_json", "scenario_json", "governance_benchmark_result_json"],
   "artifacts": {
     "verifier": "agents-shipgate-reports/verifier.json",

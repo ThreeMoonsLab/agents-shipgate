@@ -24,7 +24,7 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
 Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
-Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
+Codex repo config, Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
 Readiness Report** before your agent gets production-like permissions.
 
 Within agent release readiness, Agents Shipgate's wedge is Tool-Use
@@ -309,6 +309,7 @@ evidence around them:
 - MCP exports, OpenAPI specs, or local tool inventories.
 - OpenAI Agents SDK, Google ADK, LangChain/LangGraph, CrewAI, Anthropic
   Messages API, or OpenAI API artifact tool definitions.
+- Codex repo config such as `.codex/config.toml` or `.codex/hooks.json`.
 - Prompts, permission scopes, approval policies, confirmation policies,
   prohibited actions, or `shipgate.yaml`.
 - GitHub Actions or CI release gates for a tool-using AI agent.
@@ -395,6 +396,7 @@ action, and artifact links:
 | CrewAI static Python inputs | Supported |
 | n8n workflow JSON and source-control stubs | Supported |
 | OpenAI API artifacts | Supported |
+| Codex repo config | Supported |
 | Codex plugin packages and marketplaces | Supported |
 
 ## What it produces
@@ -635,7 +637,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability by default (static-by-default; see [Trust Model](#trust-model) and [`ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)).
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
 - The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.25"` (additive opt-in local trace/provenance evidence over v0.24's capability-native policy evidence) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.

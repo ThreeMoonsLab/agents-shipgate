@@ -18,6 +18,7 @@ from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_co
 from agents_shipgate.cli.attest import _attest_command
 from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.capability import capability_app
+from agents_shipgate.cli.check import check as _check_command
 from agents_shipgate.cli.detect import detect as _detect_command
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
@@ -45,6 +46,10 @@ app.command(
     "detect",
     help="Classify a workspace: which agent framework(s), if any. Read-only.",
 )(_detect_command)
+app.command(
+    "check",
+    help="Run a local coding-agent boundary check and emit agent_result_v1 JSON.",
+)(_check_command)
 app.command(
     "apply-patches",
     help=(

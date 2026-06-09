@@ -161,6 +161,28 @@ class ValidationArtifacts(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class CodexBoundaryArtifacts(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    root_path: str | None = None
+    config_files: list[str] = Field(default_factory=list)
+    hooks_files: list[str] = Field(default_factory=list)
+    agent_instruction_files: list[str] = Field(default_factory=list)
+    skill_files: list[str] = Field(default_factory=list)
+    github_workflow_files: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        return {
+            "config_file_count": len(self.config_files),
+            "hooks_file_count": len(self.hooks_files),
+            "agent_instruction_file_count": len(self.agent_instruction_files),
+            "skill_file_count": len(self.skill_files),
+            "github_workflow_file_count": len(self.github_workflow_files),
+            "warnings": self.warnings,
+        }
+
+
 class GoogleAdkToolset(BaseModel):
     model_config = ConfigDict(extra="allow")
 

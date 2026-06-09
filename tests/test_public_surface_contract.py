@@ -981,6 +981,11 @@ def test_triggers_evaluator_smoke():
         "Codex plugin manifest change must trigger Shipgate; "
         f"got {codex_plugin_change!r}."
     )
+    codex_config_change = evaluate(paths=[".codex/config.toml"])
+    assert codex_config_change["run_shipgate"] is True, (
+        "Codex repo config change must trigger Shipgate; "
+        f"got {codex_config_change!r}."
+    )
     decorator = evaluate(
         paths=["agent.py"],
         diff_text="+@function_tool\n+def search(): ...",
@@ -1623,6 +1628,12 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
         "plugins/browser-use/.mcp.json",
         "plugins/browser-use/skills/browser/SKILL.md",
     ],
+    "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED": [
+        ".codex/config.toml",
+        "packages/agent/.codex/config.toml",
+        ".codex/hooks.json",
+        "packages/agent/.codex/hooks.json",
+    ],
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",
         "policies/refund.md",
@@ -1712,6 +1723,7 @@ def test_pre_commit_local_docs_show_same_path_trigger_clauses():
     text = _read("docs/integrations.md")
     for clause in (
         r".*swagger.*\.(yaml|yml|json)",
+        r"(.*/)?\.codex/(config\.toml|hooks\.json)",
         r"\.agents-shipgate/.*\.json",
         r"\.github/workflows/agents-shipgate\.(yaml|yml)",
     ):

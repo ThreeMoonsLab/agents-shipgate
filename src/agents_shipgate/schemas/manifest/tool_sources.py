@@ -17,6 +17,7 @@ BUILTIN_TOOL_SOURCE_TYPES: tuple[str, ...] = (
     "google_adk",
     "langchain",
     "crewai",
+    "codex_config",
     "codex_plugin",
 )
 
@@ -88,6 +89,7 @@ class ToolSourceConfig(BaseModel):
                 "google_adk",
                 "langchain",
                 "crewai",
+                "codex_config",
                 "codex_plugin",
             }
             and not self.path

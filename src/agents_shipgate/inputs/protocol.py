@@ -1,7 +1,7 @@
 """Adapter Protocol + AdapterRegistry for tool-source loading.
 
 Every tool-source or scan-artifact loader (mcp, openapi,
-openai_agents_sdk, google_adk, langchain, crewai, codex_plugin,
+openai_agents_sdk, google_adk, langchain, crewai, codex_config, codex_plugin,
 openai_api, anthropic_api, n8n, validation) is exposed as a
 ``ToolSourceAdapter``. The CLI's ``_load_sources`` walks ``REGISTRY``
 to dispatch.
@@ -223,7 +223,7 @@ class AdapterRegistry:
                     "adapter package is installed, or (b) fix a typo "
                     "of a built-in name (built-ins are: mcp, openapi, "
                     "openai_agents_sdk, google_adk, langchain, crewai, "
-                    "codex_plugin)."
+                    "codex_config, codex_plugin)."
                 )
             raise ConfigError(
                 f"No adapter registered for source type "
@@ -262,7 +262,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     order) for any per-scan adapter not yet invoked. The resulting
     output ordering mirrors the legacy ``run_scan``:
 
-        per-source loaders (declared order)
+        per-source loaders (declared order, including codex_config when declared)
         → google_adk → langchain → crewai → n8n
         → openai_api → anthropic_api → codex_plugin → validation
 
@@ -274,6 +274,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     siblings are imported here.
     """
     from agents_shipgate.inputs.anthropic_api import AnthropicAPIAdapter
+    from agents_shipgate.inputs.codex_config import CodexConfigAdapter
     from agents_shipgate.inputs.codex_plugin import CodexPluginAdapter
     from agents_shipgate.inputs.crewai import CrewAIAdapter
     from agents_shipgate.inputs.google_adk import GoogleADKAdapter
@@ -295,6 +296,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
         N8nAdapter(),
         OpenAIAPIAdapter(),
         AnthropicAPIAdapter(),
+        CodexConfigAdapter(),
         CodexPluginAdapter(),
         ValidationAdapter(),
     ):

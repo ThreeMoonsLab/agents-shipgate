@@ -1,0 +1,78 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "codex_boundary_414a9d1fbe4b7c9ee6f657a0",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) block local continuation.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "first_next_action": {
+    "actor": "human",
+    "kind": "stop",
+    "why": "Codex MCP write tool is auto-approved"
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
+      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Codex MCP write tool is auto-approved",
+      "path": ".codex/config.toml",
+      "evidence": {
+        "kind": "mcp_default_auto_approve",
+        "server": "mcp_servers.filesystem",
+        "risky_tools": [
+          "write_file"
+        ],
+        "tool_names": [
+          "write_file"
+        ]
+      },
+      "recommendation": "Do not auto-approve write/destructive MCP tools."
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+      }
+    ],
+    "changed_files": [
+      ".codex/config.toml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --diff <diff> --format agent-json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_71c94cd92ba68747"
+  ]
+}

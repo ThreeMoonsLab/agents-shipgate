@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
+    CodexBoundaryArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
@@ -115,6 +116,10 @@ class ScanContext:
     @property
     def codex_plugin_artifacts(self) -> CodexPluginArtifacts | None:
         return self.artifact("codex_plugin", CodexPluginArtifacts)
+
+    @property
+    def codex_boundary_artifacts(self) -> CodexBoundaryArtifacts | None:
+        return self.artifact("codex_config", CodexBoundaryArtifacts)
 
     @property
     def n8n_artifacts(self) -> N8nArtifacts | None:

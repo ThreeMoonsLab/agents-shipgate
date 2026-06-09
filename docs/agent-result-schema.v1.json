@@ -1,0 +1,279 @@
+{
+  "$defs": {
+    "AgentResultDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        }
+      },
+      "required": [
+        "level",
+        "code",
+        "message"
+      ],
+      "title": "AgentResultDiagnostic",
+      "type": "object"
+    },
+    "AgentResultNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "enum": [
+            "continue",
+            "warn",
+            "review",
+            "stop",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "why"
+      ],
+      "title": "AgentResultNextAction",
+      "type": "object"
+    },
+    "AgentResultViolatedRule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "allow",
+            "warn",
+            "require_review",
+            "block"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "risk_level": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "check_id",
+        "action",
+        "risk_level",
+        "title",
+        "recommendation"
+      ],
+      "title": "AgentResultViolatedRule",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for shipgate check --format agent-json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
+  "properties": {
+    "agent": {
+      "const": "codex",
+      "default": "codex",
+      "title": "Agent",
+      "type": "string"
+    },
+    "audit_id": {
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "warn",
+        "require_review",
+        "block"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/AgentResultDiagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "finding_fingerprints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Finding Fingerprints",
+      "type": "array"
+    },
+    "first_next_action": {
+      "$ref": "#/$defs/AgentResultNextAction"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "release_decision": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Release Decision"
+    },
+    "risk_level": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_result_v1",
+      "default": "agent_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "trigger": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trigger"
+    },
+    "violated_rules": {
+      "items": {
+        "$ref": "#/$defs/AgentResultViolatedRule"
+      },
+      "title": "Violated Rules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "decision",
+    "risk_level",
+    "audit_id",
+    "policy_version",
+    "summary",
+    "first_next_action"
+  ],
+  "title": "Agents Shipgate Agent Result v1",
+  "type": "object"
+}

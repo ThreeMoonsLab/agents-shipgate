@@ -5,6 +5,7 @@ import pytest
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
+    CodexBoundaryArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
@@ -24,6 +25,7 @@ LEGACY_ARTIFACT_PROPERTIES = (
     ("adk_artifacts", "google_adk", GoogleAdkArtifacts),
     ("langchain_artifacts", "langchain", LangChainArtifacts),
     ("crewai_artifacts", "crewai", CrewAiArtifacts),
+    ("codex_boundary_artifacts", "codex_config", CodexBoundaryArtifacts),
     ("codex_plugin_artifacts", "codex_plugin", CodexPluginArtifacts),
     ("n8n_artifacts", "n8n", N8nArtifacts),
     ("validation_artifacts", "validation", ValidationArtifacts),

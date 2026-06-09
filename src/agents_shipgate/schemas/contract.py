@@ -44,6 +44,7 @@ SUPPORTED_INPUTS: dict[str, tuple[str, ...]] = {
     "langchain": ("LangChain and LangGraph", "LangChain/LangGraph", "LangChain"),
     "crewai": ("CrewAI",),
     "openai_api": ("OpenAI API",),
+    "codex_config": ("Codex repo config", "Codex config"),
     "codex_plugin": ("Codex plugin packages and marketplaces", "Codex plugin"),
     "n8n": ("n8n",),
 }

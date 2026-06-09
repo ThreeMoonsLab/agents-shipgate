@@ -1,0 +1,8 @@
+diff --git a/.codex/config.toml b/.codex/config.toml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/.codex/config.toml
+@@ -0,0 +1,2 @@
++[permissions.workspace.network
++enabled = true
