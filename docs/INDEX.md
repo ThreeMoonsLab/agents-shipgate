@@ -38,7 +38,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — JSON Schema for local policy-pack YAML files (current; adds `all_of`/`any_of`/`none_of` combinators, `maximum_above`/`minimum_below` parameter bounds, and the manifest-side `sha256` pack pin)
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — frozen v0.1 reference schema for the flat match syntax
-- [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
+- [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; binds verifier artifacts plus capability lock/diff hashes when available
+- [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
 - [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — stable JSON Schema for semantic capability-lock diff artifacts emitted by `agents-shipgate capability diff`; non-gating and not part of `report.json`
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — frozen experimental reference for old capability lock and diff artifacts; `capability diff` still accepts old lock inputs

@@ -21,13 +21,23 @@ they do not create a second verdict.
 ```bash
 agents-shipgate capability export -c shipgate.yaml
 agents-shipgate capability export -c shipgate.yaml \
-  --out agents-shipgate-reports/head.capabilities.lock.json \
+  --out agents-shipgate-reports/capabilities.lock.json \
   --no-report-copy
 agents-shipgate capability diff \
   --base .agents-shipgate/capabilities.lock.json \
-  --head agents-shipgate-reports/head.capabilities.lock.json \
+  --head agents-shipgate-reports/capabilities.lock.json \
   --out agents-shipgate-reports/capability-lock-diff.json --json
 ```
+
+In PR workflows, `agents-shipgate verify` emits the review copy directly:
+
+- `agents-shipgate-reports/capabilities.lock.json` after a successful head
+  scan.
+- `agents-shipgate-reports/capability-lock-diff.json` and
+  `agents-shipgate-reports/capability-lock-diff.md` when `--base` is provided
+  and the base tree contains `.agents-shipgate/capabilities.lock.json`.
+- If the reviewed base lock is absent or invalid, verify records a note and
+  falls back to the report-derived `capability_review.top_changes[]` PR surface.
 
 Default export paths are unchanged:
 

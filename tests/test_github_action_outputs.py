@@ -189,6 +189,7 @@ def test_decision_policy_exit_code_is_opt_in() -> None:
     assert decision_policy_exit_code("block", "block") == 20
     assert decision_policy_exit_code("require_review", "block") == 0
     assert decision_policy_exit_code("require_review", "block, require_review") == 20
+    assert decision_policy_exit_code("", "block") == 21
 
 
 def _write_json(path: Path, payload: dict) -> None:

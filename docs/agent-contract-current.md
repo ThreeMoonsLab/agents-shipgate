@@ -124,8 +124,14 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 `verify` writes `verifier.json` and `pr-comment.md` alongside the head scan
-artifacts. The packet artifact is intentionally `packet.json` only; use
-`scan` for manifest-driven packet Markdown/HTML/PDF rendering. Read
+artifacts. After a successful head scan it also writes the head static
+capability lock to `agents-shipgate-reports/capabilities.lock.json`. When
+`--base` is provided and the base tree contains the reviewed committed lock at
+`.agents-shipgate/capabilities.lock.json`, verify writes
+`agents-shipgate-reports/capability-lock-diff.json` and
+`agents-shipgate-reports/capability-lock-diff.md`. The packet artifact is
+intentionally `packet.json` only; use `scan` for manifest-driven packet
+Markdown/HTML/PDF rendering. Read
 `verifier.json.base_status` to understand whether base diff enrichment ran;
 do not use it as a release verdict. The release gate is still
 `report.json.release_decision.decision`. `verify` never fetches, so CI callers
@@ -203,7 +209,10 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 
 `verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
 `head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an
-`artifacts` map. The matching GitHub Action outputs are `merge_verdict`,
+`artifacts` map. When present, `artifacts.capability_lock`,
+`artifacts.capability_lock_diff_json`, and
+`artifacts.capability_lock_diff_markdown` are review artifacts only; they do not
+change the gate. The matching GitHub Action outputs are `merge_verdict`,
 `can_merge_without_human`, `trust_root_touched`, and
 `capability_changes_{added,modified,removed}` (the original `decision`,
 `blocker_count`, `review_item_count`, `ci_would_fail` outputs are preserved). See
@@ -211,10 +220,12 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 authoritative contract.
 
 The default Action PR comment style for the verifier-cycle minor is
-`capability-review`: decision first, then the top capability changes,
-trust-root warnings, required next steps, and artifact links. Existing adopters
-that need the v1 findings-oriented comment during migration can set
-`pr_comment_style: findings` for one minor release cycle.
+`capability-review`: verdict/decision first, then the semantic capability-lock
+diff when a base lock is available; otherwise the top
+`capability_review.top_changes[]` projection, followed by trust-root warnings,
+required next steps, and artifact links. Existing adopters that need the v1
+findings-oriented comment during migration can set `pr_comment_style: findings`
+for one minor release cycle.
 
 ## Read these for release review
 

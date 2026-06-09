@@ -99,6 +99,22 @@ def _set_origin_main(repo: Path) -> None:
     )
 
 
+def _export_capability_lock(repo: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "capability",
+            "export",
+            "-c",
+            str(repo / "shipgate.yaml"),
+            "--out",
+            str(repo / ".agents-shipgate" / "capabilities.lock.json"),
+            "--no-report-copy",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
 def _write_tools(repo: Path, payload: dict) -> None:
     (repo / "tools.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -150,6 +166,64 @@ def test_scenario_codex_adds_refund_tool_blocks(tmp_path: Path) -> None:
     assert refund_adds, payload["capability_review"]["top_changes"]
     change = refund_adds[0]
     assert change["impact"] == "blocks_release"
+    artifacts = payload["artifacts"]
+    assert "capability_lock" in artifacts
+    assert "capability_lock_diff_json" not in artifacts
+    reports = repo / "agents-shipgate-reports"
+    assert (reports / "capabilities.lock.json").is_file()
+    assert not (reports / "capability-lock-diff.json").exists()
+    comment = (reports / "pr-comment.md").read_text(encoding="utf-8")
+    assert "### Capability changes" in comment
+    assert "### Capability Diff" not in comment
+    assert any(
+        "base tree does not contain .agents-shipgate/capabilities.lock.json" in note
+        for note in payload["base_notes"]
+    )
+
+
+def test_scenario_committed_base_lock_emits_semantic_capability_diff(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    _write_tools(repo, _BASE_TOOLS)
+    _export_capability_lock(repo)
+    _commit(repo, "base agent with reviewed capability lock")
+    _set_origin_main(repo)
+
+    head_tools = {"tools": [*_BASE_TOOLS["tools"], _REFUND_TOOL]}
+    _write_tools(repo, head_tools)
+    _commit(repo, "codex adds refund tool")
+
+    payload = _verify(repo)
+
+    assert payload["head_status"] == "succeeded"
+    assert payload["merge_verdict"] == "blocked"
+    artifacts = payload["artifacts"]
+    assert artifacts["capability_lock"] == "agents-shipgate-reports/capabilities.lock.json"
+    assert (
+        artifacts["capability_lock_diff_json"]
+        == "agents-shipgate-reports/capability-lock-diff.json"
+    )
+    assert (
+        artifacts["capability_lock_diff_markdown"]
+        == "agents-shipgate-reports/capability-lock-diff.md"
+    )
+    reports = repo / "agents-shipgate-reports"
+    diff_payload = json.loads(
+        (reports / "capability-lock-diff.json").read_text(encoding="utf-8")
+    )
+    assert diff_payload["capability_lock_diff_schema_version"] == "0.3"
+    assert diff_payload["summary"]["added"] == 1
+    assert diff_payload["summary"]["changed"] == 0
+    assert diff_payload["added"][0]["identity"]["tool_name"] == "stripe.create_refund"
+    diff_markdown = (reports / "capability-lock-diff.md").read_text(encoding="utf-8")
+    assert "## Capability Diff" in diff_markdown
+    assert "| stripe.create_refund |" in diff_markdown
+    comment = (reports / "pr-comment.md").read_text(encoding="utf-8")
+    assert "### Capability Diff" in comment
+    assert "### Capability changes" not in comment
+    assert comment.index("Release gate: `blocked`") < comment.index("### Capability Diff")
 
 
 def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(

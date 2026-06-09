@@ -42,4 +42,3 @@ def agent_result_json_payload(result: AgentResultV1) -> dict[str, Any]:
 
 def agent_result_json(result: AgentResultV1) -> str:
     return json.dumps(agent_result_json_payload(result), indent=2, sort_keys=False)
-
