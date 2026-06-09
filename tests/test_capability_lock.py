@@ -316,6 +316,14 @@ def test_malformed_lockfile_raises_input_parse_error(tmp_path: Path) -> None:
         load_capability_lock(path)
 
 
+def test_unreadable_lock_path_raises_input_parse_error(tmp_path: Path) -> None:
+    path = tmp_path / "lock-dir.json"
+    path.mkdir()
+
+    with pytest.raises(InputParseError, match="Invalid capability lock file"):
+        load_capability_lock(path)
+
+
 def test_capability_lock_and_diff_validate_against_schema() -> None:
     base = _lock([_tool("alpha.read", scopes=["alpha:read"])])
     head = _lock([_tool("beta.read", scopes=["beta:read"])])
