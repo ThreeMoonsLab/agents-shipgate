@@ -27,6 +27,7 @@ from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.host_audit import audit as _audit_command
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
+from agents_shipgate.cli.mcp import mcp_app
 from agents_shipgate.cli.registry import registry_app
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
@@ -159,6 +160,7 @@ app.add_typer(feedback_app, name="feedback")
 app.add_typer(scenario_app, name="scenario")
 app.add_typer(skill_app, name="skill")
 app.add_typer(capability_app, name="capability")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(registry_app, name="registry")
 logger = logging.getLogger(__name__)
 

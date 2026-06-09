@@ -131,6 +131,7 @@ packages = ["src/agents_shipgate"]
 # source-checkout dev path).
 "docs/checks" = "agents_shipgate/_meta/checks"
 "policies/codex-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/codex-boundary.shipgate.yaml"
+"policies/mcp-permissions.shipgate.yaml" = "agents_shipgate/_meta/policies/mcp-permissions.shipgate.yaml"
 "policies/host-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/host-boundary.shipgate.yaml"
 "adoption-kits" = "agents_shipgate/_adoption_kits"
 

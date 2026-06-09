@@ -1222,9 +1222,16 @@ def _server_tool_names(server: dict[str, Any]) -> set[str]:
     enabled = server.get("enabled_tools")
     if isinstance(enabled, list):
         names.update(str(item) for item in enabled if isinstance(item, str))
+    for key in ("allowed_tools", "tool_allowlist", "tools_allowlist"):
+        value = server.get(key)
+        if isinstance(value, list):
+            names.update(str(item) for item in value if isinstance(item, str))
     tools = server.get("tools")
     if isinstance(tools, dict):
-        names.update(str(item) for item in tools)
+        for name, config in tools.items():
+            if isinstance(config, dict) and config.get("enabled") is False:
+                continue
+            names.add(str(name))
     return names
 
 
@@ -1499,6 +1506,22 @@ def _run_script_invokes_shipgate(value: str) -> bool:
 
 def _is_codex_config_path(path: str) -> bool:
     return path == ".codex/config.toml" or path.endswith("/.codex/config.toml")
+
+
+def is_codex_config_path(path: str) -> bool:
+    return _is_codex_config_path(path)
+
+
+def is_mcp_json_path(path: str) -> bool:
+    return path == ".mcp.json" or path.endswith("/.mcp.json")
+
+
+def resolve_changed_file_text(
+    workspace: Path,
+    diff_file: DiffFile,
+    diagnostics: list[AgentResultDiagnostic],
+) -> ResolvedFileText:
+    return _resolve_changed_file_text(workspace, diff_file, diagnostics)
 
 
 def _is_codex_hooks_path(path: str) -> bool:
