@@ -394,7 +394,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) (current).
+[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -432,7 +432,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
+| Report schema (current) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
@@ -493,6 +493,15 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
+
+Newer commands (stable intent, flags may still evolve):
+
+| Command | Purpose |
+|---|---|
+| `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
+| `agents-shipgate mcp-serve` | Local stdio MCP server (`[mcp]` extra) exposing `shipgate_preview` / `shipgate_verify` / `shipgate_explain_finding`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
+| `agents-shipgate registry` | `ingest --attestation <file>` / `query` — local capability-release ledger over attestations. |
+| `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
 
 ### Release Evidence Packet (v0.7)
 
@@ -914,7 +923,7 @@ agents-shipgate contract --json
 
 - Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `2`
-- Current report schema: `0.25` — [`docs/report-schema.v0.25.json`](report-schema.v0.25.json)
+- Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
@@ -954,6 +963,7 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
 - `release_decision.{blockers,review_items}[].capability_refs` (v0.24+) — stable capability IDs copied from the originating finding when a policy or policy-pack rule matched a `CapabilityFactV1`. Empty for findings that are not capability-policy matches. This is audit metadata only; `release_decision.decision` remains the gate.
 - `release_decision.{blockers,review_items}[].capability_trace_refs` (v0.25+) — stable local trace-evidence IDs copied from the originating finding when an existing trace/evidence check used declared local trace artifacts. Empty when no local trace row is relevant. This is audit metadata only; `release_decision.decision` remains the gate.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+) — one structured row per measurable evidence gap: `{kind, subject, source_type, source_ref, why, next_action}` with `kind` ∈ `{low_confidence_tool, source_warning}` and `next_action` carrying `{kind, command, path, why, expects}` (`kind` ∈ `{declare_tool_inventory, provide_source, review_warning}`). When `decision` is `insufficient_evidence`, work the gaps in order instead of guessing: `declare_tool_inventory` rows point at the advisory `suggested-inventory.json` skeleton scan writes next to `report.json` and name the exact `*.tool_inventories` manifest key to reference it from. Deterministic projection of the coverage counts; never gates independently.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.
 - `release_decision.reason` — one-sentence explanation suitable for a PR comment.
 - `release_decision.contribution_rules[]` (v0.17+) — deterministic per-finding audit explaining how each `report.findings` entry was classified. Exactly one row per finding (including suppressed). Each row carries `{finding_id, fingerprint, check_id, category, rule, rationale}`. `category` ∈ `{blocker, review_item, excluded}`; `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`. Reading the contribution rule is sufficient to predict the gate outcome for that finding without re-deriving the decision logic — the closed grammar of `(rule, category)` pairs is documented in [STABILITY.md "Release decision truth table"](../STABILITY.md#release-decision-truth-table). The audit cannot disagree with `blockers[]` / `review_items[]` (the same classification powers both).
@@ -1251,7 +1261,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.25.json`](report-schema.v0.25.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.26.json`](report-schema.v0.26.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
@@ -1369,6 +1379,16 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
 | `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | high | GitHub workflow permissions expanded. |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | critical | A GitHub workflow gained a pull_request_target trigger. |
 | `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
 | `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
 | `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
@@ -1834,6 +1854,63 @@ before relying on them.
 
 A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
 command-bearing skill changes before local automation.
+
+### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
+or its content cannot be resolved from the diff. Fix the malformed host config
+or have a human review the change.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+
+A changed MCP server declaration file adds a server key that did not exist
+before. Have a human review the new MCP server before the agent can use it.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+
+An existing MCP server changed its `command`, `args`, `url`, `serverUrl`, or
+`env` keys. Review the change — env var values never appear in evidence, key
+names only.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+
+A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
+allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
+`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
+commands.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+
+A changed Claude Code settings file adds a non-wildcard `permissions.allow`
+entry. Have a human approve the new permission allow rule.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+
+A changed Claude Code settings file drops an entry from `permissions.deny`.
+Have a human confirm the removed deny rule is no longer needed.
+
+### SHIP-HOST-BOUNDARY-HOOK-CHANGED
+
+A changed Claude Code settings file adds, modifies, or removes hook handlers.
+Review executable hook changes before the agent relies on them.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+
+A changed `.github/workflows` file sets `permissions: write-all` at the top
+level or for a job. Replace write-all with the minimal explicit permission
+scopes.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+
+A changed `.github/workflows` file grants an explicit write scope that the
+base did not grant, at the top level or per job. Have a human approve the
+expanded workflow write permission.
+
+### SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+
+A changed `.github/workflows` file adds `pull_request_target` to its triggers.
+Review it carefully — `pull_request_target` runs with secrets on fork PRs.
 
 ### LINT-BODY-001
 
@@ -2581,7 +2658,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.25.json`](report-schema.v0.25.json) — current JSON
+- [`report-schema.v0.26.json`](report-schema.v0.26.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

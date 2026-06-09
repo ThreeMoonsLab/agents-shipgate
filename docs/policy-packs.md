@@ -3,8 +3,9 @@
 Policy packs are local YAML files for organization-specific release rules. They
 are declarative data, not Python plugins, and are enabled by default only when
 declared in `shipgate.yaml` or passed on the CLI. The machine-readable schema is
-[`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json); policy-pack
-files do not need to declare a schema-version key.
+[`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) (v0.1 stays
+frozen for older builds); policy-pack files do not need to declare a
+schema-version key.
 
 ```yaml
 checks:
@@ -12,6 +13,10 @@ checks:
     - id: org-release
       path: policies/org-release.yaml
       optional: false
+      # v0.2 (optional): content pin for shared/org packs. Mismatch fails
+      # the scan with a config error so a tampered pack cannot silently
+      # change the release policy. Compute with `shasum -a 256 <pack>`.
+      sha256: "<sha256-of-the-pack-file>"
 ```
 
 ```bash
@@ -168,3 +173,55 @@ agents-shipgate scan -c shipgate.yaml \
 Do not use an LLM to decide whether a policy pack passed. LLMs may help draft
 candidate rules or fixture names, but the accepted policy pack must be proven by
 deterministic scans and contribution-rule assertions.
+
+
+## v0.2: Conditional Composition
+
+Flat match fields are implicitly ANDed (v0.1 behavior, unchanged). v0.2
+adds explicit combinators — each branch is a complete nested `match`
+evaluated against the same subject:
+
+- `all_of: [<match>, ...]` — every branch must match.
+- `any_of: [<match>, ...]` — at least one branch must match; the finding
+  evidence records which branch hit (`{"index": N, "matched": {...}}`).
+- `none_of: [<match>, ...]` — no branch may match.
+
+Parameter predicates gain declared-bound comparisons:
+`maximum_above: <number>` (declared `maximum` exceeds the threshold) and
+`minimum_below: <number>`. These compare the *declared* schema bounds —
+static evidence, not runtime values.
+
+The canonical example — "a financial action whose `amount` is unbounded
+or allowed above 1000 must declare an approval policy":
+
+```yaml
+rules:
+  - id: ORG-LARGE-FINANCIAL-NEEDS-APPROVAL
+    title: Large or unbounded financial action requires declared approval
+    severity: critical
+    block: true
+    recommendation: Declare an approval policy or bound the amount below 1000.
+    match:
+      all_of:
+        - risk_tags: [financial_action]
+        - missing_approval_policy: true
+        - any_of:
+            - parameters:
+                - name: amount
+                  maximum_above: 1000
+            - parameters:
+                - name: amount
+                  missing_maximum: true
+```
+
+Determinism: branches evaluate in declaration order; `any_of` records the
+first matching branch. An empty branch (`{}`) matches every subject —
+always give branches at least one predicate.
+
+## Distributing Org Packs
+
+Treat shared packs like dependencies: vendor or sync them into the repo,
+then pin the content with `sha256:` in `checks.policy_packs`. A scan
+against a pack whose hash no longer matches fails closed with a config
+error naming both hashes, so a policy change always shows up as an
+explicit pin update in the PR diff — reviewable like a lockfile bump.

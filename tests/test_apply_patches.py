@@ -475,3 +475,39 @@ def test_multi_remove_index_overflow_does_not_crash(tmp_path: Path) -> None:
     assert "tool: a" not in result
     assert "tool: b" not in result
     assert "require_approval_for_tools: []" in result
+
+
+def test_containment_violation_symlink_escape_refused(tmp_path: Path) -> None:
+    """A target_file that is a symlink inside manifest_dir pointing outside
+    must be refused: containment compares resolved real paths, and the
+    symlink's final destination escapes the boundary."""
+    workspace = _seed_with_stale_suppression(tmp_path)
+    report_path = _scan_with_patches(workspace)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    outside = tmp_path / "outside-target.yaml"
+    outside.write_text("version: '0.1'\n", encoding="utf-8")
+    manifest_dir = Path(report["manifest_dir"])
+    evil_link = manifest_dir / "evil-link.yaml"
+    evil_link.symlink_to(outside)
+
+    forged = False
+    for finding in report["findings"]:
+        for patch in finding.get("patches") or []:
+            if patch.get("kind") == "remove_pointer":
+                patch["target_file"] = str(evil_link)
+                forged = True
+                break
+        if forged:
+            break
+    assert forged, "expected a remove_pointer patch to forge"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report_path), "--apply"],
+    )
+    assert result.exit_code == 5
+    assert "Containment violation" in result.output or "not under" in result.output
+    # The file outside the boundary must be untouched.
+    assert outside.read_text(encoding="utf-8") == "version: '0.1'\n"

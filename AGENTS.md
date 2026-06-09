@@ -369,7 +369,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) (current).
+[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -407,7 +407,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
+| Report schema (current) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
@@ -468,6 +468,15 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate baseline save` | `-c`, `--out` |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
+
+Newer commands (stable intent, flags may still evolve):
+
+| Command | Purpose |
+|---|---|
+| `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
+| `agents-shipgate mcp-serve` | Local stdio MCP server (`[mcp]` extra) exposing `shipgate_preview` / `shipgate_verify` / `shipgate_explain_finding`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
+| `agents-shipgate registry` | `ingest --attestation <file>` / `query` — local capability-release ledger over attestations. |
+| `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
 
 ### Release Evidence Packet (v0.7)
 

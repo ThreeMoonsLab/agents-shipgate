@@ -13,6 +13,7 @@ RULES_VERSION = "0.1"
 SENSITIVE_FIELD_INVENTORY_VERSION = "0.1"
 
 REDACTION_MARKER_RE = re.compile(r"\[REDACTED:[a-z0-9_:-]+\]")
+_MARKER_KIND_RE = re.compile(r"\[REDACTED:([a-z0-9_:-]+)\]")
 BEARER_TOKEN_RE = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE)
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -45,6 +46,21 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("bearer_token", BEARER_TOKEN_RE),
 )
+
+# Marker kinds this module can actually emit. The redact_text passthrough
+# (idempotency over already-redacted values) must only honor these: a
+# scanned input that merely *looks* like a marker — e.g.
+# "[REDACTED:my-lowercase-secret-123]" — would otherwise bypass forced
+# sensitive-key redaction and smuggle its payload into the report.
+KNOWN_MARKER_KINDS: frozenset[str] = frozenset(
+    name for name, _ in SECRET_PATTERNS
+) | {"labeled_secret_value", "sensitive_field"}
+
+
+def _is_known_marker(value: str) -> bool:
+    match = _MARKER_KIND_RE.fullmatch(value)
+    return match is not None and match.group(1) in KNOWN_MARKER_KINDS
+
 
 # Fast, cheap substring markers for JSON logging's defensive precheck.
 # Keep this next to SECRET_PATTERNS so adding a new prefix-detectable
@@ -139,7 +155,7 @@ def redact_text(
 ) -> str | None:
     if value is None:
         return None
-    if REDACTION_MARKER_RE.fullmatch(value.strip()):
+    if _is_known_marker(value.strip()):
         return value
 
     redacted = value

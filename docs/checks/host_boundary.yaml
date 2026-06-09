@@ -1,0 +1,138 @@
+# Check catalog · category: host_boundary
+#
+# This file is loaded by agents_shipgate.checks._metadata_loader.
+checks:
+- id: SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A coding-agent host configuration file could not be parsed.
+  rationale: A malformed host config prevents deterministic inspection of the
+    agent's host capability boundary, so the diff-aware check fails closed to
+    review.
+  fires_when: A changed .mcp.json, .cursor/mcp.json, .vscode/mcp.json,
+    .claude/settings(.local).json, or .github/workflows file cannot be parsed
+    as JSON or YAML, or its content cannot be resolved from the diff.
+  evidence_fields: [kind, error, source]
+  recommendation: Fix the malformed host config or have a human review the
+    change.
+- id: SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A new MCP server was declared for the coding-agent host.
+  rationale: A new MCP server adds an entire external tool surface to the
+    agent host; it must be human-reviewed before the agent can use it.
+  fires_when: A changed .mcp.json, .cursor/mcp.json, or .vscode/mcp.json adds
+    a server key that did not exist before.
+  evidence_fields: [kind, server, transport_hint, command_or_url]
+  recommendation: Have a human review the new MCP server before the agent can
+    use it.
+- id: SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: An existing MCP server declaration changed its command, URL,
+    args, or env keys.
+  rationale: Changing what an already-trusted MCP server executes or connects
+    to silently re-shapes the host tool surface behind an approved name.
+  fires_when: A changed MCP server file modifies command, args, url,
+    serverUrl, or env for an existing server. Env var values never appear in
+    evidence — key names only.
+  evidence_fields: [kind, server, changed_keys]
+  recommendation: Review the changed MCP server command, URL, args, or env
+    keys.
+- id: SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+  default_severity: critical
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A Claude Code allow rule grants a wildcard tool surface.
+  rationale: Wildcard allow rules remove the host's per-command approval
+    boundary entirely; an agent must not self-grant unrestricted tool access.
+  fires_when: A changed .claude/settings.json or .claude/settings.local.json
+    adds an allow rule that is '*', a bare tool name, or a wildcard-shaped
+    rule such as 'Bash(*)' or 'Bash(*:*)'.
+  evidence_fields: [kind, rule]
+  recommendation: Do not allow wildcard tool permissions; scope the rule to
+    specific commands.
+- id: SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The Claude Code permission allowlist expanded.
+  rationale: Every new allow rule widens what the host executes without a
+    prompt; expansion needs a human in the loop.
+  fires_when: A changed .claude/settings.json or .claude/settings.local.json
+    adds a non-wildcard permissions.allow entry.
+  evidence_fields: [kind, rule]
+  recommendation: Have a human approve the new permission allow rule.
+- id: SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A Claude Code permission deny rule was removed.
+  rationale: Deny rules are the host's explicit guardrails; removing one
+    silently re-enables a previously forbidden capability.
+  fires_when: A changed .claude/settings.json or .claude/settings.local.json
+    drops an entry from permissions.deny.
+  evidence_fields: [kind, rule]
+  recommendation: Have a human confirm the removed deny rule is no longer
+    needed.
+- id: SHIP-HOST-BOUNDARY-HOOK-CHANGED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Claude Code hooks changed.
+  rationale: Hooks execute commands inside the agent lifecycle and can alter
+    host behavior before or after every tool call.
+  fires_when: A changed .claude/settings.json or .claude/settings.local.json
+    adds, modifies, or removes hook handlers.
+  evidence_fields: [kind, events]
+  recommendation: Review executable hook changes before the agent relies on
+    them.
+- id: SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+  default_severity: critical
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A GitHub workflow grants write-all permissions.
+  rationale: write-all hands the workflow token every write scope at once;
+    an agent must not self-grant blanket CI write access.
+  fires_when: A changed .github/workflows file sets permissions to write-all
+    at the top level or for a job.
+  evidence_fields: [kind, job]
+  recommendation: Replace write-all with the minimal explicit permission
+    scopes.
+- id: SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: GitHub workflow permissions expanded.
+  rationale: Moving a scope from read to write (or granting a new write
+    scope) widens what CI can do with the repository token.
+  fires_when: A changed .github/workflows file grants an explicit write scope
+    that the base did not grant, at the top level or per job.
+  evidence_fields: [kind, job, scope, old, new]
+  recommendation: Have a human approve the expanded workflow write
+    permission.
+- id: SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+  default_severity: critical
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A GitHub workflow gained a pull_request_target trigger.
+  rationale: pull_request_target runs workflow code with secrets against fork
+    PRs; adding it is a classic privilege-escalation surface.
+  fires_when: A changed .github/workflows file adds pull_request_target to
+    its triggers.
+  evidence_fields: [kind]
+  recommendation: Review the pull_request_target trigger; it runs with
+    secrets on fork PRs.

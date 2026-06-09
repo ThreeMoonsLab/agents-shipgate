@@ -42,8 +42,9 @@ If you change a prompt, archetype set, variant set, or rubric, **bump the schema
 
 | File | Date | Schema | Cells | Notes |
 |---|---|---|---|---|
+| [`2026-W24-cursor-static.csv`](2026-W24-cursor-static.csv) | 2026-06-09 | 0.3 | 12 | Automated runner, `cursor-static` driver only (free, lint-only — no command execution). All 12 cells score 100 / `headline_pass=true`; for a static driver this primarily proves **`not_noisy_on_docs_only`** (no false Shipgate noise on docs-only diffs) and the runner pipeline end-to-end. It does NOT measure discovery or obedience — `behavioural_cells=0` in the run's `exit_criteria.json`, so `materially_outperforms_no_hints` and `near_perfect_activation` remain unproven until the paid Claude Code cells run. |
 | _(W2 baseline pending)_ | _2026-W2_ | 0.1 | 16 (planned) | Claude Code × `00-no-hints` & `10-agents-md` × 8 archetypes (manual) |
-| _(automated v1 pending)_ | _2026-W2x_ | 0.2 | 24 (planned) | Automated runner. Claude Code × {`00`, `10`, `40`} × {01, 04} × {openai-agents-sdk, mcp-only, openapi-only, n8n} |
+| _(automated v1 pending — needs API budget)_ | _2026-W2x_ | 0.3 | 31 paid + 3 adversarial | Automated runner: `python -m harness.adoption run --matrix=benchmark/matrix.yaml --agent claude-code --budget-usd=20`. Requires `claude-agent-sdk` credentials; do not start without an approved spend budget. |
 
 ## Headline metrics
 
@@ -65,4 +66,10 @@ Per-archetype variance is also informative: a high snippet uplift on `openai-age
 
 ## Leaderboard
 
-_Populated after the W2 baseline run._
+| Agent | Cells | Mean score | Headline pass rate | What it proves |
+|---|---|---|---|---|
+| `cursor-static` (2026-W24) | 12 | 100 | 12/12 | Pipeline works; zero docs-only noise. **Not** a discovery or obedience signal (static driver, no behavioural cells). |
+| `claude-code` | — | — | — | _Pending paid run (needs budget approval)._ |
+
+_The behavioural leaderboard (discovery / snippet uplift / obedience under
+pressure) is populated after the paid Claude Code baseline run._

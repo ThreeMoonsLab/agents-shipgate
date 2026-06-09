@@ -12,6 +12,8 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`06-on-tool-source-changes.yml`](06-on-tool-source-changes.yml) | Run only when the tool surface or manifest actually changed. |
 | [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
+| [`09-risk-labels-and-reviewers.yml`](09-risk-labels-and-reviewers.yml) | Label PRs by risk signal (`agent-capability-change`, `trust-root-touched`, `shipgate-blocked`) and request boundary owners as reviewers. |
+| [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with line-level SARIF annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
 
 ## Permissions
 
@@ -22,6 +24,7 @@ permissions:
   contents: read
   pull-requests: write       # for pr_comment
   security-events: write     # for SARIF upload
+  checks: write              # for check_run
 ```
 
 Configure per-job, never repo-wide.
