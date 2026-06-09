@@ -65,8 +65,11 @@
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
+- Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
+- Verify capability diff, when the base lock exists: `agents-shipgate-reports/capability-lock-diff.{json,md}`.
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
 - Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json
+- Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.2.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
@@ -81,11 +84,11 @@
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=all`.
 - Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
-- Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and `capability_review.top_changes`. Then read `report.json.release_decision.decision`; it is the release gate.
+- Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and the capability diff artifact when present (fallback: `capability_review.top_changes`). Then read `report.json.release_decision.decision`; it is the release gate.
 - Run the verify-native demo fixture: `agents-shipgate fixture run ai_generated_refund_pr`.
 - Scan a static repo/report fixture when you need the lower-level report path: `agents-shipgate fixture run support_refund_agent`.
 - Export a stable static capability lock: `agents-shipgate capability export -c shipgate.yaml`.
-- Compare static capability locks: `agents-shipgate capability diff --base .agents-shipgate/capabilities.lock.json --head agents-shipgate-reports/head.capabilities.lock.json --json`.
+- Compare static capability locks: `agents-shipgate capability diff --base .agents-shipgate/capabilities.lock.json --head agents-shipgate-reports/capabilities.lock.json --json`.
 - Export redacted design-partner feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
 - Do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, weaken agent instructions, or assert approval/idempotency evidence to pass.
 - GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.11.0`.

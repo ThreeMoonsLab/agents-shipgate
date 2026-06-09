@@ -29,6 +29,7 @@ import pytest
 from agents_shipgate import __version__
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.report.markdown import DISCLAIMER
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
@@ -329,7 +330,14 @@ def test_well_known_metadata_lists_packet_outputs():
         f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
     )
     outputs = data.get("outputs", [])
-    for expected in ("packet_md", "packet_json", "packet_html", "feedback_json"):
+    for expected in (
+        "packet_md",
+        "packet_json",
+        "packet_html",
+        "capability_lock_diff_md",
+        "feedback_json",
+        "attestation_json",
+    ):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
             "the Release Evidence Packet and feedback export are first-class outputs."
@@ -374,6 +382,13 @@ def test_well_known_metadata_lists_packet_outputs():
     ), (
         ".well-known schemas.capability_lock_diff must point to the current "
         f"capability lock diff schema; got {capability_diff_url!r}."
+    )
+    attestation_url = schemas.get("attestation", "")
+    assert f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json" in (
+        attestation_url
+    ), (
+        ".well-known schemas.attestation must point to the current "
+        f"attestation schema; got {attestation_url!r}."
     )
     benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
     assert (

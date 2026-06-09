@@ -779,12 +779,14 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.1.json`](docs/attestation-schema.v0.1.json). It
-records the verdict, the capability delta, the declared `human_ack` state, a
-policy-snapshot hash, and content hashes of the verify artifacts. It carries no
-wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
-so re-deriving from the same inputs is byte-identical. It does not gate;
-`release_decision.decision` remains the only gate. Current v0.1 fields:
+[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json). It
+records the verdict, the report-derived capability delta, the declared
+`human_ack` state, a policy-snapshot hash, content hashes of the verify
+artifacts, and capability lock/diff hash bindings when verify emitted those
+artifacts. It carries no wall-clock timestamp — it is content-addressed by git
+SHAs and artifact hashes, so re-deriving from the same inputs is byte-identical.
+It does not gate; `release_decision.decision` remains the only gate. Current
+v0.2 fields:
 
 - `attestation_schema_version`
 - `cli_version`
@@ -793,6 +795,8 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
 - `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
+- `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `capability_count`)
+- `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
 - `human_ack` (`required`, `satisfied`, `outstanding`)
 - `policy_snapshot_sha256`
 - `artifact_sha256`
@@ -834,6 +838,16 @@ reference at
 [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
 The public standard is documented in
 [`docs/capability-standard.md`](docs/capability-standard.md).
+
+`agents-shipgate verify` also writes the head static lock to
+`agents-shipgate-reports/capabilities.lock.json` after a successful head scan.
+When `--base` is provided and the base tree contains the reviewed committed lock
+at `.agents-shipgate/capabilities.lock.json`, verify writes
+`agents-shipgate-reports/capability-lock-diff.json` and
+`agents-shipgate-reports/capability-lock-diff.md`, and the PR comment leads with
+that semantic capability diff after the verdict summary. If the base lock is
+absent or invalid, verify records a note and falls back to the existing
+`capability_review.top_changes[]` projection without changing the release gate.
 
 ### Workflow-evidence capture
 

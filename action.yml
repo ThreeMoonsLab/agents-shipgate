@@ -3,8 +3,9 @@ description: >-
   The deterministic merge gate for AI-generated agent capability changes.
   Verifies PRs that change MCP, OpenAPI, OpenAI Agents SDK, Anthropic,
   Google ADK, LangChain, CrewAI, OpenAI API, Codex plugin, and n8n
-  artifacts. Writes verifier.json, report.json, pr-comment.md, and SARIF
-  before your agent-capability change lands. Local-first and
+  artifacts. Writes verifier.json, report.json, pr-comment.md, capability
+  lock/diff review artifacts, and SARIF before your agent-capability change
+  lands. Local-first and
   static-by-default. Audited exceptions are pinned per call site in
   tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS. Apache-2.0.
 author: ThreeMoonsLab

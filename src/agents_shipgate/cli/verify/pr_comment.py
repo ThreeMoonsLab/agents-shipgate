@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import re
 
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
+from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -28,16 +32,22 @@ def render_pr_comment(
     *,
     report: ReadinessReport | None,
     style: str = "capability-review",
+    capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> str:
     if style == "findings":
         return _render_findings_comment(verifier, report=report)
-    return _render_capability_review_comment(verifier, report=report)
+    return _render_capability_review_comment(
+        verifier,
+        report=report,
+        capability_lock_diff=capability_lock_diff,
+    )
 
 
 def _render_capability_review_comment(
     verifier: VerifierArtifact,
     *,
     report: ReadinessReport | None,
+    capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> str:
     visible_verdict = _visible_verdict(verifier)
     lines = [STICKY_MARKER, f"## Agents Shipgate: {visible_verdict}"]
@@ -75,7 +85,10 @@ def _render_capability_review_comment(
         ]
     )
 
-    lines.extend(_capability_change_table(review))
+    if capability_lock_diff is not None:
+        lines.extend(_capability_lock_diff_lines(capability_lock_diff))
+    else:
+        lines.extend(_capability_change_table(review))
     lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
     lines.extend(_trust_root_warning_lines(review, report))
     lines.extend(_trigger_and_base_lines(verifier))
@@ -202,6 +215,17 @@ def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
             f"{_table_cell(change.rationale)} |"
         )
     return lines
+
+
+def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
+    rendered = render_capability_lock_diff_markdown(
+        diff,
+        heading_level=3,
+        max_rows=5,
+    ).rstrip()
+    if not rendered:
+        return []
+    return ["", *rendered.splitlines()]
 
 
 def _trust_root_warning_lines(
@@ -350,6 +374,9 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
             "report_json",
             "report_sarif",
             "packet_json",
+            "capability_lock",
+            "capability_lock_diff_json",
+            "capability_lock_diff_markdown",
             "verifier_json",
         ):
             if key in artifacts:
@@ -363,6 +390,9 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
         "report_json",
         "report_sarif",
         "packet_json",
+        "capability_lock",
+        "capability_lock_diff_json",
+        "capability_lock_diff_markdown",
         "verifier_json",
         "pr_comment",
     ):
