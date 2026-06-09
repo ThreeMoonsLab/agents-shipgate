@@ -147,6 +147,7 @@ _SHIPGATE_ACTION_RE = re.compile(
     r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
 )
+_LOCAL_ACTION_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+\./?\s*(?:#.*)?$")
 _COMMAND_SKILL_RE = re.compile(
     r"(exec_command|write_stdin|apply_patch|shell|subprocess|python\s|node\s|"
     r"bash\s|sh\s|scripts?/|command:|cmd:|run:)",
@@ -381,7 +382,7 @@ def evaluate_codex_boundary_result(
         if _is_shipgate_workflow_path(normalized):
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             evaluated_files.append(_evaluated_file_record(path, resolved))
-            _evaluate_shipgate_workflow(diff_file, resolved, add)
+            _evaluate_shipgate_workflow(diff_file, resolved, add, workspace=workspace)
         if _is_codex_skill_path(normalized):
             _evaluate_skill(diff_file, add)
 
@@ -925,10 +926,13 @@ def _evaluate_shipgate_workflow(
     diff_file: DiffFile,
     resolved: ResolvedFileText,
     add,
+    *,
+    workspace: Path,
 ) -> None:
     path = diff_file.path
     invocation_present = bool(
-        resolved.new_text and _has_shipgate_gate_invocation(resolved.new_text)
+        resolved.new_text
+        and _has_shipgate_gate_invocation(resolved.new_text, workspace=workspace)
     )
     if diff_file.is_deleted or resolved.new_text is None or not invocation_present:
         add(
@@ -1437,11 +1441,32 @@ def _contains_weakening_term(value: str) -> bool:
     return any(term in lowered for term in _WEAKENING_TERMS)
 
 
-def _has_shipgate_gate_invocation(value: str) -> bool:
-    return any(
-        _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line)
-        for line in value.splitlines()
+def _has_shipgate_gate_invocation(value: str, *, workspace: Path | None = None) -> bool:
+    local_action_is_shipgate = (
+        _workspace_declares_shipgate_action(workspace) if workspace is not None else False
     )
+    for line in value.splitlines():
+        if _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line):
+            return True
+        if local_action_is_shipgate and _LOCAL_ACTION_RE.search(line):
+            return True
+    return False
+
+
+def _workspace_declares_shipgate_action(workspace: Path) -> bool:
+    action_path = workspace / "action.yml"
+    if not action_path.is_file():
+        action_path = workspace / "action.yaml"
+    if not action_path.is_file():
+        return False
+    try:
+        payload = yaml.safe_load(action_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("name") or "").strip().lower()
+    return name == "agents shipgate"
 
 
 def _is_codex_config_path(path: str) -> bool:

@@ -396,6 +396,74 @@ index 1111111..2222222 100644
     assert [item.id for item in result.violated_rules] == ["CODEX-CI-GATE-REMOVED"]
 
 
+def test_codex_shipgate_workflow_accepts_repo_local_action_with_policy_input(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "action.yml").write_text(
+        "name: Agents Shipgate\nruns:\n  using: composite\n",
+        encoding="utf-8",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: Agents Shipgate\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    steps:\n"
+        "      - uses: ./\n"
+        "        with:\n"
+        "          config: shipgate.yaml\n"
+        "          ci_mode: advisory\n",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/agents-shipgate.yml
++++ b/.github/workflows/agents-shipgate.yml
+@@ -7,2 +7,3 @@
+           config: shipgate.yaml
+           ci_mode: advisory
++          fail_on_decisions: block
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "allow"
+    assert result.violated_rules == []
+
+
+def test_codex_shipgate_workflow_rejects_unrelated_repo_local_action(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "action.yml").write_text(
+        "name: Not Shipgate\nruns:\n  using: composite\n",
+        encoding="utf-8",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: Agents Shipgate\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    steps:\n"
+        "      - uses: ./\n",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/agents-shipgate.yml
++++ b/.github/workflows/agents-shipgate.yml
+@@ -5 +5 @@
+-      - run: agents-shipgate verify --workspace . --config shipgate.yaml
++      - uses: ./
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "block"
+    assert [item.id for item in result.violated_rules] == ["CODEX-CI-GATE-REMOVED"]
+
+
 def test_codex_audit_id_reflects_evaluated_content(tmp_path: Path) -> None:
     diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
 index 1111111..2222222 100644
