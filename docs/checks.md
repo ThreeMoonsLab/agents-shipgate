@@ -91,6 +91,18 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
 | `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
 | `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
+| `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` | medium | Codex project configuration could not be parsed. |
+| `SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY` | medium | Codex permissions contain an unknown high-risk key. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD` | high | Codex network permissions allow a wildcard domain. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED` | high | Codex network access expanded. |
+| `SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS` | critical | Codex full-access sandbox is selected. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE` | critical | Codex auto-approves a write or destructive MCP/app tool. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN` | high | Codex auto-approves an MCP server whose tool surface is not statically enumerable. |
+| `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
+| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
+| `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
+| `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
+| `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
 | `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
 | `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
 | `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
@@ -494,6 +506,68 @@ artifact documents the effective surface.
 A `skills/**/SKILL.md` file is missing parseable `name` or `description`
 frontmatter, or duplicates another skill name in the same plugin. Give every
 skill a unique routing name and clear description.
+
+### SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed repo-local `.codex/config.toml` or `.codex/hooks.json` cannot be
+parsed. Fix the malformed config or have a human review the boundary change.
+
+### SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
+
+A changed `.codex/config.toml` contains an unknown key below a permissions
+profile or permissions network table. Review the key before trusting the local
+Codex boundary.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD
+
+A changed Codex permission profile allows a wildcard domain. Replace wildcard
+network access with explicit domains or get human approval.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED
+
+Codex workspace-write network access or full network mode was enabled. Have a
+human approve the expanded local execution boundary.
+
+### SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS
+
+Codex `sandbox_mode` or `default_permissions` selects `danger-full-access`.
+Use a narrower permission profile or get explicit human approval.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+
+A changed MCP or app tool approval mode is `approve` for a write or
+destructive-looking tool. Do not auto-approve write or destructive tools.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN
+
+Codex auto-approves an MCP server whose tool surface is not statically
+enumerable. Enumerate MCP tools or keep the approval mode at `prompt`.
+
+### SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE
+
+A Codex app connector tool approval changed to `approve`. Review connector
+approval changes before local automation.
+
+### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
+
+`AGENTS.md` or `AGENTS.override.md` removed Shipgate command or requirement
+text without adding a replacement. A human should confirm the agent
+instructions were not weakened.
+
+### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
+
+The Shipgate GitHub Actions workflow was deleted or no longer contains a
+Shipgate invocation. Restore the workflow or get human approval to remove it.
+
+### SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
+
+A changed Codex hooks source contains a command hook. Review executable hooks
+before relying on them.
+
+### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
+
+A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
+command-bearing skill changes before local automation.
 
 ### LINT-BODY-001
 

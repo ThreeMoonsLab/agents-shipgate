@@ -1,0 +1,74 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "codex_boundary_58b07db582271d53bb309c19",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) block local continuation.",
+  "changed_files": [
+    ".github/workflows/agents-shipgate.yml"
+  ],
+  "first_next_action": {
+    "actor": "human",
+    "kind": "stop",
+    "why": "Shipgate GitHub Action no longer invokes the gate"
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-CI-GATE-REMOVED",
+      "check_id": "SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Shipgate GitHub Action no longer invokes the gate",
+      "path": ".github/workflows/agents-shipgate.yml",
+      "evidence": {
+        "kind": "shipgate_ci_gate_removed",
+        "deleted": true,
+        "source": "diff_deleted_file",
+        "shipgate_invocation_present": false
+      },
+      "recommendation": "Restore the Shipgate workflow or get human approval to remove it."
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_deleted_file.",
+      "path": ".github/workflows/agents-shipgate.yml"
+    }
+  ],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
+        "action": "run_shipgate",
+        "rationale": "CI gate changes touch the release-readiness path itself.",
+        "command": null
+      }
+    ],
+    "changed_files": [
+      ".github/workflows/agents-shipgate.yml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "agents-shipgate detect --workspace . --json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_fe55c27fa455ddfd"
+  ]
+}

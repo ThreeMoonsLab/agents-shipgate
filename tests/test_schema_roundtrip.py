@@ -3,7 +3,7 @@
 Every committed schema under ``docs/`` (``manifest-v0.1.json``,
 ``checks.json``, the current-minor ``report-schema.v0.*.json``,
 the current-minor ``packet-schema.v0.*.json``, and
-``verifier-schema.v0.1.json``) MUST match what
+``verifier-schema.v0.1.json``, and ``agent-result-schema.v1.json``) MUST match what
 ``scripts/generate_schemas.py`` produces from the live Pydantic models.
 
 These tests call the generator's builder functions directly — no
@@ -99,6 +99,11 @@ def test_verifier_schema_matches_committed_file(generator):
     _assert_match(target, content)
 
 
+def test_agent_result_schema_matches_committed_file(generator):
+    target, content = generator.build_agent_result_schema()
+    _assert_match(target, content)
+
+
 def test_checks_catalog_matches_committed_file(generator):
     target, content = generator.build_checks_catalog()
     _assert_match(target, content)
@@ -155,6 +160,7 @@ def test_builders_are_pure(generator):
         generator.build_packet_schema,
         generator.build_checks_catalog,
         generator.build_verifier_schema,
+        generator.build_agent_result_schema,
     ):
         target_a, content_a = builder()
         target_b, content_b = builder()

@@ -35,6 +35,7 @@ surface before production-like permissions are granted.
 - CrewAI Python entrypoints
 - n8n workflow JSON and source-control stubs
 - OpenAI API artifacts
+- Codex repo config
 - Codex plugin packages and marketplaces
 
 ## Core references

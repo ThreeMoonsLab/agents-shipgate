@@ -1,0 +1,10 @@
+diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
+deleted file mode 100644
+index 1111111..0000000
+--- a/.github/workflows/agents-shipgate.yml
++++ /dev/null
+@@ -1,4 +0,0 @@
+-name: Agents Shipgate
+-jobs:
+-  verify:
+-    run: agents-shipgate verify --workspace . --config shipgate.yaml --json

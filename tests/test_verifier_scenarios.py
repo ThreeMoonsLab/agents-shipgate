@@ -223,7 +223,7 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
     comment = (reports / "pr-comment.md").read_text(encoding="utf-8")
     assert "### Capability Diff" in comment
     assert "### Capability changes" not in comment
-    assert comment.index("Decision: `blocked`") < comment.index("### Capability Diff")
+    assert comment.index("Release gate: `blocked`") < comment.index("### Capability Diff")
 
 
 def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(

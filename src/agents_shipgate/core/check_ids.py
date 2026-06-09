@@ -11,7 +11,9 @@ from collections.abc import Iterable
 # immune (they are appended after suppression runs). Severity weakening
 # of these checks is blocked separately by ``CheckMetadata.floor_severity``.
 # See docs/engineering/ai-coding-workflow-verifier.md §3 (Principle 3) and §5.
-UNSUPPRESSIBLE_FINDING_CATEGORIES: frozenset[str] = frozenset({"verify"})
+UNSUPPRESSIBLE_FINDING_CATEGORIES: frozenset[str] = frozenset(
+    {"verify", "codex_boundary"}
+)
 
 LEGACY_CHECK_ID_ALIASES: dict[str, tuple[str, ...]] = {
     "SHIP-API-OPERATIONAL-READINESS": (

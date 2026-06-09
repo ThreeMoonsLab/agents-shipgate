@@ -36,7 +36,7 @@ An AI agent tool surface is the set of named, schemaed actions an agent can
 invoke at runtime. agents-shipgate reads tool surfaces from MCP exports,
 OpenAPI specs, OpenAI Agents SDK Python entrypoints, Anthropic Messages API
 artifacts, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API artifacts,
-Codex plugin packages and marketplaces, and n8n workflow JSON.
+Codex repo config, Codex plugin packages and marketplaces, and n8n workflow JSON.
 
 ## How does agents-shipgate work?
 
@@ -91,6 +91,7 @@ See [`docs/trust-model.md`](trust-model.md) for the full disclosure.
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
 - OpenAI API artifacts (prompts + function schemas + response formats)
+- Codex repo config (static parsing)
 - Codex plugin packages and marketplaces (static parsing)
 - n8n workflow JSON and source-control stubs (static parsing)
 
