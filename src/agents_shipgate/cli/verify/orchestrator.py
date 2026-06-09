@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate import __version__
+from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.report.pr_comment import render_pr_comment
 from agents_shipgate.schemas.report import AgentSummary, ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import (
@@ -41,7 +43,6 @@ from .git import (
     tree_sha,
     working_tree_context,
 )
-from .pr_comment import render_pr_comment
 
 HEAD_FORMATS = ["markdown", "json", "sarif"]
 # Verify owns the PR artifact contract and writes packet.json only; the
@@ -85,6 +86,7 @@ def run_verify(
     out_dir.mkdir(parents=True, exist_ok=True)
     verifier_path = out_dir / "verifier.json"
     pr_comment_path = out_dir / "pr-comment.md"
+    agent_result_path = out_dir / "agent-result.json"
 
     changed_files: list[str] = []
     diff_text = ""
@@ -175,6 +177,7 @@ def run_verify(
             verifier,
             verifier_path,
             pr_comment_path,
+            agent_result_path,
             report=None,
             pr_comment_style=pr_comment_style,
         )
@@ -205,6 +208,7 @@ def run_verify(
             verifier,
             verifier_path,
             pr_comment_path,
+            agent_result_path,
             report=None,
             pr_comment_style=pr_comment_style,
         )
@@ -321,6 +325,7 @@ def run_verify(
                     verifier,
                     verifier_path,
                     pr_comment_path,
+                    agent_result_path,
                     report=report,
                     pr_comment_style=pr_comment_style,
                 )
@@ -841,6 +846,7 @@ def _artifact_paths(
     candidates = {
         "verifier_json": out_dir / "verifier.json",
         "pr_comment": out_dir / "pr-comment.md",
+        "agent_result_json": out_dir / "agent-result.json",
     }
     if include_scan_artifacts:
         candidates = {
@@ -860,17 +866,25 @@ def _write_artifacts(
     verifier: VerifierArtifact,
     verifier_path: Path,
     pr_comment_path: Path,
+    agent_result_path: Path,
     *,
     report: ReadinessReport | None,
     pr_comment_style: str,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_result = build_agent_result(verifier=verifier, report=report)
     verifier_path.write_text(
         json.dumps(verifier.model_dump(mode="json"), indent=2),
         encoding="utf-8",
     )
+    write_agent_result(agent_result, agent_result_path)
     pr_comment_path.write_text(
-        render_pr_comment(verifier, report=report, style=pr_comment_style),
+        render_pr_comment(
+            verifier,
+            report=report,
+            style=pr_comment_style,
+            agent_result=agent_result,
+        ),
         encoding="utf-8",
     )
     # Keep report.json as the authoritative artifact, but validate the
@@ -935,6 +949,7 @@ def run_preview(
     out_dir.mkdir(parents=True, exist_ok=True)
     verifier_path = out_dir / "verifier.json"
     pr_comment_path = out_dir / "pr-comment.md"
+    agent_result_path = out_dir / "agent-result.json"
     manifest_present = config_path.exists()
 
     changed_files: list[str] = []
@@ -1047,12 +1062,14 @@ def run_preview(
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),
             "pr_comment": _display_path(pr_comment_path.resolve(), root),
+            "agent_result_json": _display_path(agent_result_path.resolve(), root),
         },
     )
     _write_artifacts(
         verifier,
         verifier_path,
         pr_comment_path,
+        agent_result_path,
         report=None,
         pr_comment_style=pr_comment_style,
     )

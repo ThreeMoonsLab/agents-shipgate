@@ -26,6 +26,10 @@ inputs:
     required: false
     default: ""
     description: Optional comma-separated severities that fail CI, for example critical,high.
+  fail_on_decisions:
+    required: false
+    default: ""
+    description: Optional comma-separated agent-result decisions that fail CI, for example block or block,require_review.
   baseline:
     required: false
     default: ""
@@ -132,9 +136,27 @@ outputs:
   pr_comment_markdown:
     description: Path to the generated PR comment Markdown.
     value: ${{ steps.report_outputs.outputs.pr_comment_markdown }}
+  agent_result_json:
+    description: Path to agent-result.json.
+    value: ${{ steps.report_outputs.outputs.agent_result_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
+  agent_decision:
+    description: Compact agent-result decision (`allow`, `warn`, `require_review`, or `block`).
+    value: ${{ steps.report_outputs.outputs.agent_decision }}
+  risk_level:
+    description: Compact agent-result risk level (`low`, `medium`, `high`, or `critical`).
+    value: ${{ steps.report_outputs.outputs.risk_level }}
+  audit_id:
+    description: Deterministic audit id from agent-result.json.
+    value: ${{ steps.report_outputs.outputs.audit_id }}
+  required_reviewers:
+    description: Comma-separated reviewer roles projected into agent-result.json.
+    value: ${{ steps.report_outputs.outputs.required_reviewers }}
+  policy_snapshot_sha256:
+    description: sha256 of report.effective_policy from agent-result.json.
+    value: ${{ steps.report_outputs.outputs.policy_snapshot_sha256 }}
   decision:
     description: Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14.
     value: ${{ steps.report_outputs.outputs.decision }}
@@ -356,6 +378,35 @@ runs:
               body,
             });
           }
+
+    - name: Apply Agents Shipgate decision policy
+      if: ${{ always() && inputs.fail_on_decisions != '' && steps.report_outputs.outputs.agent_decision != '' }}
+      shell: bash
+      env:
+        FAIL_ON_DECISIONS: ${{ inputs.fail_on_decisions }}
+        AGENT_DECISION: ${{ steps.report_outputs.outputs.agent_decision }}
+      run: |
+        python - <<'PY'
+        import os
+        import sys
+
+        sys.path.insert(0, os.environ["GITHUB_ACTION_PATH"])
+
+        from scripts.github_action_outputs import decision_policy_exit_code
+
+        code = decision_policy_exit_code(
+            os.environ.get("AGENT_DECISION", ""),
+            os.environ.get("FAIL_ON_DECISIONS", ""),
+        )
+        if code:
+            print(
+                "Agents Shipgate agent decision "
+                f"{os.environ.get('AGENT_DECISION', '')!r} matched "
+                "fail_on_decisions.",
+                file=sys.stderr,
+            )
+        raise SystemExit(code)
+        PY
 
     - name: Apply Agents Shipgate exit code
       if: ${{ always() && steps.scan.outputs.exit_code != '' && steps.scan.outputs.exit_code != '0' }}
