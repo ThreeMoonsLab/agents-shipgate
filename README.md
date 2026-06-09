@@ -283,7 +283,7 @@ $agents-shipgate verify this agent PR and summarize the merge verdict.
 
 The plugin supplies Codex workflows, not the scanner binary. Install or upgrade
 the CLI in the environment where Codex will run commands, then confirm
-`agents-shipgate --version` reports `0.11.0` or newer:
+`agents-shipgate --version` reports `0.12.0` or newer:
 
 ```bash
 pipx install agents-shipgate
@@ -294,7 +294,7 @@ agents-shipgate --version
 If `pipx` is unavailable, use:
 
 ```bash
-python -m pip install -U "agents-shipgate>=0.11"
+python -m pip install -U "agents-shipgate>=0.12"
 agents-shipgate --version
 ```
 
@@ -378,9 +378,9 @@ gate.
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
 ```bash
-python -m pip install -U "agents-shipgate>=0.11"    # global pip
+python -m pip install -U "agents-shipgate>=0.12"    # global pip
 uv tool install --upgrade agents-shipgate            # via uv
-agents-shipgate --version                            # require >=0.11.0
+agents-shipgate --version                            # require >=0.12.0
 ```
 
 ## Adopt in one turn (scan helper)
@@ -413,7 +413,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.12.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -715,12 +715,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.12.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.12.0'
 ```
 
 After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.

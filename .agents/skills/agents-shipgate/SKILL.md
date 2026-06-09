@@ -15,7 +15,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 1. For relevance decisions, bootstrap, verifier runs, scanning, CI setup, finding fixes, false-positive triage, strict-mode promotion, or version upgrades, read `references/recipes.md`.
 2. For reading `report.json`, summarizing release decisions, or deciding what may be auto-applied, read `references/report-reading.md`.
-3. Before running Shipgate CLI commands, require `agents-shipgate >=0.11.0`: run `command -v agents-shipgate` and `agents-shipgate --version`. If it is missing or older than 0.11.0, tell the user to run `pipx install agents-shipgate` and then `pipx upgrade agents-shipgate`; if `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.11"`. The Codex plugin supplies workflows, not the scanner binary.
+3. Before running Shipgate CLI commands, require `agents-shipgate >=0.12.0`: run `command -v agents-shipgate` and `agents-shipgate --version`. If it is missing or older than 0.12.0, tell the user to run `pipx install agents-shipgate` and then `pipx upgrade agents-shipgate`; if `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.12"`. The Codex plugin supplies workflows, not the scanner binary.
 4. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
 6. For verify runs, read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
@@ -24,7 +24,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 ## Fast Paths
 
-- CLI preflight: run `command -v agents-shipgate` and `agents-shipgate --version`. Continue only when the installed CLI is `>=0.11.0`; if it is missing or stale, ask the user to run `pipx install agents-shipgate` followed by `pipx upgrade agents-shipgate`, or `python -m pip install -U "agents-shipgate>=0.11"` when `pipx` is unavailable.
+- CLI preflight: run `command -v agents-shipgate` and `agents-shipgate --version`. Continue only when the installed CLI is `>=0.12.0`; if it is missing or stale, ask the user to run `pipx install agents-shipgate` followed by `pipx upgrade agents-shipgate`, or `python -m pip install -U "agents-shipgate>=0.12"` when `pipx` is unavailable.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
 - Agent-related PR/CI diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
 - Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.

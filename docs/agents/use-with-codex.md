@@ -65,7 +65,7 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate --version` reports `0.11.0` or newer:
+`agents-shipgate --version` reports `0.12.0` or newer:
 
 ```bash
 pipx install agents-shipgate
@@ -76,11 +76,11 @@ agents-shipgate --version
 If `pipx` is unavailable, use:
 
 ```bash
-python -m pip install -U "agents-shipgate>=0.11"
+python -m pip install -U "agents-shipgate>=0.12"
 agents-shipgate --version
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than 0.11.0,
+When `$agents-shipgate` runs and the CLI is missing or older than 0.12.0,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -102,7 +102,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate --version` reports `0.11.0` or newer.
+- `agents-shipgate --version` reports `0.12.0` or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -167,7 +167,7 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require `agents-shipgate >=0.11.0`, then
+   Codex should load the plugin skill, require `agents-shipgate >=0.12.0`, then
    read `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`;
    it then reads `agents-shipgate-reports/report.json` for
    `release_decision.decision`.

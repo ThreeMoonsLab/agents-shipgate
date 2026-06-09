@@ -921,7 +921,7 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-- Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Latest release: `v0.12.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `2`
 - Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
@@ -1073,7 +1073,7 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate; switch on the enum with
   an `unknown`/`human_review_required` fallback for future values.
-- `applicability` (v0.11.0+) — `"verified"` / `"not_applicable"` / `"unknown"`.
+- `applicability` (v0.12.0+) — `"verified"` / `"not_applicable"` / `"unknown"`.
   Disambiguates a `mergeable` verdict: `"verified"` means Shipgate evaluated the
   change and produced a release decision; `"not_applicable"` means the head scan
   was skipped (nothing to gate — do **not** read this as "verified safe");
@@ -1091,7 +1091,7 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   the listed mechanical fix and rerun `verification_command`; `actor: human`
   means the agent must not invent approval, idempotency, policy, waiver,
   baseline, or trust-root evidence to make the gate pass.
-- `agent_controller` (v0.11.0+) — `null` for `--preview`; otherwise the
+- `agent_controller` (v0.12.0+) — `null` for `--preview`; otherwise the
   imperative restatement of the verdict for autonomous control:
   `{completion_allowed, must_stop, stop_reason, allowed_next_commands[],
   forbidden_file_edits[], forbidden_actions[], user_message_template}`.

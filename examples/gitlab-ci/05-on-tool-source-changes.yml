@@ -19,7 +19,7 @@ agents_shipgate:
         - "**/SKILL.md"
         - "**/*.py"
   script:
-    - python -m pip install "agents-shipgate==0.11.0"
+    - python -m pip install "agents-shipgate==0.12.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always

@@ -513,7 +513,7 @@ the entry was added:
   "severity": "high",
   "title": "…",
   "provenance": {
-    "scanner_version": "0.11.0",
+    "scanner_version": "0.12.0",
     "run_id": "agents_shipgate_…",
     "recorded_at": "2026-05-15T14:23:00Z",
     "reason": null,
