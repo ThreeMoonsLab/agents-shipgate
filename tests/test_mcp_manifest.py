@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.domain import Agent
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
@@ -110,6 +112,29 @@ enabled_tools = ["read_docs"]
     )
 
     assert load_codex_config_mcp_sources(tmp_path, tmp_path) == []
+
+
+def test_codex_config_scan_skips_symlinked_directories(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+[mcp_servers.docs]
+command = "docs-mcp"
+enabled_tools = ["read_docs"]
+""",
+        encoding="utf-8",
+    )
+    loop = tmp_path / "loop"
+    try:
+        loop.symlink_to(tmp_path, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlink unavailable: {exc}")
+
+    loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
+    names = [tool.name for source in loaded for tool in source.tools]
+
+    assert names == ["read_docs"]
 
 
 def test_normalized_codex_mcp_tools_become_capability_facts(tmp_path: Path) -> None:

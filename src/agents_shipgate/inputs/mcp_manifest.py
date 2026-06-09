@@ -565,6 +565,8 @@ def _iter_mcp_candidate_files(root: Path) -> list[Path]:
         except OSError:
             continue
         for child in children:
+            if child.is_symlink() and child.is_dir():
+                continue
             if child.is_dir():
                 if child.name not in _SKIPPED_SCAN_DIRS:
                     stack.append(child)

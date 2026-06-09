@@ -88,8 +88,25 @@ def _load_mcp_policy(
     if policy is None:
         return rules, "builtin"
 
-    policy_path = _resolve_policy_path(policy, workspace)
-    if not policy_path.is_file():
+    policy_path = policy if policy.is_absolute() else workspace / policy
+    raw: dict[str, Any] | None = None
+    if policy_path.is_file():
+        try:
+            loaded = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
+            if isinstance(loaded, dict):
+                raw = loaded
+        except (OSError, yaml.YAMLError) as exc:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="warning",
+                    code="mcp_policy_parse_failed",
+                    message=f"MCP permission policy could not be parsed; using built-in defaults: {exc}",
+                    path=str(policy_path),
+                )
+            )
+    elif policy == DEFAULT_MCP_POLICY_PATH:
+        raw = _load_packaged_default_mcp_policy()
+    else:
         diagnostics.append(
             AgentResultDiagnostic(
                 level="warning",
@@ -98,29 +115,8 @@ def _load_mcp_policy(
                 path=str(policy),
             )
         )
-        return rules, "builtin"
 
-    try:
-        raw = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        diagnostics.append(
-            AgentResultDiagnostic(
-                level="warning",
-                code="mcp_policy_parse_failed",
-                message=f"MCP permission policy could not be parsed; using built-in defaults: {exc}",
-                path=str(policy_path),
-            )
-        )
-        return rules, "builtin"
-    if not isinstance(raw, dict):
-        diagnostics.append(
-            AgentResultDiagnostic(
-                level="warning",
-                code="mcp_policy_parse_failed",
-                message="MCP permission policy root must be an object; using built-in defaults.",
-                path=str(policy_path),
-            )
-        )
+    if raw is None:
         return rules, "builtin"
 
     version = str(raw.get("version") or "1")
@@ -178,10 +174,20 @@ def _load_mcp_policy(
     return rules, version
 
 
-def _resolve_policy_path(policy: Path, workspace: Path) -> Path:
-    if policy.is_absolute() or policy.exists():
-        return policy
-    return workspace / policy
+def _load_packaged_default_mcp_policy() -> dict[str, Any] | None:
+    candidate = (
+        Path(__file__).resolve().parents[1]
+        / "_meta"
+        / "policies"
+        / "mcp-permissions.shipgate.yaml"
+    )
+    try:
+        if candidate.is_file():
+            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            return loaded if isinstance(loaded, dict) else None
+    except (OSError, yaml.YAMLError):
+        return None
+    return None
 
 
 @mcp_app.command("audit")

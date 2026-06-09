@@ -121,3 +121,82 @@ rules:
     assert payload["policy_version"] == "test-policy"
     assert payload["decision"] == "block"
     assert payload["risk_level"] == "critical"
+
+
+def test_mcp_audit_default_policy_resolution_ignores_cwd(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    cwd = tmp_path / "cwd"
+    (cwd / "policies").mkdir(parents=True)
+    (cwd / "policies" / "mcp-permissions.shipgate.yaml").write_text(
+        """
+version: "cwd-policy"
+rules:
+  - id: MCP-READONLY-SERVER-ADDED
+    action: block
+    risk_level: critical
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(cwd)
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(workspace),
+            "--diff",
+            str(CORPUS / "read_only_docs.diff"),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["decision"] == "warn"
+    assert payload["policy_version"] != "cwd-policy"
+    assert [
+        item for item in payload["diagnostics"] if item["code"] == "mcp_policy_missing"
+    ] == []
+
+
+def test_mcp_audit_relative_policy_resolves_under_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "mcp-policy.yaml").write_text(
+        """
+version: "workspace-policy"
+rules:
+  - id: MCP-READONLY-SERVER-ADDED
+    action: block
+    risk_level: critical
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(workspace),
+            "--diff",
+            str(CORPUS / "read_only_docs.diff"),
+            "--policy",
+            "mcp-policy.yaml",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["policy_version"] == "workspace-policy"
+    assert payload["decision"] == "block"
