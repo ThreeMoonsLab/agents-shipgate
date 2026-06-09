@@ -33,6 +33,7 @@ from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.skill import skill_app
 from agents_shipgate.cli.trigger import trigger as _trigger_command
 from agents_shipgate.cli.verify import verify as _verify_command
+from agents_shipgate.core.logging import configure_logging
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -166,6 +167,14 @@ logger = logging.getLogger(__name__)
 def _version(
     version: bool = typer.Option(False, "--version", help="Show version and exit.")
 ) -> None:
+    # Logging state is per-invocation, not per-process: reset to the
+    # default (WARNING, plain formatter) before every command so a
+    # previous in-process invocation's --verbose / JSON-format handler
+    # cannot leak into this one's output. Commands that accept --verbose
+    # re-configure inside their body, which runs after this callback.
+    # (Observed: a verbose scan on a shared pytest-xdist worker left a
+    # DEBUG JsonFormatter handler that polluted self-check's JSON stdout.)
+    configure_logging(force=True)
     if version:
         typer.echo(f"Agents Shipgate {__version__}")
         raise typer.Exit(0)

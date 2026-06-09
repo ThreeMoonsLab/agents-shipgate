@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -65,3 +67,36 @@ def test_logging_handler_survives_stream_swap_between_invocations(capsys):
     finally:
         sys.stderr = old_stderr
         configure_logging(verbose=False, force=True)
+
+
+def test_self_check_json_is_clean_after_verbose_json_scan_in_same_process():
+    """End-to-end regression for the flaky xdist CI failure: a prior
+    in-process `scan --verbose` with AGENTS_SHIPGATE_LOG_FORMAT=json
+    leaves a DEBUG JsonFormatter handler on the agents_shipgate logger;
+    a later `self-check --json` on the same worker must still emit pure
+    JSON. The app callback resets logging per invocation."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    runner = CliRunner()
+    scan = runner.invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            "samples/support_refund_agent/shipgate.yaml",
+            "--out",
+            str(Path(tempfile.mkdtemp(prefix="shipgate-selfcheck-regress-"))),
+            "--format",
+            "json",
+            "--verbose",
+        ],
+        env={"AGENTS_SHIPGATE_LOG_FORMAT": "json"},
+    )
+    assert scan.exit_code == 0, scan.output
+
+    result = runner.invoke(app, ["self-check", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["ready"] is True
