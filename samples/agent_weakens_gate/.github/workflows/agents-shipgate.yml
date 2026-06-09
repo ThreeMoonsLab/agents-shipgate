@@ -1,0 +1,24 @@
+# The repo's Shipgate release gate. In this fixture's head commit, the
+# "coding agent" deletes this file to make its PR pass — the exact move
+# SHIP-VERIFY-CI-GATE-REMOVED exists to catch.
+name: Agents Shipgate (advisory)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        with:
+          ci_mode: advisory
+          diff_base: target

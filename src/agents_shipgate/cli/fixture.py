@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import typer
@@ -81,6 +81,16 @@ def fixture_run(
 
     if name == "ai_generated_refund_pr":
         _run_ai_generated_refund_pr_fixture(
+            name=name,
+            src=src,
+            out=out,
+            ci_mode=ci_mode,
+            keep=keep,
+        )
+        return
+
+    if name == "agent_weakens_gate":
+        _run_agent_weakens_gate_fixture(
             name=name,
             src=src,
             out=out,
@@ -224,27 +234,80 @@ def _run_ai_generated_refund_pr_fixture(
     tiny git history so users can reproduce the verifier artifacts that a PR
     would create: ``verifier.json``, ``report.json``, and ``pr-comment.md``.
     """
+
+    def head_files(target: Path) -> dict[str, str | None]:
+        head_tools = target / "_head" / "tools.json"
+        if not head_tools.is_file():
+            typer.echo(f"Fixture {name!r} is missing _head/tools.json", err=True)
+            raise typer.Exit(4)
+        head_payload = head_tools.read_text(encoding="utf-8")
+        shutil.rmtree(target / "_head", ignore_errors=True)
+        return {"tools.json": head_payload}
+
+    _run_verify_pr_fixture(
+        name=name,
+        src=src,
+        out=out,
+        ci_mode=ci_mode,
+        keep=keep,
+        head_files_for=head_files,
+        base_commit_message="base support agent",
+        head_commit_message="codex adds refund tool",
+    )
+
+
+def _run_agent_weakens_gate_fixture(
+    *,
+    name: str,
+    src: Path,
+    out: Path | None,
+    ci_mode: str | None,
+    keep: bool,
+) -> None:
+    """Run the trust-root demo: the head commit deletes the Shipgate CI
+    gate workflow — the cheapest reward-hack — and the verifier blocks the
+    merge via the suppression-immune SHIP-VERIFY-CI-GATE-REMOVED check."""
+
+    def head_files(_target: Path) -> dict[str, str | None]:
+        return {".github/workflows/agents-shipgate.yml": None}
+
+    _run_verify_pr_fixture(
+        name=name,
+        src=src,
+        out=out,
+        ci_mode=ci_mode,
+        keep=keep,
+        head_files_for=head_files,
+        base_commit_message="base docs agent with Shipgate gate",
+        head_commit_message="agent removes Shipgate CI gate",
+    )
+
+
+def _run_verify_pr_fixture(
+    *,
+    name: str,
+    src: Path,
+    out: Path | None,
+    ci_mode: str | None,
+    keep: bool,
+    head_files_for: Callable[[Path], dict[str, str | None]],
+    base_commit_message: str,
+    head_commit_message: str,
+) -> None:
     import tempfile
 
     workdir = Path(tempfile.mkdtemp(prefix=f"shipgate-fixture-{name}-"))
     target = workdir / name
     shutil.copytree(src, target)
 
-    head_tools = target / "_head" / "tools.json"
-    if not head_tools.is_file():
-        typer.echo(f"Fixture {name!r} is missing _head/tools.json", err=True)
-        raise typer.Exit(4)
-    head_payload = head_tools.read_text(encoding="utf-8")
-    shutil.rmtree(target / "_head", ignore_errors=True)
-
     try:
         materialize_git_pr_fixture(
             target,
-            head_files={"tools.json": head_payload},
+            head_files=head_files_for(target),
             user_email="fixture@example.com",
             user_name="Agents Shipgate Fixture",
-            base_commit_message="base support agent",
-            head_commit_message="codex adds refund tool",
+            base_commit_message=base_commit_message,
+            head_commit_message=head_commit_message,
         )
     except subprocess.CalledProcessError as exc:
         typer.echo(f"Fixture {name!r} git setup failed: {exc}", err=True)

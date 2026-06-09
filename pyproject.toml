@@ -75,6 +75,13 @@ pdf = [
   # warning if not installed; the rest of the packet still renders.
   "weasyprint>=68.1,<70",
 ]
+mcp = [
+  # Optional dependency for `agents-shipgate mcp-serve`: a local stdio
+  # MCP server exposing shipgate_preview / shipgate_verify /
+  # shipgate_explain_finding. A projection layer over the existing
+  # verify orchestrator — no network access, no second gate.
+  "mcp>=1.2,<2",
+]
 dev = [
   "build>=1.5.0,<2",
   "cyclonedx-bom>=7.3.0,<8",
@@ -125,6 +132,7 @@ packages = ["src/agents_shipgate"]
 "docs/checks" = "agents_shipgate/_meta/checks"
 "policies/codex-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/codex-boundary.shipgate.yaml"
 "policies/mcp-permissions.shipgate.yaml" = "agents_shipgate/_meta/policies/mcp-permissions.shipgate.yaml"
+"policies/host-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/host-boundary.shipgate.yaml"
 "adoption-kits" = "agents_shipgate/_adoption_kits"
 
 [tool.hatch.build.targets.sdist]

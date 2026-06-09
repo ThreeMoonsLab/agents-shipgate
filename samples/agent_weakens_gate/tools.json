@@ -1,0 +1,25 @@
+{
+  "tools": [
+    {
+      "name": "docs.lookup",
+      "description": "Look up internal documentation metadata for an existing article.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "article_id": {
+            "type": "string"
+          }
+        },
+        "required": ["article_id"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "scopes": ["docs:read"]
+      },
+      "owner": "docs-platform"
+    }
+  ]
+}

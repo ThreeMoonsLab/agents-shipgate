@@ -1,0 +1,64 @@
+id: host-boundary
+name: Host Boundary Local Policy
+version: "1"
+rules:
+  - id: HOST-CONFIG-PARSE-FAILED
+    check_id: SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+    title: Host configuration could not be parsed
+    action: require_review
+    risk_level: medium
+    recommendation: Fix the malformed host config or have a human review the change.
+  - id: HOST-MCP-SERVER-ADDED
+    check_id: SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+    title: New MCP server declared for the coding-agent host
+    action: require_review
+    risk_level: high
+    recommendation: Have a human review the new MCP server before the agent can use it.
+  - id: HOST-MCP-SERVER-CHANGED
+    check_id: SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+    title: Existing MCP server declaration changed
+    action: require_review
+    risk_level: high
+    recommendation: Review the changed MCP server command, URL, args, or env keys.
+  - id: HOST-PERMISSION-WILDCARD-ALLOW
+    check_id: SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+    title: Claude Code allow rule grants a wildcard tool surface
+    action: block
+    risk_level: critical
+    recommendation: Do not allow wildcard tool permissions; scope the rule to specific commands.
+  - id: HOST-PERMISSION-ALLOW-EXPANDED
+    check_id: SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+    title: Claude Code permission allowlist expanded
+    action: require_review
+    risk_level: high
+    recommendation: Have a human approve the new permission allow rule.
+  - id: HOST-PERMISSION-DENY-REMOVED
+    check_id: SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+    title: Claude Code permission deny rule removed
+    action: require_review
+    risk_level: high
+    recommendation: Have a human confirm the removed deny rule is no longer needed.
+  - id: HOST-HOOK-CHANGED
+    check_id: SHIP-HOST-BOUNDARY-HOOK-CHANGED
+    title: Claude Code hooks changed
+    action: require_review
+    risk_level: high
+    recommendation: Review executable hook changes before the agent relies on them.
+  - id: HOST-WORKFLOW-WRITE-ALL
+    check_id: SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+    title: GitHub workflow grants write-all permissions
+    action: block
+    risk_level: critical
+    recommendation: Replace write-all with the minimal explicit permission scopes.
+  - id: HOST-WORKFLOW-PERMISSIONS-EXPANDED
+    check_id: SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+    title: GitHub workflow permissions expanded
+    action: require_review
+    risk_level: high
+    recommendation: Have a human approve the expanded workflow write permission.
+  - id: HOST-WORKFLOW-PULL-REQUEST-TARGET-ADDED
+    check_id: SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+    title: GitHub workflow gained a pull_request_target trigger
+    action: require_review
+    risk_level: critical
+    recommendation: Review the pull_request_target trigger; it runs with secrets on fork PRs.

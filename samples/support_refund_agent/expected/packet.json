@@ -1484,6 +1484,36 @@
     ],
     "decision": "blocked",
     "evidence_coverage": {
+      "evidence_gaps": [
+        {
+          "kind": "low_confidence_tool",
+          "next_action": {
+            "command": null,
+            "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan.",
+            "kind": "provide_source",
+            "path": null,
+            "why": "sdk_function extraction could not fully enumerate this tool surface."
+          },
+          "source_ref": "agents/refund_agent.py:5",
+          "source_type": "sdk_function",
+          "subject": "send_email_preview",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface."
+        },
+        {
+          "kind": "source_warning",
+          "next_action": {
+            "command": null,
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "kind": "review_warning",
+            "path": null,
+            "why": "The warning text names the degraded source."
+          },
+          "source_ref": null,
+          "source_type": null,
+          "subject": "MCP source declares wildcard tool exposure",
+          "why": "A source loader degraded while reading declared inputs."
+        }
+      ],
       "human_review_recommended": true,
       "level": "mixed",
       "low_confidence_tool_count": 1,

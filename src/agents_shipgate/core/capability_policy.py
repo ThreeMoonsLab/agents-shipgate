@@ -175,6 +175,45 @@ def match_policy_pack_subject(
             return None
         matched_predicates["capability"] = capability_match
 
+    # v0.2 combinators. Each branch is a full nested match evaluated
+    # recursively against the same subject; the flat predicates above stay
+    # implicitly ANDed with the combinators. Deterministic: branches are
+    # evaluated in declaration order and any_of records the first hit.
+    if rule_match.all_of:
+        all_branches: list[dict[str, Any]] = []
+        for sub_match in rule_match.all_of:
+            sub = match_policy_pack_subject(
+                subject, sub_match, environment_target=environment_target
+            )
+            if sub is None:
+                return None
+            all_branches.append(sub.matched_predicates)
+        evidence["all_of"] = all_branches
+        matched_predicates["all_of"] = all_branches
+    if rule_match.any_of:
+        any_hit: dict[str, Any] | None = None
+        for index, sub_match in enumerate(rule_match.any_of):
+            sub = match_policy_pack_subject(
+                subject, sub_match, environment_target=environment_target
+            )
+            if sub is not None:
+                any_hit = {"index": index, "matched": sub.matched_predicates}
+                break
+        if any_hit is None:
+            return None
+        evidence["any_of"] = any_hit
+        matched_predicates["any_of"] = any_hit
+    if rule_match.none_of:
+        for sub_match in rule_match.none_of:
+            if (
+                match_policy_pack_subject(
+                    subject, sub_match, environment_target=environment_target
+                )
+                is not None
+            ):
+                return None
+        matched_predicates["none_of"] = {"branch_count": len(rule_match.none_of)}
+
     return CapabilityPolicyMatch(
         subject=subject,
         evidence=evidence,
@@ -361,6 +400,16 @@ def _parameter_matches(
             return False
     if predicate.required is not None and parameter.required is not predicate.required:
         return False
+    if predicate.maximum_above is not None:
+        if parameter.maximum is None or not (
+            float(parameter.maximum) > predicate.maximum_above
+        ):
+            return False
+    if predicate.minimum_below is not None:
+        if parameter.minimum is None or not (
+            float(parameter.minimum) < predicate.minimum_below
+        ):
+            return False
     return True
 
 
