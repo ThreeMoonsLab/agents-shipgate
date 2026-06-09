@@ -31,6 +31,19 @@ _TOOLS_KEYS = ("tools", "tool_overrides")
 _SCHEMA_KEYS = ("inputSchema", "input_schema", "schema")
 _OUTPUT_SCHEMA_KEYS = ("outputSchema", "output_schema")
 _ENV_REF_RE = re.compile(r"\$[{(]?([A-Za-z_][A-Za-z0-9_]*)[})]?")
+_SKIPPED_SCAN_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+}
 
 
 @dataclass(frozen=True)
@@ -89,9 +102,7 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
     root = root.resolve()
     if not root.exists():
         return sources
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
+    for path in _iter_mcp_candidate_files(root):
         rel = _relative(path, root)
         if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml"):
             source_ref = _relative(path, base_dir)
@@ -151,6 +162,22 @@ def normalize_codex_config_mcp_servers(
                 )
             )
     return servers
+
+
+def normalize_mcp_json_servers(
+    data: dict[str, Any],
+    *,
+    source_ref: str,
+    source_path: str,
+) -> list[NormalizedMcpServer]:
+    return _servers_from_mapping(
+        data.get("mcpServers"),
+        source_ref=source_ref,
+        source_path=source_path,
+        source_id_prefix="mcp_json",
+        source_type="codex_config_mcp",
+        pointer_prefix="mcpServers",
+    )
 
 
 def tools_from_normalized_mcp_servers(
@@ -372,13 +399,10 @@ def _load_mcp_json(path: Path, base_dir: Path) -> list[LoadedToolSource]:
         return []
     source_ref = _relative(path, base_dir)
     source_path = manifest_relative_path(str(path.resolve()), base_dir)
-    servers = _servers_from_mapping(
-        raw_servers,
+    servers = normalize_mcp_json_servers(
+        data,
         source_ref=source_ref,
         source_path=source_path,
-        source_id_prefix="mcp_json",
-        source_type="codex_config_mcp",
-        pointer_prefix="mcpServers",
     )
     enriched: list[NormalizedMcpServer] = []
     for server in servers:
@@ -526,8 +550,31 @@ def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) ->
             str(server.get("command") or ""),
             " ".join(str(item) for item in server.get("args") or []),
         ]
-    ).lower()
-    return any(token in text for token in ("doc", "docs", "documentation", "readme"))
+    )
+    tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return bool(tokens & {"doc", "docs", "documentation", "readme"})
+
+
+def _iter_mcp_candidate_files(root: Path) -> list[Path]:
+    candidates: list[Path] = []
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            children = sorted(current.iterdir(), key=lambda item: item.name)
+        except OSError:
+            continue
+        for child in children:
+            if child.is_dir():
+                if child.name not in _SKIPPED_SCAN_DIRS:
+                    stack.append(child)
+                continue
+            if not child.is_file():
+                continue
+            rel = _relative(child, root)
+            if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml") or child.name == ".mcp.json":
+                candidates.append(child)
+    return sorted(candidates)
 
 
 def _text_or_none(value: Any) -> str | None:
@@ -554,5 +601,6 @@ __all__ = [
     "load_codex_config_mcp_sources",
     "load_mcp_manifest_inventory",
     "normalize_codex_config_mcp_servers",
+    "normalize_mcp_json_servers",
     "tools_from_normalized_mcp_servers",
 ]

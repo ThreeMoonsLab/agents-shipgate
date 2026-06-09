@@ -22,6 +22,7 @@ MCP_SOURCE_TYPES = frozenset(
         "n8n_mcp_client_tool",
     }
 )
+CapabilityKey = tuple[str | None, str]
 
 
 def run(context: ScanContext) -> list[Finding]:
@@ -31,9 +32,13 @@ def run(context: ScanContext) -> list[Finding]:
 
     findings: list[Finding] = []
     current_contexts = _mcp_capability_contexts(context.action_surface_facts)
+    diff_available = (
+        context.diff_reference is not None
+        and context.diff_reference.action_facts is not None
+    )
     base_contexts = (
         _mcp_capability_contexts(context.diff_reference.action_facts)
-        if context.diff_reference and context.diff_reference.action_facts
+        if diff_available
         else []
     )
     diff = diff_capability_fact_sets(base_contexts, current_contexts)
@@ -46,7 +51,7 @@ def run(context: ScanContext) -> list[Finding]:
         if row.semantic_direction in {"broadened", "mixed", "unknown"}
     ]
     fact_by_tool = _current_fact_by_tool(current_contexts)
-    tool_by_name = {tool.name: tool for tool in mcp_tools}
+    tool_by_key = {_tool_key(tool): tool for tool in mcp_tools}
 
     findings.extend(_env_secret_findings(context, mcp_tools, fact_by_tool))
     findings.extend(_auto_approve_findings(context, mcp_tools, fact_by_tool))
@@ -57,30 +62,31 @@ def run(context: ScanContext) -> list[Finding]:
             fact_by_tool,
             added_ids=added_ids,
             changed_ids=changed_ids,
-            diff_available=bool(base_contexts),
+            diff_available=diff_available,
         )
     )
     findings.extend(
         _permission_expansion_findings(
             context,
             broadened_rows,
-            tool_by_name=tool_by_name,
+            tool_by_key=tool_by_key,
         )
     )
-    findings.extend(
-        _read_only_added_findings(
-            context,
-            diff.added,
-            tool_by_name=tool_by_name,
+    if diff_available:
+        findings.extend(
+            _read_only_added_findings(
+                context,
+                diff.added,
+                tool_by_key=tool_by_key,
+            )
         )
-    )
     return _dedupe(findings)
 
 
 def _env_secret_findings(
     context: ScanContext,
     tools: list[Tool],
-    fact_by_tool: dict[str, CapabilityFactV1],
+    fact_by_tool: dict[CapabilityKey, CapabilityFactV1],
 ) -> list[Finding]:
     findings: list[Finding] = []
     seen_servers: set[tuple[str | None, tuple[str, ...]]] = set()
@@ -119,7 +125,7 @@ def _env_secret_findings(
 def _auto_approve_findings(
     context: ScanContext,
     tools: list[Tool],
-    fact_by_tool: dict[str, CapabilityFactV1],
+    fact_by_tool: dict[CapabilityKey, CapabilityFactV1],
 ) -> list[Finding]:
     findings: list[Finding] = []
     for tool in tools:
@@ -158,7 +164,7 @@ def _auto_approve_findings(
 def _unknown_schema_findings(
     context: ScanContext,
     tools: list[Tool],
-    fact_by_tool: dict[str, CapabilityFactV1],
+    fact_by_tool: dict[CapabilityKey, CapabilityFactV1],
     *,
     added_ids: set[str],
     changed_ids: set[str],
@@ -177,7 +183,7 @@ def _unknown_schema_findings(
             )
         ):
             continue
-        fact = fact_by_tool.get(tool.name)
+        fact = fact_by_tool.get(_tool_key(tool))
         current = fact.id if fact else None
         if diff_available and current not in added_ids | changed_ids:
             continue
@@ -212,11 +218,11 @@ def _permission_expansion_findings(
     context: ScanContext,
     rows: list[CapabilityDeltaRow],
     *,
-    tool_by_name: dict[str, Tool],
+    tool_by_key: dict[CapabilityKey, Tool],
 ) -> list[Finding]:
     findings: list[Finding] = []
     for row in rows:
-        tool = tool_by_name.get(row.after.identity.tool_name)
+        tool = tool_by_key.get(_fact_key(row.after))
         if tool is None:
             continue
         findings.append(
@@ -250,11 +256,11 @@ def _read_only_added_findings(
     context: ScanContext,
     added: list[CapabilityFactContext],
     *,
-    tool_by_name: dict[str, Tool],
+    tool_by_key: dict[CapabilityKey, Tool],
 ) -> list[Finding]:
     findings: list[Finding] = []
     for ctx in added:
-        tool = tool_by_name.get(ctx.fact.identity.tool_name)
+        tool = tool_by_key.get(_fact_key(ctx.fact))
         if tool is None or tool.annotations.get("mcp_local_documentation") is not True:
             continue
         profile = classify_tool_permission(tool)
@@ -307,13 +313,21 @@ def _context_from_action(action: ActionFact) -> CapabilityFactContext:
 
 def _current_fact_by_tool(
     contexts: list[CapabilityFactContext],
-) -> dict[str, CapabilityFactV1]:
-    return {ctx.fact.identity.tool_name: ctx.fact for ctx in contexts}
+) -> dict[CapabilityKey, CapabilityFactV1]:
+    return {_fact_key(ctx.fact): ctx.fact for ctx in contexts}
 
 
-def _capability_ref(tool: Tool, fact_by_tool: dict[str, CapabilityFactV1]) -> list[str]:
-    fact = fact_by_tool.get(tool.name)
+def _capability_ref(tool: Tool, fact_by_tool: dict[CapabilityKey, CapabilityFactV1]) -> list[str]:
+    fact = fact_by_tool.get(_tool_key(tool))
     return [fact.id] if fact else []
+
+
+def _tool_key(tool: Tool) -> CapabilityKey:
+    return (tool.source_id, tool.name)
+
+
+def _fact_key(fact: CapabilityFactV1) -> CapabilityKey:
+    return (fact.evidence.source_id, fact.identity.tool_name)
 
 
 def _is_mcp_tool(tool: Tool) -> bool:

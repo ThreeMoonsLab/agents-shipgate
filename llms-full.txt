@@ -2157,7 +2157,9 @@ can let an agent act outside the review boundary.
 Fires for new or changed MCP capabilities whose static metadata cannot prove
 the callable surface and side effect, including wildcard server exposure.
 Provide an explicit local MCP inventory/schema or keep the server behind
-human review.
+human review. Unknown side effects route to review by default; they become
+blockers only when paired with a separate blocking condition such as
+auto-approved side-effecting access.
 
 ### SHIP-MCP-PERMISSION-EXPANDED
 

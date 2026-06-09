@@ -62,3 +62,62 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
     assert payload["schema_version"] == "agent_result_v1"
     assert payload["decision"] == "block"
     assert payload["first_next_action"]["kind"] == "stop"
+
+
+def test_mcp_audit_reads_mcp_json_diff(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(CORPUS / "mcp_json_auto_approve_write.diff"),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["decision"] == "block"
+    assert [item["id"] for item in payload["violated_rules"]] == [
+        "MCP-AUTO-APPROVE-SIDE-EFFECT"
+    ]
+
+
+def test_mcp_audit_policy_override_changes_decision(tmp_path: Path) -> None:
+    policy = tmp_path / "mcp-policy.yaml"
+    policy.write_text(
+        """
+version: "test-policy"
+rules:
+  - id: MCP-READONLY-SERVER-ADDED
+    action: block
+    risk_level: critical
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(CORPUS / "read_only_docs.diff"),
+            "--policy",
+            str(policy),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["policy_version"] == "test-policy"
+    assert payload["decision"] == "block"
+    assert payload["risk_level"] == "critical"

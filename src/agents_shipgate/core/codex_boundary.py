@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-from agents_shipgate.inputs.mcp_manifest import normalize_codex_config_mcp_servers
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultNextAction,
@@ -1210,27 +1208,20 @@ def _hook_command_signatures_by_event(hooks: Any) -> dict[str, set[str]]:
 
 
 def _server_tool_names(server: dict[str, Any]) -> set[str]:
-    normalized = normalize_codex_config_mcp_servers(
-        {"mcp_servers": {"server": server}},
-        source_ref=".codex/config.toml",
-        source_path=".codex/config.toml",
-    )
-    if normalized:
-        names = {
-            tool.name
-            for item in normalized
-            for tool in item.tools
-            if not tool.name.endswith(".*")
-        }
-        if names:
-            return names
     names: set[str] = set()
     enabled = server.get("enabled_tools")
     if isinstance(enabled, list):
         names.update(str(item) for item in enabled if isinstance(item, str))
+    for key in ("allowed_tools", "tool_allowlist", "tools_allowlist"):
+        value = server.get(key)
+        if isinstance(value, list):
+            names.update(str(item) for item in value if isinstance(item, str))
     tools = server.get("tools")
     if isinstance(tools, dict):
-        names.update(str(item) for item in tools)
+        for name, config in tools.items():
+            if isinstance(config, dict) and config.get("enabled") is False:
+                continue
+            names.add(str(name))
     return names
 
 
@@ -1461,6 +1452,22 @@ def _has_shipgate_gate_invocation(value: str) -> bool:
 
 def _is_codex_config_path(path: str) -> bool:
     return path == ".codex/config.toml" or path.endswith("/.codex/config.toml")
+
+
+def is_codex_config_path(path: str) -> bool:
+    return _is_codex_config_path(path)
+
+
+def is_mcp_json_path(path: str) -> bool:
+    return path == ".mcp.json" or path.endswith("/.mcp.json")
+
+
+def resolve_changed_file_text(
+    workspace: Path,
+    diff_file: DiffFile,
+    diagnostics: list[AgentResultDiagnostic],
+) -> ResolvedFileText:
+    return _resolve_changed_file_text(workspace, diff_file, diagnostics)
 
 
 def _is_codex_hooks_path(path: str) -> bool:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from agents_shipgate.core.capability_lattice import classify_tool_permission
+from agents_shipgate.core.capability_lattice import (
+    classify_tool_permission,
+    mcp_permission_risk_hints,
+)
 from agents_shipgate.core.domain import AuthInfo, Tool
 
 
@@ -56,3 +59,28 @@ def test_lattice_modifiers_raise_risk_score() -> None:
     )
 
     assert approved.risk_score > plain.risk_score
+
+
+def test_lattice_preserves_ordered_name_prefix_for_read_tools() -> None:
+    profile = classify_tool_permission(_tool("read_deployments"))
+
+    assert profile.classes == ("read",)
+    assert "name_description" in profile.reasons
+
+
+def test_read_only_hint_confidence_distinguishes_explicit_from_inferred() -> None:
+    inferred = next(
+        hint
+        for hint in mcp_permission_risk_hints(_tool("read_docs"))
+        if hint.tag == "read_only"
+    )
+    explicit = next(
+        hint
+        for hint in mcp_permission_risk_hints(
+            _tool("read_docs", annotations={"readOnlyHint": True})
+        )
+        if hint.tag == "read_only"
+    )
+
+    assert inferred.confidence == "medium"
+    assert explicit.confidence == "high"

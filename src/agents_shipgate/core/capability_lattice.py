@@ -226,7 +226,9 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
             ToolRiskHint(
                 tag=tag,
                 source="mcp_permission_lattice",
-                confidence=parse_confidence("high" if permission_class == "read" else "medium"),
+                confidence=parse_confidence(
+                    _read_only_confidence(tool) if permission_class == "read" else "medium"
+                ),
                 evidence={
                     "permission_class": permission_class,
                     "risk_score": profile.risk_score,
@@ -316,9 +318,10 @@ def _classes_from_risk_tags(tags: list[str]) -> set[PermissionClass]:
 
 
 def _classes_from_name(name: str, description: str | None) -> set[PermissionClass]:
-    tokens = _tokens(f"{name} {description or ''}")
+    ordered_name_tokens = _ordered_tokens(name)
+    tokens = set(_ordered_tokens(f"{name} {description or ''}"))
     classes: set[PermissionClass] = set()
-    first = next(iter(_tokens(name)), "")
+    first = ordered_name_tokens[0] if ordered_name_tokens else ""
     if first in _READ_TOKENS:
         classes.add("read")
     if tokens & _WRITE_TOKENS:
@@ -398,9 +401,21 @@ def _risk_tag_for_class(permission_class: PermissionClass) -> str | None:
     }.get(permission_class)
 
 
+def _read_only_confidence(tool: Tool) -> str:
+    annotations = tool.annotations
+    explicit = _explicit_permission_classes(annotations)
+    if annotations.get("readOnlyHint") is True or explicit == {"read"}:
+        return "high"
+    return "medium"
+
+
 def _tokens(value: str) -> set[str]:
+    return set(_ordered_tokens(value))
+
+
+def _ordered_tokens(value: str) -> list[str]:
     spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
-    return set(re.findall(r"[a-z0-9]+", spaced.lower()))
+    return re.findall(r"[a-z0-9]+", spaced.lower())
 
 
 __all__ = [

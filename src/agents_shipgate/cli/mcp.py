@@ -8,19 +8,22 @@ from pathlib import Path
 from typing import Any
 
 import typer
+import yaml
 
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
 from agents_shipgate.core.capability_lattice import classify_tool_permission
 from agents_shipgate.core.codex_boundary import (
-    _is_codex_config_path,
-    _resolve_changed_file_text,
+    is_codex_config_path,
+    is_mcp_json_path,
     parse_unified_diff,
+    resolve_changed_file_text,
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.inputs.mcp_manifest import (
     NormalizedMcpServer,
     normalize_codex_config_mcp_servers,
+    normalize_mcp_json_servers,
     tools_from_normalized_mcp_servers,
 )
 from agents_shipgate.schemas.agent_result_v1 import (
@@ -76,6 +79,111 @@ _RULES: dict[str, dict[str, str]] = {
 }
 
 
+def _load_mcp_policy(
+    policy: Path | None,
+    workspace: Path,
+    diagnostics: list[AgentResultDiagnostic],
+) -> tuple[dict[str, dict[str, str]], str]:
+    rules = {rule_id: dict(rule) for rule_id, rule in _RULES.items()}
+    if policy is None:
+        return rules, "builtin"
+
+    policy_path = _resolve_policy_path(policy, workspace)
+    if not policy_path.is_file():
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_policy_missing",
+                message="MCP permission policy not found; using built-in defaults.",
+                path=str(policy),
+            )
+        )
+        return rules, "builtin"
+
+    try:
+        raw = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_policy_parse_failed",
+                message=f"MCP permission policy could not be parsed; using built-in defaults: {exc}",
+                path=str(policy_path),
+            )
+        )
+        return rules, "builtin"
+    if not isinstance(raw, dict):
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_policy_parse_failed",
+                message="MCP permission policy root must be an object; using built-in defaults.",
+                path=str(policy_path),
+            )
+        )
+        return rules, "builtin"
+
+    version = str(raw.get("version") or "1")
+    raw_rules = raw.get("rules")
+    if not isinstance(raw_rules, list):
+        return rules, version
+
+    check_id_to_rule = {rule["check_id"]: rule_id for rule_id, rule in rules.items()}
+    for raw_rule in raw_rules:
+        if not isinstance(raw_rule, dict):
+            continue
+        rule_id = str(raw_rule.get("id") or "")
+        if rule_id not in rules:
+            rule_id = check_id_to_rule.get(str(raw_rule.get("check_id") or ""), "")
+        if rule_id not in rules:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="warning",
+                    code="mcp_policy_unknown_rule",
+                    message="Ignoring unknown MCP permission policy rule.",
+                    path=str(policy_path),
+                )
+            )
+            continue
+        updated = dict(rules[rule_id])
+        for field in ("check_id", "title", "recommendation"):
+            value = raw_rule.get(field)
+            if isinstance(value, str) and value:
+                updated[field] = value
+        action = str(raw_rule.get("action") or updated["action"])
+        if action in _DECISION_RANK:
+            updated["action"] = action
+        else:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="warning",
+                    code="mcp_policy_invalid_action",
+                    message=f"Ignoring invalid MCP policy action {action!r}.",
+                    path=str(policy_path),
+                )
+            )
+        risk_level = str(raw_rule.get("risk_level") or updated["risk_level"])
+        if risk_level in _RISK_RANK:
+            updated["risk_level"] = risk_level
+        else:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="warning",
+                    code="mcp_policy_invalid_risk_level",
+                    message=f"Ignoring invalid MCP policy risk_level {risk_level!r}.",
+                    path=str(policy_path),
+                )
+            )
+        rules[rule_id] = updated
+    return rules, version
+
+
+def _resolve_policy_path(policy: Path, workspace: Path) -> Path:
+    if policy.is_absolute() or policy.exists():
+        return policy
+    return workspace / policy
+
+
 @mcp_app.command("audit")
 def mcp_audit(
     workspace: Path = typer.Option(
@@ -105,59 +213,97 @@ def mcp_audit(
         help="Output format: json or agent-json.",
     ),
 ) -> None:
-    del config, policy
+    del config
     if format_ not in {"json", "agent-json"}:
         typer.echo("--format must be 'json' or 'agent-json'.", err=True)
         raise typer.Exit(2)
     try:
+        if diff == "-" and sys.stdin.isatty():
+            typer.echo("Reading unified diff from stdin; press Ctrl-D when done.", err=True)
         diff_text = sys.stdin.read() if diff == "-" else Path(diff).read_text(encoding="utf-8")
     except OSError as exc:
         typer.echo(f"Could not read --diff input: {exc}", err=True)
         raise typer.Exit(2) from exc
 
-    audit = build_mcp_audit(workspace=workspace, diff_text=diff_text)
+    audit = build_mcp_audit(workspace=workspace, diff_text=diff_text, policy=policy)
     if format_ == "agent-json":
         typer.echo(_agent_result_json(_agent_result_from_audit(audit)))
         return
     typer.echo(json.dumps(audit, indent=2, sort_keys=False))
 
 
-def build_mcp_audit(*, workspace: Path, diff_text: str) -> dict[str, Any]:
+def build_mcp_audit(
+    *,
+    workspace: Path,
+    diff_text: str,
+    policy: Path | None = DEFAULT_MCP_POLICY_PATH,
+) -> dict[str, Any]:
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     diagnostics: list[AgentResultDiagnostic] = []
+    rules, policy_version = _load_mcp_policy(policy, workspace, diagnostics)
     base_tools: list[Tool] = []
     head_tools: list[Tool] = []
     servers: list[NormalizedMcpServer] = []
     changed_files = sorted({item.path for item in diff_files if item.path})
 
     for diff_file in diff_files:
-        if not diff_file.path or not _is_codex_config_path(diff_file.path):
+        if not diff_file.path:
             continue
-        resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
-        if resolved.old_text:
-            base_tools.extend(
-                _tools_from_toml(
-                    resolved.old_text,
+        if is_codex_config_path(diff_file.path):
+            resolved = resolve_changed_file_text(workspace, diff_file, diagnostics)
+            if resolved.old_text:
+                base_tools.extend(
+                    _tools_from_toml(
+                        resolved.old_text,
+                        source_ref=diff_file.path,
+                        source_path=diff_file.path,
+                        diagnostics=diagnostics,
+                    )
+                )
+            if resolved.new_text:
+                parsed_servers, tools = _servers_tools_from_toml(
+                    resolved.new_text,
                     source_ref=diff_file.path,
                     source_path=diff_file.path,
                     diagnostics=diagnostics,
                 )
-            )
-        if resolved.new_text:
-            parsed_servers, tools = _servers_tools_from_toml(
-                resolved.new_text,
-                source_ref=diff_file.path,
-                source_path=diff_file.path,
-                diagnostics=diagnostics,
-            )
-            servers.extend(parsed_servers)
-            head_tools.extend(tools)
+                servers.extend(parsed_servers)
+                head_tools.extend(tools)
+            continue
+        if is_mcp_json_path(diff_file.path):
+            resolved = resolve_changed_file_text(workspace, diff_file, diagnostics)
+            if resolved.old_text:
+                base_tools.extend(
+                    _tools_from_mcp_json(
+                        resolved.old_text,
+                        source_ref=diff_file.path,
+                        source_path=diff_file.path,
+                        diagnostics=diagnostics,
+                    )
+                )
+            if resolved.new_text:
+                parsed_servers, tools = _servers_tools_from_mcp_json(
+                    resolved.new_text,
+                    source_ref=diff_file.path,
+                    source_path=diff_file.path,
+                    diagnostics=diagnostics,
+                )
+                servers.extend(parsed_servers)
+                head_tools.extend(tools)
 
-    base_facts = build_capability_facts(_minimal_manifest(), agent_id="agent:mcp-audit", tools=base_tools)
-    head_facts = build_capability_facts(_minimal_manifest(), agent_id="agent:mcp-audit", tools=head_tools)
+    base_facts = build_capability_facts(
+        _minimal_manifest(),
+        agent_id="agent:mcp-audit",
+        tools=base_tools,
+    )
+    head_facts = build_capability_facts(
+        _minimal_manifest(),
+        agent_id="agent:mcp-audit",
+        tools=head_tools,
+    )
     diff = diff_capability_fact_sets(base_facts, head_facts)
-    violations = _audit_violations(head_tools, diff)
+    violations = _audit_violations(head_tools, diff, rules=rules)
     decision = _decision(violations)
     risk_level = _risk_level(violations)
     payload = {
@@ -170,7 +316,7 @@ def build_mcp_audit(*, workspace: Path, diff_text: str) -> dict[str, Any]:
             head_tools=head_tools,
             violations=violations,
         ),
-        "policy_version": "1",
+        "policy_version": policy_version,
         "summary": _summary(decision, violations),
         "changed_files": changed_files,
         "servers": [_server_record(server) for server in servers],
@@ -231,19 +377,81 @@ def _tools_from_toml(
     )[1]
 
 
+def _servers_tools_from_mcp_json(
+    text: str,
+    *,
+    source_ref: str,
+    source_path: str,
+    diagnostics: list[AgentResultDiagnostic],
+) -> tuple[list[NormalizedMcpServer], list[Tool]]:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_json_parse_failed",
+                message=str(exc),
+                path=source_ref,
+            )
+        )
+        return [], []
+    if not isinstance(data, dict):
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_json_parse_failed",
+                message="MCP JSON root must be an object.",
+                path=source_ref,
+            )
+        )
+        return [], []
+    servers = normalize_mcp_json_servers(
+        data,
+        source_ref=source_ref,
+        source_path=source_path,
+    )
+    return servers, tools_from_normalized_mcp_servers(servers)
+
+
+def _tools_from_mcp_json(
+    text: str,
+    *,
+    source_ref: str,
+    source_path: str,
+    diagnostics: list[AgentResultDiagnostic],
+) -> list[Tool]:
+    return _servers_tools_from_mcp_json(
+        text,
+        source_ref=source_ref,
+        source_path=source_path,
+        diagnostics=diagnostics,
+    )[1]
+
+
+def _tool_key(tool: Tool) -> tuple[str | None, str]:
+    return (tool.source_id, tool.name)
+
+
+def _fact_key(fact: Any) -> tuple[str | None, str]:
+    return (fact.evidence.source_id, fact.identity.tool_name)
+
+
 def _audit_violations(
     tools: list[Tool],
     diff: Any,
+    *,
+    rules: dict[str, dict[str, str]],
 ) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
     added_ids = {ctx.fact.id for ctx in diff.added}
     changed_ids = {row.after.id for row in [*diff.reidentified, *diff.changed]}
     fact_by_tool = {
-        ctx.fact.identity.tool_name: ctx.fact
+        _fact_key(ctx.fact): ctx.fact
         for ctx in [*diff.added, *[row.after_context for row in [*diff.reidentified, *diff.changed] if row.after_context]]
     }
     for tool in tools:
-        fact = fact_by_tool.get(tool.name)
+        fact = fact_by_tool.get(_tool_key(tool))
         fact_id = fact.id if fact else None
         profile = classify_tool_permission(tool)
         secret_names = list(tool.annotations.get("mcp_env_secret_names") or [])
@@ -253,6 +461,7 @@ def _audit_violations(
                     "MCP-ENV-SECRET-PASSTHROUGH",
                     path=tool.source_path,
                     evidence={"tool": tool.name, "env_secret_names": secret_names},
+                    rules=rules,
                 )
             )
         if (
@@ -271,6 +480,7 @@ def _audit_violations(
                         "permission_classes": list(profile.classes),
                         "risk_score": profile.risk_score,
                     },
+                    rules=rules,
                 )
             )
         auto_approved_side_effect = (
@@ -294,6 +504,7 @@ def _audit_violations(
                         "capability_id": fact_id,
                         "wildcard": bool(tool.annotations.get("wildcard_tools")),
                     },
+                    rules=rules,
                 )
             )
         if (
@@ -310,6 +521,7 @@ def _audit_violations(
                         "capability_id": fact_id,
                         "risk_score": profile.risk_score,
                     },
+                    rules=rules,
                 )
             )
     for row in [*diff.reidentified, *diff.changed]:
@@ -324,13 +536,20 @@ def _audit_violations(
                     "tool": row.after.identity.tool_name,
                     "semantic_direction": row.semantic_direction,
                 },
+                rules=rules,
             )
         )
     return _dedupe_violations(violations)
 
 
-def _violation(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> dict[str, Any]:
-    rule = _RULES[rule_id]
+def _violation(
+    rule_id: str,
+    *,
+    path: str | None,
+    evidence: dict[str, Any],
+    rules: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    rule = rules[rule_id]
     return {
         "id": rule_id,
         "check_id": rule["check_id"],

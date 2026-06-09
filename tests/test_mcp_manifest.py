@@ -74,6 +74,44 @@ def test_mcp_json_stub_becomes_wildcard_unknown_tool(tmp_path: Path) -> None:
     assert tool.annotations["mcp_unknown_schema"] is True
 
 
+def test_local_documentation_detection_uses_tokens(tmp_path: Path) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+[mcp_servers.docker]
+command = "docker-mcp"
+enabled_tools = ["read_container"]
+
+[mcp_servers.docs]
+command = "docs-mcp"
+enabled_tools = ["read_docs"]
+""",
+        encoding="utf-8",
+    )
+
+    tools = [tool for source in load_codex_config_mcp_sources(tmp_path, tmp_path) for tool in source.tools]
+    by_name = {tool.name: tool for tool in tools}
+
+    assert "mcp_local_documentation" not in by_name["read_container"].annotations
+    assert by_name["read_docs"].annotations["mcp_local_documentation"] is True
+
+
+def test_codex_config_scan_skips_dependency_directories(tmp_path: Path) -> None:
+    ignored = tmp_path / "node_modules" / "pkg" / ".codex" / "config.toml"
+    ignored.parent.mkdir(parents=True)
+    ignored.write_text(
+        """
+[mcp_servers.docs]
+command = "docs-mcp"
+enabled_tools = ["read_docs"]
+""",
+        encoding="utf-8",
+    )
+
+    assert load_codex_config_mcp_sources(tmp_path, tmp_path) == []
+
+
 def test_normalized_codex_mcp_tools_become_capability_facts(tmp_path: Path) -> None:
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()
