@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.report.pr_comment import render_pr_comment
 from agents_shipgate.report.sarif import render_sarif_report
@@ -10,6 +12,7 @@ from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.report import (
     BaselineDelta,
+    ContributionRule,
     EvidenceCoverageDecision,
     FailPolicy,
     Finding,
@@ -22,6 +25,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityReview,
+    VerifierFixTask,
 )
 from scripts.github_action_outputs import decision_policy_exit_code, extract_outputs
 
@@ -49,7 +53,14 @@ def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(t
     result = build_agent_result(verifier=verifier, report=report)
     write_agent_result(result, tmp_path / "agent-result.json")
     reread = json.loads((tmp_path / "agent-result.json").read_text(encoding="utf-8"))
+    schema = json.loads(
+        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v1.json")
+        .read_text(encoding="utf-8")
+    )
 
+    Draft202012Validator(schema).validate(reread)
+    assert reread["schema_version"] == "agent_result_v1"
+    assert reread["agent"] == "codex"
     assert reread["decision"] == "block"
     assert reread["risk_level"] == "critical"
     assert reread["affected_files"][0]["path"] == ".codex/config.toml"
@@ -57,6 +68,26 @@ def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(t
     assert reread["required_reviewers"] == ["agent-platform", "security"]
     assert decision_policy_exit_code("block", "block") == 20
     assert decision_policy_exit_code("require_review", "block") == 0
+
+
+def test_reviewer_routing_does_not_match_ci_inside_words():
+    item = ReleaseDecisionItem(
+        id="F-ci-substring",
+        fingerprint="fp_ci_substring",
+        check_id="SHIP-VERIFY-EVIDENCE-GAP",
+        title="Insufficient evidence for a specific release decision",
+        severity="medium",
+        source=SourceReference(type="manifest", path="shipgate.yaml", start_line=4),
+    )
+    report = _report(
+        _release_decision("review_required", review_items=[item]),
+        run_id="agents_shipgate_ci_substring",
+    )
+    verifier = _verifier(report, merge_verdict="human_review_required")
+
+    result = build_agent_result(verifier=verifier, report=report)
+
+    assert result.required_reviewers == ["release-owner"]
 
 
 def test_require_review_trust_root_change_posts_reviewer_list():
@@ -97,12 +128,110 @@ def test_allow_comment_is_concise_and_has_no_contradictory_decision():
     comment = render_pr_comment(verifier, report=report, agent_result=result)
 
     assert result.decision == "allow"
-    assert result.risk_level == "low"
+    assert result.risk_level == "none"
     assert result.required_reviewers == []
     assert "Decision: `allow`" in comment
     assert "Release gate: `passed`" in comment
     assert "Decision: `passed`" not in comment
     assert "Required reviewers:" not in comment
+
+
+def test_warn_only_for_review_tier_advisory_and_maps_to_low_risk():
+    low_finding = Finding(
+        check_id="SHIP-LOW",
+        title="Low advisory",
+        severity="low",
+        category="policy",
+        recommendation="Read it.",
+        fingerprint="fp_low",
+    )
+    medium_finding = Finding(
+        check_id="SHIP-MEDIUM",
+        title="Medium advisory",
+        severity="medium",
+        category="policy",
+        recommendation="Review it.",
+        fingerprint="fp_medium",
+    )
+    low_report = _report(
+        _release_decision(
+            "passed",
+            contribution_rules=[
+                ContributionRule(
+                    finding_id="fp_low",
+                    fingerprint="fp_low",
+                    check_id="SHIP-LOW",
+                    category="excluded",
+                    rule="sub_threshold",
+                    rationale="below threshold",
+                )
+            ],
+        ),
+        run_id="agents_shipgate_low_advisory",
+        findings=[low_finding],
+    )
+    medium_report = _report(
+        _release_decision(
+            "passed",
+            contribution_rules=[
+                ContributionRule(
+                    finding_id="fp_medium",
+                    fingerprint="fp_medium",
+                    check_id="SHIP-MEDIUM",
+                    category="excluded",
+                    rule="sub_threshold",
+                    rationale="below threshold",
+                )
+            ],
+        ),
+        run_id="agents_shipgate_medium_advisory",
+        findings=[medium_finding],
+    )
+
+    low = build_agent_result(
+        verifier=_verifier(low_report, merge_verdict="mergeable", can_merge=True),
+        report=low_report,
+    )
+    medium = build_agent_result(
+        verifier=_verifier(medium_report, merge_verdict="mergeable", can_merge=True),
+        report=medium_report,
+    )
+
+    assert low.decision == "allow"
+    assert low.risk_level == "none"
+    assert medium.decision == "warn"
+    assert medium.risk_level == "low"
+    assert [rule.check_id for rule in medium.violated_rules] == ["SHIP-MEDIUM"]
+
+
+def test_agent_repair_instructions_include_forbidden_shortcuts():
+    item = ReleaseDecisionItem(
+        id="F3",
+        fingerprint="fp_block",
+        check_id="SHIP-ACTION-POLICY-VIOLATION",
+        title="Action policy failed",
+        severity="critical",
+        blocks_release=True,
+    )
+    report = _report(_release_decision("blocked", blockers=[item]), run_id="repair")
+    verifier = _verifier(
+        report,
+        merge_verdict="blocked",
+        fix_task=VerifierFixTask(
+            actor="human",
+            safe_to_attempt=False,
+            instructions=["Review the blocker."],
+            forbidden_shortcuts=[
+                "Do not suppress the finding.",
+                "Do not lower severity.",
+            ],
+        ),
+    )
+
+    result = build_agent_result(verifier=verifier, report=report)
+
+    assert "Do not suppress the finding." in result.agent_repair_instructions
+    assert "Do not lower severity." in result.agent_repair_instructions
 
 
 def test_sarif_uses_policy_rule_id_and_preserves_check_id_and_location():
@@ -196,7 +325,12 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_agent_resul
     assert outputs["policy_snapshot_sha256"] == "a" * 64
 
 
-def _report(decision: ReleaseDecision, *, run_id: str) -> ReadinessReport:
+def _report(
+    decision: ReleaseDecision,
+    *,
+    run_id: str,
+    findings: list[Finding] | None = None,
+) -> ReadinessReport:
     return ReadinessReport(
         run_id=run_id,
         project={"name": "project"},
@@ -204,6 +338,7 @@ def _report(decision: ReleaseDecision, *, run_id: str) -> ReadinessReport:
         environment={"target": "local"},
         summary=ReportSummary(status="warnings_detected"),
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+        findings=findings or [],
         release_decision=decision,
         effective_policy=EffectivePolicy(ci_mode="advisory", fail_on=[]),
     )
@@ -214,6 +349,7 @@ def _release_decision(
     *,
     blockers: list[ReleaseDecisionItem] | None = None,
     review_items: list[ReleaseDecisionItem] | None = None,
+    contribution_rules: list[ContributionRule] | None = None,
     exit_code: int = 0,
 ) -> ReleaseDecision:
     return ReleaseDecision(
@@ -235,6 +371,7 @@ def _release_decision(
             would_fail_ci=exit_code != 0,
             exit_code=exit_code,
         ),
+        contribution_rules=contribution_rules or [],
     )
 
 
@@ -244,6 +381,7 @@ def _verifier(
     merge_verdict: str,
     changed_files: list[str] | None = None,
     capability_review: VerifierCapabilityReview | None = None,
+    fix_task: VerifierFixTask | None = None,
     can_merge: bool = False,
 ) -> VerifierArtifact:
     assert report.release_decision is not None
@@ -259,6 +397,7 @@ def _verifier(
         decision=report.release_decision.decision,
         merge_verdict=merge_verdict,  # type: ignore[arg-type]
         can_merge_without_human=can_merge,
+        fix_task=fix_task,
         capability_review=capability_review or VerifierCapabilityReview(),
         artifacts={
             "report_json": "agents-shipgate-reports/report.json",

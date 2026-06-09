@@ -1,5 +1,67 @@
 {
   "$defs": {
+    "AgentResultAffectedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pointer"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "AgentResultAffectedFile",
+      "type": "object"
+    },
     "AgentResultDiagnostic": {
       "additionalProperties": false,
       "properties": {
@@ -88,6 +150,25 @@
       "title": "AgentResultNextAction",
       "type": "object"
     },
+    "AgentResultTraceEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "summary"
+      ],
+      "title": "AgentResultTraceEvent",
+      "type": "object"
+    },
     "AgentResultViolatedRule": {
       "additionalProperties": false,
       "properties": {
@@ -161,13 +242,43 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "JSON Schema for shipgate check --format agent-json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
+  "description": "JSON Schema for shipgate check --format agent-json and agents-shipgate-reports/agent-result.json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
   "properties": {
+    "affected_files": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentResultAffectedFile"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Affected Files"
+    },
     "agent": {
       "const": "codex",
       "default": "codex",
       "title": "Agent",
       "type": "string"
+    },
+    "agent_repair_instructions": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Repair Instructions"
     },
     "audit_id": {
       "title": "Audit Id",
@@ -197,6 +308,18 @@
       "title": "Diagnostics",
       "type": "array"
     },
+    "exit_code_hint": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exit Code Hint"
+    },
     "finding_fingerprints": {
       "items": {
         "type": "string"
@@ -206,6 +329,18 @@
     },
     "first_next_action": {
       "$ref": "#/$defs/AgentResultNextAction"
+    },
+    "policy_snapshot_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Snapshot Sha256"
     },
     "policy_version": {
       "title": "Policy Version",
@@ -224,6 +359,21 @@
       "default": null,
       "title": "Release Decision"
     },
+    "required_reviewers": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Required Reviewers"
+    },
     "risk_level": {
       "enum": [
         "none",
@@ -241,9 +391,54 @@
       "title": "Schema Version",
       "type": "string"
     },
+    "source_artifacts": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Artifacts"
+    },
+    "suggested_fixes": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Fixes"
+    },
     "summary": {
       "title": "Summary",
       "type": "string"
+    },
+    "trace": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentResultTraceEvent"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace"
     },
     "trigger": {
       "anyOf": [

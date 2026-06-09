@@ -380,7 +380,7 @@ runs:
           }
 
     - name: Apply Agents Shipgate decision policy
-      if: ${{ always() && inputs.fail_on_decisions != '' && steps.report_outputs.outputs.agent_decision != '' }}
+      if: ${{ always() && inputs.fail_on_decisions != '' }}
       shell: bash
       env:
         FAIL_ON_DECISIONS: ${{ inputs.fail_on_decisions }}
@@ -399,12 +399,19 @@ runs:
             os.environ.get("FAIL_ON_DECISIONS", ""),
         )
         if code:
-            print(
-                "Agents Shipgate agent decision "
-                f"{os.environ.get('AGENT_DECISION', '')!r} matched "
-                "fail_on_decisions.",
-                file=sys.stderr,
-            )
+            decision = os.environ.get("AGENT_DECISION", "")
+            if decision:
+                print(
+                    "Agents Shipgate agent decision "
+                    f"{decision!r} matched fail_on_decisions.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "Agents Shipgate fail_on_decisions was configured, but "
+                    "agent-result.json did not expose an agent decision.",
+                    file=sys.stderr,
+                )
         raise SystemExit(code)
         PY
 

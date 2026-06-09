@@ -158,10 +158,6 @@ def _render_findings_comment(
     return _truncate("\n".join(lines), 6000)
 
 
-def _visible_verdict(verifier: VerifierArtifact) -> str:
-    return verifier.merge_verdict
-
-
 def _agent_result_lead(agent_result: AgentResult) -> list[str]:
     lines = [
         "",

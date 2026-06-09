@@ -109,6 +109,10 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "fail_on_decisions" in text
     assert "Apply Agents Shipgate decision policy" in text
     assert "decision_policy_exit_code" in text
+    assert (
+        "if: ${{ always() && inputs.fail_on_decisions != '' }}" in text
+    )
+    assert "agent-result.json did not expose an agent decision" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text
