@@ -1234,7 +1234,8 @@ def build_agent_result_schema() -> tuple[Path, str]:
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "Agents Shipgate Agent Result v1"
     schema["description"] = (
-        "JSON Schema for shipgate check --format agent-json. Generated from "
+        "JSON Schema for shipgate check --format agent-json and "
+        "agents-shipgate-reports/agent-result.json. Generated from "
         "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
     )
     target = DOCS / "agent-result-schema.v1.json"
@@ -1367,6 +1368,32 @@ def build_governance_benchmark_result_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_attestation_schema() -> tuple[Path, str]:
+    """Generate the release attestation schema."""
+
+    from agents_shipgate.schemas.attestation import (
+        ATTESTATION_SCHEMA_VERSION,
+        ReleaseAttestationArtifactV1,
+    )
+
+    schema = ReleaseAttestationArtifactV1.model_json_schema()
+    minor = ATTESTATION_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/attestation-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Release Attestation v{minor}"
+    schema["description"] = (
+        "JSON Schema for deterministic, local release attestations emitted by "
+        "agents-shipgate attest. It binds verifier/report artifacts plus "
+        "static capability lock/diff hashes when available. It does not gate; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"attestation-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1379,6 +1406,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("agent_result", build_agent_result_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
+    ("attestation", build_attestation_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )

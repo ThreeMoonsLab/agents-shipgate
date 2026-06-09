@@ -326,9 +326,12 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Verify writes
-`agents-shipgate-reports/verifier.json`, `pr-comment.md`, and the normal
-`report.{md,json,sarif}` / packet artifacts when a scan is required. Lead with
-`merge_verdict`, `can_merge_without_human`, `first_next_action`, and
+`agents-shipgate-reports/verifier.json`, `pr-comment.md`, the head capability
+lock, and the normal `report.{md,json,sarif}` / packet artifacts when a scan is
+required. If the base tree contains `.agents-shipgate/capabilities.lock.json`,
+verify also writes `capability-lock-diff.{json,md}` and the PR comment leads
+with that semantic capability diff after the verdict. Lead with `merge_verdict`,
+`can_merge_without_human`, `first_next_action`, and the capability diff or
 `capability_review.top_changes`; use `release_decision.decision` as the release
 gate.
 
@@ -378,8 +381,8 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
     pr_comment: "true"
 ```
 
-The PR comment leads with `merge_verdict`, capability changes, required next
-action, and artifact links:
+The PR comment leads with `merge_verdict`, semantic capability diff when the
+base lock is available, required next action, and artifact links:
 
 ![Preview of the optional Agents Shipgate PR comment showing merge verdict, capability changes, required next action, and report artifacts.](assets/pr-comment-preview.png)
 
@@ -405,7 +408,8 @@ When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
 - **`agents-shipgate-reports/verifier.json`** — the **primary, agent-facing artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `first_next_action`, and `fix_task` to decide whether to continue, repair, or stop for a human. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
-- **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and capability changes, shaped for a reviewer.
+- **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and semantic capability diff when available, shaped for a reviewer.
+- **`agents-shipgate-reports/capabilities.lock.json`** + **`agents-shipgate-reports/capability-lock-diff.{json,md}`** — the **capability review primitive**. Verify always emits the head lock after a successful scan; it emits the diff when the base ref has the reviewed committed lock at `.agents-shipgate/capabilities.lock.json`.
 - **Gate source of truth** — `report.json.release_decision.decision` (`passed | review_required | insufficient_evidence | blocked`). `merge_verdict` is a deterministic projection of it; the report stays the one decision engine.
 - **Tool-Use Readiness Report** (supporting) — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents, SARIF for GitHub code-scanning workflows. This is the underlying check domain the verdict summarizes.
 - **Release Evidence Packet** (supporting) — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default; see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v07).
@@ -448,7 +452,8 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.25"`). v0.25 adds opt-in capability-linked local trace/provenance evidence (`capability_runtime_evidence`, `findings[].capability_trace_refs`, and mirrored `ReleaseDecisionItem.capability_trace_refs`) while preserving fingerprints, baselines, capability locks, and release gating. v0.24 added capability-native policy evidence (`findings[].capability_refs`, optional `findings[].capability_policy_evidence`, and mirrored `ReleaseDecisionItem.capability_refs`). v0.23 added semantic metadata to `capability_change` members while preserving the existing buckets and release gate. v0.22 added the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
-- **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability`; non-gating and separate from `report.json`.
+- **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability` and, in PR workflows, by `agents-shipgate verify`; non-gating and separate from `report.json`.
+- **[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json)** — deterministic local attestation schema; v0.2 binds verifier artifacts plus capability lock/diff hashes when present.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 

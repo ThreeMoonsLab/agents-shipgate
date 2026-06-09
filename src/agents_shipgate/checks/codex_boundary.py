@@ -54,4 +54,3 @@ def _severity_for(risk_level: str) -> str:
 
 def _synthetic_diff(changed_files: list[str]) -> str:
     return "\n".join(f"diff --git a/{path} b/{path}" for path in changed_files)
-

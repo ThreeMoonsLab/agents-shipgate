@@ -23,8 +23,7 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.core.errors import InputParseError
-
-ATTESTATION_SCHEMA_VERSION = "0.1"
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 
 
 def _attest_command(
@@ -90,6 +89,7 @@ def build_attestation_payload(
     attestation degrades gracefully (``human_ack.satisfied`` is ``null`` and
     ``policy_snapshot_sha256`` is ``null``).
     """
+    artifacts = _obj(verifier.get("artifacts"))
     release_decision = _obj(verifier.get("release_decision"))
     capability_review = _obj(verifier.get("capability_review"))
     human_review = _obj(verifier.get("human_review"))
@@ -121,6 +121,16 @@ def build_attestation_payload(
             "policy_weakened": bool(capability_review.get("policy_weakened")),
             "change_ids": _change_ids(capability_review.get("top_changes")),
         },
+        "capability_lock": _capability_lock_binding(
+            artifacts,
+            base_dir=source.parent,
+            redacted=redacted,
+        ),
+        "capability_diff": _capability_diff_binding(
+            artifacts,
+            base_dir=source.parent,
+            redacted=redacted,
+        ),
         "human_ack": {
             "required": bool(
                 human_ack.get("required", human_review.get("required", False))
@@ -132,9 +142,7 @@ def build_attestation_payload(
         "policy_snapshot_sha256": (
             _canonical_sha256(effective_policy) if effective_policy is not None else None
         ),
-        "artifact_sha256": _artifact_hashes(
-            verifier.get("artifacts"), base_dir=source.parent
-        ),
+        "artifact_sha256": _artifact_hashes(artifacts, base_dir=source.parent),
     }
 
 
@@ -180,6 +188,122 @@ def _artifact_hashes(artifacts: Any, *, base_dir: Path) -> dict[str, str]:
         if candidate.is_file():
             out[str(key)] = hashlib.sha256(candidate.read_bytes()).hexdigest()
     return dict(sorted(out.items()))
+
+
+def _capability_lock_binding(
+    artifacts: dict[str, Any],
+    *,
+    base_dir: Path,
+    redacted: bool,
+) -> dict[str, Any]:
+    key = "capability_lock"
+    candidate = _artifact_candidate(artifacts, key, base_dir=base_dir)
+    if candidate is None:
+        return {
+            "path": None,
+            "sha256": None,
+            "capability_lock_schema_version": None,
+            "semantic_capability_set_hash": None,
+            "evidence_set_hash": None,
+            "source_set_hash": None,
+            "capability_count": None,
+        }
+    payload = _load_optional_json(candidate)
+    hashes = _obj(payload.get("hashes")) if isinstance(payload, dict) else {}
+    summary = _obj(payload.get("summary")) if isinstance(payload, dict) else {}
+    return {
+        "path": _artifact_display_path(artifacts.get(key), redacted=redacted),
+        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+        "capability_lock_schema_version": (
+            payload.get("capability_lock_schema_version")
+            if isinstance(payload, dict)
+            else None
+        ),
+        "semantic_capability_set_hash": hashes.get("semantic_capability_set_hash"),
+        "evidence_set_hash": hashes.get("evidence_set_hash"),
+        "source_set_hash": hashes.get("source_set_hash"),
+        "capability_count": summary.get("capability_count"),
+    }
+
+
+def _capability_diff_binding(
+    artifacts: dict[str, Any],
+    *,
+    base_dir: Path,
+    redacted: bool,
+) -> dict[str, Any] | None:
+    key = "capability_lock_diff_json"
+    candidate = _artifact_candidate(artifacts, key, base_dir=base_dir)
+    if candidate is None:
+        return None
+    payload = _load_optional_json(candidate)
+    if not isinstance(payload, dict):
+        return {
+            "path": _artifact_display_path(artifacts.get(key), redacted=redacted),
+            "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+            "capability_lock_diff_schema_version": None,
+            "base_semantic_capability_set_hash": None,
+            "head_semantic_capability_set_hash": None,
+            "summary": None,
+        }
+    base = _obj(payload.get("base"))
+    head = _obj(payload.get("head"))
+    return {
+        "path": _artifact_display_path(artifacts.get(key), redacted=redacted),
+        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+        "capability_lock_diff_schema_version": payload.get(
+            "capability_lock_diff_schema_version"
+        ),
+        "base_semantic_capability_set_hash": base.get(
+            "semantic_capability_set_hash"
+        ),
+        "head_semantic_capability_set_hash": head.get(
+            "semantic_capability_set_hash"
+        ),
+        "summary": _capability_diff_summary(payload.get("summary")),
+    }
+
+
+def _capability_diff_summary(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "added": int(value.get("added", 0) or 0),
+        "removed": int(value.get("removed", 0) or 0),
+        "reidentified": int(value.get("reidentified", 0) or 0),
+        "changed": int(value.get("changed", 0) or 0),
+        "evidence_changed": int(value.get("evidence_changed", 0) or 0),
+        "unchanged": int(value.get("unchanged", 0) or 0),
+    }
+
+
+def _artifact_candidate(
+    artifacts: dict[str, Any],
+    key: str,
+    *,
+    base_dir: Path,
+) -> Path | None:
+    value = artifacts.get(key)
+    if value is None:
+        return None
+    candidate = base_dir / Path(str(value)).name
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _artifact_display_path(value: Any, *, redacted: bool) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return Path(text).name if redacted else text
+
+
+def _load_optional_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _canonical_sha256(obj: Any) -> str:

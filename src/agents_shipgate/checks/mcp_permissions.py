@@ -31,11 +31,34 @@ def run(context: ScanContext) -> list[Finding]:
         return []
 
     findings: list[Finding] = []
-    current_contexts = _mcp_capability_contexts(context.action_surface_facts)
+    fact_by_tool = _current_fact_by_tool(
+        _mcp_capability_facts(context.capability_facts)
+    )
+    tool_by_key = {_tool_key(tool): tool for tool in mcp_tools}
+
+    findings.extend(_env_secret_findings(context, mcp_tools, fact_by_tool))
+    findings.extend(_auto_approve_findings(context, mcp_tools, fact_by_tool))
+
     diff_available = (
         context.diff_reference is not None
         and context.diff_reference.action_facts is not None
     )
+    if not diff_available:
+        findings.extend(
+            _unknown_schema_findings(
+                context,
+                mcp_tools,
+                fact_by_tool,
+                added_ids=set(),
+                changed_ids=set(),
+                diff_available=False,
+            )
+        )
+        return _dedupe(findings)
+
+    current_contexts = _mcp_capability_contexts(context.action_surface_facts)
+    if not fact_by_tool:
+        fact_by_tool = _current_fact_by_tool([ctx.fact for ctx in current_contexts])
     base_contexts = (
         _mcp_capability_contexts(context.diff_reference.action_facts)
         if diff_available
@@ -50,11 +73,7 @@ def run(context: ScanContext) -> list[Finding]:
         for row in changed_rows
         if row.semantic_direction in {"broadened", "mixed", "unknown"}
     ]
-    fact_by_tool = _current_fact_by_tool(current_contexts)
-    tool_by_key = {_tool_key(tool): tool for tool in mcp_tools}
 
-    findings.extend(_env_secret_findings(context, mcp_tools, fact_by_tool))
-    findings.extend(_auto_approve_findings(context, mcp_tools, fact_by_tool))
     findings.extend(
         _unknown_schema_findings(
             context,
@@ -311,10 +330,14 @@ def _context_from_action(action: ActionFact) -> CapabilityFactContext:
     )
 
 
+def _mcp_capability_facts(facts: list[CapabilityFactV1]) -> list[CapabilityFactV1]:
+    return [fact for fact in facts if fact.evidence.source_type in MCP_SOURCE_TYPES]
+
+
 def _current_fact_by_tool(
-    contexts: list[CapabilityFactContext],
+    facts: list[CapabilityFactV1],
 ) -> dict[CapabilityKey, CapabilityFactV1]:
-    return {_fact_key(ctx.fact): ctx.fact for ctx in contexts}
+    return {_fact_key(fact): fact for fact in facts}
 
 
 def _capability_ref(tool: Tool, fact_by_tool: dict[CapabilityKey, CapabilityFactV1]) -> list[str]:
