@@ -5,7 +5,11 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli._helpers import _diagnose_config_error, _resolve_config_paths
+from agents_shipgate.cli._helpers import (
+    _diagnose_config_error,
+    _echo_next_action_hint,
+    _resolve_config_paths,
+)
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import (
     diagnose_doctor,
@@ -37,6 +41,7 @@ def register(app: typer.Typer) -> None:
                 config=config, workspace=workspace, exc=exc
             )
             flattened = top_next_actions(diagnostics)
+            _echo_next_action_hint(flattened)
             _emit_agent_mode_error(
                 "config_error",
                 message=str(exc),
@@ -60,6 +65,7 @@ def register(app: typer.Typer) -> None:
                         config=str(path), workspace=None, exc=exc
                     )
                     flattened = top_next_actions(diagnostics)
+                    _echo_next_action_hint(flattened)
                     _emit_agent_mode_error(
                         "config_error",
                         message=str(exc),

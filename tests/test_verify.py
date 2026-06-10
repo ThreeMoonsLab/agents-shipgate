@@ -649,6 +649,77 @@ def test_verify_head_errors_preserve_exit_codes(
     assert message in result.output
 
 
+def test_verify_config_error_prints_next_action_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**_kwargs: Any):
+        raise ConfigError("bad config")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
+    )
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"],
+    )
+
+    assert result.exit_code == 2
+    # The manifest exists but the loader rejected it, so the rank-1
+    # recovery step is the invalid-manifest edit hint.
+    assert "next: Edit" in result.output
+
+
+def test_verify_agent_mode_emits_structured_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**_kwargs: Any):
+        raise ConfigError("bad config")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
+    )
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"],
+    )
+
+    assert result.exit_code == 2
+    json_lines = [
+        line for line in result.output.splitlines() if line.startswith("{")
+    ]
+    assert json_lines
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "config_error"
+    assert payload["next_actions"]
+
+
+def test_verify_flag_error_emits_structured_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(app, ["verify", "--format", "bogus"])
+
+    assert result.exit_code == 2
+    json_lines = [
+        line for line in result.output.splitlines() if line.startswith("{")
+    ]
+    assert json_lines
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "config_error"
+    # Flag errors must NOT carry manifest diagnostics — the fix is the
+    # flag value, not shipgate.yaml.
+    assert payload["next_actions"][0]["kind"] == "review"
+
+
 def test_verify_artifact_write_failure_does_not_mask_scan_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
