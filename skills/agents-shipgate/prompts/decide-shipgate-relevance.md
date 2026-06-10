@@ -69,16 +69,15 @@ the rules to the changed file list.
    ```
 
 5. **Then act.**
-   - If `run_shipgate: true` and Shipgate is installed:
-     ```bash
-     agents-shipgate detect --workspace . --json
-     ```
-     Then follow [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
-     for the first-adoption helper flow.
-   - If `run_shipgate: true` and Shipgate is **not** installed: install
-     it (`pipx install agents-shipgate`) and run `detect`. If the user
-     prefers a zero-install first step, point them at the GitHub Action
-     (`ThreeMoonsLab/agents-shipgate@v0.12.0`) instead.
+   - If `run_shipgate: true`: run `detect` through a **version-pinned,
+     zero-install** runner so a stale copy already on `PATH` can't answer —
+     `uvx agents-shipgate@0.12.0 detect --workspace . --json` (or
+     `pipx run agents-shipgate==0.12.0 …`). Only fall back to a bare
+     `agents-shipgate detect` once `agents-shipgate --version` confirms
+     `>=0.12.0`. Then follow
+     [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
+     for the first-adoption helper flow, or point the user at the GitHub
+     Action (`ThreeMoonsLab/agents-shipgate@v0.12.0`) if they prefer CI.
    - If `run_shipgate: false` and `dry_run_recommended: true`: propose
      a non-mutating scan only — never propose `init --write` based on a
      dry-run match alone. Phrase it as "X may have shifted the tool

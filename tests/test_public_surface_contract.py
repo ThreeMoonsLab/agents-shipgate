@@ -86,6 +86,11 @@ ACTION_PIN_PATTERN = re.compile(
     r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)"
 )
 PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
+# Zero-install runner pin recommended by the agent-facing install
+# snippets: ``uvx agents-shipgate@X.Y.Z``. The ``@v`` GitHub Action form
+# is NOT matched (a digit must follow ``@``), nor is the ``==`` pip form,
+# so this guards the uvx literal specifically.
+UVX_PIN_PATTERN = re.compile(r"agents-shipgate@(\d+\.\d+\.\d+)")
 SHIPGATE_VERSION_INPUT_PATTERN = re.compile(
     r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"
 )
@@ -226,6 +231,8 @@ ACTION_PIN_FILES = (
     "examples/gitlab-ci/03-sarif-or-artifact.yml",
     "examples/gitlab-ci/04-multi-config-workspace.yml",
     "examples/gitlab-ci/05-on-tool-source-changes.yml",
+    "prompts/decide-shipgate-relevance.md",
+    "skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
     "prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml",
@@ -676,6 +683,28 @@ def test_pip_pins_match_pyproject_version(relpath):
             f"{relpath}:{line_number} pins agents-shipgate=={found}; "
             f"pyproject.toml says {expected}. Update the pin to "
             f"=={expected} or bump pyproject.toml.\n  line: "
+            f"{line.strip()!r}"
+        )
+
+
+@pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
+def test_uvx_pins_match_pyproject_version(relpath):
+    """Every ``uvx agents-shipgate@X.Y.Z`` zero-install pin in a public
+    surface must equal the package version. The agent-facing install
+    snippets recommend this pinned runner so a coding agent never shells
+    out to a stale ``PATH`` build; without this guard a pyproject bump
+    could leave a stale ``uvx agents-shipgate@…`` literal in a bundled
+    prompt. The ``pipx run agents-shipgate==X.Y.Z`` form is already
+    covered by ``PIP_PIN_PATTERN`` and the ``@v`` Action form by
+    ``ACTION_PIN_PATTERN``."""
+    expected = _load_pyproject_version()
+    for line_number, line, found in _file_lines_with_pin(
+        relpath, UVX_PIN_PATTERN
+    ):
+        assert found == expected, (
+            f"{relpath}:{line_number} pins uvx agents-shipgate@{found}; "
+            f"pyproject.toml says {expected}. Update the pin to "
+            f"@{expected} or bump pyproject.toml.\n  line: "
             f"{line.strip()!r}"
         )
 
