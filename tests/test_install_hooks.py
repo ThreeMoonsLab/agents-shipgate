@@ -38,6 +38,14 @@ def test_install_hooks_dry_run_does_not_write(tmp_path: Path) -> None:
     assert payload["script_status"] == "would_write"
     assert payload["hooks"] == [
         {
+            "event": "PreToolUse",
+            "matcher": "Edit|Write|MultiEdit",
+            "purpose": (
+                "route edits to protected trust-root surfaces to the "
+                "human for permission before they happen"
+            ),
+        },
+        {
             "event": "PostToolUse",
             "matcher": "Edit|Write|MultiEdit",
             "purpose": "cheap trigger check after file-editing tools",
@@ -436,3 +444,113 @@ raise SystemExit(2)
         encoding="utf-8",
     )
     return script
+
+
+def _render_hook_script(tmp_path: Path) -> Path:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    return tmp_path / HOOK_SCRIPT_RELATIVE_PATH
+
+
+def _run_pretooluse(tmp_path: Path, file_path: str, *, env_extra=None) -> str:
+    script = _render_hook_script(tmp_path)
+    event = {
+        "hook_event_name": "PreToolUse",
+        "cwd": str(tmp_path),
+        "tool_name": "Edit",
+        "tool_input": {"file_path": file_path},
+    }
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env.update(env_extra or {})
+    result = subprocess.run(
+        [sys.executable, str(script), "pretooluse"],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_pretooluse_hook_asks_for_protected_surface(tmp_path: Path) -> None:
+    out = _run_pretooluse(tmp_path, str(tmp_path / "shipgate.yaml"))
+    payload = json.loads(out)
+    output = payload["hookSpecificOutput"]
+    assert output["hookEventName"] == "PreToolUse"
+    assert output["permissionDecision"] == "ask"
+    assert "shipgate.yaml" in output["permissionDecisionReason"]
+    assert "never weaken" in output["permissionDecisionReason"]
+
+
+def test_pretooluse_hook_silent_for_normal_files(tmp_path: Path) -> None:
+    out = _run_pretooluse(tmp_path, str(tmp_path / "src" / "app.py"))
+    assert out == ""
+
+
+def test_pretooluse_hook_deny_mode_via_env(tmp_path: Path) -> None:
+    out = _run_pretooluse(
+        tmp_path,
+        str(tmp_path / ".github" / "workflows" / "agents-shipgate.yml"),
+        env_extra={"AGENTS_SHIPGATE_PRETOOLUSE_DECISION": "deny"},
+    )
+    payload = json.loads(out)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_pretooluse_hook_allow_mode_disables(tmp_path: Path) -> None:
+    out = _run_pretooluse(
+        tmp_path,
+        str(tmp_path / "shipgate.yaml"),
+        env_extra={"AGENTS_SHIPGATE_PRETOOLUSE_DECISION": "allow"},
+    )
+    assert out == ""
+
+
+def test_rendered_script_glob_matcher_matches_canonical_globbing(
+    tmp_path: Path,
+) -> None:
+    """The hook script embeds a copy of core.globbing.glob_match; pin that
+    the rendered copy classifies every trust-root pattern identically."""
+    from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
+    from agents_shipgate.core.globbing import glob_match
+
+    script = _render_hook_script(tmp_path)
+    namespace: dict = {}
+    # Extract just the rendered module constants/functions we need by
+    # executing the script with a stubbed __name__ so main() doesn't run.
+    code = script.read_text(encoding="utf-8")
+    exec(compile(code, str(script), "exec"), {"__name__": "hook_under_test"}, namespace)
+    hook_match = namespace["_glob_match"]
+    surfaces = namespace["PROTECTED_SURFACES"]
+
+    assert [tuple(item) for item in surfaces] == list(TRUST_ROOT_SURFACES)
+
+    probes = [
+        "shipgate.yaml",
+        "nested/dir/shipgate.yaml",
+        ".github/workflows/agents-shipgate.yml",
+        "policies/org-release.yaml",
+        ".agents-shipgate/baseline.json",
+        "AGENTS.md",
+        "src/app.py",
+        "README.md",
+        ".mcp.json",
+        "docs/notes.txt",
+    ]
+    for _, pattern in surfaces:
+        for probe in probes:
+            assert hook_match(pattern, probe) == glob_match(pattern, probe), (
+                pattern,
+                probe,
+            )

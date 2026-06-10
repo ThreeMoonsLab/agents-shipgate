@@ -3,7 +3,7 @@
   "agent": "claude-code",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "subject": {
     "agent": "claude-code"

@@ -4,12 +4,36 @@ import hashlib
 import json
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+# The shared unified-diff plumbing moved to
+# ``agents_shipgate.core.boundary_diff``. These re-exports preserve the
+# pre-split import surface of this module: existing imports such as
+# ``from agents_shipgate.core.codex_boundary import parse_unified_diff``
+# (tests, checks, CLI) keep working unchanged.
+from agents_shipgate.core.boundary_diff import (  # noqa: F401
+    DiffFile,
+    DiffHunk,
+    ResolvedFileText,
+    _apply_hunks,
+    _canonical_json,
+    _content_source_diagnostic,
+    _evaluated_file_record,
+    _is_insertion_only_change,
+    _join_lines,
+    _new_text_from_hunks,
+    _parse_hunk_header,
+    _resolve_changed_file_text,
+    _safe_workspace_path,
+    _sha256_text,
+    _strip_diff_prefix,
+    _unresolved_text,
+    parse_unified_diff,
+)
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultAffectedFile,
     AgentResultDiagnostic,
@@ -150,10 +174,16 @@ _SHIPGATE_INVOCATION_RE = re.compile(
     r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
     r"\s+(?:verify|scan|check)\b"
 )
+_SHIPGATE_CLI_COMMAND_RE = re.compile(
+    r"^\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+|env)\s+)*"
+    r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
+    r"(?:\s|$)"
+)
 _SHIPGATE_ACTION_RE = re.compile(
     r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
 )
+_LOCAL_ACTION_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+\./?\s*(?:#.*)?$")
 _COMMAND_SKILL_RE = re.compile(
     r"(exec_command|write_stdin|apply_patch|shell|subprocess|python\s|node\s|"
     r"bash\s|sh\s|scripts?/|command:|cmd:|run:)",
@@ -183,39 +213,6 @@ _NETWORK_KEYS = {
     "domains",
     "unix_sockets",
 }
-
-
-@dataclass(frozen=True)
-class DiffHunk:
-    old_start: int
-    old_count: int
-    new_start: int
-    new_count: int
-    lines: list[tuple[str, str]] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class DiffFile:
-    old_path: str | None
-    new_path: str | None
-    added_lines: list[str] = field(default_factory=list)
-    removed_lines: list[str] = field(default_factory=list)
-    hunks: list[DiffHunk] = field(default_factory=list)
-    is_deleted: bool = False
-    is_new: bool = False
-
-    @property
-    def path(self) -> str:
-        return self.new_path or self.old_path or ""
-
-
-@dataclass(frozen=True)
-class ResolvedFileText:
-    old_text: str | None
-    new_text: str | None
-    source: str
-    old_sha256: str | None
-    new_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -413,7 +410,7 @@ def evaluate_codex_boundary_result(
         if _is_shipgate_workflow_path(normalized):
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             evaluated_files.append(_evaluated_file_record(path, resolved))
-            _evaluate_shipgate_workflow(diff_file, resolved, add)
+            _evaluate_shipgate_workflow(diff_file, resolved, add, workspace=workspace)
         if _is_codex_boundary_policy_path(normalized):
             _evaluate_codex_boundary_policy(diff_file, add)
         if _is_codex_skill_path(normalized):
@@ -461,80 +458,6 @@ def evaluate_codex_boundary_result(
         policy_snapshot_sha256=policy.snapshot_sha256,
         exit_code_hint=20 if decision == "block" else 0,
     )
-
-
-def parse_unified_diff(diff_text: str) -> list[DiffFile]:
-    files_out: list[DiffFile] = []
-    current: dict[str, Any] | None = None
-    current_hunk: DiffHunk | None = None
-
-    def finish() -> None:
-        nonlocal current, current_hunk
-        if current is None:
-            return
-        if current_hunk is not None:
-            current.setdefault("hunks", []).append(current_hunk)
-            current_hunk = None
-        files_out.append(
-            DiffFile(
-                old_path=current.get("old_path"),
-                new_path=current.get("new_path"),
-                added_lines=current.get("added_lines", []),
-                removed_lines=current.get("removed_lines", []),
-                hunks=current.get("hunks", []),
-                is_deleted=bool(current.get("is_deleted")),
-                is_new=bool(current.get("is_new")),
-            )
-        )
-        current = None
-
-    for raw_line in diff_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        if raw_line.startswith("diff --git "):
-            finish()
-            parts = raw_line.split()
-            old_path = _strip_diff_prefix(parts[2]) if len(parts) > 2 else None
-            new_path = _strip_diff_prefix(parts[3]) if len(parts) > 3 else old_path
-            current = {
-                "old_path": old_path,
-                "new_path": new_path,
-                "added_lines": [],
-                "removed_lines": [],
-                "hunks": [],
-                "is_deleted": False,
-                "is_new": False,
-            }
-            current_hunk = None
-            continue
-        if current is None:
-            continue
-        if raw_line.startswith("deleted file mode"):
-            current["is_deleted"] = True
-        elif raw_line.startswith("new file mode"):
-            current["is_new"] = True
-        elif raw_line.startswith("--- "):
-            value = raw_line[4:].strip()
-            current["old_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
-        elif raw_line.startswith("+++ "):
-            value = raw_line[4:].strip()
-            current["new_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
-            if value == "/dev/null":
-                current["is_deleted"] = True
-        elif raw_line.startswith("@@ "):
-            if current_hunk is not None:
-                current.setdefault("hunks", []).append(current_hunk)
-            current_hunk = _parse_hunk_header(raw_line)
-        elif raw_line.startswith("+") and not raw_line.startswith("+++"):
-            current["added_lines"].append(raw_line[1:])
-            if current_hunk is not None:
-                current_hunk.lines.append(("+", raw_line[1:]))
-        elif raw_line.startswith("-") and not raw_line.startswith("---"):
-            current["removed_lines"].append(raw_line[1:])
-            if current_hunk is not None:
-                current_hunk.lines.append(("-", raw_line[1:]))
-        elif raw_line.startswith(" ") and current_hunk is not None:
-            current_hunk.lines.append((" ", raw_line[1:]))
-    finish()
-    return files_out
 
 
 def load_codex_boundary_policy(
@@ -1069,10 +992,13 @@ def _evaluate_shipgate_workflow(
     diff_file: DiffFile,
     resolved: ResolvedFileText,
     add,
+    *,
+    workspace: Path,
 ) -> None:
     path = diff_file.path
     invocation_present = bool(
-        resolved.new_text and _has_shipgate_gate_invocation(resolved.new_text)
+        resolved.new_text
+        and _has_shipgate_gate_invocation(resolved.new_text, workspace=workspace)
     )
     if diff_file.is_deleted or resolved.new_text is None or not invocation_present:
         add(
@@ -1120,202 +1046,6 @@ def _evaluate_skill(diff_file: DiffFile, add) -> None:
         )
 
 
-def _resolve_changed_file_text(
-    workspace: Path,
-    diff_file: DiffFile,
-    diagnostics: list[AgentResultDiagnostic],
-) -> ResolvedFileText:
-    path = diff_file.path
-    if diff_file.is_deleted:
-        resolved = ResolvedFileText(
-            old_text=None,
-            new_text=None,
-            source="diff_deleted_file",
-            old_sha256=None,
-            new_sha256=None,
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-    if diff_file.is_new:
-        new_text = _new_text_from_hunks(diff_file)
-        resolved = ResolvedFileText(
-            old_text="",
-            new_text=new_text,
-            source="diff_new_file",
-            old_sha256=_sha256_text(""),
-            new_sha256=_sha256_text(new_text),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    head_path = _safe_workspace_path(workspace, path)
-    if head_path is None:
-        resolved = _unresolved_text("path_outside_workspace")
-        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-        return resolved
-    if not head_path.is_file():
-        resolved = _unresolved_text("workspace_file_missing")
-        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-        return resolved
-    try:
-        workspace_text = head_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        resolved = _unresolved_text("workspace_read_failed")
-        diagnostics.append(
-            AgentResultDiagnostic(
-                level="warning",
-                code="content_source",
-                message=f"Could not read changed Codex boundary file: {exc}",
-                path=path,
-            )
-        )
-        return resolved
-
-    if _is_insertion_only_change(diff_file):
-        reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
-        if reversed_text is not None:
-            resolved = ResolvedFileText(
-                old_text=reversed_text,
-                new_text=workspace_text,
-                source="workspace_already_contains_diff_head",
-                old_sha256=_sha256_text(reversed_text),
-                new_sha256=_sha256_text(workspace_text),
-            )
-            diagnostics.append(_content_source_diagnostic(path, resolved))
-            return resolved
-
-    applied = _apply_hunks(workspace_text, diff_file.hunks, direction="forward")
-    if applied is not None:
-        resolved = ResolvedFileText(
-            old_text=workspace_text,
-            new_text=applied,
-            source="diff_applied_to_workspace_base",
-            old_sha256=_sha256_text(workspace_text),
-            new_sha256=_sha256_text(applied),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
-    if reversed_text is not None:
-        resolved = ResolvedFileText(
-            old_text=reversed_text,
-            new_text=workspace_text,
-            source="workspace_already_contains_diff_head",
-            old_sha256=_sha256_text(reversed_text),
-            new_sha256=_sha256_text(workspace_text),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    resolved = _unresolved_text("diff_workspace_mismatch")
-    diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-    return resolved
-
-
-def _unresolved_text(source: str) -> ResolvedFileText:
-    return ResolvedFileText(
-        old_text=None,
-        new_text=None,
-        source=source,
-        old_sha256=None,
-        new_sha256=None,
-    )
-
-
-def _content_source_diagnostic(
-    path: str,
-    resolved: ResolvedFileText,
-    *,
-    level: str = "info",
-) -> AgentResultDiagnostic:
-    return AgentResultDiagnostic(
-        level=level,  # type: ignore[arg-type]
-        code="content_source",
-        message=f"Evaluated Codex boundary file from {resolved.source}.",
-        path=path,
-    )
-
-
-def _evaluated_file_record(path: str, resolved: ResolvedFileText) -> dict[str, Any]:
-    return {
-        "path": path,
-        "source": resolved.source,
-        "old_sha256": resolved.old_sha256,
-        "new_sha256": resolved.new_sha256,
-    }
-
-
-def _new_text_from_hunks(diff_file: DiffFile) -> str:
-    if diff_file.hunks:
-        lines = [
-            text
-            for hunk in diff_file.hunks
-            for kind, text in hunk.lines
-            if kind in {" ", "+"}
-        ]
-        return _join_lines(lines)
-    if diff_file.added_lines:
-        return _join_lines(diff_file.added_lines)
-    return ""
-
-
-def _apply_hunks(
-    text: str,
-    hunks: list[DiffHunk],
-    *,
-    direction: str,
-) -> str | None:
-    if not hunks:
-        return text
-    lines = text.splitlines()
-    offset = 0
-    for hunk in hunks:
-        if direction == "forward":
-            start = hunk.old_start - 1 if hunk.old_count > 0 else hunk.old_start
-            expected = [value for kind, value in hunk.lines if kind in {" ", "-"}]
-            replacement = [value for kind, value in hunk.lines if kind in {" ", "+"}]
-        else:
-            start = hunk.new_start - 1 if hunk.new_count > 0 else hunk.new_start
-            expected = [value for kind, value in hunk.lines if kind in {" ", "+"}]
-            replacement = [value for kind, value in hunk.lines if kind in {" ", "-"}]
-        index = start + offset
-        if index < 0:
-            return None
-        if index > len(lines):
-            return None
-        if index + len(expected) > len(lines):
-            return None
-        if lines[index : index + len(expected)] != expected:
-            return None
-        lines[index : index + len(expected)] = replacement
-        offset += len(replacement) - len(expected)
-    return _join_lines(lines, final_newline=text.endswith("\n"))
-
-
-def _is_insertion_only_change(diff_file: DiffFile) -> bool:
-    return any(
-        any(kind == "+" for kind, _ in hunk.lines)
-        and not any(kind == "-" for kind, _ in hunk.lines)
-        for hunk in diff_file.hunks
-    )
-
-
-def _join_lines(lines: list[str], *, final_newline: bool = True) -> str:
-    if not lines:
-        return ""
-    text = "\n".join(lines)
-    return f"{text}\n" if final_newline else text
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-
-
 def _changed_to(
     old_data: dict[str, Any],
     data: dict[str, Any],
@@ -1332,19 +1062,6 @@ def _nested_get(data: Any, path: tuple[str, ...]) -> Any:
             return None
         current = current.get(part)
     return current
-
-
-def _parse_hunk_header(line: str) -> DiffHunk:
-    match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-    if not match:
-        return DiffHunk(old_start=0, old_count=0, new_start=0, new_count=0)
-    old_start, old_count, new_start, new_count = match.groups()
-    return DiffHunk(
-        old_start=int(old_start),
-        old_count=int(old_count or "1"),
-        new_start=int(new_start),
-        new_count=int(new_count or "1"),
-    )
 
 
 def _iter_hook_groups(hooks: Any):
@@ -1381,9 +1098,16 @@ def _server_tool_names(server: dict[str, Any]) -> set[str]:
     enabled = server.get("enabled_tools")
     if isinstance(enabled, list):
         names.update(str(item) for item in enabled if isinstance(item, str))
+    for key in ("allowed_tools", "tool_allowlist", "tools_allowlist"):
+        value = server.get(key)
+        if isinstance(value, list):
+            names.update(str(item) for item in value if isinstance(item, str))
     tools = server.get("tools")
     if isinstance(tools, dict):
-        names.update(str(item) for item in tools)
+        for name, config in tools.items():
+            if isinstance(config, dict) and config.get("enabled") is False:
+                continue
+            names.add(str(name))
     return names
 
 
@@ -1718,27 +1442,11 @@ def _policy_snapshot_sha256(data: dict[str, Any], raw_text: str | None) -> str:
     ).hexdigest()
 
 
-def _safe_workspace_path(workspace: Path, value: str) -> Path | None:
-    candidate = (workspace / value).resolve()
-    try:
-        candidate.relative_to(workspace)
-    except ValueError:
-        return None
-    return candidate
-
-
 def _display_path(path: Path, workspace: Path) -> str:
     try:
         return path.resolve().relative_to(workspace.resolve()).as_posix()
     except ValueError:
         return str(path)
-
-
-def _strip_diff_prefix(value: str) -> str:
-    value = value.strip()
-    if value.startswith("a/") or value.startswith("b/"):
-        return value[2:]
-    return value
 
 
 def _is_allow(value: Any) -> bool:
@@ -1788,15 +1496,75 @@ def _contains_weakening_term(value: str) -> bool:
     return any(term in lowered for term in _WEAKENING_TERMS)
 
 
-def _has_shipgate_gate_invocation(value: str) -> bool:
-    return any(
-        _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line)
-        for line in value.splitlines()
+def _has_shipgate_gate_invocation(value: str, *, workspace: Path | None = None) -> bool:
+    local_action_is_shipgate = (
+        _workspace_declares_shipgate_action(workspace) if workspace is not None else False
     )
+    for line in value.splitlines():
+        if _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line):
+            return True
+        if local_action_is_shipgate and _LOCAL_ACTION_RE.search(line):
+            return True
+    return False
+
+
+def _workspace_declares_shipgate_action(workspace: Path) -> bool:
+    action_path = workspace / "action.yml"
+    if not action_path.is_file():
+        action_path = workspace / "action.yaml"
+    if not action_path.is_file():
+        return False
+    try:
+        payload = yaml.safe_load(action_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("name") or "").strip().lower()
+    return name == "agents shipgate" and _root_action_invokes_shipgate(payload)
+
+
+def _root_action_invokes_shipgate(payload: dict[str, Any]) -> bool:
+    runs = payload.get("runs")
+    if not isinstance(runs, dict):
+        return False
+    steps = runs.get("steps")
+    if not isinstance(steps, list):
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        run = step.get("run")
+        if isinstance(run, str) and _run_script_invokes_shipgate(run):
+            return True
+        uses = step.get("uses")
+        if isinstance(uses, str) and _SHIPGATE_ACTION_RE.search(f"uses: {uses}"):
+            return True
+    return False
+
+
+def _run_script_invokes_shipgate(value: str) -> bool:
+    return any(_SHIPGATE_CLI_COMMAND_RE.search(line) for line in value.splitlines())
 
 
 def _is_codex_config_path(path: str) -> bool:
     return path == ".codex/config.toml" or path.endswith("/.codex/config.toml")
+
+
+def is_codex_config_path(path: str) -> bool:
+    return _is_codex_config_path(path)
+
+
+def is_mcp_json_path(path: str) -> bool:
+    return path == ".mcp.json" or path.endswith("/.mcp.json")
+
+
+def resolve_changed_file_text(
+    workspace: Path,
+    diff_file: DiffFile,
+    diagnostics: list[AgentResultDiagnostic],
+) -> ResolvedFileText:
+    return _resolve_changed_file_text(workspace, diff_file, diagnostics)
 
 
 def _is_codex_hooks_path(path: str) -> bool:

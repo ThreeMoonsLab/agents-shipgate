@@ -14,7 +14,7 @@ from agents_shipgate.cli.main import app
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = json.loads(
-    (REPO_ROOT / "docs/attestation-schema.v0.1.json").read_text(encoding="utf-8")
+    (REPO_ROOT / "docs/attestation-schema.v0.2.json").read_text(encoding="utf-8")
 )
 
 
@@ -44,6 +44,10 @@ def _verifier_payload() -> dict:
             "verifier_json": "agents-shipgate-reports/verifier.json",
             "report_json": "agents-shipgate-reports/report.json",
             "pr_comment": "agents-shipgate-reports/pr-comment.md",
+            "capability_lock": "agents-shipgate-reports/capabilities.lock.json",
+            "capability_lock_diff_json": (
+                "agents-shipgate-reports/capability-lock-diff.json"
+            ),
         },
     }
 
@@ -70,11 +74,11 @@ def _report_payload() -> dict:
 def test_build_attestation_core_fields() -> None:
     att = build_attestation_payload(
         _verifier_payload(),
-        source=Path("agents-shipgate-reports/verifier.json"),
+        source=Path("verifier.json"),
         redacted=True,
         report=_report_payload(),
     )
-    assert att["attestation_schema_version"] == "0.1"
+    assert att["attestation_schema_version"] == "0.2"
     assert att["base_tree_sha"] == "7d4d5f5e125a9bbcf16d4091fa0038bd229e1c7c"
     assert att["head_tree_sha"] == "a1b2c3d4e5f6071829abcdef0123456789abcdef"
     assert att["verdict"] == {
@@ -86,6 +90,8 @@ def test_build_attestation_core_fields() -> None:
     assert att["capability"]["added"] == 1
     assert att["capability"]["trust_root_touched"] is True
     assert att["capability"]["change_ids"] == ["cap_a", "cap_b"]  # sorted, de-duped
+    assert att["capability_lock"]["path"] is None
+    assert att["capability_diff"] is None
 
 
 def test_human_ack_and_policy_hash_from_report() -> None:
@@ -166,6 +172,63 @@ def test_artifact_hashes_resolve_siblings_of_verifier(tmp_path: Path) -> None:
     assert att["artifact_sha256"]["pr_comment"] == hashlib.sha256(b"hello").hexdigest()
     assert att["artifact_sha256"]["report_json"] == hashlib.sha256(b"{}").hexdigest()
     assert "missing" not in att["artifact_sha256"]  # absent files are skipped
+
+
+def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
+    lock_payload = {
+        "capability_lock_schema_version": "0.2",
+        "summary": {"capability_count": 2},
+        "hashes": {
+            "semantic_capability_set_hash": "sem_head",
+            "evidence_set_hash": "ev_head",
+            "source_set_hash": "src_head",
+        },
+    }
+    diff_payload = {
+        "capability_lock_diff_schema_version": "0.3",
+        "base": {"semantic_capability_set_hash": "sem_base"},
+        "head": {"semantic_capability_set_hash": "sem_head"},
+        "summary": {
+            "added": 1,
+            "removed": 0,
+            "reidentified": 0,
+            "changed": 0,
+            "evidence_changed": 0,
+            "unchanged": 1,
+        },
+    }
+    lock_text = json.dumps(lock_payload, sort_keys=True)
+    diff_text = json.dumps(diff_payload, sort_keys=True)
+    (tmp_path / "capabilities.lock.json").write_text(lock_text, encoding="utf-8")
+    (tmp_path / "capability-lock-diff.json").write_text(
+        diff_text,
+        encoding="utf-8",
+    )
+
+    att = build_attestation_payload(
+        _verifier_payload(),
+        source=tmp_path / "verifier.json",
+        redacted=True,
+    )
+
+    assert att["capability_lock"] == {
+        "path": "capabilities.lock.json",
+        "sha256": hashlib.sha256(lock_text.encode("utf-8")).hexdigest(),
+        "capability_lock_schema_version": "0.2",
+        "semantic_capability_set_hash": "sem_head",
+        "evidence_set_hash": "ev_head",
+        "source_set_hash": "src_head",
+        "capability_count": 2,
+    }
+    assert att["capability_diff"]["path"] == "capability-lock-diff.json"
+    assert att["capability_diff"]["sha256"] == hashlib.sha256(
+        diff_text.encode("utf-8")
+    ).hexdigest()
+    assert att["capability_diff"]["capability_lock_diff_schema_version"] == "0.3"
+    assert att["capability_diff"]["base_semantic_capability_set_hash"] == "sem_base"
+    assert att["capability_diff"]["head_semantic_capability_set_hash"] == "sem_head"
+    assert att["capability_diff"]["summary"]["added"] == 1
+    jsonschema.validate(att, SCHEMA)
 
 
 @pytest.mark.parametrize("report", [None, _report_payload()])

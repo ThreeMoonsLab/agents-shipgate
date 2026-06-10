@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResult,
     AgentResultAffectedFile,
     AgentResultDecision,
+    AgentResultDiagnostic,
     AgentResultHumanReview,
     AgentResultNextAction,
     AgentResultPolicy,
@@ -19,12 +22,13 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultTraceEvent,
     AgentResultViolatedRule,
 )
-from agents_shipgate.schemas.report import ReadinessReport, ReleaseDecisionItem
+from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecisionItem
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 AGENT_RESULT_SCHEMA_VERSION = "agent_result_v1"
 AgentResultFile = AgentResultAffectedFile
 AgentResultRule = AgentResultViolatedRule
+_REVIEW_TOKEN_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def build_agent_result(
@@ -41,7 +45,8 @@ def build_agent_result(
     release_decision = report.release_decision if report is not None else None
     decision = _project_decision(verifier=verifier, report=report)
     items = _decision_items(release_decision, decision)
-    violated_rules = _violated_rules(items, decision, release_decision)
+    advisory_findings = _advisory_findings(report, release_decision, decision)
+    violated_rules = _violated_rules(items, advisory_findings, decision)
     policy_hash = _policy_snapshot_sha256(report)
     risk_level = _risk_level(decision, items, release_decision, verifier)
     affected_files = _affected_files(items, verifier)
@@ -91,7 +96,7 @@ def build_agent_result(
         decision=decision,
         risk_level=risk_level,
         audit_id=audit_id,
-        policy_version=policy_hash or "report_effective_policy",
+        policy_version=_policy_version(policy_hash),
         summary=_explanation(verifier, report, decision),
         changed_files=list(verifier.changed_files),
         completion_allowed=completion_allowed,
@@ -102,16 +107,20 @@ def build_agent_result(
         policy=_policy(policy_hash),
         violated_rules=violated_rules,
         affected_files=affected_files,
-        required_reviewers=required_reviewers,
+        required_reviewers=human_review.required_reviewers,
         explanation=_explanation(verifier, report, decision),
         suggested_fixes=_suggested_fixes(verifier, decision),
         agent_repair_instructions=_agent_repair_instructions(verifier, decision),
+        diagnostics=_diagnostics(verifier),
         trace=trace,
         source_artifacts=dict(sorted(verifier.artifacts.items())),
         release_decision=(
-            release_decision.model_dump(mode="json") if release_decision is not None else None
+            release_decision.model_dump(mode="json")
+            if release_decision is not None
+            else verifier.release_decision
         ),
         trigger=verifier.trigger,
+        finding_fingerprints=_finding_fingerprints(items, advisory_findings),
         policy_snapshot_sha256=policy_hash,
         exit_code_hint=_exit_code_hint(decision),
     )
@@ -138,15 +147,15 @@ def _project_decision(
     if release_decision.decision in {"review_required", "insufficient_evidence"}:
         return "require_review"
     if release_decision.decision == "passed":
-        return "warn" if _has_non_gating_advisory(release_decision) else "allow"
+        return "warn" if _has_review_tier_advisory(report, release_decision) else "allow"
     return "require_review"
 
 
-def _has_non_gating_advisory(release_decision: Any) -> bool:
-    for rule in release_decision.contribution_rules:
-        if rule.category == "excluded" and rule.rule == "sub_threshold":
-            return True
-    return False
+def _has_review_tier_advisory(
+    report: ReadinessReport | None,
+    release_decision: Any,
+) -> bool:
+    return bool(_advisory_findings(report, release_decision, "warn"))
 
 
 def _decision_items(
@@ -164,55 +173,73 @@ def _decision_items(
 
 def _violated_rules(
     items: list[ReleaseDecisionItem],
+    advisory_findings: list[Finding],
     decision: AgentResultDecision,
-    release_decision: Any,
 ) -> list[AgentResultViolatedRule]:
     rules = [
         AgentResultViolatedRule(
-            id=item.check_id,
+            id=_rule_id_from_item(item),
             check_id=item.check_id,
             action=decision,
-            risk_level=_severity_to_risk(item.severity),
+            risk_level=_risk_from_severity(item.severity),
             title=item.title,
-            evidence={
-                "severity": item.severity,
-                "fingerprint": item.fingerprint,
-                "baseline_status": item.baseline_status,
-                "blocks_release": item.blocks_release,
-            },
-            recommendation=f"Review {item.check_id}: {item.title}",
+            path=_path_from_item(item),
+            evidence={},
+            recommendation="Review the release-decision item and address the underlying finding.",
         )
         for item in items
     ]
-    if decision == "warn" and release_decision is not None:
-        seen = {rule.id for rule in rules}
-        for rule in release_decision.contribution_rules:
-            if rule.category == "excluded" and rule.rule == "sub_threshold":
-                if rule.check_id in seen:
-                    continue
-                seen.add(rule.check_id)
-                rules.append(
-                    AgentResultViolatedRule(
-                        id=rule.check_id,
-                        check_id=rule.check_id,
-                        action="warn",
-                        risk_level="low",
-                        title="Non-gating advisory finding",
-                        evidence={"category": rule.category, "rule": rule.rule},
-                        recommendation="Surface the advisory finding in the task summary.",
-                    )
-                )
-    return sorted(rules, key=lambda item: (item.id, item.title, item.risk_level))
+    for finding in advisory_findings:
+        rules.append(
+            AgentResultViolatedRule(
+                id=_rule_id_from_finding(finding),
+                check_id=finding.check_id,
+                action="warn",
+                risk_level=_risk_from_severity(finding.severity),
+                title=finding.title or "Review-tier advisory finding",
+                path=_path_from_source(finding.source),
+                evidence=dict(finding.evidence or {}),
+                recommendation=finding.recommendation
+                or "Review the advisory finding before relying on this pass.",
+            )
+        )
+    return sorted(rules, key=lambda item: (item.id, item.title, item.check_id))
 
 
-def _severity_to_risk(severity: str) -> AgentResultRiskLevel:
-    return {
-        "info": "low",
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "critical": "critical",
-    }.get(severity, "medium")  # type: ignore[return-value]
+def _advisory_findings(
+    report: ReadinessReport | None,
+    release_decision: Any,
+    decision: AgentResultDecision,
+) -> list[Finding]:
+    if decision != "warn" or report is None or release_decision is None:
+        return []
+    findings_by_fingerprint = {
+        finding.fingerprint: finding
+        for finding in report.findings
+        if finding.fingerprint and not finding.suppressed
+    }
+    findings_by_check: dict[str, list[Finding]] = {}
+    for finding in report.findings:
+        if finding.suppressed:
+            continue
+        findings_by_check.setdefault(finding.check_id, []).append(finding)
+
+    out: list[Finding] = []
+    for rule in release_decision.contribution_rules:
+        if rule.category != "excluded" or rule.rule != "sub_threshold":
+            continue
+        finding = (
+            findings_by_fingerprint.get(rule.fingerprint)
+            if rule.fingerprint
+            else None
+        )
+        if finding is None:
+            candidates = findings_by_check.get(rule.check_id) or []
+            finding = candidates[0] if len(candidates) == 1 else None
+        if finding is None or finding.severity != "medium":
+            continue
+        out.append(finding)
+    return out
 
 
 def _policy_snapshot_sha256(report: ReadinessReport | None) -> str | None:
@@ -250,8 +277,8 @@ def _risk_level(
             return "high"
         return "medium"
     if decision == "warn":
-        return "medium"
-    return "low"
+        return "low"
+    return "none"
 
 
 def _affected_files(
@@ -263,7 +290,7 @@ def _affected_files(
         for source in (item.source, item.policy_evidence_source):
             if source is None:
                 continue
-            path = source.path or _path_from_location(source.location or source.ref)
+            path = _path_from_source(source)
             if not path:
                 continue
             row = AgentResultAffectedFile(
@@ -279,7 +306,10 @@ def _affected_files(
             files[(path, None, None, None)] = AgentResultAffectedFile(path=path)
     return [
         files[key]
-        for key in sorted(files, key=lambda item: (item[0], item[1] or 0, item[3] or ""))
+        for key in sorted(
+            files,
+            key=lambda item: (item[0], item[1] or 0, item[2] or 0, item[3] or ""),
+        )
     ][:20]
 
 
@@ -288,6 +318,82 @@ def _path_from_location(value: str | None) -> str | None:
         return None
     path, _, maybe_line = value.rpartition(":")
     return path if maybe_line.isdigit() else value
+
+
+def _path_from_source(source: Any) -> str | None:
+    if source is None:
+        return None
+    return source.path or _path_from_location(source.location or source.ref)
+
+
+def _path_from_item(item: ReleaseDecisionItem) -> str | None:
+    return _path_from_source(item.source) or _path_from_source(item.policy_evidence_source)
+
+
+def _rule_id_from_item(item: ReleaseDecisionItem) -> str:
+    return _rule_id_from_evidence(item.check_id, {})
+
+
+def _rule_id_from_finding(finding: Finding) -> str:
+    return _rule_id_from_evidence(finding.check_id, finding.evidence or {})
+
+
+def _rule_id_from_evidence(check_id: str, evidence: dict[str, Any]) -> str:
+    for key in ("policy_rule_id", "rule_id", "policy_id"):
+        value = evidence.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return check_id
+
+
+def _risk_from_severity(severity: str) -> AgentResultRiskLevel:
+    if severity in {"critical", "high", "medium", "low"}:
+        return severity  # type: ignore[return-value]
+    return "none"
+
+
+def _finding_fingerprints(
+    items: list[ReleaseDecisionItem],
+    advisory_findings: list[Finding],
+) -> list[str]:
+    values = [
+        *(item.fingerprint for item in items if item.fingerprint),
+        *(finding.fingerprint for finding in advisory_findings if finding.fingerprint),
+    ]
+    return sorted(dict.fromkeys(values))
+
+
+def _diagnostics(verifier: VerifierArtifact) -> list[AgentResultDiagnostic]:
+    diagnostics: list[AgentResultDiagnostic] = []
+    if verifier.head_status == "failed":
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="error",
+                code="verify_head_failed",
+                message=f"Head scan failed with exit code {verifier.head_exit_code}.",
+            )
+        )
+    if verifier.base_status in {"ref_missing", "archive_failed"}:
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code=f"verify_base_{verifier.base_status}",
+                message="Base comparison was unavailable during verify.",
+            )
+        )
+    for index, note in enumerate(verifier.base_notes[:3], start=1):
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code=f"verify_base_note_{index}",
+                message=note,
+            )
+        )
+    return diagnostics
+
+
+def _policy_version(policy_hash: str | None) -> str:
+    return policy_hash or f"agents-shipgate:{__version__}"
 
 
 def _required_reviewers(
@@ -308,25 +414,35 @@ def _required_reviewers(
     if review.trust_root_touched:
         reviewers.add("agent-platform")
     for item in items:
-        token = f"{item.check_id} {item.title}".lower()
-        if any(
-            marker in token
-            for marker in (
+        text = f"{item.check_id} {item.title}".lower()
+        tokens = set(_REVIEW_TOKEN_RE.findall(text))
+        if _matches_review_marker(
+            text,
+            tokens,
+            exact=(
                 "auth",
                 "approval",
                 "credential",
+                "credentials",
                 "secret",
+                "secrets",
                 "security",
                 "ci",
                 "policy-weakened",
                 "destructive",
+            ),
+            phrases=(
+                "ci gate",
+                "ci-gate",
+                "continuous integration",
                 "external write",
-            )
+            ),
         ):
             reviewers.add("security")
-        if any(
-            marker in token
-            for marker in (
+        if _matches_review_marker(
+            text,
+            tokens,
+            exact=(
                 "capability",
                 "mcp",
                 "scope",
@@ -336,12 +452,22 @@ def _required_reviewers(
                 "plugin",
                 "tool",
                 "dependency",
-            )
+            ),
         ):
             reviewers.add("agent-platform")
     if decision == "require_review" and not reviewers:
         reviewers.add("release-owner")
     return sorted(reviewers)
+
+
+def _matches_review_marker(
+    text: str,
+    tokens: set[str],
+    *,
+    exact: tuple[str, ...],
+    phrases: tuple[str, ...] = (),
+) -> bool:
+    return bool(tokens.intersection(exact)) or any(phrase in text for phrase in phrases)
 
 
 def _human_review(
@@ -562,6 +688,7 @@ def _agent_repair_instructions(
     fix_task = verifier.fix_task
     if fix_task is not None:
         instructions.extend(fix_task.instructions[:6])
+        instructions.extend(fix_task.forbidden_shortcuts[:6])
         if fix_task.verification_command:
             instructions.append(f"Then rerun: {fix_task.verification_command}")
         if fix_task.actor == "human":

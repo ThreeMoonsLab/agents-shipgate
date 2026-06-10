@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.cli.agent_result import agent_result_json_payload, build_codex_agent_result
+from agents_shipgate.core.errors import ConfigError
 
 
 def shipgate_check(
@@ -36,11 +37,20 @@ def create_server():
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:  # pragma: no cover - exercised only without extra.
-        raise RuntimeError(
-            "The optional MCP server requires `agents-shipgate[mcp]`."
+        raise ConfigError(
+            "The MCP server requires the optional [mcp] extra. Install it "
+            'with: pip install "agents-shipgate[mcp]"'
         ) from exc
 
-    server = FastMCP("agents-shipgate")
+    server = FastMCP(
+        "agents-shipgate",
+        instructions=(
+            "Read-only static adapter for Agents Shipgate agent_result_v1. "
+            "Only shipgate.check is exposed. The tool accepts caller-provided "
+            "diff text and never shells out to git, writes artifacts, calls "
+            "tools, or accesses the network."
+        ),
+    )
 
     @server.tool(name="shipgate.check")
     def _shipgate_check(
@@ -61,8 +71,15 @@ def create_server():
     return server
 
 
+build_server = create_server
+
+
+def serve_stdio() -> None:
+    create_server().run(transport="stdio")
+
+
 def main() -> None:
-    create_server().run()
+    serve_stdio()
 
 
-__all__ = ["create_server", "main", "shipgate_check"]
+__all__ = ["build_server", "create_server", "main", "serve_stdio", "shipgate_check"]

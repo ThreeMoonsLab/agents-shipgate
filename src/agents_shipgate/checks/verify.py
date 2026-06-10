@@ -51,6 +51,11 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
     ("codex_plugin", "**/.codex-plugin/**"),
     ("tool_surface_decl", "**/.app.json"),
     ("tool_surface_decl", "**/.mcp.json"),
+    # Host-boundary MCP declarations (Cursor / VS Code project servers).
+    # Claude Code settings (.claude/settings.json, .claude/settings.local.json)
+    # are already covered by the agent_instructions "**/.claude/**" glob above.
+    ("tool_surface_decl", "**/.cursor/mcp.json"),
+    ("tool_surface_decl", "**/.vscode/mcp.json"),
     ("tool_surface_decl", "**/SKILL.md"),
 )
 

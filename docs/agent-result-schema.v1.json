@@ -369,7 +369,7 @@
           "type": "string"
         },
         "version": {
-          "default": "0.11.0",
+          "default": "0.12.0",
           "title": "Version",
           "type": "string"
         }
@@ -469,7 +469,7 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "JSON Schema for shipgate check --format agent-json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
+  "description": "JSON Schema for shipgate check --format agent-json and agents-shipgate-reports/agent-result.json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
   "properties": {
     "affected_files": {
       "items": {

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.11.0"
+version = "0.12.0"
 description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -69,14 +69,17 @@ Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELO
 "Well-Known" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json"
 
 [project.optional-dependencies]
-mcp = [
-  "mcp>=1.0.0,<2",
-]
 pdf = [
   # Optional dependency for `agents-shipgate scan --packet-format ...,pdf`
   # and `agents-shipgate evidence-packet --format pdf`. Skipped with a
   # warning if not installed; the rest of the packet still renders.
   "weasyprint>=68.1,<70",
+]
+mcp = [
+  # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
+  # server exposing only read-only shipgate.check, which returns agent_result_v1
+  # from caller-provided diff text.
+  "mcp>=1.2,<2",
 ]
 dev = [
   "build>=1.5.0,<2",
@@ -128,6 +131,8 @@ packages = ["src/agents_shipgate"]
 # source-checkout dev path).
 "docs/checks" = "agents_shipgate/_meta/checks"
 "policies/codex-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/codex-boundary.shipgate.yaml"
+"policies/mcp-permissions.shipgate.yaml" = "agents_shipgate/_meta/policies/mcp-permissions.shipgate.yaml"
+"policies/host-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/host-boundary.shipgate.yaml"
 "adoption-kits" = "agents_shipgate/_adoption_kits"
 
 [tool.hatch.build.targets.sdist]

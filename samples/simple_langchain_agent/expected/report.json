@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.25",
+  "report_schema_version": "0.26",
   "run_id": "agents_shipgate_e6307029b0ddfba5",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
@@ -64,7 +64,37 @@
       "level": "mixed",
       "human_review_recommended": true,
       "source_warning_count": 0,
-      "low_confidence_tool_count": 2
+      "low_confidence_tool_count": 2,
+      "evidence_gaps": [
+        {
+          "kind": "low_confidence_tool",
+          "subject": "lookup_case",
+          "source_type": "langchain_function",
+          "source_ref": "agent.py:14",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "declare_tool_inventory",
+            "command": null,
+            "path": "suggested-inventory.json",
+            "why": "langchain_function extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
+            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `langchain.tool_inventories` in shipgate.yaml, then rerun the scan."
+          }
+        },
+        {
+          "kind": "low_confidence_tool",
+          "subject": "summarize_case",
+          "source_type": "langchain_structured_tool",
+          "source_ref": "agent.py:19",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "declare_tool_inventory",
+            "command": null,
+            "path": "suggested-inventory.json",
+            "why": "langchain_structured_tool extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
+            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `langchain.tool_inventories` in shipgate.yaml, then rerun the scan."
+          }
+        }
+      ]
     },
     "baseline_delta": {
       "enabled": false,
@@ -357,8 +387,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_e2wh6u_/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp_e2wh6u_/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

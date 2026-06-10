@@ -41,6 +41,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 | Sample | Purpose |
 | --- | --- |
 | [`ai_generated_refund_pr`](ai_generated_refund_pr/) | Verify-native base/head PR fixture for the blocked refund capability story. |
+| [`agent_weakens_gate`](agent_weakens_gate/) | Trust-root demo: the head commit deletes the Shipgate CI gate and the verifier blocks the merge. |
 | [`support_refund_agent`](support_refund_agent/) | Production-like support/refund agent with MCP, OpenAPI, and SDK tools. |
 | [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction from a directory of Python tools. |
 | [`clean_read_only_agent`](clean_read_only_agent/) | Low-risk read-only fixture for clean scans. |

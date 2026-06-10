@@ -48,9 +48,37 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True, default=str)
 
 
+class _CurrentStderrHandler(logging.StreamHandler):
+    """A StreamHandler that resolves ``sys.stderr`` at emit time.
+
+    ``logging.StreamHandler(sys.stderr)`` binds the stream object that
+    exists at configure time. In-process embedders invoke the CLI many
+    times per process — CliRunner-based tests swap and close
+    ``sys.stderr`` per invocation, and the MCP server runs verify
+    repeatedly — so a configure-time handler can outlive its stream and
+    poison a *later* invocation's output with ``--- Logging error ---``
+    tracebacks (observed as a flaky self-check JSON failure under
+    pytest-xdist in CI on PR #192). Emit-time lookup always writes to
+    the live stream.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(sys.stderr)
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value) -> None:
+        # The parent __init__/setStream assign the captured stream;
+        # ignore it — this handler always follows the current sys.stderr.
+        pass
+
+
 def configure_logging(*, verbose: bool = False, force: bool = True) -> None:
     level = logging.DEBUG if verbose else logging.WARNING
-    handler = logging.StreamHandler(sys.stderr)
+    handler = _CurrentStderrHandler()
     if os.environ.get("AGENTS_SHIPGATE_LOG_FORMAT") == "json":
         handler.setFormatter(JsonFormatter())
     else:

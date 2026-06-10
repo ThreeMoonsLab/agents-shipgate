@@ -25,12 +25,16 @@ from agents_shipgate.cli.explain_finding import explain_finding as _explain_find
 from agents_shipgate.cli.feedback import feedback_app
 from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
+from agents_shipgate.cli.host_audit import audit as _audit_command
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
+from agents_shipgate.cli.mcp import mcp_app
+from agents_shipgate.cli.registry import registry_app
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.skill import skill_app
 from agents_shipgate.cli.trigger import trigger as _trigger_command
 from agents_shipgate.cli.verify import verify as _verify_command
+from agents_shipgate.core.logging import configure_logging
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -116,6 +120,34 @@ app.command(
         "--target claude-code."
     ),
 )(_install_hooks_command)
+
+app.command(
+    "audit",
+    help=(
+        "Zero-config, read-only audits. `audit --host` inventories "
+        "coding-agent host grants (MCP servers, permission rules, hooks, "
+        "workflow scopes) without requiring shipgate.yaml."
+    ),
+)(_audit_command)
+
+
+@app.command("mcp-serve")
+def _mcp_serve_command() -> None:
+    """Serve the read-only agent-native check as a local MCP server over stdio.
+
+    Requires the optional [mcp] extra: pip install "agents-shipgate[mcp]".
+    Exposes only shipgate.check. The tool accepts caller-provided diff text
+    and returns agent_result_v1 without git, scan/verify, artifact writes, or
+    network access.
+    """
+    from agents_shipgate.core.errors import ConfigError as _ConfigError
+    from agents_shipgate.mcp_server import serve_stdio
+
+    try:
+        serve_stdio()
+    except _ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        raise typer.Exit(2) from exc
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)
@@ -128,6 +160,8 @@ app.add_typer(feedback_app, name="feedback")
 app.add_typer(scenario_app, name="scenario")
 app.add_typer(skill_app, name="skill")
 app.add_typer(capability_app, name="capability")
+app.add_typer(mcp_app, name="mcp")
+app.add_typer(registry_app, name="registry")
 logger = logging.getLogger(__name__)
 
 
@@ -135,6 +169,14 @@ logger = logging.getLogger(__name__)
 def _version(
     version: bool = typer.Option(False, "--version", help="Show version and exit.")
 ) -> None:
+    # Logging state is per-invocation, not per-process: reset to the
+    # default (WARNING, plain formatter) before every command so a
+    # previous in-process invocation's --verbose / JSON-format handler
+    # cannot leak into this one's output. Commands that accept --verbose
+    # re-configure inside their body, which runs after this callback.
+    # (Observed: a verbose scan on a shared pytest-xdist worker left a
+    # DEBUG JsonFormatter handler that polluted self-check's JSON stdout.)
+    configure_logging(force=True)
     if version:
         typer.echo(f"Agents Shipgate {__version__}")
         raise typer.Exit(0)

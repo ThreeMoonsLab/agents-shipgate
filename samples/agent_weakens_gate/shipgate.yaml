@@ -1,0 +1,32 @@
+version: "0.1"
+
+project:
+  name: agent-weakens-gate
+
+agent:
+  name: docs-assistant
+  declared_purpose:
+    - look up documentation metadata and answer policy questions
+  prohibited_actions:
+    - weaken or remove the Shipgate release gate
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: docs_tools
+    type: mcp
+    path: tools.json
+
+permissions:
+  scopes:
+    - docs:read
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
