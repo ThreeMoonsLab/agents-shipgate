@@ -48,7 +48,7 @@ app.command(
 )(_detect_command)
 app.command(
     "check",
-    help="Run a local coding-agent boundary check and emit agent_result_v1 JSON.",
+    help="Run the agent-native boundary check and emit agent_result_v1 JSON.",
 )(_check_command)
 app.command(
     "apply-patches",

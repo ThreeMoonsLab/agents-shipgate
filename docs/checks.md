@@ -101,6 +101,7 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
 | `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
+| `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED` | critical | Codex boundary policy was weakened. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
 | `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
 | `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
@@ -558,6 +559,11 @@ instructions were not weakened.
 
 The Shipgate GitHub Actions workflow was deleted or no longer contains a
 Shipgate invocation. Restore the workflow or get human approval to remove it.
+
+### SHIP-CODEX-BOUNDARY-POLICY-WEAKENED
+
+The Codex boundary policy was deleted or downgraded. Restore the stricter
+policy or get human approval before weakening the local boundary gate.
 
 ### SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
 

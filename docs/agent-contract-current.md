@@ -215,6 +215,19 @@ trust-root warnings, required next steps, and artifact links. Existing adopters
 that need the v1 findings-oriented comment during migration can set
 `pr_comment_style: findings` for one minor release cycle.
 
+## Read this for coding-agent control
+
+`shipgate check --agent codex --workspace . --format agent-json` is the
+canonical local coding-agent command. Use `--agent claude-code` or
+`--agent cursor` for those runtimes. The command emits exactly one stdout JSON
+object using `schema_version: "agent_result_v1"` and the schema in
+[`agent-result-schema.v1.json`](agent-result-schema.v1.json).
+
+Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
+`first_next_action`, `repair`, and `human_review`. Do not derive an agent
+decision from Markdown, PR comments, or natural language. `agents-shipgate
+verify` and `report.json` remain the full CI/reviewer substrate.
+
 ## Read these for release review
 
 `agents-shipgate contract --json` exposes `manual_review_signals[]` as the

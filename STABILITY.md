@@ -18,6 +18,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format`, `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
+| `shipgate check` | `--agent`, `--workspace`, `--format`, `--diff`, `--base`, `--head`, `--config`, `--policy` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
@@ -45,6 +46,17 @@ feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
 payload as provisional during the v0.11 design-partner cycle; the schema file is
 published so consumers can validate it, and any incompatible change must bump
 `feedback_schema_version`.
+
+### Agent-Native Protocol
+
+`shipgate check --format agent-json` emits `agent_result_v1`, the stable
+coding-agent control schema documented in
+[`docs/agents/protocol.md`](docs/agents/protocol.md) and generated at
+[`docs/agent-result-schema.v1.json`](docs/agent-result-schema.v1.json).
+Agents should act on `decision`, `completion_allowed`, `must_stop`,
+`first_next_action`, `repair`, and `human_review`. Human approval, policy
+waivers, baselines, severity downgrades, suppressions, and trace evidence are
+not agent-repairable authority gaps.
 
 ### Exit codes
 

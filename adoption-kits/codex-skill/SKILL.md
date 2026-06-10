@@ -18,13 +18,15 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 3. Before running Shipgate CLI commands, require `agents-shipgate >=0.11.0`: run `command -v agents-shipgate` and `agents-shipgate --version`. If it is missing or older than 0.11.0, tell the user to run `pipx install agents-shipgate` and then `pipx upgrade agents-shipgate`; if `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.11"`. The Codex plugin supplies workflows, not the scanner binary.
 4. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
-6. For verify runs, read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`; then parse `report.json` and use `release_decision.decision` as the release gate.
-7. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
-8. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
+6. For local agent control, run `shipgate check --agent codex --workspace . --format agent-json` and read the stdout `agent_result_v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
+7. For full PR verification, read `agents-shipgate-reports/agent-result.json` first, then `verifier.json` and `report.json` for reviewer detail; `report.json.release_decision.decision` remains the release gate.
+8. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
+9. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
 
 ## Fast Paths
 
 - CLI preflight: run `command -v agents-shipgate` and `agents-shipgate --version`. Continue only when the installed CLI is `>=0.11.0`; if it is missing or stale, ask the user to run `pipx install agents-shipgate` followed by `pipx upgrade agents-shipgate`, or `python -m pip install -U "agents-shipgate>=0.11"` when `pipx` is unavailable.
+- Agent-native check: run `shipgate check --agent codex --workspace . --format agent-json`; read only the JSON result for continue/repair/stop routing.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
 - Agent-related PR/CI diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
 - Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.
@@ -35,7 +37,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 ## Boundaries
 
 - Do not claim a finding is fixed without re-running `agents-shipgate scan` and reporting the new decision/counts.
-- Before finishing an agent-related diff in a repo with `shipgate.yaml`, run `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip verdict.
+- Before finishing an agent-related diff, run `shipgate check --agent codex --workspace . --format agent-json` and follow `agent_result_v1`.
 - Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 - Do not silently suppress findings. Suppressions require a non-empty `reason`.
 - Do not commit generated reports.

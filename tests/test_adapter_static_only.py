@@ -348,7 +348,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/self_check.py",
         surface="name_call:__import__",
-        line=141,
+        line=143,
         snippet="__import__(module_name)",
         rationale=(
             "self-check probes whether named modules import cleanly in the "

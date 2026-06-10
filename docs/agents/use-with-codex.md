@@ -1,5 +1,13 @@
 # Use Agents Shipgate with Codex
 
+This page is the compatibility guide for Codex plugin and skill installation.
+For the normative agent protocol, use [codex.md](codex.md) and
+[protocol.md](protocol.md). The canonical Codex control command is:
+
+```bash
+shipgate check --agent codex --workspace . --format agent-json
+```
+
 Agents Shipgate ships a skill-only Codex plugin so users can install it from
 the Codex plugin experience, start a new thread, invoke `$agents-shipgate`, and
 have Codex run the existing Shipgate CLI workflows correctly. The plugin gives

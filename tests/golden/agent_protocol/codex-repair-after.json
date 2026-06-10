@@ -1,0 +1,112 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.11.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "allow",
+  "risk_level": "none",
+  "audit_id": "codex_boundary_66c2eab26e09c037dd52e50a",
+  "policy_version": "1",
+  "summary": "No Codex boundary changes require action.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "completion_allowed": true,
+  "must_stop": false,
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "continue",
+    "why": "No Codex boundary rule requires review or blocking."
+  },
+  "human_review": {
+    "required": false,
+    "required_reviewers": []
+  },
+  "repair": {
+    "actor": "coding_agent",
+    "safe_to_attempt": false,
+    "instructions": [],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
+  },
+  "violated_rules": [],
+  "affected_files": [
+    {
+      "path": ".codex/config.toml"
+    }
+  ],
+  "required_reviewers": [],
+  "explanation": "No Codex boundary changes require action.",
+  "suggested_fixes": [],
+  "agent_repair_instructions": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 0 violation(s) to allow."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --workspace . --format agent-json"
+      }
+    ],
+    "changed_files": [
+      ".codex/config.toml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 0
+}

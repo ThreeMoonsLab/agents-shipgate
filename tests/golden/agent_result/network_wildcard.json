@@ -1,18 +1,57 @@
 {
   "schema_version": "agent_result_v1",
   "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.11.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "codex_boundary_6dd0d9cdecee7e09803914ec",
+  "audit_id": "codex_boundary_a8560988e8467525c48f9c0c",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     ".codex/config.toml"
   ],
+  "completion_allowed": false,
+  "must_stop": true,
   "first_next_action": {
     "actor": "human",
     "kind": "review",
     "why": "Codex network profile allows a wildcard domain"
+  },
+  "human_review": {
+    "required": true,
+    "why": "Codex network profile allows a wildcard domain",
+    "required_reviewers": [
+      "agent-platform"
+    ]
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Replace wildcard network access with explicit allowed domains."
+    ],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
   },
   "violated_rules": [
     {
@@ -31,6 +70,21 @@
       "recommendation": "Replace wildcard network access with explicit allowed domains."
     }
   ],
+  "affected_files": [
+    {
+      "path": ".codex/config.toml"
+    }
+  ],
+  "required_reviewers": [
+    "agent-platform"
+  ],
+  "explanation": "1 Codex boundary change(s) require human review.",
+  "suggested_fixes": [
+    "Replace wildcard network access with explicit allowed domains."
+  ],
+  "agent_repair_instructions": [
+    "Replace wildcard network access with explicit allowed domains."
+  ],
   "diagnostics": [
     {
       "level": "info",
@@ -39,6 +93,17 @@
       "path": ".codex/config.toml"
     }
   ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to require_review."
+    }
+  ],
+  "source_artifacts": {},
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -55,7 +120,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format agent-json"
       }
     ],
     "changed_files": [
@@ -64,11 +129,13 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --diff <diff> --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format agent-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },
   "finding_fingerprints": [
     "fp_97b6fa25c1f62073"
-  ]
+  ],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 0
 }

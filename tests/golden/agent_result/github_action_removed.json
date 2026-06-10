@@ -1,18 +1,58 @@
 {
   "schema_version": "agent_result_v1",
   "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.11.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_58b07db582271d53bb309c19",
+  "audit_id": "codex_boundary_65ca9161d51d4199484450c4",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
     ".github/workflows/agents-shipgate.yml"
   ],
+  "completion_allowed": false,
+  "must_stop": true,
   "first_next_action": {
     "actor": "human",
     "kind": "stop",
     "why": "Shipgate GitHub Action no longer invokes the gate"
+  },
+  "human_review": {
+    "required": true,
+    "why": "Shipgate GitHub Action no longer invokes the gate",
+    "required_reviewers": [
+      "agent-platform",
+      "security"
+    ]
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Restore the Shipgate workflow or get human approval to remove it."
+    ],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
   },
   "violated_rules": [
     {
@@ -31,6 +71,22 @@
       "recommendation": "Restore the Shipgate workflow or get human approval to remove it."
     }
   ],
+  "affected_files": [
+    {
+      "path": ".github/workflows/agents-shipgate.yml"
+    }
+  ],
+  "required_reviewers": [
+    "agent-platform",
+    "security"
+  ],
+  "explanation": "1 Codex boundary change(s) block local continuation.",
+  "suggested_fixes": [
+    "Restore the Shipgate workflow or get human approval to remove it."
+  ],
+  "agent_repair_instructions": [
+    "Restore the Shipgate workflow or get human approval to remove it."
+  ],
   "diagnostics": [
     {
       "level": "info",
@@ -39,6 +95,17 @@
       "path": ".github/workflows/agents-shipgate.yml"
     }
   ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to block."
+    }
+  ],
+  "source_artifacts": {},
   "trigger": {
     "schema_version": "0.1",
     "should_run": true,
@@ -70,5 +137,7 @@
   },
   "finding_fingerprints": [
     "fp_fe55c27fa455ddfd"
-  ]
+  ],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 20
 }

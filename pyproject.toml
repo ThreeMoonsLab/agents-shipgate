@@ -69,6 +69,9 @@ Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELO
 "Well-Known" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json"
 
 [project.optional-dependencies]
+mcp = [
+  "mcp>=1.0.0,<2",
+]
 pdf = [
   # Optional dependency for `agents-shipgate scan --packet-format ...,pdf`
   # and `agents-shipgate evidence-packet --format pdf`. Skipped with a
@@ -92,6 +95,7 @@ dev = [
 [project.scripts]
 agents-shipgate = "agents_shipgate.cli.main:app"
 shipgate = "agents_shipgate.cli.main:app"
+agents-shipgate-mcp = "agents_shipgate.mcp_server.server:main"
 
 [project.entry-points."agents_shipgate.checks"]
 inventory = "agents_shipgate.checks.inventory:run"

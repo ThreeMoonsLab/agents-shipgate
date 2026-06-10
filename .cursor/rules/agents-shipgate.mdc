@@ -35,25 +35,26 @@ When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
 Default to advisory verification while adopting the gate.
 
-For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
-finishing:
+For local agent control, run:
 
-  agents-shipgate verify --workspace . --config shipgate.yaml \
-      --base origin/main --head HEAD --ci-mode advisory --format json
+  shipgate check --agent cursor --workspace . --format agent-json
 
-For local uncommitted work, omit `--base` and `--head` so uncommitted edits are
-scanned. For committed PR/CI refs, make the base ref available first because
-`verify` never fetches.
+Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`, then
+follow `first_next_action`, `repair`, and `human_review`. Do not infer a
+decision from prose.
 
-Read `agents-shipgate-reports/verifier.json` first. Lead with
-`merge_verdict`, then inspect `capability_review.top_changes[]`,
-`first_next_action.actor`, and `fix_task.safe_to_attempt`. Use
-`agents-shipgate-reports/report.json` as the source of truth for
-`release_decision.decision`.
+If `decision=allow` or `warn`, continue and summarize. If
+`first_next_action.kind` is `repair` and `repair.safe_to_attempt=true`, make
+only the listed mechanical repair and rerun the command. If
+`human_review.required=true` or `must_stop=true`, stop and surface the JSON
+result to a human.
 
-Do not claim completion when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user explicitly
-accepts human review.
+For committed PR/CI verification, run `agents-shipgate verify --base
+origin/main --head HEAD --json` after making the base ref available; it never
+fetches. Read `agents-shipgate-reports/agent-result.json` first, then
+`agents-shipgate-reports/verifier.json` for `merge_verdict` and
+`agents-shipgate-reports/report.json.release_decision.decision` for the release
+gate.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.
