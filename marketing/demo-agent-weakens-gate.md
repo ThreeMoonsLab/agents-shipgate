@@ -3,6 +3,15 @@
 The one demo that explains the moat in a single take. Record as a
 terminal screencast (asciinema or screen capture); no slides.
 
+> A recorded 29-second terminal cast (the 30-second cut, captured
+> against the public PyPI v0.12.0 package) ships at
+> [`agent-weakens-gate.cast`](agent-weakens-gate.cast) — play it with
+> `asciinema play marketing/agent-weakens-gate.cast`, upload it to
+> asciinema.org, or render a GIF with `agg`. The driver is
+> [`demo-agent-weakens-gate.sh`](demo-agent-weakens-gate.sh); re-record
+> after CLI output changes. The 90-second voiceover version below is
+> the YouTube/social cut.
+
 ## Setup (before recording)
 
 ```bash

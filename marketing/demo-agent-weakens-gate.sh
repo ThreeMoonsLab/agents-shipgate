@@ -4,11 +4,12 @@
 #                 --command "bash marketing/demo-agent-weakens-gate.sh" --overwrite
 # Script + voiceover beats: marketing/demo-agent-weakens-gate.md
 set -euo pipefail
+export TERM="${TERM:-xterm-256color}"
 
 say() { printf '\n\033[1;36m# %s\033[0m\n' "$1"; sleep "${2:-2}"; }
 run() { printf '\033[1;33m$ %s\033[0m\n' "$1"; sleep 1; eval "$1"; }
 
-clear
+clear 2>/dev/null || true
 say "Your coding agent's PR fails the release gate." 2
 say "The cheapest way for it to pass? Delete the gate." 2
 say "Watch what happens when it tries:" 1
