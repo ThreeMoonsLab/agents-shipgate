@@ -1,0 +1,2 @@
+date,stars,forks,traffic_views_14d,traffic_uniques_14d,clones_14d,clone_uniques_14d,pypi_downloads_7d,pypi_downloads_30d,latest_tag,pypi_matches_tag,active_pilots,pilots_completed,real_pr_verdicts_7d,unprompted_org_requests_total,notes
+2026-06-10,3,1,317,25,10978,697,137,383,v0.12.0,true,0,0,0,0,baseline snapshot; pre-launch; clones dominated by CI
