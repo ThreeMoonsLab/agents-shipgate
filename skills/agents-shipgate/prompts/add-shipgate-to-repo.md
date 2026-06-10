@@ -9,22 +9,30 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool** — you need `>=0.13.0`, so the prompt uses the current verifier and agent-result contracts:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the current verifier and agent-result contracts and requires **`>=0.13.0`**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   pipx install agents-shipgate
-   pipx upgrade agents-shipgate
+   SG="uvx agents-shipgate@0.13.0"            # uv: ephemeral, always the pinned build
+   # or: SG="pipx run agents-shipgate==0.13.0"
+   $SG --version                             # confirm the pinned runner resolves
    ```
-   A plain `pipx install` is a no-op when an older build is already installed, so the follow-up `pipx upgrade` brings a stale copy current. If `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.13"` and verify with `agents-shipgate --version`.
+   Every step below calls `$SG …`; e.g. `$SG detect …` runs `agents-shipgate detect` through the pinned runner, never a `PATH` copy.
+
+   If you would rather install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists — then set `SG=agents-shipgate`:
+   ```bash
+   python -m pip install -U "agents-shipgate>=0.13.0"   # or: pipx install "agents-shipgate>=0.13.0"
+   agents-shipgate --version   # STOP if this prints < 0.13.0 - re-run pinned via uvx agents-shipgate@0.13.0
+   SG=agents-shipgate          # only after the line above confirms >=0.13.0
+   ```
 
 2. **Sanity-check the install** before touching the user's code:
    ```bash
-   agents-shipgate self-check --json
+   $SG self-check --json
    ```
    Confirm `"ready": true`. If not, surface the failure to the user.
 
    When available, verify the installed CLI contract locally:
    ```bash
-   agents-shipgate contract --json
+   $SG contract --json
    ```
    Read `report_schema_version`, `packet_schema_version`, `gating_signal`, and
    `manual_review_signals[]`; prefer these local values over stale docs. If the
@@ -34,7 +42,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 3. **Detect:**
    ```bash
-   agents-shipgate detect --workspace . --json
+   $SG detect --workspace . --json
    ```
    Read the response: `is_agent_project`, `frameworks[]` (per-framework score + evidence + candidate files), `agent_name_candidates[]`, `suggested_sources[]` (MCP/OpenAPI files matched by glob).
 
@@ -42,7 +50,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 4. **Generate a starter manifest + GitHub Actions workflow:**
    ```bash
-   agents-shipgate init --workspace . --write --ci --json
+   $SG init --workspace . --write --ci --json
    ```
    The `--json` form returns:
    - `manifest_status`: `"written"` | `"skipped_existing"` | `"not_attempted"`
@@ -60,7 +68,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 6. **Run the scan with patch suggestions:**
    ```bash
-   agents-shipgate scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
+   $SG scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
    ```
    The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
 
@@ -80,7 +88,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 7. **Apply the safe patches:**
    ```bash
-   agents-shipgate apply-patches --from agents-shipgate-reports/report.json --confidence high --apply --json
+   $SG apply-patches --from agents-shipgate-reports/report.json --confidence high --apply --json
    ```
    Default `--confidence high` only mutates patches whose `confidence` field is `"high"`. Today that's the 3 stale-manifest removals. Scope-coverage appends ship at `medium` and require explicit `--confidence medium` to apply. ManualPatches are never auto-applied.
 
@@ -106,17 +114,17 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    - The path to the Release Evidence Packet (`agents-shipgate-reports/packet.md`) for reviewer-shaped output
    - The top 3 active critical/high findings (use `report.json`, not stdout)
    - Which patches were applied (count from `apply-patches --json` output's `files`)
-   - Any check IDs the user should investigate first — link to `docs_url` from the finding for full rationale, or use `agents-shipgate explain <CHECK_ID> --json` for the same content via CLI
+   - Any check IDs the user should investigate first — link to `docs_url` from the finding for full rationale, or use `$SG explain <CHECK_ID> --json` for the same content via CLI
 
 ## What to do if the scan errors out
 
-Set `AGENTS_SHIPGATE_AGENT_MODE=1` and re-run. The CLI will append a JSON line to stderr with `{error, message, next_action}`. Follow the `next_action`.
+Re-run the failing `$SG …` command with `AGENTS_SHIPGATE_AGENT_MODE=1` set. The CLI will append a JSON line to stderr with `{error, message, next_action}`. Follow the `next_action`.
 
 Common errors and fixes:
 
 | Error | Fix |
 |---|---|
-| `Config file not found: shipgate.yaml` | Run `agents-shipgate init --workspace . --write` first |
+| `Config file not found: shipgate.yaml` | Run `$SG init --workspace . --write` first |
 | `Input path '...' resolves outside manifest directory` | The declared `tool_sources[].path` is outside the manifest dir. Move the spec inside the tree, symlink it, or copy it |
 | `Invalid shipgate.yaml: ... Did you mean X?` | A field is at the wrong nesting level; move it as suggested |
 | `Containment violation` (apply-patches exit 5) | A patch's `target_file` resolved outside `report.manifest_dir`. Re-run scan to refresh; never patch arbitrary system files |
@@ -124,7 +132,7 @@ Common errors and fixes:
 ## What NOT to do
 
 - Do **not** commit `agents-shipgate-reports/` — it's regenerated each run.
-- Do **not** run `agents-shipgate baseline save` until the user has reviewed the initial findings. Baselining ratchets in noise that strict CI will silently ignore. The right time to baseline is **after** the user has decided which findings they accept.
+- Do **not** run `$SG baseline save` until the user has reviewed the initial findings. Baselining ratchets in noise that strict CI will silently ignore. The right time to baseline is **after** the user has decided which findings they accept.
 - Do **not** suppress findings without a real `reason` — the manifest validator rejects empty reasons, and the `reason` field is the audit trail when someone asks "why is this OK?"
 - Do **not** use `risk_overrides.tools.{tool}.remove_tags` to silence a finding without checking whether the heuristic is actually wrong. Prefer `checks.ignore` with a reason.
 - Do **not** edit a trace recording to flip `approved` or `confirmed` — implement the runtime gate instead.
