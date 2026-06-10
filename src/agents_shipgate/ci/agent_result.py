@@ -40,6 +40,9 @@ def build_agent_result(
 
     This is a projection only. The release gate remains
     ``report.release_decision.decision`` when a report exists.
+    Keep routing semantics aligned with
+    ``agents_shipgate.core.codex_boundary.evaluate_codex_boundary_result``,
+    which produces the same schema from a local diff.
     """
 
     release_decision = report.release_decision if report is not None else None

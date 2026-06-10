@@ -50,7 +50,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.12.0" in result.output
+    assert "Agents Shipgate 0.13.0" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -150,7 +150,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.12.0"
+    assert result.output.strip() == "Agents Shipgate 0.13.0"
 
 
 def test_cli_contract_json_outputs_runtime_contract():

@@ -34,9 +34,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.12.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.13.0
   with:
-    shipgate_version: "0.12.0"
+    shipgate_version: "0.13.0"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
@@ -54,7 +54,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.12.0
+  uses: ThreeMoonsLab/agents-shipgate@v0.13.0
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"

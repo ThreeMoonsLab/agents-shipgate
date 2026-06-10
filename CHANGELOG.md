@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.0 - Unreleased
+
+- **Agent-native protocol.** `shipgate check --agent
+  {codex,claude-code,cursor} --workspace . --format agent-json` is now the
+  canonical one-command agent path. It returns the stable
+  `agent_result_v1` contract with explicit completion, stop, repair,
+  human-review, policy-provenance, source-artifact, and exit-code fields.
+- **`agent_result_v1` policy provenance is required in 0.13.0 producers.**
+  The schema name stays `agent_result_v1`; all in-tree producers now emit the
+  required `policy` object plus `policy_snapshot_sha256`. Consumers validating
+  older v0.12.0 objects should treat this as the 0.13.0 schema publication
+  point and update together with the package version.
+- **MCP server mode narrowed to `shipgate.check`.** The optional
+  `[mcp]` server is now a read-only static adapter that accepts caller-provided
+  diff text and returns exact `agent_result_v1`. The v0.12.0 preview tools
+  (`shipgate_preview`, `shipgate_verify`, `shipgate_explain_finding`) were
+  never listed in `STABILITY.md`; they are removed in favor of the single
+  agent protocol command/tool.
+- Policy weakening detection now compares parsed before/after policy YAML
+  from reconstructed file content when available, so quoted scalars, inline
+  comments, and hunks that omit the rule id still block.
+- `shipgate check --head <ref>` or `--base <ref>` alone now fails closed with
+  a structured CLI error. Provide both refs, or omit both to check local
+  uncommitted changes.
+
 ## 0.12.0 - 2026-06-09
 
 - **Actionable `insufficient_evidence` (report schema v0.26).**

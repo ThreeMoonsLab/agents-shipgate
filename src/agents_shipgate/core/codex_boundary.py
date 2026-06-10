@@ -355,6 +355,9 @@ def evaluate_codex_boundary_result(
 ) -> AgentResultV1:
     """Return the local Codex agent-result projection for a unified diff."""
 
+    # Keep this local diff projector aligned with
+    # agents_shipgate.ci.agent_result.build_agent_result; both produce
+    # agent_result_v1 routing fields for different substrates.
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
@@ -412,7 +415,9 @@ def evaluate_codex_boundary_result(
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_shipgate_workflow(diff_file, resolved, add, workspace=workspace)
         if _is_codex_boundary_policy_path(normalized):
-            _evaluate_codex_boundary_policy(diff_file, add)
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            _evaluate_codex_boundary_policy(diff_file, resolved, add)
         if _is_codex_skill_path(normalized):
             _evaluate_skill(diff_file, add)
 
@@ -1013,9 +1018,14 @@ def _evaluate_shipgate_workflow(
         )
 
 
-def _evaluate_codex_boundary_policy(diff_file: DiffFile, add) -> None:
+def _evaluate_codex_boundary_policy(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+    add,
+) -> None:
     weakened_action, weakened_risk, weakened_rules = _policy_weakening_from_diff(
-        diff_file
+        diff_file,
+        resolved,
     )
     if diff_file.is_deleted or weakened_action or weakened_risk:
         evidence: dict[str, Any] = {
@@ -1035,12 +1045,13 @@ def _evaluate_codex_boundary_policy(diff_file: DiffFile, add) -> None:
 
 def _policy_weakening_from_diff(
     diff_file: DiffFile,
+    resolved: ResolvedFileText,
 ) -> tuple[bool, bool, list[dict[str, Any]]]:
     if diff_file.is_deleted:
         return False, False, []
 
-    old_rules = _policy_rules_from_diff(diff_file, side="old")
-    new_rules = _policy_rules_from_diff(diff_file, side="new")
+    old_rules = _policy_rules_from_text(diff_file, resolved, side="old")
+    new_rules = _policy_rules_from_text(diff_file, resolved, side="new")
     weakened_action = False
     weakened_risk = False
     weakened_rules: list[dict[str, Any]] = []
@@ -1096,12 +1107,18 @@ def _policy_weakening_from_diff(
     return weakened_action, weakened_risk, weakened_rules
 
 
-def _policy_rules_from_diff(
+def _policy_rules_from_text(
     diff_file: DiffFile,
+    resolved: ResolvedFileText,
     *,
     side: str,
 ) -> dict[str, dict[str, str]]:
-    text = _policy_side_text_from_diff(diff_file, side=side)
+    resolved_text = resolved.old_text if side == "old" else resolved.new_text
+    text = (
+        resolved_text
+        if resolved_text is not None
+        else _policy_side_text_from_diff(diff_file, side=side)
+    )
     return _policy_rules_from_yaml_text(text)
 
 

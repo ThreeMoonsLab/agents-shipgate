@@ -62,7 +62,13 @@ The stdout object has:
 - `exit_code_hint`
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
-The stable schema is `docs/agent-result-schema.v1.json`.
+The stable schema is `docs/agent-result-schema.v1.json`. In v0.13.0, `policy`
+is required for every in-tree producer under the existing `agent_result_v1`
+schema name; consumers that validate v0.12.0-era objects should update the
+schema with the package. `decision`, `completion_allowed`, `must_stop`,
+`human_review`, and `repair` are the control signals. `risk_level` is
+explanatory and may differ between local-check and verifier projections for the
+same allowed decision.
 
 ## State Machine
 
@@ -192,6 +198,12 @@ Input:
 ```
 
 Output is exactly `agent_result_v1`.
+
+Compatibility note: v0.12.0 exposed preview-oriented MCP tool names
+(`shipgate_preview`, `shipgate_verify`, and `shipgate_explain_finding`) before
+the MCP surface was listed in `STABILITY.md`. v0.13.0 narrows that optional
+server to `shipgate.check` so MCP and CLI agents share one command and one JSON
+schema.
 
 The MCP server is a static adapter only. It exposes no scan, verify,
 apply-patches, shell, git, network, or write-capable tools, and must not be

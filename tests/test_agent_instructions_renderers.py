@@ -43,13 +43,13 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "1d80cb6eeadf064fbb613ae3bd5b5e46ed4fd729c21b314d30537cb884e4a19e"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "da20f5c1e05a9a701c614d01d337ce79906ead4023828ed5f66bd74c56548983"
+        "4cd59ab4d3d598526209006fc3be3a217f6efd282e3b5359333610bad0372a56"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "61cafab6b684e3da5f658c18f85fd127773ca60f0006548508f165e48727666a"
+        "c6bd4548b2ac6fd74a664f3990cd8ddae8eceba48f73ffda6a3a16bcfdea3c9d"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "1bf8b9d91f081a246dcff14a84810ca5384f8e0987e4e7a8c0c5df56b151564c"
+        "13052a72b44923cfd79532a7d768e10beb24911cfa67f7dc4b8e3e3ec6307cff"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -61,7 +61,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "12810569a6aa655b4d8a6ed384142a430eef367bf6fab51b1a9e614aeff1c1a8"
+        "44f2291c157ffb32eaecbf518071bef2a1ce59611ea05d7ade20614a2e379dfa"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -75,16 +75,16 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "f545a945da52ba4cb67810464b0b60b1734b46a791d9c6023b5c8652d67286a8"
+        "4436187405665ef1a16f74817e2ff19661d09909a0ac21f766169b96020aa954"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "0ac78bcb69d0bfbcb72a8b78e013f00778536ce2600cf363fb27beeff66892a9"
+        "589c6b6867b76c80be3cff10374c14f808f99c0e1c488c3b49aead7264d44ec1"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "9d21e609b83af11af52166d3f00af10bb596777a84cf16453a89e7e85218314b"
+        "a554d3b989a65f9a64af6f2c14304e4ad94daa9e11515c21a2997dc1dd892c99"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
@@ -258,8 +258,8 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate --version" in skill
     assert "pipx upgrade agents-shipgate" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "Require `agents-shipgate >=0.12.0`" in recipes
-    assert 'python -m pip install -U "agents-shipgate>=0.12"' in recipes
+    assert "Require `agents-shipgate >=0.13.0`" in recipes
+    assert 'python -m pip install -U "agents-shipgate>=0.13"' in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

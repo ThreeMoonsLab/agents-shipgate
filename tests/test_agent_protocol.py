@@ -126,6 +126,65 @@ index 1111111..2222222 100644
         assert payload["violated_rules"][0]["evidence"]["weakened_action"] is True
 
 
+def test_policy_weakening_detection_uses_resolved_full_policy_text(
+    tmp_path: Path,
+) -> None:
+    policy_path = tmp_path / "policies" / "codex-boundary.shipgate.yaml"
+    policy_path.parent.mkdir(parents=True)
+    policy_path.write_text(
+        """id: codex-boundary
+version: "1"
+rules:
+  - id: CODEX-MCP-AUTO-APPROVE-WRITE
+    check_id: SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+    title: Codex MCP default auto approval changed
+    recommendation: Do not auto-approve write/destructive MCP tools.
+    notes:
+      - a
+      - b
+      - c
+      - d
+      - e
+    action: block
+    risk_level: critical
+""",
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/policies/codex-boundary.shipgate.yaml b/policies/codex-boundary.shipgate.yaml
+index 1111111..2222222 100644
+--- a/policies/codex-boundary.shipgate.yaml
++++ b/policies/codex-boundary.shipgate.yaml
+@@ -11,5 +11,5 @@
+       - c
+       - d
+       - e
+-    action: block
++    action: "require_review"
+     risk_level: critical
+"""
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            "-",
+            "--format",
+            "agent-json",
+        ],
+        input=diff_text,
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["decision"] == "block"
+    evidence = payload["violated_rules"][0]["evidence"]
+    assert evidence["weakened_action"] is True
+    assert evidence["weakened_rules"][0]["id"] == "CODEX-MCP-AUTO-APPROVE-WRITE"
+
+
 def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> None:
     before = runner.invoke(
         app,

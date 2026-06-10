@@ -3,7 +3,7 @@
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.12.0"
+    "version": "0.13.0"
   },
   "subject": {
     "agent": "codex"
