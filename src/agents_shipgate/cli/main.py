@@ -52,7 +52,7 @@ app.command(
 )(_detect_command)
 app.command(
     "check",
-    help="Run a local coding-agent boundary check and emit agent_result_v1 JSON.",
+    help="Run the agent-native boundary check and emit agent_result_v1 JSON.",
 )(_check_command)
 app.command(
     "apply-patches",
@@ -133,12 +133,12 @@ app.command(
 
 @app.command("mcp-serve")
 def _mcp_serve_command() -> None:
-    """Serve the verifier as a local MCP server over stdio.
+    """Serve the read-only agent-native check as a local MCP server over stdio.
 
     Requires the optional [mcp] extra: pip install "agents-shipgate[mcp]".
-    Exposes shipgate_preview, shipgate_verify, and shipgate_explain_finding
-    as MCP tools; every verdict is a projection of
-    report.json.release_decision.decision. Local stdio only; no network.
+    Exposes only shipgate.check. The tool accepts caller-provided diff text
+    and returns agent_result_v1 without git, scan/verify, artifact writes, or
+    network access.
     """
     from agents_shipgate.core.errors import ConfigError as _ConfigError
     from agents_shipgate.mcp_server import serve_stdio

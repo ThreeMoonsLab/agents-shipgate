@@ -46,14 +46,15 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 Always:
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
-2. For verifier runs, parse `agents-shipgate-reports/verifier.json` first:
+2. For local agent control, run `shipgate check --agent claude-code --workspace . --format agent-json` and read the stdout `agent_result_v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
+3. For verifier runs, parse `agents-shipgate-reports/agent-result.json` first, then `agents-shipgate-reports/verifier.json`:
    `merge_verdict`, `can_merge_without_human`, `first_next_action`,
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
    release gate.
-3. Before finishing an agent-related diff in a repo with `shipgate.yaml`, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` for committed PR/CI verification after making the base ref available, or report the exact `agents-shipgate trigger` skip verdict. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
-4. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
-5. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
+4. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format agent-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches.
+5. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
+6. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
 
 ## First-time CI setup (advisory)
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.12.0"
+version = "0.13.0"
 description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -76,10 +76,9 @@ pdf = [
   "weasyprint>=68.1,<70",
 ]
 mcp = [
-  # Optional dependency for `agents-shipgate mcp-serve`: a local stdio
-  # MCP server exposing shipgate_preview / shipgate_verify /
-  # shipgate_explain_finding. A projection layer over the existing
-  # verify orchestrator — no network access, no second gate.
+  # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
+  # server exposing only read-only shipgate.check, which returns agent_result_v1
+  # from caller-provided diff text.
   "mcp>=1.2,<2",
 ]
 dev = [
@@ -99,6 +98,7 @@ dev = [
 [project.scripts]
 agents-shipgate = "agents_shipgate.cli.main:app"
 shipgate = "agents_shipgate.cli.main:app"
+agents-shipgate-mcp = "agents_shipgate.mcp_server.server:main"
 
 [project.entry-points."agents_shipgate.checks"]
 inventory = "agents_shipgate.checks.inventory:run"

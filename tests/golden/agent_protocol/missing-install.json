@@ -1,0 +1,74 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "unavailable"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "block",
+  "risk_level": "none",
+  "audit_id": "missing_install_pipx",
+  "policy_version": "unavailable",
+  "summary": "Agents Shipgate is not installed.",
+  "changed_files": [],
+  "completion_allowed": false,
+  "must_stop": true,
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "install",
+    "command": "pipx install agents-shipgate",
+    "why": "Agents Shipgate is not installed."
+  },
+  "human_review": {
+    "required": false,
+    "required_reviewers": []
+  },
+  "repair": {
+    "actor": "coding_agent",
+    "safe_to_attempt": false,
+    "instructions": [],
+    "forbidden_shortcuts": [
+      "Do not suppress Shipgate findings to continue without the gate.",
+      "Do not weaken policy, baselines, waivers, CI, or agent instructions to bypass the missing gate."
+    ]
+  },
+  "policy": {
+    "id": "unavailable",
+    "version": "unavailable",
+    "source": "missing",
+    "discovery": [
+      "binary_missing"
+    ]
+  },
+  "violated_rules": [],
+  "affected_files": [],
+  "required_reviewers": [],
+  "explanation": "Install Agents Shipgate, then rerun shipgate check.",
+  "suggested_fixes": [
+    "pipx install agents-shipgate"
+  ],
+  "agent_repair_instructions": [
+    "Install Agents Shipgate with pipx install agents-shipgate.",
+    "Rerun shipgate check --agent codex --workspace . --format agent-json."
+  ],
+  "diagnostics": [
+    {
+      "level": "error",
+      "code": "shipgate_missing_install",
+      "message": "The shipgate binary was not available."
+    }
+  ],
+  "trace": [
+    {
+      "step": "install_discovery",
+      "summary": "Agent instruction fallback emitted a schema-valid install action."
+    }
+  ],
+  "source_artifacts": {},
+  "finding_fingerprints": [],
+  "policy_snapshot_sha256": null,
+  "exit_code_hint": 127
+}

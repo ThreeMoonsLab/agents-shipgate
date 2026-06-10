@@ -233,13 +233,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.12.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "0.12.0"
+          shipgate_version: "0.13.0"
 ```
 
 Advisory mode never fails CI — it posts the merge verdict, capability changes,

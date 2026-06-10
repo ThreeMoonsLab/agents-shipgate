@@ -27,8 +27,12 @@ from agents_shipgate.inputs.mcp_manifest import (
     tools_from_normalized_mcp_servers,
 )
 from agents_shipgate.schemas.agent_result_v1 import (
+    AgentResultAffectedFile,
     AgentResultDiagnostic,
+    AgentResultHumanReview,
     AgentResultNextAction,
+    AgentResultPolicy,
+    AgentResultRepair,
     AgentResultV1,
     AgentResultViolatedRule,
 )
@@ -570,18 +574,44 @@ def _violation(
 
 def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
     decision = audit["decision"]
+    human_review = _human_review(decision, audit["violated_rules"])
+    repair = AgentResultRepair(
+        actor="human",
+        safe_to_attempt=False,
+        instructions=[],
+        forbidden_shortcuts=[
+            "Do not weaken MCP policy to make this audit pass.",
+            "Do not suppress or baseline MCP permission expansion without human review.",
+        ],
+    )
     return AgentResultV1(
-        decision=decision,
+        decision=decision,  # type: ignore[arg-type]
         risk_level=audit["risk_level"],
         audit_id=audit["audit_id"],
         policy_version=audit["policy_version"],
         summary=audit["summary"],
         changed_files=audit["changed_files"],
+        completion_allowed=decision in {"allow", "warn"},
+        must_stop=decision in {"block", "require_review"},
         first_next_action=_next_action(decision, audit["violated_rules"]),
+        human_review=human_review,
+        repair=repair,
+        policy=AgentResultPolicy(
+            id="mcp-permissions",
+            version=audit["policy_version"],
+            source="packaged_default"
+            if audit["policy_version"] == "builtin"
+            else "workspace",
+            discovery=["mcp audit policy"],
+        ),
         violated_rules=[
             AgentResultViolatedRule.model_validate(item)
             for item in audit["violated_rules"]
         ],
+        affected_files=[
+            AgentResultAffectedFile(path=path) for path in audit["changed_files"]
+        ],
+        required_reviewers=human_review.required_reviewers,
         diagnostics=[
             AgentResultDiagnostic.model_validate(item)
             for item in audit["diagnostics"]
@@ -589,6 +619,20 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
         finding_fingerprints=[
             _fingerprint(item) for item in audit["violated_rules"]
         ],
+        source_artifacts={"mcp_audit": "stdout"},
+        exit_code_hint=20 if decision == "block" else 0,
+    )
+
+
+def _human_review(decision: str, violations: list[dict[str, Any]]) -> AgentResultHumanReview:
+    if decision not in {"block", "require_review"}:
+        return AgentResultHumanReview(required=False)
+    why = violations[0]["title"] if violations else "MCP permission review required"
+    reviewers = ["security"] if decision == "block" else ["agent-platform"]
+    return AgentResultHumanReview(
+        required=True,
+        why=why,
+        required_reviewers=reviewers,
     )
 
 

@@ -1444,6 +1444,29 @@
     {
       "autofix_safe": false,
       "category": "codex_boundary",
+      "default_severity": "critical",
+      "description": "Codex boundary policy was weakened.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-boundary-policy-weakened",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind",
+        "deleted",
+        "weakened_action",
+        "weakened_risk"
+      ],
+      "fires_when": "A changed policies/codex-boundary.shipgate.yaml deletes the policy file or downgrades a block/critical rule.",
+      "floor_severity": "critical",
+      "id": "SHIP-CODEX-BOUNDARY-POLICY-WEAKENED",
+      "mvp_tier": "lifecycle",
+      "rationale": "The policy that judges a Codex boundary change must not be weakened by the same change under review.",
+      "recommendation": "Restore the stricter policy or get human approval before weakening the local boundary gate.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "codex_boundary",
       "default_severity": "medium",
       "description": "A Codex skill gained command-bearing instructions.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-boundary-skill-command-changed",

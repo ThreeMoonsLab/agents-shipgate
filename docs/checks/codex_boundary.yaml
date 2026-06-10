@@ -127,6 +127,19 @@ checks:
   evidence_fields: [kind, deleted, shipgate_invocation_present]
   recommendation: Restore the Shipgate workflow or get human approval to remove
     it.
+- id: SHIP-CODEX-BOUNDARY-POLICY-WEAKENED
+  default_severity: critical
+  floor_severity: critical
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Codex boundary policy was weakened.
+  rationale: The policy that judges a Codex boundary change must not be weakened
+    by the same change under review.
+  fires_when: A changed policies/codex-boundary.shipgate.yaml deletes the policy
+    file or downgrades a block/critical rule.
+  evidence_fields: [kind, deleted, weakened_action, weakened_risk]
+  recommendation: Restore the stricter policy or get human approval before
+    weakening the local boundary gate.
 - id: SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
   default_severity: high
   floor_severity: medium

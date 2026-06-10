@@ -8,20 +8,26 @@ from typing import Any
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_result_v1 import (
+    AgentResult,
     AgentResultAffectedFile,
     AgentResultDecision,
     AgentResultDiagnostic,
+    AgentResultHumanReview,
     AgentResultNextAction,
+    AgentResultPolicy,
+    AgentResultRepair,
     AgentResultRiskLevel,
+    AgentResultSubject,
+    AgentResultTool,
     AgentResultTraceEvent,
-    AgentResultV1,
     AgentResultViolatedRule,
 )
 from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecisionItem
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 AGENT_RESULT_SCHEMA_VERSION = "agent_result_v1"
-AgentResult = AgentResultV1
+AgentResultFile = AgentResultAffectedFile
+AgentResultRule = AgentResultViolatedRule
 _REVIEW_TOKEN_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
@@ -34,6 +40,9 @@ def build_agent_result(
 
     This is a projection only. The release gate remains
     ``report.release_decision.decision`` when a report exists.
+    Keep routing semantics aligned with
+    ``agents_shipgate.core.codex_boundary.evaluate_codex_boundary_result``,
+    which produces the same schema from a local diff.
     """
 
     release_decision = report.release_decision if report is not None else None
@@ -60,6 +69,23 @@ def build_agent_result(
         policy_hash=policy_hash,
         violated_rules=violated_rules,
     )
+    repair = _repair(verifier)
+    human_review = _human_review(
+        decision=decision,
+        verifier=verifier,
+        required_reviewers=required_reviewers,
+    )
+    first_next_action = _first_next_action(
+        decision=decision,
+        verifier=verifier,
+        repair=repair,
+        human_review=human_review,
+    )
+    completion_allowed = decision in {"allow", "warn"}
+    must_stop = (
+        not completion_allowed
+        and not (decision == "block" and repair.actor == "coding_agent" and repair.safe_to_attempt)
+    )
     audit_id = _audit_id(
         verifier=verifier,
         report=report,
@@ -68,15 +94,29 @@ def build_agent_result(
         violated_rules=violated_rules,
     )
     return AgentResult(
+        agent="codex",
+        subject=_subject(verifier, report),
         decision=decision,
         risk_level=risk_level,
         audit_id=audit_id,
         policy_version=_policy_version(policy_hash),
         summary=_explanation(verifier, report, decision),
         changed_files=list(verifier.changed_files),
-        first_next_action=_first_next_action(verifier, decision),
+        completion_allowed=completion_allowed,
+        must_stop=must_stop,
+        first_next_action=first_next_action,
+        human_review=human_review,
+        repair=repair,
+        policy=_policy(policy_hash),
         violated_rules=violated_rules,
+        affected_files=affected_files,
+        required_reviewers=human_review.required_reviewers,
+        explanation=_explanation(verifier, report, decision),
+        suggested_fixes=_suggested_fixes(verifier, decision),
+        agent_repair_instructions=_agent_repair_instructions(verifier, decision),
         diagnostics=_diagnostics(verifier),
+        trace=trace,
+        source_artifacts=dict(sorted(verifier.artifacts.items())),
         release_decision=(
             release_decision.model_dump(mode="json")
             if release_decision is not None
@@ -84,13 +124,7 @@ def build_agent_result(
         ),
         trigger=verifier.trigger,
         finding_fingerprints=_finding_fingerprints(items, advisory_findings),
-        affected_files=affected_files,
-        required_reviewers=required_reviewers,
-        suggested_fixes=_suggested_fixes(verifier, decision),
-        agent_repair_instructions=_agent_repair_instructions(verifier, decision),
         policy_snapshot_sha256=policy_hash,
-        trace=trace,
-        source_artifacts=dict(sorted(verifier.artifacts.items())),
         exit_code_hint=_exit_code_hint(decision),
     )
 
@@ -98,11 +132,7 @@ def build_agent_result(
 def write_agent_result(result: AgentResult, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(
-            result.model_dump(mode="json", exclude_none=True),
-            indent=2,
-            sort_keys=True,
-        ),
+        json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
@@ -336,49 +366,6 @@ def _finding_fingerprints(
     return sorted(dict.fromkeys(values))
 
 
-def _first_next_action(
-    verifier: VerifierArtifact,
-    decision: AgentResultDecision,
-) -> AgentResultNextAction:
-    if decision == "allow":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="continue",
-            command=None,
-            why="No Agents Shipgate release action is required.",
-        )
-    if decision == "warn":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="warn",
-            command=None,
-            why="Review low-risk advisory findings, then continue if acceptable.",
-        )
-    if decision == "block":
-        return AgentResultNextAction(
-            actor="human",
-            kind="stop",
-            command=None,
-            why=_next_action_why(verifier)
-            or "Blocking Agents Shipgate finding requires human review.",
-        )
-    return AgentResultNextAction(
-        actor="human",
-        kind="review",
-        command=None,
-        why=_next_action_why(verifier) or "Human review is required before merge.",
-    )
-
-
-def _next_action_why(verifier: VerifierArtifact) -> str | None:
-    action = verifier.first_next_action
-    if action is not None:
-        return action.why
-    if verifier.fix_task and verifier.fix_task.instructions:
-        return verifier.fix_task.instructions[0]
-    return None
-
-
 def _diagnostics(verifier: VerifierArtifact) -> list[AgentResultDiagnostic]:
     diagnostics: list[AgentResultDiagnostic] = []
     if verifier.head_status == "failed":
@@ -468,7 +455,7 @@ def _required_reviewers(
                 "plugin",
                 "tool",
                 "dependency",
-            )
+            ),
         ):
             reviewers.add("agent-platform")
     if decision == "require_review" and not reviewers:
@@ -484,6 +471,102 @@ def _matches_review_marker(
     phrases: tuple[str, ...] = (),
 ) -> bool:
     return bool(tokens.intersection(exact)) or any(phrase in text for phrase in phrases)
+
+
+def _human_review(
+    *,
+    decision: AgentResultDecision,
+    verifier: VerifierArtifact,
+    required_reviewers: list[str],
+) -> AgentResultHumanReview:
+    fix_task = verifier.fix_task
+    agent_safe_block = (
+        decision == "block"
+        and fix_task is not None
+        and fix_task.actor == "coding_agent"
+        and fix_task.safe_to_attempt
+    )
+    required = decision == "require_review" or (decision == "block" and not agent_safe_block)
+    why = None
+    if required:
+        if verifier.human_review is not None and verifier.human_review.why:
+            why = verifier.human_review.why
+        elif verifier.headline:
+            why = verifier.headline
+        elif fix_task is not None and fix_task.instructions:
+            why = fix_task.instructions[0]
+        else:
+            why = "A human must review this agent-capability change before completion."
+    return AgentResultHumanReview(
+        required=required,
+        why=why,
+        required_reviewers=required_reviewers if required else [],
+    )
+
+
+def _repair(verifier: VerifierArtifact) -> AgentResultRepair:
+    fix_task = verifier.fix_task
+    if fix_task is None:
+        return AgentResultRepair()
+    return AgentResultRepair(
+        actor=fix_task.actor,
+        safe_to_attempt=fix_task.actor == "coding_agent" and fix_task.safe_to_attempt,
+        instructions=list(fix_task.instructions),
+        command=fix_task.verification_command,
+        forbidden_shortcuts=list(fix_task.forbidden_shortcuts),
+    )
+
+
+def _first_next_action(
+    *,
+    decision: AgentResultDecision,
+    verifier: VerifierArtifact,
+    repair: AgentResultRepair,
+    human_review: AgentResultHumanReview,
+) -> AgentResultNextAction:
+    if decision == "allow":
+        return AgentResultNextAction(
+            actor="coding_agent",
+            kind="continue",
+            why="Shipgate allows this agent-capability change.",
+        )
+    if decision == "warn":
+        return AgentResultNextAction(
+            actor="coding_agent",
+            kind="warn",
+            why="Shipgate allows completion with non-gating advisories.",
+        )
+    if decision == "block" and repair.actor == "coding_agent" and repair.safe_to_attempt:
+        return AgentResultNextAction(
+            actor="coding_agent",
+            kind="repair",
+            command=repair.command,
+            why=repair.instructions[0] if repair.instructions else "Repair and rerun Shipgate.",
+        )
+    if decision == "require_review":
+        return AgentResultNextAction(
+            actor="human",
+            kind="review",
+            why=human_review.why or "Human review is required.",
+        )
+    return AgentResultNextAction(
+        actor="human",
+        kind="stop",
+        why=human_review.why
+        or verifier.headline
+        or "Shipgate blocked this change; a coding agent must stop.",
+    )
+
+
+def _policy(policy_hash: str | None) -> AgentResultPolicy:
+    return AgentResultPolicy(
+        id="report.effective_policy",
+        version=policy_hash or "unavailable",
+        source="report_effective_policy" if policy_hash else "missing",
+        snapshot_sha256=policy_hash,
+        path="agents-shipgate-reports/report.json",
+        discovery=["report.effective_policy" if policy_hash else "no report effective_policy"],
+    )
 
 
 def _trace(
@@ -554,6 +637,24 @@ def _audit_id(
     return f"sg_audit_{digest}"
 
 
+def _subject(verifier: VerifierArtifact, report: ReadinessReport | None) -> AgentResultSubject:
+    if verifier.base_ref:
+        diff = f"{verifier.base_ref}...{verifier.head_ref}"
+    else:
+        diff = None
+    agent_name = None
+    if report is not None:
+        raw = report.agent.get("name")
+        agent_name = str(raw) if raw else None
+    return AgentResultSubject(
+        workspace=verifier.workspace,
+        agent=agent_name,
+        diff=diff,
+        base=verifier.base_ref,
+        head=verifier.head_ref,
+    )
+
+
 def _explanation(
     verifier: VerifierArtifact,
     report: ReadinessReport | None,
@@ -594,9 +695,7 @@ def _agent_repair_instructions(
         if fix_task.verification_command:
             instructions.append(f"Then rerun: {fix_task.verification_command}")
         if fix_task.actor == "human":
-            instructions.append(
-                "Stop and request human review; do not self-resolve this authority gap."
-            )
+            instructions.append("Stop and request human review; do not self-resolve this authority gap.")
     elif decision in {"block", "require_review"}:
         instructions.append("Stop and request human review unless the fix task is agent-safe.")
     controller = verifier.agent_controller
@@ -623,11 +722,13 @@ def _exit_code_hint(decision: AgentResultDecision) -> int:
 __all__ = [
     "AGENT_RESULT_SCHEMA_VERSION",
     "AgentResult",
-    "AgentResultAffectedFile",
     "AgentResultDecision",
+    "AgentResultFile",
     "AgentResultRiskLevel",
+    "AgentResultRule",
+    "AgentResultSubject",
     "AgentResultTraceEvent",
-    "AgentResultViolatedRule",
+    "AgentResultTool",
     "build_agent_result",
     "write_agent_result",
 ]

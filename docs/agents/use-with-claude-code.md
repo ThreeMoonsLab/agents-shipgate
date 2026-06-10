@@ -1,5 +1,13 @@
 # Use Agents Shipgate with Claude Code
 
+This page is the compatibility guide for Claude Code skill installation. For
+the normative agent protocol, use [claude-code.md](claude-code.md) and
+[protocol.md](protocol.md). The canonical Claude Code control command is:
+
+```bash
+shipgate check --agent claude-code --workspace . --format agent-json
+```
+
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 
 | Surface | What it does | Source path in this repo |

@@ -13,7 +13,7 @@ In your repo's `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.12.0
+    rev: v0.13.0
     hooks:
       - id: agents-shipgate
 ```
@@ -92,7 +92,7 @@ Use the `agents-shipgate-strict` hook ID for the strict variant, or override the
 ```yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.12.0
+    rev: v0.13.0
     hooks:
       - id: agents-shipgate
         entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical

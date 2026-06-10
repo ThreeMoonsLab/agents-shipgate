@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.core.codex_boundary import (
-    DEFAULT_POLICY_PATH,
     evaluate_codex_boundary_result,
 )
 from agents_shipgate.core.context import ScanContext
@@ -19,7 +18,7 @@ def run(context: ScanContext) -> list[Finding]:
     result = evaluate_codex_boundary_result(
         workspace=Path(context.config_path).resolve().parent,
         diff_text=diff_text,
-        policy_path=DEFAULT_POLICY_PATH,
+        policy_path=None,
         trigger=verification.trigger_result,
     )
     findings: list[Finding] = []

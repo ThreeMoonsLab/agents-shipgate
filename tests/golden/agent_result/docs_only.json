@@ -1,21 +1,75 @@
 {
   "schema_version": "agent_result_v1",
   "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.13.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "codex_boundary_4edef5423a42df116f31af84",
+  "audit_id": "codex_boundary_e7b92021f107e6aa6c05a6f5",
   "policy_version": "1",
   "summary": "No Codex boundary changes require action.",
   "changed_files": [
     "docs/readme.md"
   ],
+  "completion_allowed": true,
+  "must_stop": false,
   "first_next_action": {
     "actor": "coding_agent",
     "kind": "continue",
     "why": "No Codex boundary rule requires review or blocking."
   },
+  "human_review": {
+    "required": false,
+    "required_reviewers": []
+  },
+  "repair": {
+    "actor": "coding_agent",
+    "safe_to_attempt": false,
+    "instructions": [],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
+  },
   "violated_rules": [],
+  "affected_files": [
+    {
+      "path": "docs/readme.md"
+    }
+  ],
+  "required_reviewers": [],
+  "explanation": "No Codex boundary changes require action.",
+  "suggested_fixes": [],
+  "agent_repair_instructions": [],
   "diagnostics": [],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 0 violation(s) to allow."
+    }
+  ],
+  "source_artifacts": {},
   "trigger": {
     "schema_version": "0.1",
     "should_run": false,
@@ -45,5 +99,7 @@
       "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
     }
   },
-  "finding_fingerprints": []
+  "finding_fingerprints": [],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 0
 }
