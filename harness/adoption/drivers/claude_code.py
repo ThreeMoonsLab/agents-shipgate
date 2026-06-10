@@ -24,6 +24,7 @@ from subprocess import run
 from typing import Any
 
 from harness.adoption.drivers.base import DriverInputs, RunResult, _sandbox_env
+from harness.adoption.observer.transcript import TranscriptWriter
 
 # Agent-init failure signals observed on SDK events. The stream ends
 # normally after these (no exception), so without explicit detection the
@@ -48,7 +49,6 @@ def _init_failure(message: Any) -> str | None:
             "stayed_in_workspace blocker still applies)."
         )
     return None
-from harness.adoption.observer.transcript import TranscriptWriter
 
 # Published Anthropic API prices in USD per 1M tokens. Update when prices change.
 # Read by the budget guard via the ``cost_usd_estimate`` field on RunResult.
