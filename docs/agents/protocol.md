@@ -41,7 +41,8 @@ shipgate check --agent codex --workspace . --diff - --format agent-json
 
 The no-`--diff` form resolves a git diff locally. With no `--base` or `--head`,
 it reads local uncommitted tracked changes. With `--base` and `--head`, it reads
-`base...head`. Shipgate never fetches refs.
+`base...head`. Supplying only one of `--base` or `--head` is invalid; omit both
+for local work or provide both for committed refs. Shipgate never fetches refs.
 
 ## Result Schema
 

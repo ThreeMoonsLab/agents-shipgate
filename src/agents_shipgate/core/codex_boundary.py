@@ -1014,27 +1014,149 @@ def _evaluate_shipgate_workflow(
 
 
 def _evaluate_codex_boundary_policy(diff_file: DiffFile, add) -> None:
-    removed = "\n".join(diff_file.removed_lines)
-    added = "\n".join(diff_file.added_lines)
-    weakened_action = bool(
-        re.search(r"(?m)^\s*action\s*:\s*block\s*$", removed)
-        and re.search(r"(?m)^\s*action\s*:\s*(allow|warn|require_review)\s*$", added)
-    )
-    weakened_risk = bool(
-        re.search(r"(?m)^\s*risk_level\s*:\s*critical\s*$", removed)
-        and re.search(r"(?m)^\s*risk_level\s*:\s*(none|low|medium|high)\s*$", added)
+    weakened_action, weakened_risk, weakened_rules = _policy_weakening_from_diff(
+        diff_file
     )
     if diff_file.is_deleted or weakened_action or weakened_risk:
+        evidence: dict[str, Any] = {
+            "kind": "codex_boundary_policy_weakened",
+            "deleted": diff_file.is_deleted,
+            "weakened_action": weakened_action,
+            "weakened_risk": weakened_risk,
+        }
+        if weakened_rules:
+            evidence["weakened_rules"] = weakened_rules[:5]
         add(
             "CODEX-POLICY-WEAKENED",
             path=diff_file.path,
-            evidence={
-                "kind": "codex_boundary_policy_weakened",
-                "deleted": diff_file.is_deleted,
-                "weakened_action": weakened_action,
-                "weakened_risk": weakened_risk,
-            },
+            evidence=evidence,
         )
+
+
+def _policy_weakening_from_diff(
+    diff_file: DiffFile,
+) -> tuple[bool, bool, list[dict[str, Any]]]:
+    if diff_file.is_deleted:
+        return False, False, []
+
+    old_rules = _policy_rules_from_diff(diff_file, side="old")
+    new_rules = _policy_rules_from_diff(diff_file, side="new")
+    weakened_action = False
+    weakened_risk = False
+    weakened_rules: list[dict[str, Any]] = []
+
+    for rule_id in sorted(old_rules):
+        old_rule = old_rules[rule_id]
+        new_rule = new_rules.get(rule_id)
+        if new_rule is None:
+            old_action = old_rule.get("action")
+            old_risk = old_rule.get("risk_level")
+            if old_action in _DECISION_RANK or old_risk in _RISK_RANK:
+                weakened_action = old_action in _DECISION_RANK
+                weakened_risk = old_risk in _RISK_RANK
+                weakened_rules.append(
+                    {
+                        "id": rule_id,
+                        "removed": True,
+                        "old_action": old_action,
+                        "new_action": None,
+                        "old_risk_level": old_risk,
+                        "new_risk_level": None,
+                    }
+                )
+            continue
+
+        old_action = old_rule.get("action")
+        new_action = new_rule.get("action")
+        action_weakened = (
+            old_action in _DECISION_RANK
+            and new_action in _DECISION_RANK
+            and _DECISION_RANK[new_action] < _DECISION_RANK[old_action]
+        )
+        old_risk = old_rule.get("risk_level")
+        new_risk = new_rule.get("risk_level")
+        risk_weakened = (
+            old_risk in _RISK_RANK
+            and new_risk in _RISK_RANK
+            and _RISK_RANK[new_risk] < _RISK_RANK[old_risk]
+        )
+        if not action_weakened and not risk_weakened:
+            continue
+        weakened_action = weakened_action or action_weakened
+        weakened_risk = weakened_risk or risk_weakened
+        weakened_rules.append(
+            {
+                "id": rule_id,
+                "old_action": old_action,
+                "new_action": new_action,
+                "old_risk_level": old_risk,
+                "new_risk_level": new_risk,
+            }
+        )
+    return weakened_action, weakened_risk, weakened_rules
+
+
+def _policy_rules_from_diff(
+    diff_file: DiffFile,
+    *,
+    side: str,
+) -> dict[str, dict[str, str]]:
+    text = _policy_side_text_from_diff(diff_file, side=side)
+    return _policy_rules_from_yaml_text(text)
+
+
+def _policy_side_text_from_diff(diff_file: DiffFile, *, side: str) -> str:
+    kinds = {"old": {" ", "-"}, "new": {" ", "+"}}[side]
+    return "\n".join(
+        text
+        for hunk in diff_file.hunks
+        for kind, text in hunk.lines
+        if kind in kinds
+    )
+
+
+def _policy_rules_from_yaml_text(text: str) -> dict[str, dict[str, str]]:
+    if not text.strip():
+        return {}
+    candidates = [text]
+    stripped = text.lstrip()
+    if stripped.startswith("- "):
+        candidates.append("rules:\n" + text)
+
+    for candidate in candidates:
+        try:
+            loaded = yaml.safe_load(candidate) or {}
+        except yaml.YAMLError:
+            continue
+        raw_rules: Any
+        if isinstance(loaded, dict):
+            if isinstance(loaded.get("rules"), list):
+                raw_rules = loaded["rules"]
+            elif isinstance(loaded.get("id"), str):
+                raw_rules = [loaded]
+            else:
+                raw_rules = []
+        elif isinstance(loaded, list):
+            raw_rules = loaded
+        else:
+            raw_rules = []
+
+        rules: dict[str, dict[str, str]] = {}
+        for raw_rule in raw_rules:
+            if not isinstance(raw_rule, dict):
+                continue
+            rule_id = raw_rule.get("id")
+            if not isinstance(rule_id, str) or not rule_id.strip():
+                continue
+            rule: dict[str, str] = {}
+            for key in ("action", "risk_level"):
+                value = raw_rule.get(key)
+                if isinstance(value, str):
+                    rule[key] = value.strip()
+            rules[rule_id.strip()] = rule
+        if rules:
+            return rules
+    return {}
 
 
 def _evaluate_skill(diff_file: DiffFile, add) -> None:

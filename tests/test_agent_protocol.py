@@ -84,6 +84,48 @@ def test_policy_weakening_blocks_and_is_not_agent_repairable(tmp_path: Path) -> 
     assert payload["violated_rules"][0]["id"] == "CODEX-POLICY-WEAKENED"
 
 
+def test_policy_weakening_detection_parses_yaml_scalars(tmp_path: Path) -> None:
+    for replacement in (
+        '    action: "require_review"',
+        "    action: require_review # ok",
+    ):
+        diff_text = f"""diff --git a/policies/codex-boundary.shipgate.yaml b/policies/codex-boundary.shipgate.yaml
+index 1111111..2222222 100644
+--- a/policies/codex-boundary.shipgate.yaml
++++ b/policies/codex-boundary.shipgate.yaml
+@@ -1,9 +1,9 @@
+ id: codex-boundary
+ version: "1"
+ rules:
+   - id: CODEX-MCP-AUTO-APPROVE-WRITE
+     check_id: SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+-    action: block
++{replacement}
+     risk_level: critical
+     recommendation: Do not auto-approve write/destructive MCP tools.
+"""
+
+        result = runner.invoke(
+            app,
+            [
+                "check",
+                "--workspace",
+                str(tmp_path),
+                "--diff",
+                "-",
+                "--format",
+                "agent-json",
+            ],
+            input=diff_text,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["decision"] == "block"
+        assert payload["violated_rules"][0]["id"] == "CODEX-POLICY-WEAKENED"
+        assert payload["violated_rules"][0]["evidence"]["weakened_action"] is True
+
+
 def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> None:
     before = runner.invoke(
         app,

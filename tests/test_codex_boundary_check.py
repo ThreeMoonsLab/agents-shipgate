@@ -94,6 +94,24 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
     assert json.loads(result.output)["decision"] == "allow"
 
 
+def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--workspace",
+            str(tmp_path),
+            "--head",
+            "HEAD",
+            "--format",
+            "agent-json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--base and --head must be provided together" in result.stderr
+
+
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:
     result = runner.invoke(
         app,

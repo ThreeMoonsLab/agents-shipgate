@@ -46,10 +46,13 @@ def git_diff_text(
     head: str | None,
 ) -> str:
     workspace = workspace.resolve()
+    if bool(base) != bool(head):
+        raise RuntimeError(
+            "--base and --head must be provided together; omit both to check "
+            "local uncommitted changes."
+        )
     if base and head:
         revspec = f"{base}...{head}"
-    elif base:
-        revspec = base
     else:
         revspec = ""
     try:
