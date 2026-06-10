@@ -7,12 +7,27 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    CAPABILITY_LOCK_SCHEMA_VERSION,
+    CAPABILITY_STANDARD_VERSION,
+)
+from agents_shipgate.schemas.governance_benchmark import (
+    GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+    GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
 
-CONTRACT_VERSION: Literal["1"] = "1"
+CONTRACT_VERSION: Literal["2"] = "2"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
-# Adding `gating_signal_values` would be a `contract_version: "2"` change.
+EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
+    "capability_lock",
+    "capability_lock_diff",
+    "capability_standard",
+    "governance_benchmark_catalog",
+    "governance_benchmark_result",
+)
 # Wire-stable enum-id -> display-alias tuple. Enum-ids match adapter
 # `source_type` ClassVars on inputs/*.py and the `inputs[]` array in
 # .well-known/agents-shipgate.json. Alias tuples are ordered
@@ -29,6 +44,7 @@ SUPPORTED_INPUTS: dict[str, tuple[str, ...]] = {
     "langchain": ("LangChain and LangGraph", "LangChain/LangGraph", "LangChain"),
     "crewai": ("CrewAI",),
     "openai_api": ("OpenAI API",),
+    "codex_config": ("Codex repo config", "Codex config"),
     "codex_plugin": ("Codex plugin packages and marketplaces", "Codex plugin"),
     "n8n": ("n8n",),
 }
@@ -69,6 +85,12 @@ class ContractPayload(BaseModel):
     cli_version: str
     report_schema_version: str
     packet_schema_version: str
+    capability_lock_schema_version: str
+    capability_lock_diff_schema_version: str
+    capability_standard_version: str
+    governance_benchmark_catalog_schema_version: str
+    governance_benchmark_result_schema_version: str
+    external_integration_surfaces: list[str]
     gating_signal: str
     manual_review_signals: list[str]
 
@@ -87,6 +109,16 @@ def build_contract_payload() -> ContractPayload:
         cli_version=__version__,
         report_schema_version=str(report_schema_version),
         packet_schema_version=str(packet_schema_version),
+        capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
+        capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        capability_standard_version=CAPABILITY_STANDARD_VERSION,
+        governance_benchmark_catalog_schema_version=(
+            GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
+        ),
+        governance_benchmark_result_schema_version=(
+            GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
+        ),
+        external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
     )
@@ -94,6 +126,7 @@ def build_contract_payload() -> ContractPayload:
 
 __all__ = [
     "CONTRACT_VERSION",
+    "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
     "MANUAL_REVIEW_SIGNALS",
     "SUPPORTED_INPUTS",

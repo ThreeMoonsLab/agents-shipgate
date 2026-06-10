@@ -1,0 +1,24 @@
+id: mcp-permissions
+name: MCP Permission Governance Policy
+version: "1"
+rules:
+  - id: MCP-ENV-SECRET-PASSTHROUGH
+    check_id: SHIP-MCP-ENV-SECRET-PASSTHROUGH
+    action: require_review
+    risk_level: high
+  - id: MCP-AUTO-APPROVE-SIDE-EFFECT
+    check_id: SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+    action: block
+    risk_level: critical
+  - id: MCP-UNKNOWN-TOOL-SCHEMA
+    check_id: SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+    action: require_review
+    risk_level: high
+  - id: MCP-PERMISSION-EXPANDED
+    check_id: SHIP-MCP-PERMISSION-EXPANDED
+    action: require_review
+    risk_level: high
+  - id: MCP-READONLY-SERVER-ADDED
+    check_id: SHIP-MCP-READONLY-SERVER-ADDED
+    action: warn
+    risk_level: low

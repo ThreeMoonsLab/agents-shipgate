@@ -33,12 +33,14 @@ ReleaseDecisionStatus = Literal[
 #   per-check token sets.
 # - ``regex_heuristic`` — matched a regex (injection, secrets).
 # - ``policy_pack`` — external rule from a loaded policy pack.
+# - ``runtime_trace`` — declared local runtime/agent trace artifact evidence.
 ProvenanceKind = Literal[
     "static_declaration",
     "ast_extraction",
     "keyword_heuristic",
     "regex_heuristic",
     "policy_pack",
+    "runtime_trace",
 ]
 # v0.12: per-finding agent action enum.
 #
@@ -115,6 +117,7 @@ class SourceReference(BaseModel):
 
 HitlProvenanceType = Literal[
     "approval_trace",
+    "agent_trace",
     "override_log",
     "high_risk_exclusion",
     "promotion_criteria",

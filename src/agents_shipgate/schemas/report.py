@@ -30,6 +30,91 @@ from agents_shipgate.schemas.surfaces import (
 )
 
 
+class CapabilityPolicyEvidence(BaseModel):
+    """Capability-level audit evidence for a policy match.
+
+    This is explanatory metadata only. It lets reviewers see which durable
+    capability fact matched a policy rule without folding that metadata into
+    the legacy ``Finding.evidence`` fingerprint input.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    capability_id: str
+    identity: dict[str, Any]
+    effect: dict[str, Any]
+    authority: dict[str, Any]
+    controls: dict[str, Any]
+    hashes: dict[str, str]
+    matched_predicates: dict[str, Any] = Field(default_factory=dict)
+    source: SourceReference | None = None
+
+
+CapabilityTraceMatchReason = Literal[
+    "capability_id",
+    "tool_name",
+    "unknown_tool",
+    "ambiguous_tool",
+    "invalid_capability_id",
+    "missing_tool_name",
+]
+
+
+class CapabilityTraceEvidenceSummary(BaseModel):
+    """Deterministic counts for opt-in local runtime trace evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_count: int = 0
+    trace_count: int = 0
+    matched_trace_count: int = 0
+    unmatched_trace_count: int = 0
+    approval_trace_count: int = 0
+    agent_trace_count: int = 0
+    api_trace_count: int = 0
+    warning_count: int = 0
+
+
+class CapabilityTraceEvidenceV1(BaseModel):
+    """Allowlisted local trace event linked to a durable capability fact.
+
+    Raw prompts, messages, tool arguments, outputs, and arbitrary payloads
+    are intentionally absent. ``observed`` contains only normalized scalar
+    evidence from the allowlist enforced by ``inputs.traces``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source_type: str
+    source: SourceReference | None = None
+    tool_name: str | None = None
+    provider: str | None = None
+    operation: str | None = None
+    capability_id: str | None = None
+    matched_capability_id: str | None = None
+    matched: bool = False
+    match_reason: CapabilityTraceMatchReason
+    observed: dict[str, Any] = Field(default_factory=dict)
+    event_hash: str
+    source_hash: str
+
+
+class CapabilityRuntimeEvidence(BaseModel):
+    """Top-level audit block for declared local runtime trace artifacts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    summary: CapabilityTraceEvidenceSummary = Field(
+        default_factory=CapabilityTraceEvidenceSummary
+    )
+    matched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
+    unmatched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
+    source_provenance: list[SourceReference] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -72,6 +157,16 @@ class Finding(BaseModel):
     # number resolved through the manifest ``PositionIndex``. Optional
     # because most findings only have one provenance source.
     policy_evidence_source: SourceReference | None = None
+    # v0.24: capability-native policy/evidence integration. Policy and
+    # policy-pack checks can now cite the durable capability facts that
+    # caused the rule to match. Kept outside ``evidence`` so existing
+    # finding fingerprints do not churn.
+    capability_refs: list[str] = Field(default_factory=list)
+    capability_policy_evidence: CapabilityPolicyEvidence | None = None
+    # v0.25: opt-in local runtime trace/provenance evidence linked to
+    # capability facts. Kept outside ``evidence`` so fingerprints,
+    # baselines, run IDs, and de-dupe identity do not churn.
+    capability_trace_refs: list[str] = Field(default_factory=list)
     recommendation: str
     # v0.16: explicit release-blocking signal for Action Surface Diff
     # policy findings. This is orthogonal to severity: advisory CI can
@@ -173,6 +268,43 @@ class ReleaseDecisionItem(BaseModel):
     # consumers ignore the fields.
     source: SourceReference | None = None
     policy_evidence_source: SourceReference | None = None
+    # v0.24: mirror Finding.capability_refs so release-decision consumers
+    # can audit policy blockers without joining against findings[].
+    capability_refs: list[str] = Field(default_factory=list)
+    # v0.25: mirror Finding.capability_trace_refs for blocker/review rows.
+    capability_trace_refs: list[str] = Field(default_factory=list)
+
+
+class EvidenceGapAction(BaseModel):
+    """One concrete, mechanically-executable step that closes a gap.
+
+    Mirrors the agent-mode ``next_actions[]`` error shape
+    (``kind``/``command``/``path``/``why``/``expects``) so agents reuse
+    one routing vocabulary across error recovery and evidence repair.
+    """
+
+    kind: Literal["declare_tool_inventory", "provide_source", "review_warning"]
+    command: str | None = None
+    path: str | None = None
+    why: str
+    expects: str
+
+
+class EvidenceGap(BaseModel):
+    """v0.26: one structured row per measurable evidence gap.
+
+    ``insufficient_evidence`` previously diagnosed without prescribing;
+    each gap names the degraded subject and the specific next action
+    that raises extraction confidence. Purely explanatory — gating
+    still uses only the counts (the gap list is a projection of them).
+    """
+
+    kind: Literal["low_confidence_tool", "source_warning"]
+    subject: str
+    source_type: str | None = None
+    source_ref: str | None = None
+    why: str
+    next_action: EvidenceGapAction
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -180,6 +312,10 @@ class EvidenceCoverageDecision(BaseModel):
     human_review_recommended: bool
     source_warning_count: int
     low_confidence_tool_count: int
+    # v0.26: structured per-gap remediation rows; a deterministic
+    # projection of the two counts above. Default empty so older
+    # payloads load as baselines unchanged.
+    evidence_gaps: list[EvidenceGap] = Field(default_factory=list)
 
 
 class BaselineDelta(BaseModel):
@@ -636,7 +772,22 @@ class ReadinessReport(BaseModel):
     # (``release_decision.decision`` remains the only gate). Emitted as
     # deterministic projections or empty/default shapes when no evidence
     # exists; older consumers ignore them.
-    report_schema_version: str = "0.22"
+    # v0.23: additive semantic metadata on capability_change members.
+    # Existing buckets and summary counts stay intact; new fields explain
+    # the capability-hash / semantic reason behind each row when proven.
+    # v0.24: additive capability-native policy/evidence fields on findings
+    # and release-decision items. release_decision.decision remains the
+    # only release gate.
+    # v0.25: additive opt-in local runtime trace/provenance evidence
+    # linked to capability facts. Runtime trace evidence is declared
+    # local audit metadata only; it is not live collection and it is not
+    # part of the static capability lock envelope.
+    # v0.26: additive structured evidence gaps
+    # (``release_decision.evidence_coverage.evidence_gaps[]``) — one
+    # actionable remediation row per low-confidence tool / source
+    # warning, plus the advisory ``suggested-inventory.json`` artifact.
+    # Pure projection of existing counts; gate behavior unchanged.
+    report_schema_version: str = "0.26"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -668,6 +819,9 @@ class ReadinessReport(BaseModel):
     # static tool surface plus optional manifest action declarations.
     action_surface_facts: ActionSurfaceFacts = Field(default_factory=ActionSurfaceFacts)
     action_surface_diff: ActionSurfaceDiff = Field(default_factory=ActionSurfaceDiff)
+    capability_runtime_evidence: CapabilityRuntimeEvidence = Field(
+        default_factory=CapabilityRuntimeEvidence
+    )
     api_surface: dict[str, Any] | None = None
     anthropic_surface: dict[str, Any] | None = None
     frameworks: dict[str, Any] = Field(default_factory=dict)

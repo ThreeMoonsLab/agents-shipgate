@@ -1,0 +1,390 @@
+{
+  "$defs": {
+    "CapabilityExpectationV1": {
+      "additionalProperties": false,
+      "description": "One benchmark assertion over a capability-lock diff bucket.",
+      "properties": {
+        "broad_scope": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Broad Scope"
+        },
+        "bucket": {
+          "enum": [
+            "added",
+            "removed",
+            "changed",
+            "reidentified",
+            "evidence_changed"
+          ],
+          "title": "Bucket",
+          "type": "string"
+        },
+        "changed_hashes_contains": {
+          "items": {
+            "enum": [
+              "identity_hash",
+              "effect_hash",
+              "authority_hash",
+              "control_hash",
+              "schema_hash",
+              "risk_hash",
+              "evidence_hash"
+            ],
+            "type": "string"
+          },
+          "title": "Changed Hashes Contains",
+          "type": "array"
+        },
+        "code_execution": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Execution"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "write",
+                "destructive",
+                "external_communication",
+                "financial_write",
+                "production_operation",
+                "privileged_data_access",
+                "code_execution",
+                "identity_access"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "financial": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Financial"
+        },
+        "high_risk": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "High Risk"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "risk_tags_contains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags Contains",
+          "type": "array"
+        },
+        "scope_absent": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope Absent",
+          "type": "array"
+        },
+        "scope_contains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope Contains",
+          "type": "array"
+        },
+        "semantic_change_fields_contains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Semantic Change Fields Contains",
+          "type": "array"
+        },
+        "semantic_direction": {
+          "anyOf": [
+            {
+              "enum": [
+                "added",
+                "removed",
+                "broadened",
+                "narrowed",
+                "mixed",
+                "unknown",
+                "evidence_only"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Direction"
+        },
+        "side": {
+          "default": "after",
+          "enum": [
+            "before",
+            "after",
+            "either"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "bucket"
+      ],
+      "title": "CapabilityExpectationV1",
+      "type": "object"
+    },
+    "GovernanceBenchmarkCaseV1": {
+      "additionalProperties": false,
+      "description": "One governance case from the benchmark catalog.",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "capability_expectations": {
+          "items": {
+            "$ref": "#/$defs/CapabilityExpectationV1"
+          },
+          "title": "Capability Expectations",
+          "type": "array"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "blocked",
+            "review_required",
+            "insufficient_evidence",
+            "passed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "fixture": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fixture"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "merge_verdict": {
+          "enum": [
+            "mergeable",
+            "human_review_required",
+            "insufficient_evidence",
+            "blocked",
+            "unknown"
+          ],
+          "title": "Merge Verdict",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "enum": [
+              "unsafe_merge_prevention",
+              "safe_pass_rate",
+              "authority_routing",
+              "explanation_usefulness",
+              "remediation_boundary",
+              "capability_semantic_fidelity"
+            ],
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "next_actor": {
+          "enum": [
+            "human",
+            "coding_agent"
+          ],
+          "title": "Next Actor",
+          "type": "string"
+        },
+        "status": {
+          "default": "catalog_only",
+          "enum": [
+            "executable",
+            "catalog_only",
+            "external_evidence"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "title",
+        "decision",
+        "merge_verdict",
+        "next_actor"
+      ],
+      "title": "GovernanceBenchmarkCaseV1",
+      "type": "object"
+    },
+    "GovernanceBenchmarkCatalogV1": {
+      "additionalProperties": false,
+      "description": "Executable governance benchmark catalog.",
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/GovernanceBenchmarkCaseV1"
+          },
+          "title": "Cases",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "enum": [
+              "unsafe_merge_prevention",
+              "safe_pass_rate",
+              "authority_routing",
+              "explanation_usefulness",
+              "remediation_boundary",
+              "capability_semantic_fidelity"
+            ],
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "metrics",
+        "cases"
+      ],
+      "title": "GovernanceBenchmarkCatalogV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json",
+  "$ref": "#/$defs/GovernanceBenchmarkCatalogV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Stable JSON Schema for the AgentPR governance benchmark catalog. Generated from agents_shipgate.schemas.governance_benchmark. It is an eval substrate and does not gate releases.",
+  "title": "Agents Shipgate Governance Benchmark Catalog v0.2"
+}

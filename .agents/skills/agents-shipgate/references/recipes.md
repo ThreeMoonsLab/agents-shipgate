@@ -2,6 +2,34 @@
 
 Use these recipes after the `agents-shipgate` skill triggers.
 
+## CLI Preflight
+
+The Codex plugin supplies the workflow instructions, not the scanner binary.
+Before running `agents-shipgate` commands, confirm the CLI is installed and new
+enough for the `verify` workflow:
+
+```bash
+command -v agents-shipgate
+agents-shipgate --version
+```
+
+Require `agents-shipgate >=0.12.0`. If the command is missing or the version is
+older, ask the user to install or upgrade the CLI and rerun the task:
+
+```bash
+pipx install agents-shipgate
+pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
+```
+
+If `pipx` is unavailable, use:
+
+```bash
+python -m pip install -U "agents-shipgate>=0.12"
+```
+
+After installation, run `agents-shipgate --version` again. Do not continue to
+`detect`, `init`, `scan`, or `verify` until the CLI exists and is `>=0.12.0`.
+
 ## Decide Relevance
 
 Run:
@@ -47,14 +75,13 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
   --workspace . --base origin/main --head HEAD --json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
-  --ci-mode advisory --format json
+  --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-For local pre-commit work, omit `--head` and omit `--base` unless the base ref
-exists locally so `verify` scans the checked-out working tree, including
-uncommitted edits. In committed PR or CI contexts, add
-`--base origin/main --head HEAD` after making the base ref available. If you
-pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
+For local uncommitted work, omit `--head` and omit `--base` so `verify` scans
+the checked-out working tree, including uncommitted edits. In committed PR or
+CI contexts, make the base ref available first because `verify` never fetches.
+If you pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
 
 Read `agents-shipgate-reports/verifier.json` first. Lead with
 `merge_verdict`, then inspect `capability_review.top_changes[]`,

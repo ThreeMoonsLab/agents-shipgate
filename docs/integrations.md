@@ -23,12 +23,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.12.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.12.0'
 ```
 
 To post PR comments, set:
@@ -50,11 +50,31 @@ with:
   policy_packs: policies/org-release.yaml,policies/security.yaml
 ```
 
+To make the compact agent decision load-bearing in CI, configure
+`fail_on_decisions`. Recommended values are `block` or
+`block,require_review`:
+
+```yaml
+with:
+  fail_on_decisions: block
+```
+
+This is opt-in. When configured, the action fails closed if the installed
+`agents-shipgate` package does not emit `agent-result.json`, so pinned older
+versions should be upgraded before enabling the input.
+
 Action outputs:
 
 | Output | Meaning |
 | --- | --- |
-| `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Prefer this over `status` for gating.** Switch on the value with a `review_required` fallback for unknown future values. |
+| `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Use this as the CI gating signal.** Switch on the value with a `review_required` fallback for unknown future values. |
+| `agent_decision` | Compact `agent_result_v1` projection (`allow`, `warn`, `require_review`, or `block`) from `agent-result.json`. Used by `fail_on_decisions` when configured. |
+| `risk_level` | Compact risk level from `agent-result.json` (`none`, `low`, `medium`, `high`, or `critical`). |
+| `audit_id` | Stable audit id from `agent-result.json`. |
+| `required_reviewers` | Comma-separated deterministic reviewer roles from `agent-result.json`. |
+| `policy_snapshot_sha256` | SHA-256 of the effective policy snapshot used by `agent-result.json`, when available. |
+| `merge_verdict` | PR/controller projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Use it for reviewer and coding-agent routing, not as a second gate. |
+| `can_merge_without_human` | `true` only when the verifier projection says no human authority gap remains. Use for strict authority workflows after the advisory result is understood. |
 | `blocker_count` | Number of blockers in `release_decision.blockers`. v0.8+. |
 | `review_item_count` | Number of review items in `release_decision.review_items`. v0.8+. |
 | `ci_would_fail` | `true`/`false` — whether the active fail policy would fail CI. v0.8+. |
@@ -71,17 +91,24 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
+| `agent_result_json` | Path to `agent-result.json`, which validates against [`agent-result-schema.v1.json`](agent-result-schema.v1.json). |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
 
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
-packet JSON, verifier JSON, and PR-comment Markdown artifacts. It intentionally
-emits `packet.json` only for the packet; `pr-comment.md` is the human PR
-surface. Verify never fetches; use `fetch-depth: 0` on checkout or fetch the
-base ref before the action when `diff_base: target` is set. An explicit
+packet JSON, verifier JSON, `agent-result.json`, and PR-comment Markdown
+artifacts. It intentionally emits `packet.json` only for the packet;
+`pr-comment.md` is the human PR surface. Read `verifier.json` first for `merge_verdict`,
+`can_merge_without_human`, `first_next_action`, and
+`capability_review.top_changes`; read `report.json.release_decision.decision`
+for the gate. Verify never fetches; use `fetch-depth: 0` on checkout or fetch
+the base ref before the action when `diff_base: target` is set. An explicit
 `head_ref` is scanned from an isolated archive; without it, the checked-out
 workspace is scanned. Upload `report.sarif` to GitHub code scanning from your
-workflow if you want SARIF annotations.
+workflow if you want SARIF annotations. Policy-pack findings use stable policy
+rule IDs as SARIF `ruleId` values when present, so the first upgrade run can
+close/reopen existing GitHub code-scanning alerts whose identity was previously
+the built-in Shipgate check ID.
 
 For source-only testing in this repository:
 
@@ -152,7 +179,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.11.0"
+    - python -m pip install "agents-shipgate==0.12.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -184,7 +211,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.11.0"
+      - run: python -m pip install "agents-shipgate==0.12.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -213,7 +240,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.11.0
+    rev: v0.12.0
     hooks:
       - id: agents-shipgate
 ```
@@ -234,6 +261,7 @@ repos:
             shipgate\.yaml|
             .*tools.*\.json|
             .*mcp.*\.json|
+            (.*/)?\.codex/(config\.toml|hooks\.json)|
             .*\.codex-plugin/.*|
             .*\.agents/plugins/.*|
             .*\.app\.json|
@@ -247,4 +275,4 @@ repos:
           )$
 ```
 
-The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex plugin package files (`.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md`), `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered — pre-commit's `files:` regex is purely path-based. Use the GitHub Action for full trigger coverage on PRs, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.
+The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex repo config (`.codex/config.toml`, `.codex/hooks.json`), Codex plugin package files (`.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md`), `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered — pre-commit's `files:` regex is purely path-based. Use the GitHub Action for full trigger coverage on PRs, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.

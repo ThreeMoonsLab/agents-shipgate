@@ -11,10 +11,28 @@ Writes / verifies:
 - docs/report-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.report.ReadinessReport;
                                  minor derived from report_schema_version default)
+- docs/policy-pack-schema.v0.1.json
+                                (from agents_shipgate.schemas.policy_pack.
+                                 PolicyPackArtifactV1)
 - docs/packet-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
+- docs/agent-result-schema.v1.json
+                                (from agents_shipgate.schemas.agent_result_v1.
+                                 AgentResultV1)
+- docs/capability-lock-schema.v0.2.json
+                                (from agents_shipgate.schemas.capabilities.
+                                 CapabilityLockFileArtifactV1)
+- docs/capability-lock-diff-schema.v0.3.json
+                                (from agents_shipgate.schemas.capabilities.
+                                 CapabilityLockDiffArtifactV1)
+- docs/governance-benchmark-catalog-schema.v0.2.json
+                                (from agents_shipgate.schemas.governance_benchmark.
+                                 GovernanceBenchmarkCatalogArtifactV1)
+- docs/governance-benchmark-result-schema.v0.2.json
+                                (from agents_shipgate.schemas.governance_benchmark.
+                                 GovernanceBenchmarkResultArtifactV1)
 
 ``--check`` mode is the M4 trust-hardening gate: it generates each schema in
 memory (running the same post-processing as ``write``) and compares it to the
@@ -384,6 +402,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "blocks_release",
                 "suppressed",
                 "baseline_status",
+                "capability_refs",
                 # v0.12: deterministic projection field. Optional in
                 # Python (so test helpers can construct minimal Findings)
                 # but required + non-nullable on the wire — every
@@ -620,6 +639,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "title",
                 "baseline_status",
                 "blocks_release",
+                "capability_refs",
             ]
         )
     if "EvidenceCoverageDecision" in defs:
@@ -1057,6 +1077,43 @@ def write_report_schema(*, check_only: bool = False, drift: list[str] | None = N
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_policy_pack_schema() -> tuple[Path, str]:
+    """Generate docs/policy-pack-schema.v0.1.json from PolicyPackArtifactV1."""
+
+    from agents_shipgate.schemas.policy_pack import (
+        POLICY_PACK_SCHEMA_VERSION,
+        PolicyPackArtifactV1,
+    )
+
+    schema = PolicyPackArtifactV1.model_json_schema()
+    minor = POLICY_PACK_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/policy-pack-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Policy Pack v{minor}"
+    schema["description"] = (
+        "JSON Schema for local Agents Shipgate policy-pack YAML files. "
+        "Generated from agents_shipgate.schemas.policy_pack.PolicyPackArtifactV1. "
+        "Do not edit by hand."
+    )
+    target = DOCS / f"policy-pack-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def write_policy_pack_schema(
+    *, check_only: bool = False, drift: list[str] | None = None
+) -> bool:
+    target, content = build_policy_pack_schema()
+    return _emit(
+        target,
+        content,
+        check_only=check_only,
+        drift=drift if drift is not None else [],
+    )
+
+
 def build_checks_catalog() -> tuple[Path, str]:
     from agents_shipgate.checks.registry import check_catalog
 
@@ -1115,6 +1172,20 @@ def build_packet_schema() -> tuple[Path, str]:
         "JSON Schema for packet.json. Generated from "
         "agents_shipgate.schemas.packet.EvidencePacket. Do not edit by hand."
     )
+    # EvidencePacket intentionally reuses report ReleaseDecisionItem models for
+    # in-memory building, but packet v0.6 serialization strips v0.24's
+    # report-only capability_refs field. Keep the generated packet schema
+    # aligned with the packet wire contract unless packet_schema_version bumps.
+    release_item = schema.get("$defs", {}).get("ReleaseDecisionItem")
+    if isinstance(release_item, dict):
+        properties = release_item.get("properties")
+        if isinstance(properties, dict):
+            properties.pop("capability_refs", None)
+        required = release_item.get("required")
+        if isinstance(required, list):
+            release_item["required"] = [
+                item for item in required if item != "capability_refs"
+            ]
     target = DOCS / f"packet-schema.v{minor}.json"
     return target, _canonical_json(schema)
 
@@ -1150,14 +1221,194 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def build_agent_result_schema() -> tuple[Path, str]:
+    """Generate docs/agent-result-schema.v1.json from AgentResultV1."""
+
+    from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+
+    schema = AgentResultV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/agent-result-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Result v1"
+    schema["description"] = (
+        "JSON Schema for shipgate check --format agent-json and "
+        "agents-shipgate-reports/agent-result.json. Generated from "
+        "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
+    )
+    target = DOCS / "agent-result-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_lock_schema() -> tuple[Path, str]:
+    """Generate the stable capability-lock schema."""
+
+    from agents_shipgate.schemas.capabilities import (
+        CAPABILITY_LOCK_SCHEMA_VERSION,
+        CapabilityLockFileArtifactV1,
+    )
+
+    schema = CapabilityLockFileArtifactV1.model_json_schema()
+    minor = CAPABILITY_LOCK_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-lock-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Capability Lock v{minor}"
+    schema["description"] = (
+        "Stable JSON Schema for static capability lock artifacts. Generated "
+        "from agents_shipgate.schemas.capabilities. It is non-gating and is "
+        "not part of report.json; release_decision.decision remains the only "
+        "gate."
+    )
+    target = DOCS / f"capability-lock-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_lock_diff_schema() -> tuple[Path, str]:
+    """Generate the stable capability-lock diff schema."""
+
+    from agents_shipgate.schemas.capabilities import (
+        CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        CapabilityLockDiffArtifactV1,
+    )
+
+    schema = CapabilityLockDiffArtifactV1.model_json_schema()
+    minor = CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-lock-diff-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Capability Lock Diff v{minor}"
+    schema["description"] = (
+        "Stable JSON Schema for semantic capability lock diff artifacts. "
+        "Generated from agents_shipgate.schemas.capabilities. It is "
+        "non-gating and is not part of report.json; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"capability-lock-diff-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def write_capability_lock_schema(
+    *, check_only: bool = False, drift: list[str] | None = None
+) -> bool:
+    target, content = build_capability_lock_schema()
+    return _emit(
+        target,
+        content,
+        check_only=check_only,
+        drift=drift if drift is not None else [],
+    )
+
+
+def write_capability_lock_diff_schema(
+    *, check_only: bool = False, drift: list[str] | None = None
+) -> bool:
+    target, content = build_capability_lock_diff_schema()
+    return _emit(
+        target,
+        content,
+        check_only=check_only,
+        drift=drift if drift is not None else [],
+    )
+
+
+def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
+    """Generate the stable governance-benchmark catalog schema."""
+
+    from agents_shipgate.schemas.governance_benchmark import (
+        GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+        GovernanceBenchmarkCatalogArtifactV1,
+    )
+
+    schema = GovernanceBenchmarkCatalogArtifactV1.model_json_schema()
+    minor = GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/governance-benchmark-catalog-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Governance Benchmark Catalog v{minor}"
+    schema["description"] = (
+        "Stable JSON Schema for the AgentPR governance benchmark catalog. "
+        "Generated from agents_shipgate.schemas.governance_benchmark. "
+        "It is an eval substrate and does not gate releases."
+    )
+    target = DOCS / f"governance-benchmark-catalog-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_governance_benchmark_result_schema() -> tuple[Path, str]:
+    """Generate the stable governance-benchmark result schema."""
+
+    from agents_shipgate.schemas.governance_benchmark import (
+        GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+        GovernanceBenchmarkResultArtifactV1,
+    )
+
+    schema = GovernanceBenchmarkResultArtifactV1.model_json_schema()
+    minor = GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/governance-benchmark-result-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Governance Benchmark Result v{minor}"
+    schema["description"] = (
+        "Stable JSON Schema for governance benchmark result artifacts. "
+        "Generated from agents_shipgate.schemas.governance_benchmark. "
+        "It is an eval substrate and does not gate releases."
+    )
+    target = DOCS / f"governance-benchmark-result-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_attestation_schema() -> tuple[Path, str]:
+    """Generate the release attestation schema."""
+
+    from agents_shipgate.schemas.attestation import (
+        ATTESTATION_SCHEMA_VERSION,
+        ReleaseAttestationArtifactV1,
+    )
+
+    schema = ReleaseAttestationArtifactV1.model_json_schema()
+    minor = ATTESTATION_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/attestation-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Release Attestation v{minor}"
+    schema["description"] = (
+        "JSON Schema for deterministic, local release attestations emitted by "
+        "agents-shipgate attest. It binds verifier/report artifacts plus "
+        "static capability lock/diff hashes when available. It does not gate; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"attestation-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("manifest", build_manifest_schema),
     ("checks_catalog", build_checks_catalog),
     ("report", build_report_schema),
+    ("policy_pack", build_policy_pack_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
+    ("agent_result", build_agent_result_schema),
+    ("capability_lock", build_capability_lock_schema),
+    ("capability_lock_diff", build_capability_lock_diff_schema),
+    ("attestation", build_attestation_schema),
+    ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
+    ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )
 
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.22",
+  "report_schema_version": "0.26",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -107,7 +107,11 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_approval_for_tools"
-        }
+        },
+        "capability_refs": [
+          "cap_c80f118600dfb076"
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_dac8011e14c53777",
@@ -136,7 +140,9 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
-        }
+        },
+        "capability_refs": [],
+        "capability_trace_refs": []
       }
     ],
     "review_items": [
@@ -158,7 +164,9 @@
           "start_column": null,
           "pointer": "/wildcard"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_ab60b01cb53cfcbe",
@@ -178,7 +186,9 @@
           "start_column": 5,
           "pointer": "/paths/~1refunds/post"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_ff2f028953d1c220",
@@ -198,7 +208,9 @@
           "start_column": 5,
           "pointer": "/paths/~1tickets~1{ticket_id}/patch"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_acd63b899d49aa1c",
@@ -218,7 +230,9 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_85f8513ad72cd9ea",
@@ -238,7 +252,9 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_d27325cbdbbf5483",
@@ -258,7 +274,9 @@
           "start_column": null,
           "pointer": "/permissions/scopes"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_83852fbd6b440524",
@@ -278,7 +296,9 @@
           "start_column": 5,
           "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_d8e6d1865dae97cc",
@@ -298,7 +318,9 @@
           "start_column": null,
           "pointer": "/tools/0"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_1f6cfd6b7daa9b7c",
@@ -318,7 +340,9 @@
           "start_column": null,
           "pointer": "/tools/1"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_12985c36a06026de",
@@ -347,7 +371,9 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/agent/prohibited_actions/0"
-        }
+        },
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_e090c62e390e70ab",
@@ -376,7 +402,9 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/agent/prohibited_actions/2"
-        }
+        },
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_a62ca2fd9a68a1d1",
@@ -405,7 +433,11 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_confirmation_for_tools"
-        }
+        },
+        "capability_refs": [
+          "cap_c80f118600dfb076"
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_8e08a4fe6b0917f6",
@@ -434,7 +466,11 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_confirmation_for_tools"
-        }
+        },
+        "capability_refs": [
+          "cap_744255729df4139a"
+        ],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_0f8aaa912d589cf0",
@@ -463,7 +499,9 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
-        }
+        },
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_fd2577850cef1f87",
@@ -483,7 +521,9 @@
           "start_column": 5,
           "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       },
       {
         "id": "fp_39b9ae878f343d1b",
@@ -503,14 +543,46 @@
           "start_column": null,
           "pointer": null
         },
-        "policy_evidence_source": null
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
       }
     ],
     "evidence_coverage": {
       "level": "mixed",
       "human_review_recommended": true,
       "source_warning_count": 1,
-      "low_confidence_tool_count": 1
+      "low_confidence_tool_count": 1,
+      "evidence_gaps": [
+        {
+          "kind": "low_confidence_tool",
+          "subject": "send_email_preview",
+          "source_type": "sdk_function",
+          "source_ref": "agents/refund_agent.py:5",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "provide_source",
+            "command": null,
+            "path": null,
+            "why": "sdk_function extraction could not fully enumerate this tool surface.",
+            "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan."
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "MCP source declares wildcard tool exposure",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan."
+          }
+        }
+      ]
     },
     "baseline_delta": {
       "enabled": false,
@@ -2093,6 +2165,23 @@
       "No action-surface comparison source was provided."
     ]
   },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {},
@@ -2123,6 +2212,9 @@
         "pointer": "/wildcard"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
       "blocks_release": false,
       "suppressed": false,
@@ -2160,6 +2252,9 @@
         "pointer": "/paths/~1refunds/post"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy.",
       "blocks_release": false,
       "suppressed": false,
@@ -2197,6 +2292,9 @@
         "pointer": "/paths/~1tickets~1{ticket_id}/patch"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
       "suppressed": false,
@@ -2232,6 +2330,9 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Constrain gmail.send_customer_email.body with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
       "suppressed": false,
@@ -2266,6 +2367,9 @@
         "location": "agents/refund_agent.py:5"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context.",
       "blocks_release": false,
       "suppressed": false,
@@ -2303,6 +2407,9 @@
         "pointer": "/permissions/scopes"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2349,6 +2456,9 @@
         "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2393,6 +2503,9 @@
         "pointer": "/tools/0"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2437,6 +2550,9 @@
         "pointer": "/tools/1"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add the required scopes for gmail.send_customer_email to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
       "suppressed": false,
@@ -2487,6 +2603,9 @@
         "start_column": null,
         "pointer": "/agent/prohibited_actions/0"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -2534,6 +2653,9 @@
         "start_column": null,
         "pointer": "/agent/prohibited_actions/2"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove gmail.send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
       "suppressed": false,
@@ -2584,6 +2706,88 @@
         "start_column": null,
         "pointer": "/policies/require_approval_for_tools"
       },
+      "capability_refs": [
+        "cap_c80f118600dfb076"
+      ],
+      "capability_policy_evidence": {
+        "capability_id": "cap_c80f118600dfb076",
+        "identity": {
+          "agent_id": "agent:support-refund-agent/refund-assistant",
+          "tool_id": "tool:stripe.create_refund",
+          "tool_name": "stripe.create_refund",
+          "provider": "support_openapi",
+          "operation": "POST /refunds",
+          "subject_kind": "action",
+          "resource": [
+            "refunds"
+          ],
+          "scope": [
+            "stripe:refunds:write"
+          ]
+        },
+        "effect": {
+          "effect": "financial_write",
+          "externally_visible": true,
+          "handles_sensitive_data": false,
+          "financial": true,
+          "code_execution": false,
+          "reversibility": "unknown",
+          "idempotency_known": null,
+          "high_risk": true
+        },
+        "authority": {
+          "auth_type": "oauth2",
+          "credential_mode": null,
+          "source": "openapi",
+          "scopes": [
+            "stripe:refunds:write"
+          ],
+          "broad_scopes": []
+        },
+        "controls": {
+          "approval_required": false,
+          "approval_threshold": null,
+          "confirmation_required": false,
+          "safeguard_idempotency": false,
+          "safeguard_audit_log": null,
+          "safeguard_rollback": null,
+          "safeguard_dry_run": null,
+          "evidence_owner": "payments-platform",
+          "evidence_runbook": null,
+          "evidence_approval_ticket": null,
+          "effective_approval_required": false,
+          "effective_confirmation_required": false,
+          "effective_idempotency_known": false
+        },
+        "hashes": {
+          "identity_hash": "c80f118600dfb076",
+          "effect_hash": "3c5583f4a13cb1e3",
+          "authority_hash": "6e21fff4f82c6ab8",
+          "control_hash": "66ca58b2f8d2e5bb",
+          "schema_hash": "81d9efbadca5ea8c",
+          "risk_hash": "b9302728ac0d5ac2",
+          "evidence_hash": "f6258f0ba9eb05b2"
+        },
+        "matched_predicates": {
+          "missing_approval_policy": true,
+          "risk_tags": [
+            "external_write",
+            "financial_action",
+            "write"
+          ]
+        },
+        "source": {
+          "type": "openapi",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "start_line": 97,
+          "end_line": null,
+          "start_column": 5,
+          "pointer": "/paths/~1refunds/post"
+        }
+      },
+      "capability_trace_refs": [],
       "recommendation": "Declare an approval policy for stripe.create_refund or remove this tool from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2634,6 +2838,88 @@
         "start_column": null,
         "pointer": "/policies/require_confirmation_for_tools"
       },
+      "capability_refs": [
+        "cap_c80f118600dfb076"
+      ],
+      "capability_policy_evidence": {
+        "capability_id": "cap_c80f118600dfb076",
+        "identity": {
+          "agent_id": "agent:support-refund-agent/refund-assistant",
+          "tool_id": "tool:stripe.create_refund",
+          "tool_name": "stripe.create_refund",
+          "provider": "support_openapi",
+          "operation": "POST /refunds",
+          "subject_kind": "action",
+          "resource": [
+            "refunds"
+          ],
+          "scope": [
+            "stripe:refunds:write"
+          ]
+        },
+        "effect": {
+          "effect": "financial_write",
+          "externally_visible": true,
+          "handles_sensitive_data": false,
+          "financial": true,
+          "code_execution": false,
+          "reversibility": "unknown",
+          "idempotency_known": null,
+          "high_risk": true
+        },
+        "authority": {
+          "auth_type": "oauth2",
+          "credential_mode": null,
+          "source": "openapi",
+          "scopes": [
+            "stripe:refunds:write"
+          ],
+          "broad_scopes": []
+        },
+        "controls": {
+          "approval_required": false,
+          "approval_threshold": null,
+          "confirmation_required": false,
+          "safeguard_idempotency": false,
+          "safeguard_audit_log": null,
+          "safeguard_rollback": null,
+          "safeguard_dry_run": null,
+          "evidence_owner": "payments-platform",
+          "evidence_runbook": null,
+          "evidence_approval_ticket": null,
+          "effective_approval_required": false,
+          "effective_confirmation_required": false,
+          "effective_idempotency_known": false
+        },
+        "hashes": {
+          "identity_hash": "c80f118600dfb076",
+          "effect_hash": "3c5583f4a13cb1e3",
+          "authority_hash": "6e21fff4f82c6ab8",
+          "control_hash": "66ca58b2f8d2e5bb",
+          "schema_hash": "81d9efbadca5ea8c",
+          "risk_hash": "b9302728ac0d5ac2",
+          "evidence_hash": "f6258f0ba9eb05b2"
+        },
+        "matched_predicates": {
+          "missing_confirmation_policy": true,
+          "risk_tags": [
+            "external_write",
+            "financial_action",
+            "write"
+          ]
+        },
+        "source": {
+          "type": "openapi",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "start_line": 97,
+          "end_line": null,
+          "start_column": 5,
+          "pointer": "/paths/~1refunds/post"
+        }
+      },
+      "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2681,6 +2967,87 @@
         "start_column": null,
         "pointer": "/policies/require_confirmation_for_tools"
       },
+      "capability_refs": [
+        "cap_744255729df4139a"
+      ],
+      "capability_policy_evidence": {
+        "capability_id": "cap_744255729df4139a",
+        "identity": {
+          "agent_id": "agent:support-refund-agent/refund-assistant",
+          "tool_id": "tool:gmail.send_customer_email",
+          "tool_name": "gmail.send_customer_email",
+          "provider": "support_mcp_tools",
+          "operation": "gmail.send_customer_email",
+          "subject_kind": "action",
+          "resource": [
+            "send"
+          ],
+          "scope": [
+            "gmail:send"
+          ]
+        },
+        "effect": {
+          "effect": "financial_write",
+          "externally_visible": true,
+          "handles_sensitive_data": false,
+          "financial": true,
+          "code_execution": false,
+          "reversibility": "unknown",
+          "idempotency_known": null,
+          "high_risk": true
+        },
+        "authority": {
+          "auth_type": "oauth2",
+          "credential_mode": null,
+          "source": "mcp",
+          "scopes": [
+            "gmail:send"
+          ],
+          "broad_scopes": []
+        },
+        "controls": {
+          "approval_required": false,
+          "approval_threshold": null,
+          "confirmation_required": false,
+          "safeguard_idempotency": false,
+          "safeguard_audit_log": null,
+          "safeguard_rollback": null,
+          "safeguard_dry_run": null,
+          "evidence_owner": "support-platform",
+          "evidence_runbook": null,
+          "evidence_approval_ticket": null,
+          "effective_approval_required": false,
+          "effective_confirmation_required": false,
+          "effective_idempotency_known": false
+        },
+        "hashes": {
+          "identity_hash": "744255729df4139a",
+          "effect_hash": "3c5583f4a13cb1e3",
+          "authority_hash": "a1b77bb3e2f8e4a5",
+          "control_hash": "1230dbbe2d78c7d5",
+          "schema_hash": "8c76077daf4af98a",
+          "risk_hash": "35fc3fe5043a958a",
+          "evidence_hash": "75482be922afd565"
+        },
+        "matched_predicates": {
+          "missing_confirmation_policy": true,
+          "risk_tags": [
+            "customer_communication",
+            "external_write"
+          ]
+        },
+        "source": {
+          "type": "mcp",
+          "ref": ".agents-shipgate/mcp-tools.json",
+          "location": null,
+          "path": ".agents-shipgate/mcp-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/1"
+        }
+      },
+      "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for gmail.send_customer_email or remove this action from the release.",
       "blocks_release": false,
       "suppressed": false,
@@ -2731,6 +3098,9 @@
         "start_column": null,
         "pointer": "/policies/require_idempotency_for_tools"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund.",
       "blocks_release": false,
       "suppressed": false,
@@ -2778,6 +3148,9 @@
         "start_column": null,
         "pointer": "/policies/require_idempotency_for_tools"
       },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for gmail.send_customer_email.",
       "blocks_release": false,
       "suppressed": false,
@@ -2818,6 +3191,9 @@
         "pointer": "/paths/~1orders~1{order_id}~1cancel/post"
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
       "suppressed": false,
@@ -2857,6 +3233,9 @@
         "location": null
       },
       "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "capability_trace_refs": [],
       "recommendation": "Remove unused manifest scopes or add tool metadata showing why they are required.",
       "blocks_release": false,
       "suppressed": false,
@@ -2880,10 +3259,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "json": "/private/tmp/claude-501/tmpa4lg2zvc/report.json",
-    "packet_md": "/private/tmp/claude-501/tmpa4lg2zvc/packet.md",
-    "packet_json": "/private/tmp/claude-501/tmpa4lg2zvc/packet.json",
-    "packet_html": "/private/tmp/claude-501/tmpa4lg2zvc/packet.html"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3045,7 +3422,7 @@
   ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt. 2 active findings block release.",
+    "headline": "2 active finding(s) block release; 16 review item(s) accepted as debt.",
     "blocker_count": 2,
     "review_item_count": 16,
     "auto_appliable_patches": 0,
@@ -3067,9 +3444,7 @@
     "redacted_paths": [],
     "output_surfaces": [
       "json",
-      "packet_html",
-      "packet_json",
-      "packet_md"
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

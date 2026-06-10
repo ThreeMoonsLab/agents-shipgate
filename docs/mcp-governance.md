@@ -1,0 +1,96 @@
+# MCP and Host-Permission Governance
+
+Two different MCP surfaces flow through Agents Shipgate, and they are
+governed by two different mechanisms. This page is the map.
+
+## Surface 1: the agent project's tool surface (what your AI agent can do)
+
+MCP **exports** declared in `shipgate.yaml` (`tool_sources: - type: mcp`)
+are scanned as the agent's tool inventory: schemas, scopes, approval /
+confirmation / idempotency policy coverage, wildcard exposure, risk tags.
+This is the original Tool-Use Readiness review — see
+[`manifest-v0.1.md`](manifest-v0.1.md) and [`checks.md`](checks.md).
+
+The capability delta between base and head (`capability_change` in
+`report.json`, plus the lock/diff artifacts from `agents-shipgate
+capability`) tracks how that tool surface changes per PR — see
+[`capability-standard.md`](capability-standard.md).
+
+## Surface 2: the coding agent host's own grants (what your coding agent can do)
+
+A PR that edits the **host configuration** of a coding agent changes what
+that agent is allowed to do in your repo — without touching a single line
+of agent-product code. These files are capability grants:
+
+| File | Host | Grants |
+|---|---|---|
+| `.mcp.json` | Claude Code (project scope) | MCP servers: commands, URLs, env passthrough |
+| `.claude/settings.json`, `.claude/settings.local.json` | Claude Code | `permissions.allow` / `deny` rules, hooks, env |
+| `.cursor/mcp.json` | Cursor | MCP servers |
+| `.vscode/mcp.json` | VS Code | MCP servers |
+| `.codex/config.toml`, `.codex/hooks.json` | Codex | network profile, MCP auto-approval, hooks (see the `SHIP-CODEX-BOUNDARY-*` checks) |
+| `.github/workflows/*.yml` | CI | workflow `permissions:`, triggers |
+
+Two layers govern these:
+
+1. **Trust-root flagging** (`SHIP-VERIFY-TRUST-ROOT-TOUCHED`): any change
+   to a protected surface routes the PR to human review. Suppression-
+   immune. This is the coarse layer — "a hand touched the boundary."
+2. **Host-boundary semantics** (`SHIP-HOST-BOUNDARY-*`, diff-aware, fires
+   only during `verify`): the change is parsed old-vs-new and classified.
+   This is the fine layer — "the boundary moved, in this direction."
+
+### Host-boundary checks
+
+| Check | Fires when | Outcome |
+|---|---|---|
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | A new MCP server appears in `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json` | human review |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | An existing server's `command` / `args` / `url` / `env` keys change | human review |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | A wildcard-shaped rule (e.g. `Bash(*)`) is added to `permissions.allow` | **blocked** |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | Any new `permissions.allow` entry | human review |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | A `permissions.deny` entry is removed | human review |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | Claude Code hooks added or modified | human review |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | A workflow gains `permissions: write-all` | **blocked** |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | A workflow scope moves `read` → `write` or gains a new write scope | human review |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | A workflow gains the `pull_request_target` trigger | human review (critical) |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | A changed host config cannot be parsed | human review (fail closed) |
+
+Like the `SHIP-VERIFY-*` and `SHIP-CODEX-BOUNDARY-*` families, these
+checks are **suppression-immune** (`checks.ignore` cannot hide them) and
+**floor-protected** (severity cannot be downgraded past the floor). The
+cheapest reward-hack — an agent granting itself `Bash(*)` or deleting the
+gate — is a blocking, unsuppressible finding.
+
+### What this is not
+
+- Not a runtime MCP gateway: nothing is intercepted at call time. The
+  governance runs at PR time on declared configuration.
+- Not server vetting: Shipgate flags that a server was added and what it
+  can reach; whether the server itself is trustworthy is a human review
+  question (pin versions, audit the package, restrict env passthrough).
+- Not a substitute for the OS sandbox: host grants are evaluated as
+  declared; runtime enforcement belongs to the host.
+
+## Reviewer guidance
+
+When `SHIP-HOST-BOUNDARY-*` fires, review like a permission request, not
+like code:
+
+1. **Who benefits?** A new MCP server / allow rule should map to a task
+   the team actually asked for.
+2. **Scope check.** Prefer `Bash(npm test:*)` over `Bash(*)`; prefer
+   explicit tool allowlists over server-wide approval; prefer `read` over
+   `write` workflow scopes.
+3. **Env passthrough.** Server `env` keys are listed in the finding
+   evidence (values are never copied). New secret-bearing keys deserve
+   the same scrutiny as a new credential.
+4. **`pull_request_target`.** Combined with checkout of PR code, this is
+   the classic CI secrets-exfiltration shape. Require a written
+   justification.
+
+## Zero-config audit
+
+To inventory host grants without a `shipgate.yaml` (for example, on a
+repo you are evaluating), see `agents-shipgate audit --host` — it reads
+the same host files and prints a one-page Markdown inventory without
+writing anything.

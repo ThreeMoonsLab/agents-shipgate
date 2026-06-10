@@ -532,6 +532,12 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
         f"<li>Provenance mode: "
         f"<code>{escape(section.provenance_mode)}</code></li>"
     )
+    summary = section.capability_trace_summary
+    parts.append(
+        "<li>Capability-linked trace rows: "
+        f"{summary.matched_trace_count}/{summary.trace_count} matched "
+        f"({summary.source_count} source(s))</li>"
+    )
     parts.append(f"<li>{escape(section.runtime_control_disclaimer)}</li>")
     parts.append("</ul>")
     if section.approval_required_tools:
@@ -547,9 +553,24 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
     if section.trace_findings:
         parts.append("<h3>HITL evidence gaps</h3><ul>")
         for item in section.trace_findings:
+            refs = ""
+            if item.capability_trace_refs:
+                refs = (
+                    "<br><span class=\"meta\">Trace refs: "
+                    f"{escape(', '.join(item.capability_trace_refs))}</span>"
+                )
             parts.append(
                 f"<li><code>{escape(item.check_id)}</code> "
-                f"({escape(item.severity)}): {escape(item.title)}</li>"
+                f"({escape(item.severity)}): {escape(item.title)}{refs}</li>"
+            )
+        parts.append("</ul>")
+    if section.capability_trace_refs:
+        parts.append("<h3>Capability trace refs</h3><ul>")
+        for ref in section.capability_trace_refs[:10]:
+            parts.append(f"<li><code>{escape(ref)}</code></li>")
+        if len(section.capability_trace_refs) > 10:
+            parts.append(
+                f"<li>+{len(section.capability_trace_refs) - 10} more</li>"
             )
         parts.append("</ul>")
     if section.source_provenance:

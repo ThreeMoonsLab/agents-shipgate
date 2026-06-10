@@ -26,6 +26,8 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate findings` (v0.20+) | `--from` (default: `agents-shipgate-reports/report.json`), `--provenance-kind`, `--include-suppressed`, `--json` |
 | `agents-shipgate trigger` (v0.11+) | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
+| `agents-shipgate capability export` | `--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`, `--json`, `--no-plugins`, `--verbose` |
+| `agents-shipgate capability diff` | `--base`, `--head`, `--out`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
 | `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |
@@ -70,6 +72,17 @@ Stable JSON fields:
   `ReadinessReport`.
 - `packet_schema_version` — current packet schema version from
   `EvidencePacket`.
+- `capability_lock_schema_version` — current stable capability lock schema
+  emitted by `agents-shipgate capability export`.
+- `capability_lock_diff_schema_version` — current stable semantic diff schema
+  emitted by `agents-shipgate capability diff`.
+- `capability_standard_version` — current capability standard version.
+- `governance_benchmark_catalog_schema_version` — current benchmark catalog
+  schema version.
+- `governance_benchmark_result_schema_version` — current benchmark result
+  schema version.
+- `external_integration_surfaces[]` — stable non-gating integration and
+  research surfaces exposed by the contract.
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
@@ -90,7 +103,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
-- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`)
+- `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`; `capability_refs` is v0.24+ audit metadata and is empty when no capability-policy subject matched; `capability_trace_refs` is v0.25+ local trace-evidence audit metadata and is empty when no local trace row matched)
 - `capability_facts[].{id, tool_name, source_type, source_ref, capability, risk_tags, auth_scopes, owner, included_reason, control_status, related_findings}` (v0.9+)
 - `declared_intentions[].{id, kind, text, source, intent_tags}` (v0.9+)
 - `misalignments[].{id, kind, severity, tool_name, capability_refs, intention_refs, finding_refs, policy_requirement, gap, release_implication}` (v0.9+)
@@ -106,8 +119,10 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].agent_action` (v0.12+) — deterministic projection of `patches`, `autofix_safe`, and `requires_human_review`. Enum: `auto_apply | propose_patch_for_review | escalate_to_human | suppress_with_reason | informational`. The first four cover the actionable cases; `informational` covers suppressed findings or non-actionable advisories. `suppress_with_reason` is reserved for future check classes that explicitly mark themselves as suppressible — the v0.12 deterministic projection does not emit it. New consumers should read `agent_action` first and treat the underlying flags as advisory.
 - `agent_summary.{verdict, headline, blocker_count, review_item_count, auto_appliable_patches, needs_human_review, first_recommended_action}` (v0.12+) — top-level deterministic projection of `release_decision` + per-finding `agent_action`. Lets a coding agent read one block instead of traversing arrays. `first_recommended_action` is `{kind: "command" | "info", command: string | null, why: string}`; the `command` form carries an actual CLI invocation, the `info` form is a "surface this to the user" hint. Same inputs always produce the same output; this block cannot disagree with the underlying `release_decision` and `findings[].agent_action`.
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` (v0.13+) — static Codex plugin package and marketplace facts. Only explicit MCP inventory tools enter `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in this surface block.
-- `findings[].provenance_kind` (v0.15+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. It is a reviewer triage/filter signal only: it never changes `release_decision`, severity, fingerprints, baselines, or CI exit behavior. Use `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic --json` to filter active findings by provenance class. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
+- `findings[].provenance_kind` (v0.15+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. It is a reviewer triage/filter signal only: it never changes `release_decision`, severity, fingerprints, baselines, or CI exit behavior. Use `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic,runtime_trace --json` to filter active findings by provenance class. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack | runtime_trace`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs; `runtime_trace` covers findings derived from declared local trace artifacts. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
 - `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Built-in and user-defined Action Surface Diff policies, plus declarative policy-pack rules with `block: true`, set it for findings that must block release when active and unbaselined; ordinary severity-based gating still works for existing checks.
+- `findings[].capability_refs` and optional `findings[].capability_policy_evidence` (v0.24+) — capability-native policy evidence for built-in policy checks and policy packs. `capability_refs` is required + always present (empty when no capability-policy subject matched). `capability_policy_evidence` is nullable and carries the matched capability identity, effect, authority, controls, hashes, matched predicates, and source provenance when present. These fields are explanatory only: they are not finding fingerprint inputs, do not affect baselines, and do not introduce a second gate.
+- `findings[].capability_trace_refs` and top-level `capability_runtime_evidence` (v0.25+) — opt-in local trace/provenance evidence linked to `CapabilityFactV1`. Trace refs are required + always present on findings (empty when no local trace row matched). The top-level block carries deterministic summary counts, matched/unmatched trace rows, source provenance, and notes. It is explanatory only: it is not a finding fingerprint input, does not affect baselines or run IDs, does not change capability lock export/diff schemas, and does not introduce a second gate.
 - `action_surface_facts.actions[]` (v0.16+) — deterministic current action snapshot: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, input fields, and stable hashes.
 - `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` (v0.16+) — reviewer-facing delta for what the agent can do vs. a prior report or v0.4 baseline. Policy findings derived from this diff can set `findings[].blocks_release=true` and affect `release_decision.decision` and strict-mode exit behavior.
 - `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present (defaults to `[]` for legacy reports loaded via `explain-finding`). Exactly one row per `report.findings` entry, including suppressed findings, so the audit set is exhaustive over the full findings list. `category` enum: `blocker | review_item | excluded`. `rule` enum: `policy_block_new | severity_block_new | policy_baseline_accepted | severity_baseline_accepted | review_required | sub_threshold | suppressed`. The (rule, category) pairs the gate can produce are exhaustively documented in [Release decision truth table](#release-decision-truth-table) below — reading the contribution rule is sufficient to predict the outcome for that finding without re-deriving the decision logic. The audit cannot disagree with `release_decision.{blockers,review_items}[]`: the same classification powers both. Adding `contribution_rules` does not change any existing behavior — `decision`, `blockers[]`, `review_items[]`, `fail_policy.exit_code`, and strict-mode exit codes are byte-identical to v0.16.
@@ -118,9 +133,9 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
 - `privacy_audit.{enabled, rules_version, sensitive_field_inventory_version, redacted_occurrence_count, redacted_paths, output_surfaces, notes}` (v0.18+) — top-level audit envelope proving the default-on privacy layer ran before public artifacts were emitted. `redacted_paths[]` contains `{path, count, kinds}` aggregate rows only; it never includes raw values or raw-value hashes. Redaction is best-effort pattern/key based and does not claim complete secret-scanner coverage.
 - `reviewer_summary.{verdict, headline, tool_surface_changes, capability_misalignments, action_surface_changes, evidence_matrix_gaps, severity_overrides_applied, severity_overrides_tier_crossed, privacy_redactions, baseline_integrity_issues, first_recommended_surface}` (v0.20+) — top-level deterministic projection of the reviewer lens surfaces and audit envelopes; the reviewer-side parallel to `agent_summary`. Required + always present on emitted scans (mirroring the `agent_summary` contract). `verdict` mirrors `release_decision.decision` and is added/removed in lockstep with `AgentSummary.verdict` and `ReleaseDecisionStatus`. `first_recommended_surface` is `{kind, name, path, why}` where `kind` ∈ `{release_decision, lens, audit, evidence_matrix}` and `name` ∈ `{tool_surface_diff, capability_intent_diff, action_surface_diff, evidence_matrix, policy_audit, privacy_audit, baseline_integrity, release_decision}`; the pointer is `null` only when verdict is `passed` AND every count above is zero. The priority order encoded by `first_recommended_surface` is documented in [`docs/agent-contract-current.md`](docs/agent-contract-current.md). Same inputs always produce the same output; this block cannot disagree with the underlying lens/audit data.
-- `heuristics_filter.{enabled, excluded_provenance_kinds, filtered_finding_count, filtered_by_kind}` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Required + always present on emitted scans regardless of whether the flag was set (envelope shape is stable). When `enabled` is `False` the count fields are zero and no findings have been mutated by the filter. When `enabled` is `True`, every finding whose `provenance_kind` is in `excluded_provenance_kinds` has been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision is built — those findings remain in `findings[]` for transparency but no longer gate release. `excluded_provenance_kinds` is the stable list `["keyword_heuristic", "regex_heuristic"]` (the only two `ProvenanceKind` values describing token/regex matches; `static_declaration`, `ast_extraction`, and `policy_pack` are never filtered). The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved verbatim when they overlap with the filter (the envelope still counts the overlap so reviewers see the filter's effective scope).
+- `heuristics_filter.{enabled, excluded_provenance_kinds, filtered_finding_count, filtered_by_kind}` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Required + always present on emitted scans regardless of whether the flag was set (envelope shape is stable). When `enabled` is `False` the count fields are zero and no findings have been mutated by the filter. When `enabled` is `True`, every finding whose `provenance_kind` is in `excluded_provenance_kinds` has been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision is built — those findings remain in `findings[]` for transparency but no longer gate release. `excluded_provenance_kinds` is the stable list `["keyword_heuristic", "regex_heuristic"]` (the only two `ProvenanceKind` values describing token/regex matches; `static_declaration`, `ast_extraction`, `policy_pack`, and `runtime_trace` are never filtered). The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved verbatim when they overlap with the filter (the envelope still counts the overlap so reviewers see the filter's effective scope).
 - `verifier_summary.{verdict, by_severity, by_reason_code, capability_delta_summary, protected_surface_touched, policy_weakened, human_ack_required, human_ack_satisfied, top_reason_codes}` (v0.22+) — top-level **composition** for the AI-coding-workflow verifier; the controller-facing one-fetch surface. Required + always present on emitted scans. Derives no independent verdict: `verdict` mirrors `release_decision.decision` and moves in lockstep with `AgentSummary.verdict` / `ReviewerSummary.verdict` / `ReleaseDecisionStatus`. `by_severity` / `by_reason_code` are active-finding histograms (the complete per-code map); `capability_delta_summary` (`{added, removed, broadened, narrowed}`) equals the `capability_change` member-list lengths by construction; `top_reason_codes[]` is the ranked top-five highlight (`{reason_code, count}`, ranked severity desc → count desc → code asc — the full set stays in `by_reason_code`). This block cannot introduce a finding-independent blocker.
-- `capability_change.{enabled, added, removed, broadened, narrowed}` (v0.22+) — diff-derived capability delta projected over `action_surface_diff` / `tool_surface_diff`. Required + always present (`enabled: false` with empty lists when no base diff is available). Each member is `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`; member lists are sorted by `(subject_kind, tool, action, scope, id)`. A reviewer-facing projection — it never gates on its own.
+- `capability_change.{enabled, added, removed, broadened, narrowed}` (v0.22+; semantic metadata v0.23+) — diff-derived capability delta projected over `action_surface_diff` / `tool_surface_diff`. Required + always present (`enabled: false` with empty lists when no base diff is available). Each member is `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`; member lists are sorted by `(subject_kind, tool, action, scope, id)`. A reviewer-facing projection — it never gates on its own.
 - `protected_surface_changes[]` (v0.22+) — list of touched release trust roots, each `{path, kind, glob, related_finding_ids}`, sorted by `(kind, path)`. Derived from active `SHIP-VERIFY-*` findings, so every `related_finding_ids` entry resolves to a real `findings[]` id and the rollup cannot disagree with the gate. Always present (empty `[]` on a plain scan or when no trust root is touched).
 - `effective_policy.{ci_mode, fail_on, suppressed_check_ids, waiver_scopes, severity_overrides, baseline_integrity_mode, baseline_fingerprints, ci_gate_present}` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison. Required + always present. Every list/dict is emitted sorted (`fail_on` by severity tier rank) for byte-stable output; derived from the manifest plus accepted-debt fingerprints.
 - `human_ack.{required, satisfied, acks, outstanding}` (v0.22+) — declared human-acknowledgement state. Required + always present (default `required=false`, `satisfied=true`, empty lists). Within the static boundary, acknowledgement is declared evidence only — never inferred. A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; `satisfied` only when a matching `human_ack` entry exists in `shipgate.yaml`. `acks[]` are `{owner, reason, affected_surface, expires, source}`; `outstanding[]` lists required-but-unacknowledged surfaces. The ack section lives in `shipgate.yaml` (a trust root) so adding one trips `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
@@ -381,9 +396,10 @@ tests on every CI run, not by convention:
     only. **Plus** one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled trigger catalog.
   - **`cli/verify/git.py`** — one shared `subprocess.run` helper invokes
-    local `git rev-parse`, `git diff`, `git ls-files`, and `git archive`
-    for verify base/head and working-tree orchestration. It never fetches,
-    uses fixed argv, captures output, and never executes user code.
+    local `git rev-parse`, `git diff`, `git ls-files`, `git show`, and
+    `git archive` for verify base/head and working-tree orchestration. It
+    never fetches, uses fixed argv, captures output, and never executes user
+    code.
   - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
     `git init`, `git config`, `git add`, `git commit`, and `git update-ref`
     against a temporary bundled fixture copy so
@@ -497,7 +513,7 @@ the entry was added:
   "severity": "high",
   "title": "…",
   "provenance": {
-    "scanner_version": "0.11.0",
+    "scanner_version": "0.12.0",
     "run_id": "agents_shipgate_…",
     "recorded_at": "2026-05-15T14:23:00Z",
     "reason": null,
@@ -608,6 +624,10 @@ consumer may read:
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate. Switch on the enum with
   an `unknown`/`human_review_required` fallback for unrecognized future values.
+- `applicability` — `"verified"` / `"not_applicable"` / `"unknown"`; whether
+  Shipgate evaluated the change. Disambiguates a `mergeable` verdict
+  (`"not_applicable"` means the head scan was skipped — *not* "verified safe").
+  Locked to `"verified"` whenever a `release_decision` is present.
 - `can_merge_without_human` — `bool`; whether the PR can merge without human
   review.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan
@@ -630,6 +650,15 @@ consumer may read:
   highest-signal capability deltas with `{id, title, impact, rationale,
   related_finding_ids}`. `impact` mirrors the gate; this block never introduces a
   finding-independent blocker.
+- `agent_controller` — imperative restatement of the verdict for autonomous
+  control (`null` for `--preview`): `{completion_allowed, must_stop, stop_reason,
+  allowed_next_commands[], forbidden_file_edits[], forbidden_actions[],
+  user_message_template}`. `completion_allowed` is locked to
+  `can_merge_without_human` (never a second verdict). `forbidden_file_edits[]` is
+  a standing deny-list of whole-file trust roots (CI gate, agent instructions,
+  policy packs), never an allow-list; it excludes `shipgate.yaml` /
+  `.agents-shipgate` (key-level, covered by `forbidden_actions[]`) and the tool
+  surface under review. Both forbidden lists are present on every verdict.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
 
 `verifier.json` also carries `trigger` (the run/skip evaluation), `base_status`,
@@ -696,9 +725,9 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.6)
+### Release Evidence Packet (v0.7)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json). v0.6 adds the top-level `evidence_matrix` section (PR #104) and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance (PR #103). v0.5 stays as the frozen reference at [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json); pre-v0.6 packets validate against it. Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json). v0.7 adds capability-linked local trace evidence summary and trace refs under `human_in_the_loop`. v0.6 stays as the frozen reference at [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets validate against it. v0.6 added the top-level `evidence_matrix` section and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance on top of v0.5. Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
@@ -706,6 +735,7 @@ Diff remains explanatory only.
 - The 13 `evidence_matrix.rows[].domain` identities are stable within `0.x`. Adding source paths or check mappings is additive; removing a row, renaming a domain, or dropping an existing check/source mapping requires a packet schema bump.
 - `human_in_the_loop.runtime_control_disclaimer` is always present and applies to covered and gap states: local HITL evidence is not runtime-enforcement proof.
 - `human_in_the_loop.source_provenance[]` is deterministic, local-only provenance for validation evidence when available. Packets rebuilt from `report.json` may set `provenance_mode: "unavailable"` when no finding-level provenance survived.
+- `human_in_the_loop.capability_trace_summary` and `human_in_the_loop.capability_trace_refs` are deterministic audit metadata for declared local trace artifacts. They do not prove runtime enforcement and never contribute to the packet verdict.
 - `release_decision.verdict` always derives from `release_decision.decision`. CI behavior (`fail_policy`) is rendered separately as metadata, never as the verdict.
 - `not_proven.unconditional` always lists the four canonical disclaimers verbatim — prompt robustness, runtime behavior, model correctness, adversarial resistance.
 - The packet is a local artifact (`agents-shipgate-reports/packet.{md,json,html}`, optionally `packet.pdf` with the `[pdf]` extras). There is no hosted/SaaS surface.
@@ -745,6 +775,105 @@ from verifier projections and does not include raw finding evidence. With
 `--redact` (the default), local artifact paths are reduced to filenames so the
 artifact does not leak usernames or confidential workspace directory names.
 
+### Attestation
+
+`agents-shipgate attest` derives a deterministic, local attestation from
+`agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
+when present). The current schema is
+[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json). It
+records the verdict, the report-derived capability delta, the declared
+`human_ack` state, a policy-snapshot hash, content hashes of the verify
+artifacts, and capability lock/diff hash bindings when verify emitted those
+artifacts. It carries no wall-clock timestamp — it is content-addressed by git
+SHAs and artifact hashes, so re-deriving from the same inputs is byte-identical.
+It does not gate; `release_decision.decision` remains the only gate. Current
+v0.2 fields:
+
+- `attestation_schema_version`
+- `cli_version`
+- `source_verifier`
+- `redacted`
+- `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
+- `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
+- `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
+- `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `capability_count`)
+- `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
+- `human_ack` (`required`, `satisfied`, `outstanding`)
+- `policy_snapshot_sha256`
+- `artifact_sha256`
+
+### Capability Lock And Diff
+
+`agents-shipgate capability export` writes a stable local static capability
+envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
+byte-identical generated mirror at
+`agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
+[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)
+and emitted locks carry `capability_lock_schema_version: "0.2"` plus
+`experimental: false`.
+
+`agents-shipgate capability diff` compares two lockfiles and emits added,
+removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
+current diff schema is
+[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.3"` plus
+`experimental: false`. `reidentified` is the scope/resource case: scope is part
+of capability identity, so a scope escalation changes the id and is paired by
+agent/provider/operation/tool instead of being reported as unrelated add/remove
+churn.
+
+The lock is an enumerable-tools envelope. Dynamic toolkit scope bounds are
+disclosed by `source.toolkit_bound_count` but are not emitted as capability facts
+yet. `cli_version` is provenance and may change on scanner upgrades; it is not
+part of the semantic capability-set hash. Runtime trace evidence, findings, and
+gate verdicts are intentionally excluded from capability locks and semantic lock
+hashes.
+
+Capability lock/diff artifacts are deterministic and carry no wall-clock
+timestamp. They are stable non-gating artifacts for external integrations and
+research; they are not emitted in `report.json` and do not gate.
+`release_decision.decision` remains the only gate. Old experimental
+`capability_lock_schema_version: "0.1"` lock files remain readable by
+`agents-shipgate capability diff`; the old combined schema remains a frozen
+reference at
+[`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
+The public standard is documented in
+[`docs/capability-standard.md`](docs/capability-standard.md).
+
+`agents-shipgate verify` also writes the head static lock to
+`agents-shipgate-reports/capabilities.lock.json` after a successful head scan.
+When `--base` is provided and the base tree contains the reviewed committed lock
+at `.agents-shipgate/capabilities.lock.json`, verify writes
+`agents-shipgate-reports/capability-lock-diff.json` and
+`agents-shipgate-reports/capability-lock-diff.md`, and the PR comment leads with
+that semantic capability diff after the verdict summary. If the base lock is
+absent or invalid, verify records a note and falls back to the existing
+`capability_review.top_changes[]` projection without changing the release gate.
+
+### Workflow-evidence capture
+
+`agents-shipgate feedback capture` records a deterministic, local, replayable
+*scenario* from a verify before/after pair — one real pilot loop turned into
+benchmark fuel. The current schema is
+[`docs/scenario-schema.v0.1.json`](docs/scenario-schema.v0.1.json). It does not
+gate. With `--redact` (the default) it keeps only provenance (sha256, length,
+diffstat) of the prompt / diff / transcript — never raw content — so it is safe
+to share. Current v0.1 fields:
+
+- `scenario_schema_version`
+- `redacted`
+- `prompt_class`
+- `human_decision` (`merged` / `rejected` / `changes_requested` / `none` / null)
+- `before` / `after` — per-side state (`merge_verdict`, `decision`,
+  `applicability`, `can_merge_without_human`, `trust_root_touched`,
+  `policy_weakened`, `capability`)
+- `transition` — `verdict_before`, `verdict_after`, `resolved`,
+  `introduced_trust_root_touch`, `introduced_policy_weakening`, and
+  `suspected_gate_bypass` (`mergeable` while a trust-root touch or policy
+  weakening is present — impossible for a valid verifier)
+- `evidence` — `prompt` / `diff` / `transcript` provenance
+- `source`
+
 ### Agent-skill paths
 
 The following paths are part of the public agent surface and will not move within `0.x`:
@@ -772,7 +901,7 @@ These are not stable — assume they may grow but not shrink:
 - **`reviewer_summary.verdict` enum values.** Mirror `release_decision.decision` and `agent_summary.verdict`; same additivity and fallback rule. The three enums move in lockstep — adding a value to one without the others is a contract violation.
 - **`reviewer_summary.first_recommended_surface.{kind, name}` enum values.** New surface kinds and names may be added (e.g., when a sixth reviewer lens or fourth audit envelope ships). Consumers that switch on `name` MUST fall back to "ignore the pointer and read every documented surface" for unrecognized values. The priority order between surfaces may also be revised additively when a new surface is added — the contract is the deterministic projection, not the specific ranking.
 - **`verifier_summary.verdict` enum values** (v0.22+). Mirrors `release_decision.decision`; same additivity and fallback rule. It joins `agent_summary.verdict` and `reviewer_summary.verdict` in the lockstep set — adding a value to one without the others is a contract violation.
-- **`capability_change` member enum values** (v0.22+): `direction` (`added | removed | broadened | narrowed`), `subject_kind` (`tool | action | scope | policy | ci | baseline | agent_instruction | manifest | unknown`), and `release_impact` (`none | informational | review_required | blocks_release | insufficient_evidence`). New values may be added additively; consumers that switch on them MUST fall back to a conservative default (treat unknown `release_impact` as `review_required`, unknown `subject_kind` as `unknown`).
+- **`capability_change` member enum values** (v0.22+; semantic direction v0.23+): `direction` (`added | removed | broadened | narrowed`), `semantic_direction` (`added | removed | broadened | narrowed | mixed | unknown | evidence_only`), `subject_kind` (`tool | action | scope | policy | ci | baseline | agent_instruction | manifest | unknown`), and `release_impact` (`none | informational | review_required | blocks_release | insufficient_evidence`). New values may be added additively; consumers that switch on them MUST fall back to a conservative default (treat unknown `release_impact` as `review_required`, unknown `subject_kind` as `unknown`, unknown `semantic_direction` as `unknown`).
 - **`protected_surface_changes[].kind`** (v0.22+) — the trust-root surface bucket (e.g. `manifest`, `policy`, `ci_gate`, `agent_instructions`, `trigger_catalog`). New buckets may be added as new trust-root classes ship; treat unknown kinds as "a protected surface was touched — review it".
 
 ---

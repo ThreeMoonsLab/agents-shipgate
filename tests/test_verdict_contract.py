@@ -28,6 +28,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.verifier import (
     _DECISION_TO_VERDICT,
     VerifierArtifact,
+    applicability_for,
     map_merge_verdict,
     merge_verdict_for,
 )
@@ -116,6 +117,30 @@ def test_merge_verdict_for_matrix(decision, head_status, expected) -> None:
     assert merge_verdict_for(decision=decision, head_status=head_status) == expected
 
 
+@pytest.mark.parametrize(
+    "decision, head_status, expected",
+    [
+        ("passed", "succeeded", "verified"),
+        ("review_required", "succeeded", "verified"),
+        ("insufficient_evidence", "succeeded", "verified"),
+        ("blocked", "succeeded", "verified"),
+        (None, "skipped", "not_applicable"),  # nothing to gate
+        (None, "succeeded", "unknown"),  # ran but produced no decision
+        (None, "failed", "unknown"),  # scan failed
+    ],
+)
+def test_applicability_for_matrix(decision, head_status, expected) -> None:
+    assert applicability_for(decision=decision, head_status=head_status) == expected
+
+
+def test_applicability_disambiguates_mergeable_skip() -> None:
+    # The reason the field exists: a skipped head projects merge_verdict
+    # "mergeable" but applicability "not_applicable" — never let an agent read
+    # "Shipgate verified this is safe" off a run where Shipgate did not run.
+    assert merge_verdict_for(decision=None, head_status="skipped") == "mergeable"
+    assert applicability_for(decision=None, head_status="skipped") == "not_applicable"
+
+
 # --- The artifact cannot disagree with its substrate (structural lock) ------
 
 
@@ -165,3 +190,46 @@ def test_artifact_without_release_decision_is_unconstrained() -> None:
         release_decision=None, head_status="skipped", merge_verdict="mergeable"
     )
     assert art2.merge_verdict == "mergeable"
+
+
+def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
+    # A present release_decision means Shipgate was applicable; claiming
+    # "not_applicable" is the exact lie this lock prevents.
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/w",
+            config="shipgate.yaml",
+            head_status="succeeded",
+            release_decision={"decision": "passed"},
+            decision="passed",
+            merge_verdict="mergeable",
+            applicability="not_applicable",
+        )
+
+
+def test_artifact_model_validate_backfills_applicability_for_old_payloads() -> None:
+    # An older verifier.json (schema 0.1) carries release_decision but no
+    # applicability key. model_validate must round-trip it — backfilling
+    # "verified" via the before-validator — instead of tripping the lock.
+    art = VerifierArtifact.model_validate(
+        {
+            "workspace": "/tmp/w",
+            "config": "shipgate.yaml",
+            "head_status": "succeeded",
+            "release_decision": {"decision": "blocked"},
+            "decision": "blocked",
+            "merge_verdict": "blocked",
+        }
+    )
+    assert art.applicability == "verified"
+    # A skipped older artifact backfills "not_applicable" — never a bare
+    # "mergeable" that an agent could read as "verified safe".
+    skipped = VerifierArtifact.model_validate(
+        {
+            "workspace": "/tmp/w",
+            "config": "shipgate.yaml",
+            "head_status": "skipped",
+            "merge_verdict": "mergeable",
+        }
+    )
+    assert skipped.applicability == "not_applicable"

@@ -40,13 +40,16 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "b442316b7bbdb4b2a84b8543f3589e1bb1d8d2bfd968637db99bd07835c406fd"
+        "cb4489da52d5db61cc57e6b1027bcd14429bf054ff08c789cf055849cd945564"
+    ),
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
+        "da20f5c1e05a9a701c614d01d337ce79906ead4023828ed5f66bd74c56548983"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "cbe776960a7b18a92b9608e5a9852486d3744ca25c823a44cb69a7eb167a7994"
+        "2c946f83247106a3cda96eaf92466df3d5af564faea040e13d586eefedf4f4a9"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "5bb45a71a44c2350e94d6197e6225c92b7cd00521e668c9e36358e4136852f0f"
+        "fbb5324440c51914a789f5ae953281437fae659e2fd163203814239ff664ce79"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -58,7 +61,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "3e5c320b57c57ce91d5dcdf2b584d71c229cb5b046bda944b68dc2056693ec6a"
+        "12810569a6aa655b4d8a6ed384142a430eef367bf6fab51b1a9e614aeff1c1a8"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -67,27 +70,24 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "2242305c28828f8d08bae1d0e4f60042f256e61949bc8f388d43c791c6b3f615"
-    ),
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
+        "0c939414da7900b8f03f2a743e0f6b8f4d96f409c1d5cde038e27a98318bf486"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "9e616a06ea6a6a9fb7ec17dd90171d24f94043bfd85bc765c25cd83762e42ab3"
-    ),
-    ".agents/skills/agents-shipgate/references/recipes.md": (
-        "f1f48bc66d34237c8a981a1d868ef2e05939cf52726a00ff51d7bee826d45686"
-    ),
-    ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
-    ),
-    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da"
+        "005351825070a9269f38765e256325497121a54db92a7f76b99f247dbae9d88f"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
+    ),
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
+        "0ac78bcb69d0bfbcb72a8b78e013f00778536ce2600cf363fb27beeff66892a9"
+    ),
+    ".agents/skills/agents-shipgate/references/recipes.md": (
+        "9d21e609b83af11af52166d3f00af10bb596777a84cf16453a89e7e85218314b"
+    ),
+    ".agents/skills/agents-shipgate/references/report-reading.md": (
+        "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
     ),
 }
 
@@ -255,6 +255,11 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not auto-assert approval" in skill
     assert "agents-shipgate verify" in skill
+    assert "agents-shipgate --version" in skill
+    assert "pipx upgrade agents-shipgate" in skill
+    recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
+    assert "Require `agents-shipgate >=0.12.0`" in recipes
+    assert 'python -m pip install -U "agents-shipgate>=0.12"' in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

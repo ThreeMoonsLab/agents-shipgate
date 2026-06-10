@@ -33,9 +33,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex plugin · n8n
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 - **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL with human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/). The site also serves a [/.well-known/agents-shipgate.json](https://threemoonslab.com/.well-known/agents-shipgate.json) discovery file **pinned to the latest released tag** for external consumers and AI search. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the released file) for schema-version and gating-signal decisions.**
@@ -101,12 +101,13 @@ exists, run the deterministic verifier on the diff and read its JSON first:
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD \
   --ci-mode advisory --format json
 ```
 
-Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
-scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
-after making the base ref available. Read
+For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
 unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
@@ -251,6 +252,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes Codex repo config, hooks, or permission profiles | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
@@ -316,7 +318,9 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
-- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
+- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack | runtime_trace`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
+- `findings[].capability_refs` and optional `findings[].capability_policy_evidence` (v0.24+, capability-native policy evidence for built-in policy checks and policy packs; explanatory only, not a fingerprint input and not a second gate)
+- `findings[].capability_trace_refs` and top-level `capability_runtime_evidence` (v0.25+, opt-in local trace/provenance evidence linked to capability facts; explanatory only, not a fingerprint/run-id/baseline input and not a second gate)
 - `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
 - `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 - `release_decision.contribution_rules[]` (v0.17+, per-finding audit of how each finding contributed to the decision; one row per `report.findings` entry, with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`)
@@ -324,7 +328,7 @@ Other stable top-level fields:
 - `privacy_audit` (v0.18+, top-level audit proving default redaction ran before public artifacts were written; `redacted_paths[]` contains counts and structural paths only, never raw values or raw hashes)
 - `heuristics_filter` (v0.21+, top-level audit envelope describing the `--no-heuristics` CLI filter pass; `enabled` is `False` and counts are zero when the flag is unset, so the field shape is stable across runs. When enabled, findings whose `provenance_kind` is `keyword_heuristic` or `regex_heuristic` are marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` before the release decision is built — they remain in `findings[]` for transparency but do not gate release.)
 
-The full schema is at [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` — reviewer-facing projections that never gate independently — alongside v0.21's `heuristics_filter` audit envelope). v0.21 (frozen at [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json)) added the `heuristics_filter` envelope on top of v0.20's `reviewer_summary` deterministic projection of reviewer-lens surfaces and audit envelopes. v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current; emitted reports carry `report_schema_version: "0.26"`, adding structured evidence gaps — `release_decision.evidence_coverage.evidence_gaps[]`, one actionable remediation row per low-confidence tool or source warning — plus the advisory `suggested-inventory.json` skeleton written next to `report.json`; gate behavior is unchanged). v0.25 (frozen at [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)) added opt-in capability-linked local trace/provenance evidence while preserving existing findings, fingerprints, policy-pack behavior, capability locks, and the release gate. v0.24 (frozen at [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json)) added capability-native policy evidence. v0.23 (frozen at [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json)) added semantic metadata to `capability_change` members while preserving the existing capability-change buckets and release gate. v0.22 (frozen at [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json)) added the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` — reviewer-facing projections that never gate independently — alongside v0.21's `heuristics_filter` audit envelope. v0.21 (frozen at [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json)) added the `heuristics_filter` envelope on top of v0.20's `reviewer_summary` deterministic projection of reviewer-lens surfaces and audit envelopes. v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -390,7 +394,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) (current).
+[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -428,7 +432,10 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
+| Report schema (current) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
+| Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
+| Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
+| Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
 | Report schema (v0.21 frozen reference) | [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json) | `0.21` |
 | Report schema (v0.20 frozen reference) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.20` |
 | Report schema (v0.19 frozen reference) | [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) | `0.19` |
@@ -445,8 +452,15 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json) | `0.7` |
+| Packet schema (v0.6 frozen reference) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
 | Packet schema (v0.5 frozen reference) | [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json) | `0.5` |
+| Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.1` |
+| Capability lock schema | [`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json) | `0.2` |
+| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json) | `0.3` |
+| Capability lock schema (v0.1 frozen experimental reference) | [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json) | `0.1` |
+| Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
+| Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -480,9 +494,18 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.6)
+Newer commands (stable intent, flags may still evolve):
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections plus a compact evidence matrix derived from public `report.json`, and (v0.6) carries the same `Finding.source` / `Finding.policy_evidence_source` dual-source provenance pointers on `ReleaseDecisionItem` so packet §1 / §2 cite the originating evidence inline; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
+| Command | Purpose |
+|---|---|
+| `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
+| `agents-shipgate mcp-serve` | Local stdio MCP server (`[mcp]` extra) exposing `shipgate_preview` / `shipgate_verify` / `shipgate_explain_finding`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
+| `agents-shipgate registry` | `ingest --attestation <file>` / `query` — local capability-release ledger over attestations. |
+| `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
+
+### Release Evidence Packet (v0.7)
+
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections plus a compact evidence matrix derived from public `report.json`, and (v0.7) adds capability-linked local trace evidence summary and trace refs under §8 human-in-the-loop evidence. v0.6 carried the same `Finding.source` / `Finding.policy_evidence_source` dual-source provenance pointers on `ReleaseDecisionItem` so packet §1 / §2 cite the originating evidence inline. Outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v07).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
@@ -535,7 +558,7 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.
 - New checks must include: code in `src/agents_shipgate/checks/<category>.py` plus a `BUILTIN_CHECKS` entry in `checks/registry.py`, metadata in `docs/checks/<category>.yaml` (loaded into `CHECK_METADATA` at registry import time by `agents_shipgate.checks._metadata_loader`), a test in `tests/`, and a row in `docs/checks.md`. After editing YAML, regenerate `docs/checks.json` with `python scripts/generate_schemas.py`.
 - Do not change check IDs in published versions; always add new ones.
-- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit `docs/manifest-v0.1.json` + `docs/checks.json`.
+- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit every changed file under `docs/`.
 
 ---
 
@@ -603,14 +626,15 @@ MCP/OpenAPI surfaces, prompts, permissions, policies, release gates, or
 ```bash
 agents-shipgate verify --preview --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
-  --ci-mode advisory --format json
+  --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-For committed PR/CI refs, add `--base origin/main --head HEAD` after making the
-base ref available. Read `agents-shipgate-reports/verifier.json` first and lead
-with `merge_verdict`, then inspect `capability_review.top_changes[]`,
-`first_next_action.actor`, and `fix_task.safe_to_attempt`. Then read
-`report.json.release_decision.decision`, which remains the release gate.
+For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
+make the base ref available first because `verify` never fetches. Read
+`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
+`can_merge_without_human`, `first_next_action`, `fix_task`, and
+`capability_review.top_changes[]`. Then read
+`report.json.release_decision.decision`, which remains the only release gate.
 
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
@@ -618,10 +642,12 @@ accepts human review.
 
 ## Recipe 1 · First adoption helper
 
-Use this when a repo doesn't yet have `shipgate.yaml`. Four calls in one user
-turn take it from "looks like an agent project" to "Shipgate is integrated,
-scan green or with safe trivial findings auto-applied, CI workflow optionally
-drafted." This is an adoption helper; ongoing PR work should use Recipe 0.
+Use this when a repo doesn't yet have `shipgate.yaml` and the user wants a
+scan-oriented first pass. The verifier-first path is
+`verify --preview --json` → `init --write --ci --agent-instructions=all` →
+`verify --base origin/main --head HEAD`. The helper below remains useful when a
+coding agent should also apply high-confidence manifest cleanup in the same
+turn. Ongoing PR work should use Recipe 0.
 
 ```bash
 agents-shipgate detect --json
@@ -895,13 +921,38 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-- Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `1`
-- Current report schema: `0.22` — [`docs/report-schema.v0.22.json`](report-schema.v0.22.json)
-- Current packet schema: `0.6` — [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
+- Latest release: `v0.12.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Runtime contract: `2`
+- Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
+- Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
-- Frozen-reference report schemas: [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
+- Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
+- Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
+- Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
+- Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
+- Frozen-reference report schemas: [`v0.24`](report-schema.v0.24.json), [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
+- Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
+
+## Two read entry points
+
+There are two correct "read first" paths; which one applies depends on who is
+reading. They are not two decisions — they are two entry points into the same
+one decision engine.
+
+- **PR / controller flow** — an autonomous coding agent deciding *continue,
+  repair, or stop*. Read `agents-shipgate-reports/verifier.json`: lead with
+  `merge_verdict`, then read `agent_controller` for the imperative controls (see
+  "In `verifier.json`, read these additive fields" below).
+  `.well-known/agents-shipgate.json` → `verifier_read_order` is the
+  machine-readable form of this order.
+- **Gate / CI flow** — deciding pass/fail, or any raw `report.json` consumer.
+  Read `agents-shipgate-reports/report.json` → `release_decision.decision` (the
+  next section). `.well-known` → `gating_signal` names this signal.
+
+`merge_verdict` is a deterministic projection of `release_decision.decision`, so
+the two can never disagree.
 
 ## Read these first for release gating
 
@@ -910,6 +961,9 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.decision` — `"blocked"` / `"review_required"` / `"insufficient_evidence"` / `"passed"`. Baseline-aware. **This is the gating signal.** Blockers take precedence. If there are no blockers, `insufficient_evidence` (added v0.14) fires when evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. One to three source warnings without blockers route to `review_required`. `insufficient_evidence` means the scan cannot confidently gate release from the available static evidence; it does not prove the agent is unsafe. Switch on the enum with a `review_required` fallback for unknown future values.
 - `release_decision.blockers[]` — items that block release on this run.
 - `release_decision.review_items[]` — items the human reviewer should look at; includes baseline-matched accepted debt.
+- `release_decision.{blockers,review_items}[].capability_refs` (v0.24+) — stable capability IDs copied from the originating finding when a policy or policy-pack rule matched a `CapabilityFactV1`. Empty for findings that are not capability-policy matches. This is audit metadata only; `release_decision.decision` remains the gate.
+- `release_decision.{blockers,review_items}[].capability_trace_refs` (v0.25+) — stable local trace-evidence IDs copied from the originating finding when an existing trace/evidence check used declared local trace artifacts. Empty when no local trace row is relevant. This is audit metadata only; `release_decision.decision` remains the gate.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+) — one structured row per measurable evidence gap: `{kind, subject, source_type, source_ref, why, next_action}` with `kind` ∈ `{low_confidence_tool, source_warning}` and `next_action` carrying `{kind, command, path, why, expects}` (`kind` ∈ `{declare_tool_inventory, provide_source, review_warning}`). When `decision` is `insufficient_evidence`, work the gaps in order instead of guessing: `declare_tool_inventory` rows point at the advisory `suggested-inventory.json` skeleton scan writes next to `report.json` and name the exact `*.tool_inventories` manifest key to reference it from. Deterministic projection of the coverage counts; never gates independently.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches what the CI process will exit with.
 - `release_decision.reason` — one-sentence explanation suitable for a PR comment.
 - `release_decision.contribution_rules[]` (v0.17+) — deterministic per-finding audit explaining how each `report.findings` entry was classified. Exactly one row per finding (including suppressed). Each row carries `{finding_id, fingerprint, check_id, category, rule, rationale}`. `category` ∈ `{blocker, review_item, excluded}`; `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`. Reading the contribution rule is sufficient to predict the gate outcome for that finding without re-deriving the decision logic — the closed grammar of `(rule, category)` pairs is documented in [STABILITY.md "Release decision truth table"](../STABILITY.md#release-decision-truth-table). The audit cannot disagree with `blockers[]` / `review_items[]` (the same classification powers both).
@@ -918,9 +972,44 @@ In `agents-shipgate-reports/report.json`:
 - `heuristics_filter` (v0.21+) — top-level audit envelope describing the `--no-heuristics` CLI filter pass. Always present, even when the flag is unset (`enabled: False` with zero counts), so the report shape is stable. Carries `enabled: bool`, `excluded_provenance_kinds: list[str]` (`["keyword_heuristic", "regex_heuristic"]`), `filtered_finding_count: int`, and `filtered_by_kind: dict[str, int]` (per-kind breakdown). When `enabled: True`, findings whose `provenance_kind` is in the excluded list have been marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` BEFORE the release decision was built — they remain in `findings[]` for transparency but no longer gate release. The filter never un-suppresses a finding; manifest-driven suppression reasons are preserved when they overlap with the filter. Useful for security/GRC reviewers who want declared-only findings.
 - `verifier_summary` (v0.22+) — top-level **composition** for one-fetch controller consumption (the AI-coding-workflow verifier surface). It derives **no independent verdict**: `verdict` mirrors `release_decision.decision` exactly (Principle: one decision engine). Carries `by_severity: dict[str,int]` and `by_reason_code: dict[str,int]` (active-finding histograms — the complete per-code map), `capability_delta_summary: {added, removed, broadened, narrowed}` (equal by construction to the `capability_change` member-list lengths), `protected_surface_touched: bool`, `policy_weakened: bool`, `human_ack_required: bool`, `human_ack_satisfied: bool`, and `top_reason_codes: list[{reason_code, count}]` — the ranked top-five highlight (severity desc → count desc → code asc; the full set stays in `by_reason_code`). This block cannot introduce a finding-independent blocker.
 
+In `findings[]`, v0.24 adds capability-native policy evidence for built-in
+policy checks and policy packs:
+
+- `capability_refs: list[str]` — stable `CapabilityFactV1.id` values that
+  matched the rule. It is emitted as an empty list for findings that are not
+  capability-policy matches.
+- `capability_policy_evidence | null` — optional typed audit metadata with the
+  matched capability identity, effect, authority, controls, semantic hashes,
+  matched predicates, and source provenance. It is explanatory only and is not
+  included in finding fingerprint inputs.
+
+Existing `finding.evidence` keys remain stable for legacy readers. Policy
+matching is capability-native internally, but policy-pack behavior, suppressions,
+severity overrides, baselines, SARIF, Markdown, and GitHub Action outputs remain
+compatible.
+
+In `findings[]`, v0.25 adds opt-in trace/provenance references for existing
+trace/evidence checks:
+
+- `capability_trace_refs: list[str]` — stable IDs from the top-level
+  `capability_runtime_evidence` block. It is emitted as an empty list for
+  findings that are not linked to a local trace row.
+- `provenance_kind: "runtime_trace"` — used only for findings derived from
+  declared local trace artifacts. It is not filtered by `--no-heuristics`.
+
+The top-level `capability_runtime_evidence` block is a deterministic audit
+projection over local trace artifacts declared in `openai_api.trace_samples`,
+`google_adk.trace_samples`, `validation.evidence.approval_traces`, and
+`validation.evidence.agent_traces`. It carries summary counts, matched and
+unmatched `CapabilityTraceEvidenceV1` rows, source provenance, and notes. Trace
+normalization keeps only allowlisted scalar fields and discards prompts,
+messages, tool arguments, tool outputs, and arbitrary payload bodies. The block
+is empty when no trace inputs are declared. It is not part of capability locks,
+fingerprints, baselines, run IDs, or release gating.
+
 The remaining v0.22 verifier blocks are reviewer-facing projections / declared inputs — none gates independently (`release_decision.decision` stays the only gate). They populate with real values only under `verify` mode (a `VerificationContext` from `agents-shipgate verify` or an equivalent scan context); a plain `scan` emits their stable empty shape:
 
-- `capability_change` (v0.22+) — the diff-derived capability delta, grouped into `{enabled, added, removed, broadened, narrowed}` member lists over `action_surface_diff` / `tool_surface_diff`. Each `CapabilityChangeMember` carries `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`. `broadened` = more effective capability (wider scope, escalated effect, removed control); `narrowed` = less (removed scope, added control). `enabled: false` when no base diff is available.
+- `capability_change` (v0.22+, semantic metadata v0.23+) — the diff-derived capability delta, grouped into `{enabled, added, removed, broadened, narrowed}` member lists over `action_surface_diff` / `tool_surface_diff`. Each `CapabilityChangeMember` carries `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`. `broadened` = more effective capability (wider scope, escalated effect, removed control); `narrowed` = less (removed scope, added control). `semantic_direction` explains the proven capability-level movement (`added | removed | broadened | narrowed | mixed | unknown | evidence_only`), and `semantic_changes[]` gives field-level reasons when a base action snapshot is available. `enabled: false` when no base diff is available.
 - `protected_surface_changes` (v0.22+) — list of touched release trust roots, each `{path, kind, glob, related_finding_ids}`. Derived from the active `SHIP-VERIFY-*` findings, so every row's `related_finding_ids` resolves to a real `findings[]` entry and the rollup can never disagree with the gate. A row means "a protected file was touched"; purely-semantic weakenings with no file path stay in `findings[]` and surface via `verifier_summary` flags.
 - `effective_policy` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison: `{ci_mode, fail_on[], suppressed_check_ids[], waiver_scopes[], severity_overrides{}, baseline_integrity_mode, baseline_fingerprints[], ci_gate_present}`. Every list/dict is sorted for byte-stable output; derived purely from the manifest (plus accepted-debt fingerprints).
 - `human_ack` (v0.22+) — declared human-acknowledgement state, `{required, satisfied, acks[], outstanding[]}`. Within the static boundary, acknowledgement is **declared evidence only — never inferred** (human authority cannot be synthesized). A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; it is `satisfied` only by a matching `human_ack` entry in `shipgate.yaml` (owner + reason + affected surface, optional expiry). `required == (acks-covering-required) + outstanding`. The acknowledgement section lives in `shipgate.yaml` — itself a trust root — so a coding agent cannot add its own ack without tripping `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
@@ -946,8 +1035,14 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 `verify` writes `verifier.json` and `pr-comment.md` alongside the head scan
-artifacts. The packet artifact is intentionally `packet.json` only; use
-`scan` for manifest-driven packet Markdown/HTML/PDF rendering. Read
+artifacts. After a successful head scan it also writes the head static
+capability lock to `agents-shipgate-reports/capabilities.lock.json`. When
+`--base` is provided and the base tree contains the reviewed committed lock at
+`.agents-shipgate/capabilities.lock.json`, verify writes
+`agents-shipgate-reports/capability-lock-diff.json` and
+`agents-shipgate-reports/capability-lock-diff.md`. The packet artifact is
+intentionally `packet.json` only; use `scan` for manifest-driven packet
+Markdown/HTML/PDF rendering. Read
 `verifier.json.base_status` to understand whether base diff enrichment ran;
 do not use it as a release verdict. The release gate is still
 `report.json.release_decision.decision`. `verify` never fetches, so CI callers
@@ -978,6 +1073,12 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate; switch on the enum with
   an `unknown`/`human_review_required` fallback for future values.
+- `applicability` (v0.12.0+) — `"verified"` / `"not_applicable"` / `"unknown"`.
+  Disambiguates a `mergeable` verdict: `"verified"` means Shipgate evaluated the
+  change and produced a release decision; `"not_applicable"` means the head scan
+  was skipped (nothing to gate — do **not** read this as "verified safe");
+  `"unknown"` means the scan could not complete. Orthogonal to `merge_verdict`;
+  additive and locked to `"verified"` whenever a `release_decision` is present.
 - `can_merge_without_human` — `bool`.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
 - `headline` — single-sentence, PR-comment-friendly summary (or `null`).
@@ -990,6 +1091,20 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   the listed mechanical fix and rerun `verification_command`; `actor: human`
   means the agent must not invent approval, idempotency, policy, waiver,
   baseline, or trust-root evidence to make the gate pass.
+- `agent_controller` (v0.12.0+) — `null` for `--preview`; otherwise the
+  imperative restatement of the verdict for autonomous control:
+  `{completion_allowed, must_stop, stop_reason, allowed_next_commands[],
+  forbidden_file_edits[], forbidden_actions[], user_message_template}`.
+  `completion_allowed` is locked to `can_merge_without_human` (never a second
+  verdict); `must_stop` is `true` only when the agent can neither finish nor
+  safely repair; `stop_reason` ∈ `{self_approval_prohibited, blocked_findings,
+  insufficient_evidence, human_review_required, scan_incomplete}`.
+  `forbidden_file_edits[]` is a standing deny-list of whole-file trust roots (CI
+  gate, agent instructions, policy packs) — **not** an allow-list — and
+  deliberately excludes `shipgate.yaml` / `.agents-shipgate` (key-level, covered
+  by `forbidden_actions[]`) and the tool surface under review. Both forbidden
+  lists are present on every verdict, including `mergeable`, so a passing run is
+  never read as "anything goes".
 - `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
   root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
   policy packs, prompts, baselines, waivers, etc.). Backed by the
@@ -1005,7 +1120,10 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 
 `verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
 `head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an
-`artifacts` map. The matching GitHub Action outputs are `merge_verdict`,
+`artifacts` map. When present, `artifacts.capability_lock`,
+`artifacts.capability_lock_diff_json`, and
+`artifacts.capability_lock_diff_markdown` are review artifacts only; they do not
+change the gate. The matching GitHub Action outputs are `merge_verdict`,
 `can_merge_without_human`, `trust_root_touched`, and
 `capability_changes_{added,modified,removed}` (the original `decision`,
 `blocker_count`, `review_item_count`, `ci_would_fail` outputs are preserved). See
@@ -1013,10 +1131,12 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 authoritative contract.
 
 The default Action PR comment style for the verifier-cycle minor is
-`capability-review`: decision first, then the top capability changes,
-trust-root warnings, required next steps, and artifact links. Existing adopters
-that need the v1 findings-oriented comment during migration can set
-`pr_comment_style: findings` for one minor release cycle.
+`capability-review`: verdict/decision first, then the semantic capability-lock
+diff when a base lock is available; otherwise the top
+`capability_review.top_changes[]` projection, followed by trust-root warnings,
+required next steps, and artifact links. Existing adopters that need the v1
+findings-oriented comment during migration can set `pr_comment_style: findings`
+for one minor release cycle.
 
 ## Read these for release review
 
@@ -1025,6 +1145,15 @@ installed CLI's stable list of report/packet fields to inspect for human review
 work. `findings[].provenance_kind` is included there as a filter/review signal
 only; it never changes the release decision, severity, fingerprints, baselines,
 or CI exit behavior.
+
+Runtime contract `2` also exposes stable non-gating integration fields:
+`capability_lock_schema_version`, `capability_lock_diff_schema_version`,
+`capability_standard_version`,
+`governance_benchmark_catalog_schema_version`,
+`governance_benchmark_result_schema_version`, and
+`external_integration_surfaces[]`. These advertise capability lock/diff and
+benchmark artifacts for integrations and research. They do not change the gate:
+`release_decision.decision` remains the only release decision signal.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:
 
@@ -1081,6 +1210,7 @@ Per-finding `provenance_kind` enum (v0.15+), additive classification — read th
 - `keyword_heuristic` — matched a keyword list (broad-scope tokens, read-only/approval prompt terms, free-text parameter names). Higher false-positive risk than declarative facts.
 - `regex_heuristic` — matched a regex (secret-like values in descriptions, prompt-injection patterns). Highest false-positive risk; pair with the recommendation before acting.
 - `policy_pack` — emitted by an external policy pack rule. The rule's own confidence applies — Shipgate does not second-guess the pack.
+- `runtime_trace` — derived from declared local trace artifacts. Audit evidence only; never filtered by `--no-heuristics`.
 
 Provenance generally follows the rule's own trigger (e.g., a rule that checks for a declared manifest field is `static_declaration` even when the underlying Tool was AST-extracted). For framework checks that fire across both AST and declarative tool sources (ADK's per-tool checks against `google_adk_function` AND `google_adk_config` tools), the label tracks the underlying tool's source. Third-party plugin checks that don't yet set the field land at `static_declaration` by default — pre-v0.15 plugins continue to validate against the v0.15 wire schema. Use `findings[].source.type` for the precise underlying tool source.
 
@@ -1094,9 +1224,10 @@ agents-shipgate findings --from agents-shipgate-reports/report.json \
 The command reads active findings by default; add `--include-suppressed` when a
 reviewer needs suppressed entries in the same provenance summary.
 
-For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
-Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
-adds two independent additive extensions:
+For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v07).
+Packet schema `0.7` adds capability-linked trace summary and trace refs under
+`human_in_the_loop`. Packet schema `0.6` preserved the v0.5
+`action_surface_diff` section and added two independent additive extensions:
 
 - `evidence_matrix` (PR #104) — a compact packet-only review aid
   derived from public `report.json` fields. The matrix never contributes
@@ -1141,9 +1272,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.22.json`](report-schema.v0.22.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.26.json`](report-schema.v0.26.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also
@@ -1247,6 +1378,50 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
 | `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
 | `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
+| `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` | medium | Codex project configuration could not be parsed. |
+| `SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY` | medium | Codex permissions contain an unknown high-risk key. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD` | high | Codex network permissions allow a wildcard domain. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED` | high | Codex network access expanded. |
+| `SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS` | critical | Codex full-access sandbox is selected. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE` | critical | Codex auto-approves a write or destructive MCP/app tool. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN` | high | Codex auto-approves an MCP server whose tool surface is not statically enumerable. |
+| `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
+| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
+| `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
+| `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
+| `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | high | GitHub workflow permissions expanded. |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | critical | A GitHub workflow gained a pull_request_target trigger. |
+| `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
+| `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
+| `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
+| `LINT-DESC-001` | high | A skill description is too vague to route reliably. |
+| `LINT-DESC-003` | medium | A skill description is overbroad and may false-trigger. |
+| `LINT-BODY-001` | medium | A skill body lacks a step-by-step procedure. |
+| `LINT-BODY-003` | medium | A skill body lacks an output contract. |
+| `LINT-BODY-004` | medium | A skill body lacks verification criteria. |
+| `LINT-SCRIPT-001` | medium | A skill script lacks documented `--help` usage. |
+| `LINT-SCRIPT-004` | medium | A stateful skill script lacks dry-run support. |
+| `SEC-PI-001` | critical | A skill artifact contains instruction override language. |
+| `SEC-PI-003` | high | A skill artifact tells the agent to hide behavior. |
+| `SEC-SECRET-001` | critical | A skill artifact contains a hardcoded secret-like value. |
+| `SEC-SECRET-003` | high | A skill artifact instructs credential or secret-file access. |
+| `SEC-SCRIPT-001` | critical | Remote content is piped to a shell or interpreter. |
+| `SEC-SCRIPT-002` | critical | A destructive or stateful command lacks guardrails. |
+| `SEC-REMOTE-001` | medium | A skill fetches remote instruction content. |
+| `SEC-REMOTE-002` | critical | Remote content is fetched and executed. |
+| `SEC-TOOL-001` | high | A skill pre-approves shell or bash without justification. |
+| `SEC-FLOW-004` | medium | A skill lacks data and instruction separation guidance. |
+| `SEC-PROV-001` | high | A third-party skill lacks provenance metadata. |
+| `SEC-MISMATCH-001` | high | A skill declares read-only behavior but bundled scripts mutate state. |
 | `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | An n8n tool surface uses runtime, unresolved, wildcard, or uninventoried custom exposure. |
 | `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` | high/medium | An n8n MCP Client Tool exposes `All` or `All Except` tools without an explicit inventory. |
 | `SHIP-N8N-AI-TOOL-METADATA-MISSING` | medium | An n8n AI-exposed tool lacks static description or parameter metadata. |
@@ -1629,6 +1804,235 @@ A `skills/**/SKILL.md` file is missing parseable `name` or `description`
 frontmatter, or duplicates another skill name in the same plugin. Give every
 skill a unique routing name and clear description.
 
+### SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed repo-local `.codex/config.toml` or `.codex/hooks.json` cannot be
+parsed. Fix the malformed config or have a human review the boundary change.
+
+### SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
+
+A changed `.codex/config.toml` contains an unknown key below a permissions
+profile or permissions network table. Review the key before trusting the local
+Codex boundary.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD
+
+A changed Codex permission profile allows a wildcard domain. Replace wildcard
+network access with explicit domains or get human approval.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED
+
+Codex workspace-write network access or full network mode was enabled. Have a
+human approve the expanded local execution boundary.
+
+### SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS
+
+Codex `sandbox_mode` or `default_permissions` selects `danger-full-access`.
+Use a narrower permission profile or get explicit human approval.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+
+A changed MCP or app tool approval mode is `approve` for a write or
+destructive-looking tool. Do not auto-approve write or destructive tools.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN
+
+Codex auto-approves an MCP server whose tool surface is not statically
+enumerable. Enumerate MCP tools or keep the approval mode at `prompt`.
+
+### SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE
+
+A Codex app connector tool approval changed to `approve`. Review connector
+approval changes before local automation.
+
+### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
+
+`AGENTS.md` or `AGENTS.override.md` removed Shipgate command or requirement
+text without adding a replacement. A human should confirm the agent
+instructions were not weakened.
+
+### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
+
+The Shipgate GitHub Actions workflow was deleted or no longer contains a
+Shipgate invocation. Restore the workflow or get human approval to remove it.
+
+### SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
+
+A changed Codex hooks source contains a command hook. Review executable hooks
+before relying on them.
+
+### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
+
+A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
+command-bearing skill changes before local automation.
+
+### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
+or its content cannot be resolved from the diff. Fix the malformed host config
+or have a human review the change.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+
+A changed MCP server declaration file adds a server key that did not exist
+before. Have a human review the new MCP server before the agent can use it.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+
+An existing MCP server changed its `command`, `args`, `url`, `serverUrl`, or
+`env` keys. Review the change — env var values never appear in evidence, key
+names only.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+
+A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
+allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
+`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
+commands.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+
+A changed Claude Code settings file adds a non-wildcard `permissions.allow`
+entry. Have a human approve the new permission allow rule.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+
+A changed Claude Code settings file drops an entry from `permissions.deny`.
+Have a human confirm the removed deny rule is no longer needed.
+
+### SHIP-HOST-BOUNDARY-HOOK-CHANGED
+
+A changed Claude Code settings file adds, modifies, or removes hook handlers.
+Review executable hook changes before the agent relies on them.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+
+A changed `.github/workflows` file sets `permissions: write-all` at the top
+level or for a job. Replace write-all with the minimal explicit permission
+scopes.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+
+A changed `.github/workflows` file grants an explicit write scope that the
+base did not grant, at the top level or per job. Have a human approve the
+expanded workflow write permission.
+
+### SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+
+A changed `.github/workflows` file adds `pull_request_target` to its triggers.
+Review it carefully — `pull_request_target` runs with secrets on fork PRs.
+
+### LINT-BODY-001
+
+A `SKILL.md` body lacks an ordered Procedure, Steps, or Workflow section. Add
+step-by-step instructions an agent can follow.
+
+### LINT-BODY-003
+
+A `SKILL.md` body does not define the expected output artifact, response shape,
+or completion criteria. Add an Output section.
+
+### LINT-BODY-004
+
+A `SKILL.md` body lacks verification or acceptance criteria. Add checks the
+agent can run or cite before reporting completion.
+
+### LINT-DESC-001
+
+A skill description is too short or generic to route reliably. Rewrite it with
+concrete trigger conditions and domain-specific nouns.
+
+### LINT-DESC-003
+
+A skill description is broad enough to false-trigger. Narrow it to the specific
+workflow, file type, or domain where the skill applies.
+
+### LINT-SCRIPT-001
+
+A bundled script lacks documented `--help` usage. Document safe invocation in
+`SKILL.md` and make usage discoverable without interaction.
+
+### LINT-SCRIPT-004
+
+A bundled script appears stateful or destructive but lacks dry-run support. Add
+`--dry-run` or document a non-mutating preview path.
+
+### LINT-SPEC-002
+
+`SKILL.md` frontmatter is not parseable YAML mapping data. Fix the frontmatter
+before relying on skill discovery.
+
+### LINT-SPEC-003
+
+`SKILL.md` is missing required `name` frontmatter. Add a stable routing name.
+
+### LINT-SPEC-004
+
+`SKILL.md` is missing required `description` frontmatter. Add a clear trigger
+description that tells agents when to load the skill.
+
+### SEC-FLOW-004
+
+A skill combines untrusted content with outbound or secret-access behavior but
+lacks instruction/data separation guidance. State that untrusted content is data
+and must not supply agent instructions.
+
+### SEC-MISMATCH-001
+
+A skill declares read-only or review-only behavior but bundled scripts mutate
+files or external state. Update the declared purpose or remove the mutation.
+
+### SEC-PI-001
+
+A skill or related artifact tells agents to ignore or override higher-priority
+instructions. Remove the instruction-override language.
+
+### SEC-PI-003
+
+A skill or related artifact tells agents to hide behavior from users, reviewers,
+or logs. Remove concealment instructions.
+
+### SEC-PROV-001
+
+A skill marked as third-party lacks `metadata.shipgate.source` provenance. Add
+source, source reference, owner, and review metadata.
+
+### SEC-REMOTE-001
+
+A skill fetches mutable remote prompt, instruction, or skill content at runtime.
+Avoid remote instruction fetch or document source trust and pinning.
+
+### SEC-REMOTE-002
+
+A skill sources or executes content fetched from a remote URL. Remove the
+runtime remote-code execution or pin, verify, and sandbox the content.
+
+### SEC-SCRIPT-001
+
+A skill artifact pipes remote content to a shell or interpreter. Vendor the
+script or verify pinned content instead of executing mutable remote bytes.
+
+### SEC-SCRIPT-002
+
+A skill artifact contains destructive or stateful command patterns without
+dry-run, confirmation, or path validation. Add guardrails or remove the command.
+
+### SEC-SECRET-001
+
+A skill artifact contains a hardcoded secret-like value. Remove it and rotate the
+exposed credential; reports redact the value by kind and location.
+
+### SEC-SECRET-003
+
+A skill artifact instructs agents to read broad credential files or secret-bearing
+environment variables. Replace with scoped placeholder guidance.
+
+### SEC-TOOL-001
+
+A skill pre-approves shell or bash-like tools without reviewed-script or sandbox
+justification. Remove preapproval or document the review boundary.
+
 ### SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
 
 An n8n workflow uses a runtime expression in a tool name, an unresolved
@@ -1820,6 +2224,42 @@ would degrade the verdict to `insufficient_evidence` instead of `blocked`. A
 coding agent cannot self-approve the broadening; a human must re-apply a
 least-privilege configuration or explicitly approve the expanded surface. A
 narrowing (bound added or tightened) emits nothing.
+
+### SHIP-MCP-ENV-SECRET-PASSTHROUGH
+
+Fires when a statically parsed MCP server passes through secret-like
+environment variables, such as token, password, API key, or credential
+names. Secret pass-through changes the credential boundary available to the
+server, so Shipgate routes the change to human review without exposing raw
+secret values in evidence.
+
+### SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+
+Fires when an MCP tool classified as write, destructive, external,
+financial, or production is configured with approval mode `approve`. This is
+an explicit release blocker because auto-approved side-effecting MCP tools
+can let an agent act outside the review boundary.
+
+### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+
+Fires for new or changed MCP capabilities whose static metadata cannot prove
+the callable surface and side effect, including wildcard server exposure.
+Provide an explicit local MCP inventory/schema or keep the server behind
+human review. Unknown side effects route to review by default; they become
+blockers only when paired with a separate blocking condition such as
+auto-approved side-effecting access.
+
+### SHIP-MCP-PERMISSION-EXPANDED
+
+Fires when the MCP capability diff broadens scope, effect, risk tags,
+controls, or accepted input schema. Narrowing and pure least-privilege
+downgrades do not block by default.
+
+### SHIP-MCP-READONLY-SERVER-ADDED
+
+Fires as a low-severity warning when a new local documentation MCP server is
+classified as read-only. It keeps benign expansion visible in review
+artifacts while remaining non-blocking by default.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 
@@ -2265,7 +2705,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.22.json`](report-schema.v0.22.json) — current JSON
+- [`report-schema.v0.26.json`](report-schema.v0.26.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

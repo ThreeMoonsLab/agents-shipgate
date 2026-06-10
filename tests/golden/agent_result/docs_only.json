@@ -1,0 +1,49 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "decision": "allow",
+  "risk_level": "none",
+  "audit_id": "codex_boundary_4edef5423a42df116f31af84",
+  "policy_version": "1",
+  "summary": "No Codex boundary changes require action.",
+  "changed_files": [
+    "docs/readme.md"
+  ],
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "continue",
+    "why": "No Codex boundary rule requires review or blocking."
+  },
+  "violated_rules": [],
+  "diagnostics": [],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": false,
+    "run_shipgate": false,
+    "skip": true,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": "skip_rule",
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+        "action": "skip_shipgate",
+        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
+        "command": null
+      }
+    ],
+    "changed_files": [
+      "docs/readme.md"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "none",
+      "command": null,
+      "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
+    }
+  },
+  "finding_fingerprints": []
+}

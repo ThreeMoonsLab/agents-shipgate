@@ -36,7 +36,7 @@ An AI agent tool surface is the set of named, schemaed actions an agent can
 invoke at runtime. agents-shipgate reads tool surfaces from MCP exports,
 OpenAPI specs, OpenAI Agents SDK Python entrypoints, Anthropic Messages API
 artifacts, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API artifacts,
-Codex plugin packages and marketplaces, and n8n workflow JSON.
+Codex repo config, Codex plugin packages and marketplaces, and n8n workflow JSON.
 
 ## How does agents-shipgate work?
 
@@ -91,6 +91,7 @@ See [`docs/trust-model.md`](trust-model.md) for the full disclosure.
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
 - OpenAI API artifacts (prompts + function schemas + response formats)
+- Codex repo config (static parsing)
 - Codex plugin packages and marketplaces (static parsing)
 - n8n workflow JSON and source-control stubs (static parsing)
 
@@ -101,7 +102,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.22, current). Always parse this for programmatic use.
+  (schema v0.26, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
@@ -113,30 +114,30 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json)
+default. The packet is governed by [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 and has fixed reviewer sections (release decision, evidence matrix, capability/intent,
 high-risk surface, tool-surface diff, action-surface diff, approval coverage,
 idempotency risk, scope coverage, memory isolation, human-in-the-loop,
 dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v06).
-Packet schema `0.6` preserves the v0.5 `action_surface_diff` section and
-adds two additive extensions: `evidence_matrix`, a compact packet-only
-review aid derived from public `report.json` fields (PR #104, never
-contributes to `release_decision`, CI exit behavior, severity,
-suppression, baseline matching, or `agent_summary`; blocker and
-review-item cells are copied from `release_decision`); and
-`ReleaseDecisionItem.{source, policy_evidence_source}` (PR #103) so
-packet §1 / §2 carry the same reviewer-grade dual-source provenance
-pointers `Finding.source` / `Finding.policy_evidence_source` expose in
-the report.
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v07).
+Packet schema `0.7` adds capability-linked local trace evidence summary and
+trace refs under the human-in-the-loop section. Packet schema `0.6` preserved
+the v0.5 `action_surface_diff` section and added two additive extensions:
+`evidence_matrix`, a compact packet-only review aid derived from public
+`report.json` fields (never contributes to `release_decision`, CI exit
+behavior, severity, suppression, baseline matching, or `agent_summary`; blocker
+and review-item cells are copied from `release_decision`); and
+`ReleaseDecisionItem.{source, policy_evidence_source}` so packet §1 / §2 carry
+the same reviewer-grade dual-source provenance pointers `Finding.source` /
+`Finding.policy_evidence_source` expose in the report.
 Skip emission with `--no-packet`; re-render later with
 `agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json`.
 
 ## Is it production-ready?
 
-v0.11.0 is the latest released version. The manifest schema is stable
+v0.12.0 is the latest released version. The manifest schema is stable
 across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 

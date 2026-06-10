@@ -122,3 +122,30 @@ def test_cli_fixture_copy(tmp_path: Path):
 def test_cli_fixture_unknown_returns_2():
     result = runner.invoke(app, ["fixture", "run", "this-fixture-does-not-exist"])
     assert result.exit_code == 2
+
+
+def test_cli_fixture_run_agent_weakens_gate_blocks_on_gate_removal(tmp_path: Path):
+    """The trust-root demo: head deletes the Shipgate CI workflow and the
+    verifier blocks via the suppression-immune gate-removal checks."""
+    out = tmp_path / "verify-out"
+    result = runner.invoke(
+        app,
+        [
+            "fixture",
+            "run",
+            "agent_weakens_gate",
+            "--out",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Mode: verify" in result.output
+    assert "Merge verdict: blocked" in result.output
+    payload = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["can_merge_without_human"] is False
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    blocker_checks = {
+        item["check_id"] for item in report["release_decision"]["blockers"]
+    }
+    assert "SHIP-VERIFY-CI-GATE-REMOVED" in blocker_checks

@@ -40,6 +40,7 @@ from agents_shipgate.packet.disclaimer import (
     PACKET_NON_PROOF_HEADLINE,
 )
 from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
+from agents_shipgate.packet.json_packet import _strip_report_only_fields
 from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
@@ -147,7 +148,46 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.6"
+    assert packet.packet_schema_version == "0.7"
+
+
+def test_packet_v07_keeps_capability_refs_on_release_items():
+    payload = {
+        "release_decision": {
+            "blockers": [
+                {"check_id": "SHIP-TEST", "capability_refs": ["cap_release"]}
+            ],
+            "review_items": [],
+        },
+        "evidence_matrix": {
+            "rows": [
+                {
+                    "blocking_findings": [
+                        {
+                            "check_id": "SHIP-MATRIX",
+                            "capability_refs": ["cap_matrix"],
+                        }
+                    ],
+                    "review_items": [],
+                }
+            ]
+        },
+        "future_packet_section": {
+            "misalignment": {"capability_refs": ["cap_misalignment"]}
+        },
+    }
+
+    _strip_report_only_fields(payload)
+
+    assert payload["release_decision"]["blockers"][0]["capability_refs"] == [
+        "cap_release"
+    ]
+    assert payload["evidence_matrix"]["rows"][0]["blocking_findings"][0][
+        "capability_refs"
+    ] == ["cap_matrix"]
+    assert payload["future_packet_section"]["misalignment"]["capability_refs"] == [
+        "cap_misalignment"
+    ]
 
 
 def test_no_packet_flag_skips_packet_outputs(tmp_path):
@@ -914,7 +954,7 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.packet_schema_version == "0.7"
     assert upgraded.evidence_matrix.notes
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
@@ -937,7 +977,7 @@ def test_load_packet_json_upgrades_v01_to_v05(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.packet_schema_version == "0.7"
     assert upgraded.evidence_matrix.notes
     assert upgraded.tool_surface_diff.status == "not_declared"
     assert upgraded.tool_surface_diff.enabled is False
@@ -958,7 +998,7 @@ def test_load_packet_json_upgrades_v04_action_surface_section(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.packet_schema_version == "0.7"
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
     assert upgraded.evidence_matrix.notes
@@ -972,7 +1012,7 @@ def test_load_packet_json_upgrades_v05_evidence_matrix(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.6"
+    assert upgraded.packet_schema_version == "0.7"
     assert len(upgraded.evidence_matrix.rows) == 13
     assert any("older packet schema" in note for note in upgraded.evidence_matrix.notes)
 
@@ -1203,7 +1243,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.6"
+    assert reloaded.packet_schema_version == "0.7"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
@@ -1334,7 +1374,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.6"
+    assert payload["packet_schema_version"] == "0.7"
     assert payload["run_id"] == packet.run_id
 
 

@@ -158,6 +158,7 @@ def test_canonical_registration_order():
         "n8n",
         "openai_api",
         "anthropic_api",
+        "codex_config",
         "codex_plugin",
         "validation",
     ]

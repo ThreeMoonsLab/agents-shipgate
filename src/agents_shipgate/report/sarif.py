@@ -57,12 +57,13 @@ def _rules(
 ) -> list[dict[str, Any]]:
     by_check: dict[str, Finding] = {}
     for finding in findings:
-        existing = by_check.get(finding.check_id)
+        rule_id = _rule_id(finding)
+        existing = by_check.get(rule_id)
         if existing is None or (finding.blocks_release and not existing.blocks_release):
-            by_check[finding.check_id] = finding
+            by_check[rule_id] = finding
     rules = []
-    for check_id, finding in sorted(by_check.items()):
-        metadata = metadata_by_id.get(check_id)
+    for rule_id, finding in sorted(by_check.items()):
+        metadata = metadata_by_id.get(finding.check_id)
         description = metadata.description if metadata else finding.check_id
         full_description = (
             metadata.rationale or metadata.description
@@ -72,12 +73,13 @@ def _rules(
         severity = metadata.default_severity if metadata else finding.severity
         tags = _sarif_tags(finding, category=metadata.category if metadata else None)
         rule: dict[str, Any] = {
-            "id": check_id,
-            "name": check_id,
+            "id": rule_id,
+            "name": rule_id,
             "shortDescription": {"text": description},
             "fullDescription": {"text": full_description},
             "defaultConfiguration": {"level": _level(severity)},
             "properties": {
+                "check_id": finding.check_id,
                 "category": metadata.category if metadata else finding.category,
                 "severity": severity,
                 "tags": tags,
@@ -95,10 +97,11 @@ def _rules(
 
 def _result(finding: Finding) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "ruleId": finding.check_id,
+        "ruleId": _rule_id(finding),
         "level": _level(finding.severity),
         "message": {"text": finding.title},
         "properties": {
+            "check_id": finding.check_id,
             "severity": finding.severity,
             "category": finding.category,
             "recommendation": finding.recommendation,
@@ -107,6 +110,8 @@ def _result(finding: Finding) -> dict[str, Any]:
             "evidence": _summarize_evidence(finding.evidence),
             "tool_name": finding.tool_name,
             "tags": _sarif_tags(finding),
+            "capability_refs": list(finding.capability_refs),
+            "capability_trace_refs": list(finding.capability_trace_refs),
         },
     }
     if finding.fingerprint:
@@ -132,6 +137,16 @@ def _result(finding: Finding) -> dict[str, Any]:
     if locations:
         result["locations"] = locations
     return result
+
+
+def _rule_id(finding: Finding) -> str:
+    """Use a policy rule id for SARIF annotations when one is available."""
+    evidence = finding.evidence if isinstance(finding.evidence, dict) else {}
+    for key in ("policy_rule_id", "rule_id", "policy_id"):
+        value = evidence.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return finding.check_id
 
 
 def _level(severity: str) -> str:

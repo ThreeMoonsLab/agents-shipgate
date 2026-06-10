@@ -8,6 +8,8 @@ A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in t
 
 ## TL;DR
 
+**This primer is the `report.json` / CI-gate read path.** If you are a PR/controller consumer — an autonomous coding agent deciding *continue, repair, or stop* — read `agents-shipgate-reports/verifier.json` first — `merge_verdict` (a deterministic projection of the gate), then `agent_controller` for imperative controls. See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
+
 **Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "insufficient_evidence" | "passed"`, baseline-aware, stable since v0.8 (`insufficient_evidence` added v0.14). Switch on the enum with a `review_required` fallback for unknown future values per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release). Everything else in the report is detail you reach for *after* the gate decision is captured.
 
 ```python
@@ -131,7 +133,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.6`; full schema at [`docs/packet-schema.v0.6.json`](packet-schema.v0.6.json).
+The packet schema is `0.7`; full schema at [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json).
 
 ---
 
@@ -212,8 +214,8 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.22` | `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.22.json`](report-schema.v0.22.json) |
-| Packet | `0.6` | `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.6.json`](packet-schema.v0.6.json) |
+| Report | `0.26` | `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.26.json`](report-schema.v0.26.json) |
+| Packet | `0.7` | `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.7.json`](packet-schema.v0.7.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `1` | — | `agents-shipgate contract --json` |
 

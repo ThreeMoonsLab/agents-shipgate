@@ -73,6 +73,8 @@ from agents_shipgate.schemas.packet import (
     VerdictLabel,
 )
 from agents_shipgate.schemas.report import (
+    CapabilityRuntimeEvidence,
+    CapabilityTraceEvidenceSummary,
     Finding,
     ReadinessReport,
     ReleaseDecision,
@@ -134,6 +136,7 @@ def build_packet(
     tool_surface_diff: ToolSurfaceDiff | None = None,
     action_surface_diff: ActionSurfaceDiff | None = None,
     report_payload: dict | None = None,
+    capability_runtime_evidence: CapabilityRuntimeEvidence | None = None,
     generated_at: str | None = None,
     config_ref: str = "shipgate.yaml",
     hitl_provenance_mode: str = "fresh_scan",
@@ -189,6 +192,7 @@ def build_packet(
             anthropic_artifacts,
             active,
             validation_artifacts=validation_artifacts,
+            capability_runtime_evidence=capability_runtime_evidence,
             config_ref=config_ref,
             provenance_mode=hitl_provenance_mode,
         ),
@@ -250,6 +254,7 @@ def build_packet_from_report(report: ReadinessReport) -> EvidencePacket:
         tool_surface_diff=report.tool_surface_diff,
         action_surface_diff=report.action_surface_diff,
         report_payload=report_json_payload(report),
+        capability_runtime_evidence=report.capability_runtime_evidence,
         hitl_provenance_mode="rebuilt_from_findings",
     )
     packet.not_proven.additional_residuals.append(_REBUILT_FROM_REPORT_NOTE)
@@ -885,6 +890,7 @@ def _build_human_in_the_loop(
     findings: list[Finding],
     *,
     validation_artifacts: ValidationArtifacts | None,
+    capability_runtime_evidence: CapabilityRuntimeEvidence | None,
     config_ref: str,
     provenance_mode: str,
 ) -> HumanInTheLoopEvidence:
@@ -903,7 +909,12 @@ def _build_human_in_the_loop(
         )
     )
     trace_findings = _findings_with_check(findings, HITL_GAP_CHECKS)
-    is_configured = bool(approval_tools or confirmation_tools or manifest.validation)
+    is_configured = bool(
+        approval_tools
+        or confirmation_tools
+        or manifest.validation
+        or (capability_runtime_evidence and capability_runtime_evidence.enabled)
+    )
     human_review_recommended = decision.evidence_coverage.human_review_recommended
     source_provenance = _hitl_source_provenance(
         manifest=manifest,
@@ -937,6 +948,15 @@ def _build_human_in_the_loop(
         trace_findings=_to_decision_items(trace_findings),
         source_provenance=source_provenance,
         provenance_mode=resolved_provenance_mode,
+        capability_trace_summary=(
+            capability_runtime_evidence.summary
+            if capability_runtime_evidence is not None
+            else CapabilityTraceEvidenceSummary()
+        ),
+        capability_trace_refs=_hitl_capability_trace_refs(
+            trace_findings,
+            capability_runtime_evidence,
+        ),
     )
 
 
@@ -1152,9 +1172,26 @@ def _to_decision_items(findings: list[Finding]) -> list[ReleaseDecisionItem]:
                 blocks_release=finding.blocks_release,
                 source=finding.source,
                 policy_evidence_source=finding.policy_evidence_source,
+                capability_refs=list(finding.capability_refs),
+                capability_trace_refs=list(finding.capability_trace_refs),
             )
         )
     return items
+
+
+def _hitl_capability_trace_refs(
+    findings: list[Finding],
+    evidence: CapabilityRuntimeEvidence | None,
+) -> list[str]:
+    refs = {
+        ref
+        for finding in findings
+        for ref in finding.capability_trace_refs
+    }
+    if evidence is not None:
+        refs.update(row.id for row in evidence.matched)
+        refs.update(row.id for row in evidence.unmatched)
+    return sorted(refs)
 
 
 def _declared_with_sources(

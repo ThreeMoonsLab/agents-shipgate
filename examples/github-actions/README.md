@@ -12,6 +12,8 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`06-on-tool-source-changes.yml`](06-on-tool-source-changes.yml) | Run only when the tool surface or manifest actually changed. |
 | [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
+| [`09-risk-labels-and-reviewers.yml`](09-risk-labels-and-reviewers.yml) | Label PRs by risk signal (`agent-capability-change`, `trust-root-touched`, `shipgate-blocked`) and request boundary owners as reviewers. |
+| [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with line-level SARIF annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
 
 ## Permissions
 
@@ -22,6 +24,7 @@ permissions:
   contents: read
   pull-requests: write       # for pr_comment
   security-events: write     # for SARIF upload
+  checks: write              # for check_run
 ```
 
 Configure per-job, never repo-wide.
@@ -31,9 +34,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.12.0
   with:
-    shipgate_version: "0.11.0"
+    shipgate_version: "0.12.0"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
@@ -51,7 +54,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+  uses: ThreeMoonsLab/agents-shipgate@v0.12.0
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
@@ -78,8 +81,9 @@ findings can feed those fields through `findings[].blocks_release`.
 Verifier artifacts: `verifier_json` points at `verifier.json`, and
 `pr_comment_markdown` points at the Markdown body the action posts to PRs.
 The default PR comment style is `capability-review`: it leads with
-`release_decision.decision`, then shows a top capability-change table,
-trust-root warnings, required next steps, and artifact links. For one minor
+`merge_verdict`, then shows `can_merge_without_human`, top capability changes,
+required next steps, trust-root warnings, and artifact links. The underlying
+release gate remains `report.json.release_decision.decision`. For one minor
 release cycle, existing adopters can set `pr_comment_style: findings` to keep
 the v1 findings-oriented comment while updating downstream automation.
 
@@ -94,8 +98,10 @@ Existing `diff_base` / `diff_from` workflows keep working.
 
 Rollout note for the verifier-cycle minor: the Action defaults are
 `verify_mode: verify` and `pr_comment_style: capability-review`. New outputs
-are additive and old outputs remain stable; keep using `decision` as the
-preferred gating output. The additive verifier outputs are:
+are additive and old outputs remain stable; keep using `decision` /
+`ci_would_fail` as CI gating outputs, and use `merge_verdict` /
+`can_merge_without_human` for PR-controller routing. The additive verifier
+outputs are:
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
 `merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
 `policy_weakened`, `capability_changes_added`,
@@ -105,7 +111,9 @@ The verifier flags mirror `verifier_summary`; the capability counts mirror
 
 ## Verifier Rollout Policies
 
-Use one of these policies after the advisory comment is understood:
+Use one of these policies after the advisory comment is understood. These
+policies consume verifier projections for workflow routing; the source gate is
+still `report.json.release_decision.decision`.
 
 ```yaml
 - name: Fail blocked capability changes

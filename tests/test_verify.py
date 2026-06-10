@@ -11,10 +11,17 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify.capability_review import build_capability_review
+from agents_shipgate.cli.verify.git import read_file_at_ref
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.capabilities import (
+    CapabilityLockFileV1,
+    CapabilityLockHashes,
+    CapabilityLockSource,
+    CapabilityLockSummary,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeMember,
@@ -347,8 +354,12 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate: blocked" in comment
+    assert "## Agents Shipgate result: block" in comment
+    assert "Decision: `block`" in comment
+    assert "Risk: `" in comment
+    assert "Audit ID: `sg_audit_" in comment
     assert "Headline: This PR adds a refund action without approval evidence" in comment
+    assert "Release gate: `blocked`" in comment
     assert "Reason: test decision" in comment
     assert "Capability changes: +1, 0 modified, -0" in comment
     assert "### Capability changes" in comment
@@ -382,9 +393,10 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate: human_review_required" in comment
-    assert "## Agents Shipgate: review_required" not in comment
-    assert "Decision: `review_required`" in comment
+    assert "## Agents Shipgate result: require_review" in comment
+    assert "Decision: `require_review`" in comment
+    assert "Release gate: `review_required`" in comment
+    assert "Decision: `review_required`" not in comment
     assert "Reason: test decision" in comment
 
 
@@ -421,7 +433,8 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
 
     comment = render_pr_comment(verifier, report=None)
 
-    assert "## Agents Shipgate: unknown" in comment
+    assert "## Agents Shipgate result: require_review" in comment
+    assert "Decision: `require_review`" in comment
     assert "## Agents Shipgate: mergeable" not in comment
     assert "Head scan did not produce a report" in comment
 
@@ -671,6 +684,58 @@ def test_verify_artifact_write_failure_does_not_mask_scan_error(
     assert "artifact failed" not in result.output
 
 
+def test_verify_capability_review_artifact_failure_does_not_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**kwargs: Any):
+        callback = kwargs.get("capability_lock_callback")
+        if callback is not None:
+            callback(_empty_capability_lock())
+        report = _report(decision="passed", exit_code=0)
+        out_dir = Path(kwargs["output_dir"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.json").write_text(
+            json.dumps(report_json_payload(report), indent=2),
+            encoding="utf-8",
+        )
+        return report, 0
+
+    def fail_review_artifacts(**_kwargs: Any):
+        raise RuntimeError("artifact boom")
+
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan)
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator._write_capability_review_artifacts",
+        fail_review_artifacts,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "succeeded"
+    assert payload["head_exit_code"] == 0
+    assert payload["merge_verdict"] == "mergeable"
+    assert "capability_lock" not in payload["artifacts"]
+    assert payload["base_notes"] == [
+        "Capability review artifacts unavailable: artifact boom"
+    ]
+
+
 def test_verify_base_materialization_does_not_create_git_worktree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -702,6 +767,20 @@ def test_verify_base_materialization_does_not_create_git_worktree(
         text=True,
     ).stdout
     assert worktrees.count("worktree ") == 1
+
+
+def test_read_file_at_ref_reads_single_blob(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    lock = repo / ".agents-shipgate" / "capabilities.lock.json"
+    lock.parent.mkdir()
+    lock.write_text('{"ok": true}\n', encoding="utf-8")
+    _commit_all(repo, "lock")
+
+    assert (
+        read_file_at_ref(repo, "HEAD", Path(".agents-shipgate/capabilities.lock.json"))
+        == '{"ok": true}\n'
+    )
+    assert read_file_at_ref(repo, "HEAD", Path("missing.json")) is None
 
 
 def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
@@ -860,6 +939,25 @@ def _report(*, decision: str, exit_code: int) -> ReadinessReport:
             ),
         ),
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+    )
+
+
+def _empty_capability_lock() -> CapabilityLockFileV1:
+    return CapabilityLockFileV1(
+        cli_version="test",
+        source=CapabilityLockSource(
+            config_path="shipgate.yaml",
+            manifest_dir=".",
+            agent_id="agent:test",
+            agent_name="test-agent",
+        ),
+        summary=CapabilityLockSummary(),
+        hashes=CapabilityLockHashes(
+            semantic_capability_set_hash="0" * 64,
+            evidence_set_hash="1" * 64,
+            source_set_hash="2" * 64,
+        ),
+        capabilities=[],
     )
 
 

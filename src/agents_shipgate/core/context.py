@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
+    CodexBoundaryArtifacts,
     CodexPluginArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
@@ -15,6 +16,7 @@ from agents_shipgate.core.artifact_models import (
     ValidationArtifacts,
 )
 from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.capability_policy import CapabilityPolicySubject
 from agents_shipgate.core.domain import (
     Agent,
     Tool,
@@ -22,7 +24,9 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
+from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.report import CapabilityRuntimeEvidence
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -50,6 +54,13 @@ class ScanContext:
     config_path: Path
     framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
     action_surface_facts: ActionSurfaceFacts = field(default_factory=ActionSurfaceFacts)
+    capability_facts: list[CapabilityFactV1] = field(default_factory=list)
+    capability_policy_subjects: list[CapabilityPolicySubject] = field(
+        default_factory=list
+    )
+    capability_runtime_evidence: CapabilityRuntimeEvidence = field(
+        default_factory=CapabilityRuntimeEvidence
+    )
     # v0.19 reviewer-grade provenance: JSON-pointer → ``(line, col)``
     # index built from the manifest YAML so agent-level and
     # tool-level high-risk emitters can attach ``shipgate.yaml:N``
@@ -105,6 +116,10 @@ class ScanContext:
     @property
     def codex_plugin_artifacts(self) -> CodexPluginArtifacts | None:
         return self.artifact("codex_plugin", CodexPluginArtifacts)
+
+    @property
+    def codex_boundary_artifacts(self) -> CodexBoundaryArtifacts | None:
+        return self.artifact("codex_config", CodexBoundaryArtifacts)
 
     @property
     def n8n_artifacts(self) -> N8nArtifacts | None:

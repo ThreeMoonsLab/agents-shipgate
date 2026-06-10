@@ -149,7 +149,19 @@ required_evidence:
 
     assert artifacts is not None
     assert artifacts.approval_traces == [
-        {"tool_name": "issue_refund", "approved": True, "success": True}
+        {
+            "tool_name": "issue_refund",
+            "approved": True,
+            "success": True,
+            "_shipgate_source": {
+                "source_type": "validation_approval_trace",
+                "source_ref": "validation/approval-traces.jsonl",
+                "source_path": "validation/approval-traces.jsonl",
+                "source_line": 1,
+                "source_pointer": None,
+                "source_index": 0,
+            },
+        }
     ]
     assert artifacts.override_events == [
         {
@@ -259,7 +271,12 @@ validation:
     )
     assert exit_code == 0
     assert finding.evidence["reason"] == "file_missing"
-    assert any("optional approval trace" in warning for warning in report.source_warnings)
+    approval_trace_warnings = [
+        warning
+        for warning in report.source_warnings
+        if "optional approval trace" in warning
+    ]
+    assert len(approval_trace_warnings) == 1
     provenance = finding.evidence["source_provenance"]
     assert any(
         item["type"] == "approval_trace"
@@ -272,6 +289,7 @@ validation:
     ("field", "path"),
     [
         ("approval_traces", "../outside.jsonl"),
+        ("agent_traces", "../outside.jsonl"),
         ("override_logs", "../outside.jsonl"),
         ("high_risk_exclusions", "../outside.yaml"),
         ("promotion_criteria", "../outside.yaml"),

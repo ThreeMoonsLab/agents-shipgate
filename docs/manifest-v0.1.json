@@ -1280,6 +1280,18 @@
         "path": {
           "title": "Path",
           "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
         }
       },
       "required": [
@@ -1582,6 +1594,13 @@
     "ValidationEvidenceConfig": {
       "additionalProperties": false,
       "properties": {
+        "agent_traces": {
+          "items": {
+            "$ref": "#/$defs/ArtifactPathConfig"
+          },
+          "title": "Agent Traces",
+          "type": "array"
+        },
         "approval_traces": {
           "items": {
             "$ref": "#/$defs/ArtifactPathConfig"

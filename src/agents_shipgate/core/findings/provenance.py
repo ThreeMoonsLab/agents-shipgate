@@ -9,6 +9,7 @@ PROVENANCE_KIND_ORDER: tuple[ProvenanceKind, ...] = (
     "keyword_heuristic",
     "regex_heuristic",
     "policy_pack",
+    "runtime_trace",
 )
 
 

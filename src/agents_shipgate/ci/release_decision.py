@@ -13,6 +13,8 @@ from agents_shipgate.schemas.report import (
     ContributionRule,
     ContributionRuleName,
     EvidenceCoverageDecision,
+    EvidenceGap,
+    EvidenceGapAction,
     FailPolicy,
     Finding,
     ReadinessReport,
@@ -148,6 +150,7 @@ def build_release_decision(
         human_review_recommended=report.summary.human_review_recommended,
         source_warning_count=len(report.source_warnings),
         low_confidence_tool_count=low_confidence_tool_count,
+        evidence_gaps=_evidence_gaps(report, tools),
     )
 
     if report.baseline is None:
@@ -212,6 +215,105 @@ def build_release_decision(
         fail_policy=fail_policy,
         contribution_rules=contribution_rules,
     )
+
+
+# Framework source-type prefixes that support an explicit local tool
+# inventory in the manifest. The gap action points the user at the exact
+# manifest key; everything else degrades to the generic provide_source
+# action (full MCP export / OpenAPI spec / explicit inventory file).
+_INVENTORY_MANIFEST_KEYS: tuple[tuple[str, str], ...] = (
+    ("langchain", "langchain.tool_inventories"),
+    ("crewai", "crewai.tool_inventories"),
+    ("google_adk", "google_adk.tool_inventories"),
+    ("n8n", "n8n.tool_inventories"),
+)
+
+# Filename of the advisory skeleton scan writes next to report.json when
+# low-confidence tools exist (see cli/scan/writing.py). Referenced here
+# so the gap rows and the artifact never drift apart.
+SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
+
+
+def _inventory_manifest_key(source_type: str) -> str | None:
+    for prefix, manifest_key in _INVENTORY_MANIFEST_KEYS:
+        if source_type == prefix or source_type.startswith(f"{prefix}_"):
+            return manifest_key
+    return None
+
+
+def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceGap]:
+    """v0.26: one actionable row per measurable evidence gap.
+
+    Deterministic projection of the same inputs the counts use:
+    low-confidence tools (sorted by name) first, then source warnings in
+    report order. Never gates — `build_release_decision` keeps deciding
+    on the counts alone.
+    """
+    gaps: list[EvidenceGap] = []
+    low_confidence = sorted(
+        (tool for tool in tools if tool.extraction_confidence != "high"),
+        key=lambda tool: (tool.name, tool.source_type),
+    )
+    for tool in low_confidence:
+        manifest_key = _inventory_manifest_key(tool.source_type)
+        if manifest_key is not None:
+            action = EvidenceGapAction(
+                kind="declare_tool_inventory",
+                path=SUGGESTED_INVENTORY_FILENAME,
+                why=(
+                    f"{tool.source_type} extraction is static-only; an "
+                    "explicit local tool inventory is the supported way to "
+                    "raise this tool to high confidence."
+                ),
+                expects=(
+                    f"Review the skeleton written next to report.json, save "
+                    f"it in your repo, reference it from `{manifest_key}` in "
+                    "shipgate.yaml, then rerun the scan."
+                ),
+            )
+        else:
+            action = EvidenceGapAction(
+                kind="provide_source",
+                why=(
+                    f"{tool.source_type} extraction could not fully "
+                    "enumerate this tool surface."
+                ),
+                expects=(
+                    "Provide a complete MCP export, OpenAPI spec, or "
+                    "explicit local tool inventory for this source, then "
+                    "rerun the scan."
+                ),
+            )
+        gaps.append(
+            EvidenceGap(
+                kind="low_confidence_tool",
+                subject=tool.name,
+                source_type=tool.source_type,
+                source_ref=tool.source_location or tool.source_ref,
+                why=(
+                    f"extraction_confidence={tool.extraction_confidence}; "
+                    "static extraction could not prove the full tool surface."
+                ),
+                next_action=action,
+            )
+        )
+    for warning in report.source_warnings:
+        gaps.append(
+            EvidenceGap(
+                kind="source_warning",
+                subject=warning,
+                why="A source loader degraded while reading declared inputs.",
+                next_action=EvidenceGapAction(
+                    kind="review_warning",
+                    why="The warning text names the degraded source.",
+                    expects=(
+                        "Fix or re-declare the named source so the loader "
+                        "stops warning, then rerun the scan."
+                    ),
+                ),
+            )
+        )
+    return gaps
 
 
 def _rule(
@@ -358,6 +460,8 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
         blocks_release=finding.blocks_release,
         source=finding.source,
         policy_evidence_source=finding.policy_evidence_source,
+        capability_refs=list(finding.capability_refs),
+        capability_trace_refs=list(finding.capability_trace_refs),
     )
 
 

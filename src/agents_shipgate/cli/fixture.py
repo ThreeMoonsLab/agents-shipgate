@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import typer
@@ -80,6 +81,16 @@ def fixture_run(
 
     if name == "ai_generated_refund_pr":
         _run_ai_generated_refund_pr_fixture(
+            name=name,
+            src=src,
+            out=out,
+            ci_mode=ci_mode,
+            keep=keep,
+        )
+        return
+
+    if name == "agent_weakens_gate":
+        _run_agent_weakens_gate_fixture(
             name=name,
             src=src,
             out=out,
@@ -223,29 +234,81 @@ def _run_ai_generated_refund_pr_fixture(
     tiny git history so users can reproduce the verifier artifacts that a PR
     would create: ``verifier.json``, ``report.json``, and ``pr-comment.md``.
     """
+
+    def head_files(target: Path) -> dict[str, str | None]:
+        head_tools = target / "_head" / "tools.json"
+        if not head_tools.is_file():
+            typer.echo(f"Fixture {name!r} is missing _head/tools.json", err=True)
+            raise typer.Exit(4)
+        head_payload = head_tools.read_text(encoding="utf-8")
+        shutil.rmtree(target / "_head", ignore_errors=True)
+        return {"tools.json": head_payload}
+
+    _run_verify_pr_fixture(
+        name=name,
+        src=src,
+        out=out,
+        ci_mode=ci_mode,
+        keep=keep,
+        head_files_for=head_files,
+        base_commit_message="base support agent",
+        head_commit_message="codex adds refund tool",
+    )
+
+
+def _run_agent_weakens_gate_fixture(
+    *,
+    name: str,
+    src: Path,
+    out: Path | None,
+    ci_mode: str | None,
+    keep: bool,
+) -> None:
+    """Run the trust-root demo: the head commit deletes the Shipgate CI
+    gate workflow — the cheapest reward-hack — and the verifier blocks the
+    merge via the suppression-immune SHIP-VERIFY-CI-GATE-REMOVED check."""
+
+    def head_files(_target: Path) -> dict[str, str | None]:
+        return {".github/workflows/agents-shipgate.yml": None}
+
+    _run_verify_pr_fixture(
+        name=name,
+        src=src,
+        out=out,
+        ci_mode=ci_mode,
+        keep=keep,
+        head_files_for=head_files,
+        base_commit_message="base docs agent with Shipgate gate",
+        head_commit_message="agent removes Shipgate CI gate",
+    )
+
+
+def _run_verify_pr_fixture(
+    *,
+    name: str,
+    src: Path,
+    out: Path | None,
+    ci_mode: str | None,
+    keep: bool,
+    head_files_for: Callable[[Path], dict[str, str | None]],
+    base_commit_message: str,
+    head_commit_message: str,
+) -> None:
     import tempfile
 
     workdir = Path(tempfile.mkdtemp(prefix=f"shipgate-fixture-{name}-"))
     target = workdir / name
     shutil.copytree(src, target)
 
-    head_tools = target / "_head" / "tools.json"
-    if not head_tools.is_file():
-        typer.echo(f"Fixture {name!r} is missing _head/tools.json", err=True)
-        raise typer.Exit(4)
-    head_payload = head_tools.read_text(encoding="utf-8")
-    shutil.rmtree(target / "_head", ignore_errors=True)
-
     try:
-        _git(target, "init", "-q", "-b", "main")
-        _git(target, "config", "user.email", "fixture@example.com")
-        _git(target, "config", "user.name", "Agents Shipgate Fixture")
-        _git(target, "add", ".")
-        _git(target, "commit", "-q", "-m", "base support agent")
-        _git(target, "update-ref", "refs/remotes/origin/main", "HEAD")
-        (target / "tools.json").write_text(head_payload, encoding="utf-8")
-        _git(target, "add", "tools.json")
-        _git(target, "commit", "-q", "-m", "codex adds refund tool")
+        materialize_git_pr_fixture(
+            target,
+            head_files=head_files_for(target),
+            user_email="fixture@example.com",
+            user_name="Agents Shipgate Fixture",
+            base_commit_message=base_commit_message,
+            head_commit_message=head_commit_message,
+        )
     except subprocess.CalledProcessError as exc:
         typer.echo(f"Fixture {name!r} git setup failed: {exc}", err=True)
         raise typer.Exit(4) from exc
@@ -307,14 +370,15 @@ def _finish_fixture_copy(
     shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
+def _git(cwd: Path, *args: str) -> str:
+    completed = subprocess.run(
         ["git", *args],
         cwd=cwd,
         check=True,
         capture_output=True,
         text=True,
     )
+    return completed.stdout.strip()
 
 
 def _resolve_fixture(name: str) -> Path:
@@ -326,3 +390,63 @@ def _resolve_fixture(name: str) -> Path:
     except FixtureNotFoundError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
+
+
+def materialize_git_pr_fixture(
+    repo: Path,
+    *,
+    base_files: Mapping[str, str | None] | None = None,
+    head_files: Mapping[str, str | None],
+    user_email: str,
+    user_name: str,
+    base_commit_message: str,
+    head_commit_message: str,
+) -> None:
+    """Create a deterministic base/head git fixture with origin/main.
+
+    The fixture CLI and internal benchmark scripts both need the same minimal
+    PR-shaped history. Keeping the git plumbing here avoids parallel copies of
+    the audited subprocess call site.
+    """
+
+    if base_files:
+        _apply_fixture_files(repo, base_files)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", user_email)
+    _git(repo, "config", "user.name", user_name)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", base_commit_message)
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _apply_fixture_files(repo, head_files)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", head_commit_message)
+
+
+def run_fixture_git(repo: Path, *args: str) -> str:
+    """Run the fixture git helper and return stripped stdout."""
+
+    return _git(repo, *args)
+
+
+def _apply_fixture_files(repo: Path, files: Mapping[str, str | None]) -> None:
+    for relative, content in sorted(files.items()):
+        path = repo / relative
+        if content is None:
+            if path.exists():
+                path.unlink()
+            _prune_empty_parents(path.parent, repo)
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
+def _prune_empty_parents(path: Path, root: Path) -> None:
+    while path != root and path.exists():
+        try:
+            path.rmdir()
+        except OSError:
+            return
+        path = path.parent
+
+
+__all__ = ["fixture_app", "materialize_git_pr_fixture", "run_fixture_git"]

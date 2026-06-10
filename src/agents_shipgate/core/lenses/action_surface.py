@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
+from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
 from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
@@ -62,6 +63,7 @@ _RISK_TAG_MAP = {
     "customer_data": "customer_data",
     "secret_access": "secret_access",
     "irreversible": "irreversible",
+    "unknown_side_effect": "unknown_side_effect",
 }
 _CRITICAL_RISK_TAGS = {
     "financial_write",
@@ -70,17 +72,6 @@ _CRITICAL_RISK_TAGS = {
     "identity_access",
     "secret_access",
     "code_execution",
-}
-_EFFECT_RANK = {
-    "read": 0,
-    "privileged_data_access": 1,
-    "write": 2,
-    "external_communication": 3,
-    "financial_write": 4,
-    "production_operation": 4,
-    "identity_access": 4,
-    "code_execution": 4,
-    "destructive": 5,
 }
 _SAFEGUARD_FIELDS = ("idempotency", "audit_log", "rollback", "dry_run")
 _MISSING_PATH = object()
@@ -630,7 +621,7 @@ def _declaration_downgrade_findings(
                     ),
                 ]
             )
-            if _EFFECT_RANK[declaration.effect] < _EFFECT_RANK[inferred_effect]:
+            if ACTION_EFFECT_RANK[declaration.effect] < ACTION_EFFECT_RANK[inferred_effect]:
                 findings.append(
                     _finding(
                         check_id="SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
@@ -742,7 +733,7 @@ def _control_downgrade_finding(
 
 
 def _strongest_effect(effects: list[str]) -> str:
-    return max(effects, key=lambda item: _EFFECT_RANK[item])
+    return max(effects, key=lambda item: ACTION_EFFECT_RANK[item])
 
 
 def _evidence_fact(
@@ -783,6 +774,8 @@ def _infer_effect(tool: Tool, tags: list[str]) -> str:
         return "identity_access"
     if "privileged_data" in tag_set:
         return "privileged_data_access"
+    if "unknown_side_effect" in tag_set:
+        return "write"
     if "writes_data" in tag_set:
         return "write"
     method = str(tool.annotations.get("httpMethod") or "").upper()
@@ -836,7 +829,7 @@ def _modified_changes(current: ActionFact, base: ActionFact) -> list[ActionSurfa
                 added=added_scopes,
             )
         )
-    if _EFFECT_RANK[current.effect] > _EFFECT_RANK[base.effect]:
+    if ACTION_EFFECT_RANK[current.effect] > ACTION_EFFECT_RANK[base.effect]:
         changes.append(
             _change(
                 "EFFECT_ESCALATED",

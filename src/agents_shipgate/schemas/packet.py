@@ -21,6 +21,7 @@ from agents_shipgate.schemas.common import HitlSourceProvenance
 from agents_shipgate.schemas.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.schemas.report import (
     BaselineDelta,
+    CapabilityTraceEvidenceSummary,
     EvidenceCoverageDecision,
     FailPolicy,
     ReleaseDecisionItem,
@@ -271,6 +272,10 @@ class HumanInTheLoopEvidence(BaseModel):
     runtime_control_disclaimer: str = HITL_RUNTIME_CONTROL_DISCLAIMER
     source_provenance: list[HitlSourceProvenance] = Field(default_factory=list)
     provenance_mode: HitlProvenanceMode = "fresh_scan"
+    capability_trace_summary: CapabilityTraceEvidenceSummary = Field(
+        default_factory=CapabilityTraceEvidenceSummary
+    )
+    capability_trace_refs: list[str] = Field(default_factory=list)
 
 
 class DynamicScenarioRequirement(BaseModel):
@@ -336,7 +341,9 @@ class EvidencePacket(BaseModel):
     # ``EvidencePacket`` and ``ReleaseDecisionItem`` defs) can either
     # pin v0.5 packets or upgrade to v0.6 — STABILITY.md's "frozen
     # schema by version" contract is preserved.
-    packet_schema_version: Literal["0.6"] = "0.6"
+    # v0.7: additive opt-in local runtime trace/provenance evidence under
+    # human_in_the_loop. release_decision.decision remains the only gate.
+    packet_schema_version: Literal["0.7"] = "0.7"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

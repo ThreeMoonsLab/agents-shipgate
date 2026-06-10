@@ -79,6 +79,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 | `keyword_heuristic` | 6 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
+| `runtime_trace` | 0 |
 
 Suppressed findings excluded: 0
 
@@ -162,6 +163,10 @@ Next validation:
 
 - Status: disabled - No action-surface comparison source was provided.
 - Base: none
+
+## Capability Runtime Evidence
+
+No local runtime trace artifacts were declared for capability evidence.
 
 ## Tool Surface Diff
 

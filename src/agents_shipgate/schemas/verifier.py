@@ -25,6 +25,11 @@ MergeVerdict = Literal[
     "blocked",
     "unknown",
 ]
+# Whether Shipgate actually evaluated the change — orthogonal to the verdict.
+# Disambiguates a ``mergeable`` verdict: "verified" (Shipgate ran and reached a
+# determination) vs "not_applicable" (skipped — nothing to gate) vs "unknown"
+# (scan could not complete). Never read "mergeable" alone as "verified safe".
+Applicability = Literal["verified", "not_applicable", "unknown"]
 CapabilityChangeBucket = Literal["added", "modified", "removed"]
 CapabilityReleaseImpact = Literal[
     "blocks_release",
@@ -74,6 +79,22 @@ def merge_verdict_for(*, decision: str | None, head_status: str) -> MergeVerdict
     if decision is not None:
         return map_merge_verdict(decision)
     return "mergeable" if head_status == "skipped" else "unknown"
+
+
+def applicability_for(*, decision: str | None, head_status: str) -> Applicability:
+    """Whether Shipgate actually evaluated this change — orthogonal to the verdict.
+
+    A produced ``decision`` means Shipgate was applicable and reached a
+    determination (``"verified"`` — regardless of pass/block). A *skipped* head
+    means there was nothing to gate (``"not_applicable"``). Anything else — scan
+    failed, or not yet run — is ``"unknown"``. This is the field that keeps a
+    ``merge_verdict`` of ``"mergeable"`` from being read as "verified safe" when
+    Shipgate in fact did not need to run. Mirrors ``merge_verdict_for`` so the
+    two stay in lock-step.
+    """
+    if decision is not None:
+        return "verified"
+    return "not_applicable" if head_status == "skipped" else "unknown"
 
 
 class VerifierNextAction(BaseModel):
@@ -164,6 +185,45 @@ class VerifierCapabilityReview(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+AgentStopReason = Literal[
+    "self_approval_prohibited",
+    "blocked_findings",
+    "insufficient_evidence",
+    "human_review_required",
+    "scan_incomplete",
+]
+
+
+class AgentController(BaseModel):
+    """Imperative controller projection for an autonomous coding agent.
+
+    A re-shaping of the verdict the agent already has — ``merge_verdict``,
+    ``can_merge_without_human``, ``fix_task``, ``capability_review`` — into the
+    four questions an agent must answer without human interpretation: may I claim
+    the task done (``completion_allowed``), must I stop for a human
+    (``must_stop`` / ``stop_reason``), what may I run next
+    (``allowed_next_commands``), and what must I never edit or do to get past the
+    gate (``forbidden_file_edits`` / ``forbidden_actions``).
+
+    It introduces NO new decision: ``completion_allowed`` is locked to
+    ``can_merge_without_human`` by ``VerifierArtifact``, and every other field is
+    a deterministic projection of the head scan. ``forbidden_file_edits`` and
+    ``forbidden_actions`` are a STANDING negative affordance — present on every
+    verdict, including ``mergeable`` — so a passing run never reads as "anything
+    goes".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    completion_allowed: bool = False
+    must_stop: bool = True
+    stop_reason: AgentStopReason | None = None
+    allowed_next_commands: list[str] = Field(default_factory=list)
+    forbidden_file_edits: list[str] = Field(default_factory=list)
+    forbidden_actions: list[str] = Field(default_factory=list)
+    user_message_template: str | None = None
+
+
 class VerifierArtifact(BaseModel):
     """Machine-readable artifact emitted by ``agents-shipgate verify``.
 
@@ -183,6 +243,7 @@ class VerifierArtifact(BaseModel):
     trigger: dict[str, Any] = Field(default_factory=dict)
     base_status: VerifierBaseStatus = "not_requested"
     base_tree_sha: str | None = None
+    head_tree_sha: str | None = None
     base_report_json: str | None = None
     base_notes: list[str] = Field(default_factory=list)
     head_status: VerifierHeadStatus = "skipped"
@@ -197,12 +258,38 @@ class VerifierArtifact(BaseModel):
     mode: str = "advisory"
     decision: str | None = None
     merge_verdict: MergeVerdict = "unknown"
+    applicability: Applicability = "unknown"
     can_merge_without_human: bool = False
     headline: str | None = None
     human_review: VerifierHumanReview | None = None
     first_next_action: VerifierNextAction | None = None
     fix_task: VerifierFixTask | None = None
+    agent_controller: AgentController | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_absent_applicability(cls, data: Any) -> Any:
+        """Backward-compatible default for ``applicability`` (additive in schema 0.1).
+
+        An artifact written before this field existed — or any caller that does
+        not set it — may carry a ``release_decision`` but omit
+        ``applicability``. Derive it from the substrate so
+        ``model_validate(...)`` round-trips an older ``verifier.json`` instead
+        of tripping the consistency lock below. Only an *absent* value is
+        filled; an explicit (possibly contradictory) value is left for the
+        after-validator to reject. Keyed on ``release_decision`` presence so the
+        derived value always satisfies that lock.
+        """
+        if isinstance(data, dict) and "applicability" not in data:
+            if data.get("release_decision") is not None:
+                derived = "verified"
+            elif data.get("head_status", "skipped") == "skipped":
+                derived = "not_applicable"
+            else:
+                derived = "unknown"
+            data = {**data, "applicability": derived}
+        return data
 
     @model_validator(mode="after")
     def _verdict_projects_release_decision(self) -> VerifierArtifact:
@@ -234,8 +321,55 @@ class VerifierArtifact(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _applicability_projects_release_decision(self) -> VerifierArtifact:
+        """Lock applicability to the substrate, mirroring the verdict lock.
+
+        A present head ``release_decision`` means Shipgate evaluated the change
+        and produced a determination, so ``applicability`` MUST be
+        ``"verified"``. An *absent* value was already backfilled by
+        ``_derive_absent_applicability``; this lock therefore only rejects an
+        *explicit* contradiction (e.g. ``"not_applicable"`` passed alongside a
+        release decision). Skipped / failed / preview runs have no
+        ``release_decision`` substrate and are left unconstrained, exactly like
+        ``merge_verdict``.
+        """
+        if self.release_decision is None:
+            return self
+        if self.applicability != "verified":
+            raise ValueError(
+                "VerifierArtifact.applicability must be 'verified' when a head "
+                "release_decision is present (Shipgate was applicable); got "
+                f"{self.applicability!r}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _agent_controller_projects_gate(self) -> VerifierArtifact:
+        """Lock the controller's completion flag to the gate (no second verdict).
+
+        ``agent_controller.completion_allowed`` is the imperative restatement of
+        ``can_merge_without_human``. If they ever disagree, two parts of the
+        artifact disagree about whether the agent may finish — exactly the
+        drift the one-decision-engine discipline forbids. Pin them so the
+        controller can never become a finding-independent second opinion.
+        """
+        if self.agent_controller is None:
+            return self
+        if self.agent_controller.completion_allowed != self.can_merge_without_human:
+            raise ValueError(
+                "AgentController.completion_allowed must equal "
+                "can_merge_without_human (one decision engine): "
+                f"{self.agent_controller.completion_allowed!r} != "
+                f"{self.can_merge_without_human!r}"
+            )
+        return self
+
 
 __all__ = [
+    "AgentController",
+    "AgentStopReason",
+    "Applicability",
     "CapabilityChangeBucket",
     "CapabilityReleaseImpact",
     "MergeVerdict",
@@ -247,6 +381,7 @@ __all__ = [
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",
+    "applicability_for",
     "map_merge_verdict",
     "merge_verdict_for",
 ]

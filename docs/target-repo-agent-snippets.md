@@ -58,9 +58,10 @@ Read `agents-shipgate-reports/verifier.json` first and lead with
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
-verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
-edits are scanned; add `--base origin/main --head HEAD` only for committed
-PR/CI verification after making the base ref available.
+verdict. For committed PR/CI verification, pass
+`--base origin/main --head HEAD` after making the base ref available. For local
+uncommitted work, omit `--base` and `--head` so uncommitted edits are scanned.
+`verify` never fetches.
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
 accepts human review.
@@ -162,10 +163,11 @@ changes require human review.
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
-verdict. Omit `--base` and `--head` for local pre-commit work so uncommitted
-edits are scanned; add `--base origin/main --head HEAD` only for committed
-PR/CI verification after making the base ref available. Do not claim completion
-when `merge_verdict` is `blocked`, `insufficient_evidence`, or
+verdict. For committed PR/CI verification, pass
+`--base origin/main --head HEAD` after making the base ref available. For local
+uncommitted work, omit `--base` and `--head` so uncommitted edits are scanned.
+`verify` never fetches. Do not claim completion when `merge_verdict` is
+`blocked`, `insufficient_evidence`, or
 `human_review_required` unless the user explicitly accepts human review. Do not
 bypass the verifier by suppressing findings, lowering severity, expanding
 baselines or waivers, removing Shipgate CI, or weakening agent instructions.
@@ -216,11 +218,11 @@ For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
 
   agents-shipgate verify --workspace . --config shipgate.yaml \
-      --ci-mode advisory --format json
+      --base origin/main --head HEAD --ci-mode advisory --format json
 
-Omit `--base` and `--head` for local pre-commit work so uncommitted edits are
-scanned; add `--base origin/main --head HEAD` only for committed PR/CI
-verification after making the base ref available.
+For local uncommitted work, omit `--base` and `--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches.
 
 Read `agents-shipgate-reports/verifier.json` first. Lead with
 `merge_verdict`, then inspect `capability_review.top_changes[]`,
@@ -319,13 +321,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.12.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "0.11.0"
+          shipgate_version: "0.12.0"
 ```
 
 Advisory mode reports findings without blocking merge. Move to strict mode only

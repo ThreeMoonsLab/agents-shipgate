@@ -1,4 +1,4 @@
-"""Pin the v0.22 verifier report blocks (shape + invariants).
+"""Pin the verifier report blocks (shape + invariants).
 
 v0.22 ships five additive top-level blocks as deterministic projections
 with stable empty/default shapes when no evidence is available:
@@ -15,7 +15,7 @@ This file pins:
 - byte-stable serialization (sorted lists),
 - the §8 invariant ``verifier_summary.verdict == release_decision.decision``
   (Principle 2 — the verifier summary cannot derive an independent verdict),
-- validation of the emitted payload against the committed v0.22 schema.
+- validation of the emitted payload against the committed current schema.
 
 Schema-level "every emitted report carries the block" coverage lives in
 ``tests/test_reports.py``; this file pins the *semantics* of the blocks.
@@ -443,6 +443,99 @@ def test_capability_change_control_added_narrows():
     assert ("policy", "stripe", "approval_policy", None) in narrowed
     assert ("scope", "stripe", None, "refunds:write") in narrowed
     assert block.broadened == []
+
+
+def test_capability_change_enriches_semantic_fields_from_action_facts():
+    from agents_shipgate.schemas.surfaces import (
+        ActionApprovalFact,
+        ActionFact,
+        ActionSafeguardsFact,
+        ActionSurfaceChange,
+        ActionSurfaceDiff,
+        ActionSurfaceFacts,
+        ActionSurfaceHashes,
+    )
+
+    def action(scopes, *, approval=True, schema_hash="schema"):
+        return ActionFact(
+            action_id="agent:openapi:support:refunds.create",
+            agent_id="agent:one",
+            tool_id="tool:refunds.create",
+            tool_name="refunds.create",
+            provider="support",
+            source_type="openapi",
+            source_id="support_api",
+            operation="refunds.create",
+            effect="write",
+            risk_tags=["writes_data"],
+            required_scopes=scopes,
+            approval_policy=ActionApprovalFact(required=approval),
+            safeguards=ActionSafeguardsFact(),
+            input_fields=["amount"],
+            required_input_fields=["amount"],
+            input_schema_hash=schema_hash,
+            hashes=ActionSurfaceHashes(
+                identity_hash="id",
+                schema_hash=schema_hash,
+                policy_hash=f"policy:{approval}",
+                risk_hash=f"risk:{scopes}",
+            ),
+        )
+
+    base = ActionSurfaceFacts(actions=[action(["refunds:write"])])
+    head = ActionSurfaceFacts(actions=[action(["refunds:write", "refunds:admin"])])
+    report = _diffed_report(
+        action_surface_diff=ActionSurfaceDiff(
+            enabled=True,
+            modified=[
+                ActionSurfaceChange(
+                    type="SCOPE_EXPANDED",
+                    action_id="agent:openapi:support:refunds.create",
+                    tool_name="refunds.create",
+                    reason="Action scope expanded.",
+                    added=["refunds:admin"],
+                )
+            ],
+        ),
+    )
+    report.action_surface_facts = head
+
+    block = build_capability_change(report, base_action_surface_facts=base)
+
+    assert len(block.broadened) == 1
+    member = block.broadened[0]
+    assert member.subject_kind == "action"
+    assert member.action == "agent:openapi:support:refunds.create"
+    assert member.scope is None
+    assert member.semantic_direction == "broadened"
+    assert member.before_capability_id
+    assert member.after_capability_id
+    assert "identity_hash" in member.changed_hashes
+    assert any(change.field == "identity.scope" for change in member.semantic_changes)
+
+
+def test_capability_change_without_base_action_facts_falls_back_to_unknown():
+    from agents_shipgate.schemas.surfaces import ActionSurfaceChange, ActionSurfaceDiff
+
+    report = _diffed_report(
+        action_surface_diff=ActionSurfaceDiff(
+            enabled=True,
+            modified=[
+                ActionSurfaceChange(
+                    type="ACTION_MODIFIED",
+                    action_id="agent:openapi:support:refunds.create",
+                    tool_name="refunds.create",
+                    reason="Action metadata changed.",
+                )
+            ],
+        )
+    )
+
+    block = build_capability_change(report)
+
+    assert len(block.broadened) == 1
+    assert block.broadened[0].semantic_direction == "unknown"
+    assert block.broadened[0].semantic_changes == []
 
 
 def test_capability_change_release_impact_reflects_blocking_finding():
@@ -935,7 +1028,7 @@ def _sorted_severity_list(values):
 # --- Schema validation ------------------------------------------------------
 
 
-def test_report_with_default_blocks_validates_against_v022_schema(tmp_path):
+def test_report_with_default_blocks_validates_against_current_schema(tmp_path):
     # Validate a *real* emitted report.json: the real pipeline populates
     # every required top-level block (reviewer_summary, agent_summary,
     # policy/privacy audits, release_consequence, and the five v0.22

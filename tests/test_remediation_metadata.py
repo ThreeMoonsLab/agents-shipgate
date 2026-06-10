@@ -151,7 +151,7 @@ def test_every_docs_url_anchor_resolves_in_checks_md():
     text = CHECKS_MD.read_text(encoding="utf-8")
     heading_anchors: set[str] = set()
     for line in text.splitlines():
-        match = re.match(r"^### (SHIP-[A-Z0-9-]+)\s*$", line)
+        match = re.match(r"^### ((?:SHIP|LINT|SEC)-[A-Z0-9-]+)\s*$", line)
         if match:
             heading_anchors.add(match.group(1).lower())
 

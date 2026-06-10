@@ -42,6 +42,7 @@ def _previous_report_schema_version() -> str:
 AGENT_FACING_DOCS = (
     "agent-recipes.md",
     "agent-adoption-harness.md",
+    "agent-native-merge-contract.md",
     "autofix-policy.md",
     "minimal-real-configs.md",
     "target-repo-agent-snippets.md",
@@ -127,50 +128,94 @@ def test_index_lists_current_schema():
 
 
 def test_no_doc_falsely_advertises_an_older_schema_as_current():
-    """No file under ``docs/`` may advertise an older report schema as
+    """No agent-facing Markdown may advertise an older report schema as
     "current". The contract-test pattern at
     tests/test_public_surface_contract.py covers PUBLIC_SURFACES; this
-    test extends the guard to **every** Markdown file under ``docs/``.
+    test extends the guard to **every** Markdown file under ``docs/``
+    plus the root-level agent-facing files.
 
     Earlier hand-curated lists missed `docs/overview.md` and
-    `docs/ai-search-summary.md` (#57 review P3), forcing two more
-    drift fixes. Walking the full tree closes that loophole — adding
-    a new doc that mentions the schema cannot bypass the guard."""
+    `docs/ai-search-summary.md` (#57 review P3). The PR #192 review
+    found two more blind spots: the walk skipped root-level AGENTS.md,
+    and a ±200-char marker window let v0.(N-1)'s "frozen" label excuse
+    an adjacent stale "current" claim about v0.N. The marker must now
+    lie *between* the older mention and the nearest "current"."""
     current = _current_report_schema_version()
     older_minor = re.compile(r"report-schema\.v0\.(?P<minor>\d+)\.json")
     current_minor = int(current.split(".")[1])
+    markers = ("frozen", "legacy", "older", "pre-v")
 
-    # Schema files themselves (`docs/report-schema.v0.X.json`) and
-    # private adoption notes are excluded; everything else under
-    # ``docs/`` is scanned.
+    scan_paths = sorted(DOCS_DIR.rglob("*.md")) + [
+        REPO_ROOT / "AGENTS.md",
+        REPO_ROOT / "README.md",
+    ]
     failures: list[str] = []
-    for path in DOCS_DIR.rglob("*.md"):
-        relpath = path.relative_to(DOCS_DIR).as_posix()
-        text = path.read_text(encoding="utf-8")
-        for match in older_minor.finditer(text):
-            mentioned = int(match.group("minor"))
-            if mentioned >= current_minor:
+    for path in scan_paths:
+        relpath = path.relative_to(REPO_ROOT).as_posix()
+        for line in path.read_text(encoding="utf-8").splitlines():
+            lower = line.lower()
+            if "current" not in lower:
                 continue
-            # Find the surrounding context (~one paragraph) and confirm
-            # this older mention is labeled as a frozen/legacy/older
-            # reference, not as "current".
-            start = max(0, match.start() - 200)
-            end = min(len(text), match.end() + 200)
-            context = text[start:end].lower()
-            if "current" in context and not any(
-                marker in context
-                for marker in ("frozen", "legacy", "older", "pre-v")
-            ):
-                failures.append(
-                    f"docs/{relpath}: report-schema.v0.{mentioned}.json "
-                    "near the word 'current' without a "
-                    "frozen/legacy/older marker"
-                )
+            for match in older_minor.finditer(line):
+                mentioned = int(match.group("minor"))
+                if mentioned >= current_minor:
+                    continue
+                # The frozen/legacy marker only excuses the mention when
+                # it sits BETWEEN the mention and a "current" on the same
+                # line — so v0.(N-1)'s own "frozen" label can't whitewash
+                # a stale claim about v0.N, and "current" on a *different*
+                # line (the next bullet, a table header) neither flags nor
+                # excuses anything here. Cross-line trackers are pinned by
+                # the positive presence test below.
+                excused = True
+                index = lower.find("current")
+                while index != -1:
+                    between_start = min(match.end(), index)
+                    between_end = max(match.start(), index)
+                    between = lower[between_start:between_end]
+                    if not any(marker in between for marker in markers):
+                        excused = False
+                        break
+                    index = lower.find("current", index + 1)
+                if not excused:
+                    failures.append(
+                        f"{relpath}: report-schema.v0.{mentioned}.json "
+                        "on a line claiming 'current' without a "
+                        "frozen/legacy/older marker between them"
+                    )
 
     assert not failures, (
         "Doc drift: the following docs mention an older report schema as "
         f"'current' (runtime is v{current}). Bump them or add a "
         "frozen/legacy marker:\n  - " + "\n  - ".join(failures)
+    )
+
+
+def test_current_schema_trackers_name_the_current_schema_file():
+    """Files whose job is to point agents at the *current* report schema
+    must actually name the current file. Positive presence check — this
+    catches stale-version drift regardless of wording (the PR #192
+    review found four files the proximity heuristic above missed)."""
+    current = _current_report_schema_version()
+    trackers = (
+        REPO_ROOT / "AGENTS.md",
+        REPO_ROOT / "README.md",
+        DOCS_DIR / "agent-contract-current.md",
+        DOCS_DIR / "overview.md",
+        DOCS_DIR / "ai-search-summary.md",
+        DOCS_DIR / "report-reading-for-agents.md",
+        DOCS_DIR / "INDEX.md",
+    )
+    needle = f"report-schema.v{current}.json"
+    missing = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in trackers
+        if needle not in path.read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        f"These current-schema trackers do not mention {needle} "
+        f"(runtime is v{current}); update them in the same PR as the "
+        "schema bump:\n  - " + "\n  - ".join(missing)
     )
 
 

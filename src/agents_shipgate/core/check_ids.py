@@ -6,12 +6,17 @@ from collections.abc import Iterable
 # gate's trust spine (trust-root protection). A manifest ``checks.ignore``
 # suppression must NOT be able to hide them — otherwise a coding agent
 # could edit ``shipgate.yaml`` to add ``ignore: SHIP-VERIFY-TRUST-ROOT-
-# TOUCHED`` and silence the very check that flags that edit. Enforced in
+# TOUCHED`` and silence the very check that flags that edit. The same
+# holds for the codex and host boundary categories: a PR that expands a
+# Claude Code allowlist or a workflow permission must not be able to
+# suppress the boundary check flagging it. Enforced in
 # ``apply_suppressions``; mirrors how baseline-integrity findings are
 # immune (they are appended after suppression runs). Severity weakening
 # of these checks is blocked separately by ``CheckMetadata.floor_severity``.
 # See docs/engineering/ai-coding-workflow-verifier.md §3 (Principle 3) and §5.
-UNSUPPRESSIBLE_FINDING_CATEGORIES: frozenset[str] = frozenset({"verify"})
+UNSUPPRESSIBLE_FINDING_CATEGORIES: frozenset[str] = frozenset(
+    {"verify", "codex_boundary", "host_boundary"}
+)
 
 LEGACY_CHECK_ID_ALIASES: dict[str, tuple[str, ...]] = {
     "SHIP-API-OPERATIONAL-READINESS": (

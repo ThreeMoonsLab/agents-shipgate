@@ -33,6 +33,7 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     """
 
     payload = sanitize_packet_payload(packet.model_dump(mode="json"))
+    _strip_report_only_fields(payload)
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload
@@ -52,10 +53,8 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     ``payload`` may be a parsed dict or a raw JSON string/bytes. Older
     payloads are upgraded additively through the current packet shape:
     v0.2 tool-surface diff, v0.3 HITL provenance fields, v0.5
-    action-surface diff, v0.6 evidence matrix (PR #104), and v0.6
-    ``ReleaseDecisionItem.{source, policy_evidence_source}`` (PR #103,
-    no field synthesis needed because v0.5-emitted packets never
-    carried the optional fields). Unsupported versions
+    action-surface diff, v0.6 evidence matrix, and v0.7 capability trace
+    evidence metadata. Unsupported versions
     raise ``PacketSchemaError`` so callers can downgrade to a clean
     error rather than a noisy validation traceback.
     """
@@ -75,7 +74,7 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.6",
+            "packet_schema_version": "0.7",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -88,26 +87,34 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
+        _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
+        _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
+        _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
+        _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.6"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
         _upgrade_evidence_matrix_v06(payload_dict)
-    elif version != "0.6":
+        _upgrade_hitl_v07(payload_dict)
+    elif version == "0.6":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        _upgrade_hitl_v07(payload_dict)
+    elif version != "0.7":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
-            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', or '0.6'"
+            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', or '0.7'"
         )
 
     try:
@@ -140,8 +147,50 @@ def _upgrade_action_surface_v05(payload: dict[str, Any]) -> None:
     )
 
 
+def _strip_report_only_fields(value: Any) -> None:
+    """Compatibility hook kept for tests that import it.
+
+    Packet v0.7 intentionally carries ``ReleaseDecisionItem.capability_refs``
+    and ``capability_trace_refs``. There are no report-only fields to strip.
+    """
+
+    return None
+
+
+def _strip_release_item_lists(value: Any, fields: tuple[str, ...]) -> None:
+    if not isinstance(value, dict):
+        return
+    for field in fields:
+        items = value.get(field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                item.pop("capability_refs", None)
+
+
 def _upgrade_evidence_matrix_v06(payload: dict[str, Any]) -> None:
     payload.setdefault(
         "evidence_matrix",
         unavailable_evidence_matrix().model_dump(mode="json"),
     )
+
+
+def _upgrade_hitl_v07(payload: dict[str, Any]) -> None:
+    hitl = payload.get("human_in_the_loop")
+    if not isinstance(hitl, dict):
+        return
+    hitl.setdefault(
+        "capability_trace_summary",
+        {
+            "source_count": 0,
+            "trace_count": 0,
+            "matched_trace_count": 0,
+            "unmatched_trace_count": 0,
+            "approval_trace_count": 0,
+            "agent_trace_count": 0,
+            "api_trace_count": 0,
+            "warning_count": 0,
+        },
+    )
+    hitl.setdefault("capability_trace_refs", [])

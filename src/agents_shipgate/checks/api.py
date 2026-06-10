@@ -7,6 +7,10 @@ from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
 )
+from agents_shipgate.core.capability_traces import (
+    capability_refs_for_tool,
+    capability_trace_refs_for_tool,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import (
     Tool,
@@ -330,7 +334,14 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
                     confidence="medium",
                     recommendation=f"Require approval before calling {tool_name}.",
                     context=context,
-                    provenance_kind="static_declaration",
+                    provenance_kind="runtime_trace",
+                    capability_refs=capability_refs_for_tool(context, tool_name),
+                    capability_trace_refs=capability_trace_refs_for_tool(
+                        context,
+                        tool_name,
+                        source_types={"openai_api_trace"},
+                        observed={"approved": False},
+                    ),
                 )
             )
         if tool_name in confirmation_tools and event.get("confirmed") is False:
@@ -344,7 +355,14 @@ def _append_trace_findings(findings: list, context: ScanContext) -> None:
                     confidence="medium",
                     recommendation=f"Require explicit confirmation before calling {tool_name}.",
                     context=context,
-                    provenance_kind="static_declaration",
+                    provenance_kind="runtime_trace",
+                    capability_refs=capability_refs_for_tool(context, tool_name),
+                    capability_trace_refs=capability_trace_refs_for_tool(
+                        context,
+                        tool_name,
+                        source_types={"openai_api_trace"},
+                        observed={"confirmed": False},
+                    ),
                 )
             )
 

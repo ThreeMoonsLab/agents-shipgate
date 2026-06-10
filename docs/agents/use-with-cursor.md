@@ -50,12 +50,12 @@ Open Cursor in the project. Two checks:
 2. In the same chat, with the matching file still in context (open in the editor or referenced via `@filename`), ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate." Cursor should run the preview/detect path per the rule and proceed only when Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Cursor to finish an
    agent-tool change. Cursor should run
-   `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`
-
-   Add `--base origin/main --head HEAD` only for committed PR/CI verification
-   after making the base ref available. Omit both for local pre-commit work so
-   uncommitted edits are scanned.
+   `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
    or report the exact `agents-shipgate trigger` skip verdict.
+
+   For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+   scanned. For committed PR/CI refs, make the base ref available first because
+   `verify` never fetches.
 
 The rule's `alwaysApply: false` setting means it only fires when a matching file is in chat context. A chat with no matching file referenced will not auto-attach the rule — that is the intended behavior, not a bug.
 

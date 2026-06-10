@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-05-23; auto-checked against `agents-shipgate contract --json`:
-runtime contract `1`, report schema `v0.22`, packet schema `v0.6`.
+2026-06-08; auto-checked against `agents-shipgate contract --json`:
+runtime contract `2`, report schema `v0.26`, packet schema `v0.7`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -147,8 +147,8 @@ build_reviewer_summary             populate v0.20 reviewer_summary from
                                    post-filter)
                                      ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
-packet/builder.build_packet        Release Evidence Packet (v0.6) including
-                                   the evidence_matrix lens
+packet/builder.build_packet        Release Evidence Packet (v0.7) including
+                                   evidence_matrix and capability trace refs
                                      ↓
 cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
                                    nine sequential phase helpers
@@ -239,6 +239,106 @@ The existing string-based predicates in `core/risk_hints.py`
 `is_high_risk_tool`, `is_write_tool`) are unchanged — they remain the
 public API used by every check in `checks/`. New code should prefer
 the typed accessors; legacy callers may migrate incrementally.
+
+## Internal capability substrate: `CapabilityFactV1`
+
+`core/capabilities.py` builds a durable capability vocabulary on top of
+`Scope`, `SideEffect`, and `Action`. The public schema models live in
+`agents_shipgate.schemas.capabilities`; internal builders remain under
+`core.*`. The main type, `CapabilityFactV1`, groups stable semantic
+identity, normalized effect, authority, controls, source evidence, risk
+tags, and separate identity / effect / authority / control / schema /
+risk / evidence hashes. The hashes use capability-specific canonical JSON
+so they do not inherit the finding fingerprint exclusion list. It is the
+substrate for stable capability locks, richer semantic diffs, policy
+matching, and governance benchmark assertions.
+
+**Boundary.** `CapabilityFactV1` records are emitted through capability
+locks, not `report.json`, and do not gate release. The release decision
+remains `release_decision.decision`; public report surfaces remain
+projections of the scan pipeline. v0.23 uses the shared semantic delta
+classifier to add explanatory metadata to `capability_change` members,
+but the existing buckets and Action outputs stay compatible. Capability
+facts are built from typed `Action` objects via `build_capability_facts(...)`
+for locks, and from public `ActionFact` snapshots for report-comparable
+semantic deltas.
+
+## Capability-native policy matching
+
+`core/capability_policy.py` builds an internal `CapabilityPolicySubject`
+for each `CapabilityFactV1`. The subject pairs the durable capability fact
+with the existing `ActionFact`, `Tool`, parameter schema, and effective
+controls that built-in policy checks and policy packs already need.
+Policy matching now runs through this substrate instead of raw `Tool`
+field predicates, while legacy policy-pack syntax keeps the same behavior.
+
+Reports expose only lightweight audit references:
+`findings[].capability_refs`, optional
+`findings[].capability_policy_evidence`, and mirrored
+`release_decision.{blockers,review_items}[].capability_refs`. These fields
+are not fingerprint inputs and do not create an independent verdict.
+`release_decision.decision` remains the only gate. Packet schema `0.7`
+adds report-derived capability trace evidence metadata, but runtime trace
+evidence stays out of static capability locks.
+
+## Capability standard and locks
+
+`agents-shipgate capability export` builds a stable local capability lock
+from the same static source-loading path used by scans, but stops after
+enriched tools and typed `Action` objects are available. It does not run
+findings, write `report.json`, invoke `verify`, or produce a release
+decision. By default it writes the reviewed envelope to
+`.agents-shipgate/capabilities.lock.json` and a byte-identical generated
+copy to `agents-shipgate-reports/capabilities.lock.json`.
+
+`agents-shipgate capability diff --base ... --head ...` compares two
+lockfiles by `CapabilityFactV1.id`. Semantic hash drift on a stable id
+(`effect`, non-scope `authority`, `control`, `schema`, or `risk`) is
+reported as `changed` with `semantic_direction` and `semantic_changes`;
+source-provenance-only drift is reported as `evidence_changed`.
+Scope/resource changes intentionally re-identify a capability because
+scope is part of durable identity, so the diff pairs same
+agent/provider/operation/tool rows and reports them as `reidentified`
+instead of unrelated add/remove churn. Added and removed capability facts
+are listed separately.
+
+The v0.2 lock is an enumerable-tools envelope. Dynamic toolkit scope
+bounds parsed from factories are counted in `source.toolkit_bound_count`
+but are not yet emitted as capability facts, so widening a dynamic
+factory's authority bound is a known limitation until a later phase
+adds non-enumerable authority facts. The current schema is
+[`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json);
+diff artifacts use
+[`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json).
+Both carry `experimental: false`. Old experimental v0.1 lock inputs
+remain readable by `capability diff`, but new exports use v0.2.
+Capability locks are not part of `report.json`, do not include runtime
+trace evidence, and do not gate. The committed lock is deterministic for
+the same manifest-relative inputs; `cli_version` is provenance and may
+change on scanner upgrades. The release decision remains
+`release_decision.decision`. The public spec is
+[`capability-standard.md`](capability-standard.md).
+
+## Governance benchmark substrate
+
+`benchmark/agent-pr-governance/` is the executable eval substrate for the
+capability model. Its v0.2 catalog distinguishes executable rows from
+catalog-only and external-evidence backlog rows. Executable cases materialize
+small base/head git repos, run the real verifier, export base/head capability
+locks, compare them through the shared capability-lock diff engine, and assert
+both gate behavior and `CapabilityFactV1` semantic deltas.
+
+The internal runner is `python scripts/run_governance_benchmark.py --catalog
+benchmark/agent-pr-governance/cases.yaml --json`. Benchmark orchestration lives
+in the script layer, not in `src/agents_shipgate`, so the eval harness does not
+ship in the scanner package or expand the audited scanner trust surface. Git
+fixture materialization reuses the existing fixture helper rather than adding a
+benchmark-specific subprocess call site. The runner emits deterministic
+`governance_benchmark_result_schema_version: "0.2"` JSON with no wall-clock
+timestamp and `experimental: false`. The benchmark is research infrastructure
+only: it does not add public report fields, policy behavior, GitHub Action
+outputs, or a second verdict. `report.json.release_decision.decision` remains
+the only release gate. See [`governance-benchmark.md`](governance-benchmark.md).
 
 ## Reviewer surfaces: five lenses + three audit envelopes
 
@@ -395,11 +495,11 @@ without a per-call-site allowlist with literal-anchor snippet;
 files outside the manifest directory rejected (path-traversal
 containment); files larger than 10 MB rejected.
 
-## Release Evidence Packet (v0.6)
+## Release Evidence Packet (v0.7)
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.6.json`](packet-schema.v0.6.json))
+own JSON contract ([`packet-schema.v0.7.json`](packet-schema.v0.7.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -543,10 +643,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.22"`; older schemas frozen as
+  `report_schema_version: "0.26"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.6"`; older schemas frozen.
+  `packet_schema_version: "0.7"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

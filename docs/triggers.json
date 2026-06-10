@@ -63,6 +63,21 @@
       "rationale": "Static tool inventories for the OpenAI and Anthropic Messages APIs are first-class tool sources."
     },
     {
+      "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+      "agents_md_row": "Adds/changes Codex repo config, hooks, or permission profiles",
+      "when": {
+        "any_of": [
+          {"glob": ".codex/config.toml"},
+          {"glob": "**/.codex/config.toml"},
+          {"glob": ".codex/hooks.json"},
+          {"glob": "**/.codex/hooks.json"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+      "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+    },
+    {
       "id": "TRIGGER-CODEX-PLUGIN-CHANGED",
       "agents_md_row": "Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files",
       "when": {
@@ -180,6 +195,10 @@
             "shipgate.yaml",
             "**/*tools*.json",
             "**/*mcp*.json",
+            ".codex/config.toml",
+            "**/.codex/config.toml",
+            ".codex/hooks.json",
+            "**/.codex/hooks.json",
             ".codex-plugin/**",
             "**/.codex-plugin/**",
             ".agents/plugins/**",

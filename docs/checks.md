@@ -91,6 +91,50 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE` | high | A Codex plugin MCP server is declared without a local enumerable tool inventory. |
 | `SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE` | medium | A Codex plugin connector app surface is not statically enumerable from local metadata. |
 | `SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING` | medium | A Codex plugin skill lacks unique name/description frontmatter. |
+| `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` | medium | Codex project configuration could not be parsed. |
+| `SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY` | medium | Codex permissions contain an unknown high-risk key. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD` | high | Codex network permissions allow a wildcard domain. |
+| `SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED` | high | Codex network access expanded. |
+| `SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS` | critical | Codex full-access sandbox is selected. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE` | critical | Codex auto-approves a write or destructive MCP/app tool. |
+| `SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN` | high | Codex auto-approves an MCP server whose tool surface is not statically enumerable. |
+| `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
+| `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
+| `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
+| `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
+| `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | high | GitHub workflow permissions expanded. |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | critical | A GitHub workflow gained a pull_request_target trigger. |
+| `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
+| `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
+| `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
+| `LINT-DESC-001` | high | A skill description is too vague to route reliably. |
+| `LINT-DESC-003` | medium | A skill description is overbroad and may false-trigger. |
+| `LINT-BODY-001` | medium | A skill body lacks a step-by-step procedure. |
+| `LINT-BODY-003` | medium | A skill body lacks an output contract. |
+| `LINT-BODY-004` | medium | A skill body lacks verification criteria. |
+| `LINT-SCRIPT-001` | medium | A skill script lacks documented `--help` usage. |
+| `LINT-SCRIPT-004` | medium | A stateful skill script lacks dry-run support. |
+| `SEC-PI-001` | critical | A skill artifact contains instruction override language. |
+| `SEC-PI-003` | high | A skill artifact tells the agent to hide behavior. |
+| `SEC-SECRET-001` | critical | A skill artifact contains a hardcoded secret-like value. |
+| `SEC-SECRET-003` | high | A skill artifact instructs credential or secret-file access. |
+| `SEC-SCRIPT-001` | critical | Remote content is piped to a shell or interpreter. |
+| `SEC-SCRIPT-002` | critical | A destructive or stateful command lacks guardrails. |
+| `SEC-REMOTE-001` | medium | A skill fetches remote instruction content. |
+| `SEC-REMOTE-002` | critical | Remote content is fetched and executed. |
+| `SEC-TOOL-001` | high | A skill pre-approves shell or bash without justification. |
+| `SEC-FLOW-004` | medium | A skill lacks data and instruction separation guidance. |
+| `SEC-PROV-001` | high | A third-party skill lacks provenance metadata. |
+| `SEC-MISMATCH-001` | high | A skill declares read-only behavior but bundled scripts mutate state. |
 | `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | An n8n tool surface uses runtime, unresolved, wildcard, or uninventoried custom exposure. |
 | `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` | high/medium | An n8n MCP Client Tool exposes `All` or `All Except` tools without an explicit inventory. |
 | `SHIP-N8N-AI-TOOL-METADATA-MISSING` | medium | An n8n AI-exposed tool lacks static description or parameter metadata. |
@@ -473,6 +517,235 @@ A `skills/**/SKILL.md` file is missing parseable `name` or `description`
 frontmatter, or duplicates another skill name in the same plugin. Give every
 skill a unique routing name and clear description.
 
+### SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed repo-local `.codex/config.toml` or `.codex/hooks.json` cannot be
+parsed. Fix the malformed config or have a human review the boundary change.
+
+### SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
+
+A changed `.codex/config.toml` contains an unknown key below a permissions
+profile or permissions network table. Review the key before trusting the local
+Codex boundary.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD
+
+A changed Codex permission profile allows a wildcard domain. Replace wildcard
+network access with explicit domains or get human approval.
+
+### SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED
+
+Codex workspace-write network access or full network mode was enabled. Have a
+human approve the expanded local execution boundary.
+
+### SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS
+
+Codex `sandbox_mode` or `default_permissions` selects `danger-full-access`.
+Use a narrower permission profile or get explicit human approval.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE
+
+A changed MCP or app tool approval mode is `approve` for a write or
+destructive-looking tool. Do not auto-approve write or destructive tools.
+
+### SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN
+
+Codex auto-approves an MCP server whose tool surface is not statically
+enumerable. Enumerate MCP tools or keep the approval mode at `prompt`.
+
+### SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE
+
+A Codex app connector tool approval changed to `approve`. Review connector
+approval changes before local automation.
+
+### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
+
+`AGENTS.md` or `AGENTS.override.md` removed Shipgate command or requirement
+text without adding a replacement. A human should confirm the agent
+instructions were not weakened.
+
+### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
+
+The Shipgate GitHub Actions workflow was deleted or no longer contains a
+Shipgate invocation. Restore the workflow or get human approval to remove it.
+
+### SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
+
+A changed Codex hooks source contains a command hook. Review executable hooks
+before relying on them.
+
+### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
+
+A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
+command-bearing skill changes before local automation.
+
+### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
+or its content cannot be resolved from the diff. Fix the malformed host config
+or have a human review the change.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+
+A changed MCP server declaration file adds a server key that did not exist
+before. Have a human review the new MCP server before the agent can use it.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+
+An existing MCP server changed its `command`, `args`, `url`, `serverUrl`, or
+`env` keys. Review the change — env var values never appear in evidence, key
+names only.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+
+A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
+allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
+`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
+commands.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+
+A changed Claude Code settings file adds a non-wildcard `permissions.allow`
+entry. Have a human approve the new permission allow rule.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+
+A changed Claude Code settings file drops an entry from `permissions.deny`.
+Have a human confirm the removed deny rule is no longer needed.
+
+### SHIP-HOST-BOUNDARY-HOOK-CHANGED
+
+A changed Claude Code settings file adds, modifies, or removes hook handlers.
+Review executable hook changes before the agent relies on them.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+
+A changed `.github/workflows` file sets `permissions: write-all` at the top
+level or for a job. Replace write-all with the minimal explicit permission
+scopes.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+
+A changed `.github/workflows` file grants an explicit write scope that the
+base did not grant, at the top level or per job. Have a human approve the
+expanded workflow write permission.
+
+### SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+
+A changed `.github/workflows` file adds `pull_request_target` to its triggers.
+Review it carefully — `pull_request_target` runs with secrets on fork PRs.
+
+### LINT-BODY-001
+
+A `SKILL.md` body lacks an ordered Procedure, Steps, or Workflow section. Add
+step-by-step instructions an agent can follow.
+
+### LINT-BODY-003
+
+A `SKILL.md` body does not define the expected output artifact, response shape,
+or completion criteria. Add an Output section.
+
+### LINT-BODY-004
+
+A `SKILL.md` body lacks verification or acceptance criteria. Add checks the
+agent can run or cite before reporting completion.
+
+### LINT-DESC-001
+
+A skill description is too short or generic to route reliably. Rewrite it with
+concrete trigger conditions and domain-specific nouns.
+
+### LINT-DESC-003
+
+A skill description is broad enough to false-trigger. Narrow it to the specific
+workflow, file type, or domain where the skill applies.
+
+### LINT-SCRIPT-001
+
+A bundled script lacks documented `--help` usage. Document safe invocation in
+`SKILL.md` and make usage discoverable without interaction.
+
+### LINT-SCRIPT-004
+
+A bundled script appears stateful or destructive but lacks dry-run support. Add
+`--dry-run` or document a non-mutating preview path.
+
+### LINT-SPEC-002
+
+`SKILL.md` frontmatter is not parseable YAML mapping data. Fix the frontmatter
+before relying on skill discovery.
+
+### LINT-SPEC-003
+
+`SKILL.md` is missing required `name` frontmatter. Add a stable routing name.
+
+### LINT-SPEC-004
+
+`SKILL.md` is missing required `description` frontmatter. Add a clear trigger
+description that tells agents when to load the skill.
+
+### SEC-FLOW-004
+
+A skill combines untrusted content with outbound or secret-access behavior but
+lacks instruction/data separation guidance. State that untrusted content is data
+and must not supply agent instructions.
+
+### SEC-MISMATCH-001
+
+A skill declares read-only or review-only behavior but bundled scripts mutate
+files or external state. Update the declared purpose or remove the mutation.
+
+### SEC-PI-001
+
+A skill or related artifact tells agents to ignore or override higher-priority
+instructions. Remove the instruction-override language.
+
+### SEC-PI-003
+
+A skill or related artifact tells agents to hide behavior from users, reviewers,
+or logs. Remove concealment instructions.
+
+### SEC-PROV-001
+
+A skill marked as third-party lacks `metadata.shipgate.source` provenance. Add
+source, source reference, owner, and review metadata.
+
+### SEC-REMOTE-001
+
+A skill fetches mutable remote prompt, instruction, or skill content at runtime.
+Avoid remote instruction fetch or document source trust and pinning.
+
+### SEC-REMOTE-002
+
+A skill sources or executes content fetched from a remote URL. Remove the
+runtime remote-code execution or pin, verify, and sandbox the content.
+
+### SEC-SCRIPT-001
+
+A skill artifact pipes remote content to a shell or interpreter. Vendor the
+script or verify pinned content instead of executing mutable remote bytes.
+
+### SEC-SCRIPT-002
+
+A skill artifact contains destructive or stateful command patterns without
+dry-run, confirmation, or path validation. Add guardrails or remove the command.
+
+### SEC-SECRET-001
+
+A skill artifact contains a hardcoded secret-like value. Remove it and rotate the
+exposed credential; reports redact the value by kind and location.
+
+### SEC-SECRET-003
+
+A skill artifact instructs agents to read broad credential files or secret-bearing
+environment variables. Replace with scoped placeholder guidance.
+
+### SEC-TOOL-001
+
+A skill pre-approves shell or bash-like tools without reviewed-script or sandbox
+justification. Remove preapproval or document the review boundary.
+
 ### SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
 
 An n8n workflow uses a runtime expression in a tool name, an unresolved
@@ -664,6 +937,42 @@ would degrade the verdict to `insufficient_evidence` instead of `blocked`. A
 coding agent cannot self-approve the broadening; a human must re-apply a
 least-privilege configuration or explicitly approve the expanded surface. A
 narrowing (bound added or tightened) emits nothing.
+
+### SHIP-MCP-ENV-SECRET-PASSTHROUGH
+
+Fires when a statically parsed MCP server passes through secret-like
+environment variables, such as token, password, API key, or credential
+names. Secret pass-through changes the credential boundary available to the
+server, so Shipgate routes the change to human review without exposing raw
+secret values in evidence.
+
+### SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+
+Fires when an MCP tool classified as write, destructive, external,
+financial, or production is configured with approval mode `approve`. This is
+an explicit release blocker because auto-approved side-effecting MCP tools
+can let an agent act outside the review boundary.
+
+### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+
+Fires for new or changed MCP capabilities whose static metadata cannot prove
+the callable surface and side effect, including wildcard server exposure.
+Provide an explicit local MCP inventory/schema or keep the server behind
+human review. Unknown side effects route to review by default; they become
+blockers only when paired with a separate blocking condition such as
+auto-approved side-effecting access.
+
+### SHIP-MCP-PERMISSION-EXPANDED
+
+Fires when the MCP capability diff broadens scope, effect, risk tags,
+controls, or accepted input schema. Narrowing and pure least-privilege
+downgrades do not block by default.
+
+### SHIP-MCP-READONLY-SERVER-ADDED
+
+Fires as a low-severity warning when a new local documentation MCP server is
+classified as read-only. It keeps benign expansion visible in review
+artifacts while remaining non-blocking by default.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 

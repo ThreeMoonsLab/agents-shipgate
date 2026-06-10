@@ -11,7 +11,7 @@ from agents_shipgate.schemas.common import (
     parse_severity,
 )
 from agents_shipgate.schemas.patches import Patch
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import CapabilityPolicyEvidence, Finding
 
 
 def tool_finding(
@@ -28,6 +28,9 @@ def tool_finding(
     provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
     policy_evidence_pointer: str | None = None,
+    capability_refs: list[str] | None = None,
+    capability_policy_evidence: CapabilityPolicyEvidence | None = None,
+    capability_trace_refs: list[str] | None = None,
 ) -> Finding:
     return Finding(
         check_id=check_id,
@@ -53,6 +56,9 @@ def tool_finding(
         policy_evidence_source=_policy_evidence_source(
             context, policy_evidence_pointer
         ),
+        capability_refs=capability_refs or [],
+        capability_policy_evidence=capability_policy_evidence,
+        capability_trace_refs=capability_trace_refs or [],
         recommendation=recommendation,
         patches=patches,
     )
@@ -71,6 +77,8 @@ def agent_finding(
     provenance_kind: ProvenanceKind,
     patches: list[Patch] | None = None,
     policy_evidence_pointer: str | None = None,
+    capability_refs: list[str] | None = None,
+    capability_trace_refs: list[str] | None = None,
 ) -> Finding:
     # Reviewer-grade dual-source provenance: for agent-level findings
     # the primary ``source`` IS the manifest pointer. Setting
@@ -92,6 +100,8 @@ def agent_finding(
         provenance_kind=provenance_kind,
         source=_agent_finding_source(context, policy_evidence_pointer),
         policy_evidence_source=None,
+        capability_refs=capability_refs or [],
+        capability_trace_refs=capability_trace_refs or [],
         recommendation=recommendation,
         patches=patches,
     )

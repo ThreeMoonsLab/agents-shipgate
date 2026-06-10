@@ -29,6 +29,11 @@ import pytest
 from agents_shipgate import __version__
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.report.markdown import DISCLAIMER
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
+from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    CAPABILITY_LOCK_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     GATING_SIGNAL,
@@ -37,6 +42,10 @@ from agents_shipgate.schemas.contract import (
     build_contract_payload,
 )
 from agents_shipgate.schemas.diagnostics import NextActionKind
+from agents_shipgate.schemas.governance_benchmark import (
+    GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
+    GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
@@ -54,7 +63,7 @@ CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
@@ -109,7 +118,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "ROADMAP.md",
-        re.compile(r"preparing the\s+`v(\d+\.\d+\.\d+)`\s+release"),
+        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+)`"),
     ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
@@ -328,7 +337,14 @@ def test_well_known_metadata_lists_packet_outputs():
         f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
     )
     outputs = data.get("outputs", [])
-    for expected in ("packet_md", "packet_json", "packet_html", "feedback_json"):
+    for expected in (
+        "packet_md",
+        "packet_json",
+        "packet_html",
+        "capability_lock_diff_md",
+        "feedback_json",
+        "attestation_json",
+    ):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
             "the Release Evidence Packet and feedback export are first-class outputs."
@@ -358,6 +374,46 @@ def test_well_known_metadata_lists_packet_outputs():
     assert "feedback-schema.v0.1.json" in feedback_url, (
         ".well-known schemas.feedback must point to docs/feedback-schema.v0.1.json; "
         f"got {feedback_url!r}."
+    )
+    capability_lock_url = schemas.get("capability_lock", "")
+    assert f"capability-lock-schema.v{CAPABILITY_LOCK_SCHEMA_VERSION}.json" in (
+        capability_lock_url
+    ), (
+        ".well-known schemas.capability_lock must point to the current "
+        f"capability lock schema; got {capability_lock_url!r}."
+    )
+    capability_diff_url = schemas.get("capability_lock_diff", "")
+    assert (
+        f"capability-lock-diff-schema.v{CAPABILITY_LOCK_DIFF_SCHEMA_VERSION}.json"
+        in capability_diff_url
+    ), (
+        ".well-known schemas.capability_lock_diff must point to the current "
+        f"capability lock diff schema; got {capability_diff_url!r}."
+    )
+    attestation_url = schemas.get("attestation", "")
+    assert f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json" in (
+        attestation_url
+    ), (
+        ".well-known schemas.attestation must point to the current "
+        f"attestation schema; got {attestation_url!r}."
+    )
+    benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
+    assert (
+        "governance-benchmark-catalog-schema."
+        f"v{GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION}.json"
+        in benchmark_catalog_url
+    ), (
+        ".well-known schemas.governance_benchmark_catalog must point to the "
+        f"current catalog schema; got {benchmark_catalog_url!r}."
+    )
+    benchmark_result_url = schemas.get("governance_benchmark_result", "")
+    assert (
+        "governance-benchmark-result-schema."
+        f"v{GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION}.json"
+        in benchmark_result_url
+    ), (
+        ".well-known schemas.governance_benchmark_result must point to the "
+        f"current result schema; got {benchmark_result_url!r}."
     )
 
 
@@ -430,9 +486,9 @@ def test_architecture_doc_contract_stamp_matches_runtime():
         "`agents-shipgate contract --json`: runtime contract `N`, "
         "report schema `vX.Y`, packet schema `vX.Y`.'"
     )
-    assert stamp.group("date") == "2026-05-23", (
+    assert stamp.group("date") == "2026-06-08", (
         "docs/architecture.md contract-check date must stay pinned to "
-        "2026-05-23 until a deliberate architecture-doc refresh moves it."
+        "2026-06-08 until a deliberate architecture-doc refresh moves it."
     )
     assert stamp.group("contract") == CONTRACT_VERSION, (
         f"docs/architecture.md says runtime contract "
@@ -674,8 +730,8 @@ def test_shipgate_version_inputs_match_pyproject_version(relpath):
 def test_version_literals_match_pyproject_version(relpath, pattern):
     """Plain release-version literals on these public surfaces (the
     bug-report placeholder, distribution.md's release-tag list,
-    faq.md's 'latest released version' line, ROADMAP.md's lead
-    paragraph) must move with pyproject.toml on every bump. The
+    faq.md's 'latest released version' line, ROADMAP.md's latest-release
+    line) must move with pyproject.toml on every bump. The
     Action / pip / shipgate_version pin tests don't catch these
     because the literals aren't pins."""
     expected = _load_pyproject_version()
@@ -968,6 +1024,11 @@ def test_triggers_evaluator_smoke():
     assert codex_plugin_change["run_shipgate"] is True, (
         "Codex plugin manifest change must trigger Shipgate; "
         f"got {codex_plugin_change!r}."
+    )
+    codex_config_change = evaluate(paths=[".codex/config.toml"])
+    assert codex_config_change["run_shipgate"] is True, (
+        "Codex repo config change must trigger Shipgate; "
+        f"got {codex_config_change!r}."
     )
     decorator = evaluate(
         paths=["agent.py"],
@@ -1611,6 +1672,12 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
         "plugins/browser-use/.mcp.json",
         "plugins/browser-use/skills/browser/SKILL.md",
     ],
+    "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED": [
+        ".codex/config.toml",
+        "packages/agent/.codex/config.toml",
+        ".codex/hooks.json",
+        "packages/agent/.codex/hooks.json",
+    ],
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",
         "policies/refund.md",
@@ -1700,6 +1767,7 @@ def test_pre_commit_local_docs_show_same_path_trigger_clauses():
     text = _read("docs/integrations.md")
     for clause in (
         r".*swagger.*\.(yaml|yml|json)",
+        r"(.*/)?\.codex/(config\.toml|hooks\.json)",
         r"\.agents-shipgate/.*\.json",
         r"\.github/workflows/agents-shipgate\.(yaml|yml)",
     ):

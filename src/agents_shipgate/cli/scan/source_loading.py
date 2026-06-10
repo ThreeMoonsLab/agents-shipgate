@@ -27,8 +27,9 @@ def _load_sources(
 
     Returns ``(loaded_sources, artifact_bag)``. ``artifact_bag`` is a
     typed ``ArtifactBag`` with per-scan adapter artifacts keyed by
-    ``source_type``. Per-source adapters (mcp, openapi,
-    openai_agents_sdk) never populate artifacts.
+    ``source_type``. Most per-source adapters (mcp, openapi,
+    openai_agents_sdk) return tools only; codex_config is per-source
+    and returns boundary artifacts.
 
     Ordering is deterministic and matches the legacy run_scan order:
 
@@ -281,6 +282,7 @@ def _source_priority(tool: Tool) -> int:
         "codex_plugin_mcp_inventory": 25,
         "n8n_inventory": 25,
         "mcp": 20,
+        "codex_config_mcp": 18,
         "google_adk_function": 10,
         "langchain_function": 10,
         "langchain_structured_tool": 10,

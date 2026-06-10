@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -418,6 +419,46 @@ def test_anthropic_scan_runs_existing_framework_agnostic_checks(tmp_path):
     assert "SHIP-POLICY-APPROVAL-MISSING" not in fingerprints
     # No new check IDs introduced by Anthropic support.
     assert not any(check_id.startswith("SHIP-ANTHROPIC-") for check_id in fingerprints)
+
+
+def test_anthropic_policy_rules_satisfy_capability_native_policy_pack_match(tmp_path):
+    project = tmp_path / "anthropic"
+    shutil.copytree(SAMPLE.parent, project)
+    (project / "approval-covered-pack.yaml").write_text(
+        """
+name: Anthropic Approval Coverage
+rules:
+  - id: ORG-ANTHROPIC-APPROVAL-COVERED
+    title: Anthropic approval policy is recognized
+    severity: low
+    recommendation: Keep the Anthropic policy artifact in sync.
+    match:
+      source_types: [anthropic_api]
+      risk_tags: [financial_action]
+      missing_approval_policy: false
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        policy_pack_paths=[Path("approval-covered-pack.yaml")],
+    )
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-ANTHROPIC-APPROVAL-COVERED"
+    )
+    assert finding.tool_name == "create_refund"
+    assert finding.evidence["missing_approval_policy"] is False
+    assert finding.capability_policy_evidence is not None
+    assert finding.capability_policy_evidence.controls[
+        "effective_approval_required"
+    ] is True
 
 
 def test_anthropic_function_strictness_does_not_emit_missing_strict_true():

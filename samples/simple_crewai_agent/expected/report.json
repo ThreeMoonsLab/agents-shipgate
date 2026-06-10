@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.22",
+  "report_schema_version": "0.26",
   "run_id": "agents_shipgate_75f9c3e73779b880",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
@@ -65,7 +65,65 @@
       "level": "mixed",
       "human_review_recommended": true,
       "source_warning_count": 1,
-      "low_confidence_tool_count": 3
+      "low_confidence_tool_count": 3,
+      "evidence_gaps": [
+        {
+          "kind": "low_confidence_tool",
+          "subject": "FileReadTool",
+          "source_type": "crewai_prebuilt_tool",
+          "source_ref": "crew.py:28",
+          "why": "extraction_confidence=low; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "declare_tool_inventory",
+            "command": null,
+            "path": "suggested-inventory.json",
+            "why": "crewai_prebuilt_tool extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
+            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `crewai.tool_inventories` in shipgate.yaml, then rerun the scan."
+          }
+        },
+        {
+          "kind": "low_confidence_tool",
+          "subject": "lookup_case",
+          "source_type": "crewai_class_tool",
+          "source_ref": "crew.py:19",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "declare_tool_inventory",
+            "command": null,
+            "path": "suggested-inventory.json",
+            "why": "crewai_class_tool extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
+            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `crewai.tool_inventories` in shipgate.yaml, then rerun the scan."
+          }
+        },
+        {
+          "kind": "low_confidence_tool",
+          "subject": "summarize_case",
+          "source_type": "crewai_function",
+          "source_ref": "crew.py:14",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "declare_tool_inventory",
+            "command": null,
+            "path": "suggested-inventory.json",
+            "why": "crewai_function extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
+            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `crewai.tool_inventories` in shipgate.yaml, then rerun the scan."
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan."
+          }
+        }
+      ]
     },
     "baseline_delta": {
       "enabled": false,
@@ -379,6 +437,23 @@
       "No action-surface comparison source was provided."
     ]
   },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
   "api_surface": null,
   "anthropic_surface": null,
   "frameworks": {
@@ -401,10 +476,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/tmp/claude-501/tmp909b2zp4/report.json",
-    "packet_md": "/private/tmp/claude-501/tmp909b2zp4/packet.md",
-    "packet_json": "/private/tmp/claude-501/tmp909b2zp4/packet.json",
-    "packet_html": "/private/tmp/claude-501/tmp909b2zp4/packet.html"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp70nn3lo_/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp70nn3lo_/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -481,9 +554,7 @@
     "redacted_paths": [],
     "output_surfaces": [
       "json",
-      "packet_html",
-      "packet_json",
-      "packet_md"
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

@@ -23,12 +23,14 @@ class ValidationEvidenceConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     approval_traces: list[ArtifactPathConfig] = Field(default_factory=list)
+    agent_traces: list[ArtifactPathConfig] = Field(default_factory=list)
     override_logs: list[ArtifactPathConfig] = Field(default_factory=list)
     high_risk_exclusions: list[ArtifactPathConfig] = Field(default_factory=list)
     promotion_criteria: list[ArtifactPathConfig] = Field(default_factory=list)
 
     @field_validator(
         "approval_traces",
+        "agent_traces",
         "override_logs",
         "high_risk_exclusions",
         "promotion_criteria",

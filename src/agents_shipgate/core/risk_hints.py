@@ -345,6 +345,7 @@ CANONICAL_RISK_TAG_MAP: dict[str, str] = {
     "customer_data": "customer_data",
     "secret_access": "secret_access",
     "irreversible": "irreversible",
+    "unknown_side_effect": "unknown_side_effect",
 }
 
 
@@ -485,6 +486,8 @@ def _derive_effect(tags: set[str], method: str) -> ActionEffect:
         return "identity_access"
     if "privileged_data" in tags:
         return "privileged_data_access"
+    if "unknown_side_effect" in tags:
+        return "write"
     if "writes_data" in tags:
         return "write"
     if method in {"POST", "PUT", "PATCH"}:

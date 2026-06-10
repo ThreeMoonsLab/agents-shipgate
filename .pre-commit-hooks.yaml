@@ -2,14 +2,14 @@
 # repo root when a downstream project uses
 #   repos:
 #     - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-#       rev: v0.11.0
+#       rev: v0.12.0
 #       hooks:
 #         - id: <hook id below>
 #
 # Scope: the `files:` regex below covers every **path-based** trigger from
 # `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
-# inventories, Codex plugin package files, prompts/policies, AND the Shipgate
-# CI workflow files.
+# inventories, Codex repo config, Codex plugin package files,
+# prompts/policies, AND the Shipgate CI workflow files.
 # Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR` and
 # `TRIGGER-FRAMEWORK-VERSION-BUMP`) are not covered here — pre-commit's
 # `files:` regex is purely path-based and cannot inspect diff contents.
@@ -31,6 +31,7 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      (.*/)?\.codex/(config\.toml|hooks\.json)|
       .*\.codex-plugin/.*|
       .*\.agents/plugins/.*|
       .*\.app\.json|
@@ -60,6 +61,7 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      (.*/)?\.codex/(config\.toml|hooks\.json)|
       .*\.codex-plugin/.*|
       .*\.agents/plugins/.*|
       .*\.app\.json|

@@ -8,9 +8,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex plugin · n8n
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 - **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — canonical brand URL with human-readable companion pages: [/quickstart/](https://threemoonslab.com/quickstart/), [/glossary/](https://threemoonslab.com/glossary/), [/checks/](https://threemoonslab.com/checks/), [/design-partners/](https://threemoonslab.com/design-partners/). The site also serves a [/.well-known/agents-shipgate.json](https://threemoonslab.com/.well-known/agents-shipgate.json) discovery file **pinned to the latest released tag** for external consumers and AI search. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the released file) for schema-version and gating-signal decisions.**
@@ -76,12 +76,13 @@ exists, run the deterministic verifier on the diff and read its JSON first:
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD \
   --ci-mode advisory --format json
 ```
 
-Omit `--base`/`--head` for local pre-commit work so uncommitted edits are
-scanned; add `--base origin/main --head HEAD` only for a committed PR/CI ref
-after making the base ref available. Read
+For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
+scanned. For committed PR/CI refs, make the base ref available first because
+`verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
 unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
@@ -226,6 +227,7 @@ Do NOT use it for:
 | Trigger in this PR | Run Shipgate? |
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
+| Adds/changes Codex repo config, hooks, or permission profiles | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
@@ -291,7 +293,9 @@ Other stable top-level fields:
 - `baseline.{matched_count, new_count, resolved_count}`
 - `tool_inventory[]`
 - `codex_plugin_surface` (v0.13+, static Codex plugin package/marketplace facts)
-- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
+- `findings[].provenance_kind` (v0.15+, per-finding rule provenance — `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack | runtime_trace`; independent of `confidence`, useful for reviewer filtering via `agents-shipgate findings`; never a release-gate input)
+- `findings[].capability_refs` and optional `findings[].capability_policy_evidence` (v0.24+, capability-native policy evidence for built-in policy checks and policy packs; explanatory only, not a fingerprint input and not a second gate)
+- `findings[].capability_trace_refs` and top-level `capability_runtime_evidence` (v0.25+, opt-in local trace/provenance evidence linked to capability facts; explanatory only, not a fingerprint/run-id/baseline input and not a second gate)
 - `findings[].blocks_release` (v0.16+, explicit release-policy blockers from Action Surface Diff policies)
 - `action_surface_facts` / `action_surface_diff` (v0.16+, deterministic action snapshot and base/head action delta)
 - `release_decision.contribution_rules[]` (v0.17+, per-finding audit of how each finding contributed to the decision; one row per `report.findings` entry, with `category` ∈ `{blocker, review_item, excluded}` and `rule` ∈ `{policy_block_new, severity_block_new, policy_baseline_accepted, severity_baseline_accepted, review_required, sub_threshold, suppressed}`)
@@ -299,7 +303,7 @@ Other stable top-level fields:
 - `privacy_audit` (v0.18+, top-level audit proving default redaction ran before public artifacts were written; `redacted_paths[]` contains counts and structural paths only, never raw values or raw hashes)
 - `heuristics_filter` (v0.21+, top-level audit envelope describing the `--no-heuristics` CLI filter pass; `enabled` is `False` and counts are zero when the flag is unset, so the field shape is stable across runs. When enabled, findings whose `provenance_kind` is `keyword_heuristic` or `regex_heuristic` are marked `suppressed=True` with `suppression_reason="filtered by --no-heuristics"` before the release decision is built — they remain in `findings[]` for transparency but do not gate release.)
 
-The full schema is at [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) (current; emitted reports carry `report_schema_version: "0.22"`, adding the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` — reviewer-facing projections that never gate independently — alongside v0.21's `heuristics_filter` audit envelope). v0.21 (frozen at [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json)) added the `heuristics_filter` envelope on top of v0.20's `reviewer_summary` deterministic projection of reviewer-lens surfaces and audit envelopes. v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
+The full schema is at [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current; emitted reports carry `report_schema_version: "0.26"`, adding structured evidence gaps — `release_decision.evidence_coverage.evidence_gaps[]`, one actionable remediation row per low-confidence tool or source warning — plus the advisory `suggested-inventory.json` skeleton written next to `report.json`; gate behavior is unchanged). v0.25 (frozen at [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)) added opt-in capability-linked local trace/provenance evidence while preserving existing findings, fingerprints, policy-pack behavior, capability locks, and the release gate. v0.24 (frozen at [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json)) added capability-native policy evidence. v0.23 (frozen at [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json)) added semantic metadata to `capability_change` members while preserving the existing capability-change buckets and release gate. v0.22 (frozen at [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json)) added the verifier-cycle top-level blocks `capability_change`, `protected_surface_changes`, `effective_policy`, `human_ack`, and `verifier_summary` — reviewer-facing projections that never gate independently — alongside v0.21's `heuristics_filter` audit envelope. v0.21 (frozen at [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json)) added the `heuristics_filter` envelope on top of v0.20's `reviewer_summary` deterministic projection of reviewer-lens surfaces and audit envelopes. v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance on top of v0.18's `privacy_audit`, v0.17's `policy_audit`, and `release_decision.contribution_rules[]` audit fields. What's-stable is documented in [STABILITY.md](STABILITY.md).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -365,7 +369,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) (current).
+[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -403,7 +407,10 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
+| Report schema (current) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
+| Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
+| Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
+| Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
 | Report schema (v0.21 frozen reference) | [`docs/report-schema.v0.21.json`](docs/report-schema.v0.21.json) | `0.21` |
 | Report schema (v0.20 frozen reference) | [`docs/report-schema.v0.20.json`](docs/report-schema.v0.20.json) | `0.20` |
 | Report schema (v0.19 frozen reference) | [`docs/report-schema.v0.19.json`](docs/report-schema.v0.19.json) | `0.19` |
@@ -420,8 +427,15 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json) | `0.7` |
+| Packet schema (v0.6 frozen reference) | [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json) | `0.6` |
 | Packet schema (v0.5 frozen reference) | [`docs/packet-schema.v0.5.json`](docs/packet-schema.v0.5.json) | `0.5` |
+| Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.1` |
+| Capability lock schema | [`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json) | `0.2` |
+| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json) | `0.3` |
+| Capability lock schema (v0.1 frozen experimental reference) | [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json) | `0.1` |
+| Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
+| Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
 | Anti-patterns (what NOT to write) | [`samples/_anti_patterns/`](samples/_anti_patterns/) | reference |
 | Minimal manifest example | [`docs/manifest-v0.1.example.minimal.yaml`](docs/manifest-v0.1.example.minimal.yaml) | reference |
@@ -455,9 +469,18 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 
-### Release Evidence Packet (v0.6)
+Newer commands (stable intent, flags may still evolve):
 
-`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections plus a compact evidence matrix derived from public `report.json`, and (v0.6) carries the same `Finding.source` / `Finding.policy_evidence_source` dual-source provenance pointers on `ReleaseDecisionItem` so packet §1 / §2 cite the originating evidence inline; outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v06).
+| Command | Purpose |
+|---|---|
+| `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
+| `agents-shipgate mcp-serve` | Local stdio MCP server (`[mcp]` extra) exposing `shipgate_preview` / `shipgate_verify` / `shipgate_explain_finding`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
+| `agents-shipgate registry` | `ingest --attestation <file>` / `query` — local capability-release ledger over attestations. |
+| `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
+
+### Release Evidence Packet (v0.7)
+
+`scan` emits a reviewer-shaped Release Evidence Packet alongside `report.{md,json}` by default. The packet is a curated synthesis with fixed reviewer sections plus a compact evidence matrix derived from public `report.json`, and (v0.7) adds capability-linked local trace evidence summary and trace refs under §8 human-in-the-loop evidence. v0.6 carried the same `Finding.source` / `Finding.policy_evidence_source` dual-source provenance pointers on `ReleaseDecisionItem` so packet §1 / §2 cite the originating evidence inline. Outputs land at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the optional `[pdf]` extras are installed). For the field-level packet contract, see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review) and [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v07).
 
 ```bash
 pipx install agents-shipgate                  # md, json, html packet outputs
@@ -510,7 +533,7 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.
 - New checks must include: code in `src/agents_shipgate/checks/<category>.py` plus a `BUILTIN_CHECKS` entry in `checks/registry.py`, metadata in `docs/checks/<category>.yaml` (loaded into `CHECK_METADATA` at registry import time by `agents_shipgate.checks._metadata_loader`), a test in `tests/`, and a row in `docs/checks.md`. After editing YAML, regenerate `docs/checks.json` with `python scripts/generate_schemas.py`.
 - Do not change check IDs in published versions; always add new ones.
-- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit `docs/manifest-v0.1.json` + `docs/checks.json`.
+- If you regenerate the JSON schemas, run `python scripts/generate_schemas.py` and commit every changed file under `docs/`.
 
 ---
 
