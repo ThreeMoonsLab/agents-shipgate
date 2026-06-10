@@ -8,6 +8,7 @@ import typer
 from agents_shipgate.cli._helpers import (
     _apply_strict_plugins,
     _diagnose_config_error,
+    _echo_next_action_hint,
     _parse_fail_on,
     _parse_formats,
     _parse_packet_formats,
@@ -283,6 +284,7 @@ def register(app: typer.Typer) -> None:
                 plugins_enabled=False if no_plugins else None,
             )
             flattened = top_next_actions(diagnostics)
+            _echo_next_action_hint(flattened)
             _emit_agent_mode_error(
                 "config_error",
                 message=str(exc),
@@ -292,15 +294,35 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(2) from exc
         except InputParseError as exc:
             typer.echo(f"Input parsing error: {exc}", err=True)
-            guidance = (
-                "Inspect the file referenced in the error; ensure it exists, "
-                "is valid, and resolves under the manifest directory."
-            )
-            _emit_agent_mode_error(
-                "input_parse_error",
-                message=str(exc),
-                next_action=guidance,
-                next_actions=[
+            if "CHANGE_ME" in str(exc):
+                # `init --write` on a workspace where detect found no
+                # sources leaves CHANGE_ME placeholders; scanning then
+                # fails here. Route to the placeholder fix, not the
+                # generic missing-file advice.
+                guidance = (
+                    "shipgate.yaml still contains CHANGE_ME placeholders. "
+                    "Edit shipgate.yaml to point tool_sources at real "
+                    "artifacts, or run `agents-shipgate doctor` to list "
+                    "every placeholder."
+                )
+                actions = [
+                    NextAction(
+                        kind="edit",
+                        path="shipgate.yaml",
+                        why=guidance,
+                        expects=(
+                            "tool_sources entries reference files that exist "
+                            "in this workspace."
+                        ),
+                    )
+                ]
+            else:
+                guidance = (
+                    "Inspect the file referenced in the error; ensure it "
+                    "exists, is valid, and resolves under the manifest "
+                    "directory."
+                )
+                actions = [
                     NextAction(
                         kind="review",
                         why=guidance,
@@ -308,8 +330,14 @@ def register(app: typer.Typer) -> None:
                             "Referenced file is present, parseable, and inside "
                             "the manifest directory."
                         ),
-                    ).model_dump(mode="json")
-                ],
+                    )
+                ]
+            _echo_next_action_hint(actions)
+            _emit_agent_mode_error(
+                "input_parse_error",
+                message=str(exc),
+                next_action=guidance,
+                next_actions=[a.model_dump(mode="json") for a in actions],
             )
             raise typer.Exit(3) from exc
         except AgentsShipgateError as exc:

@@ -2,6 +2,25 @@
 
 ## 0.13.0 - Unreleased
 
+- **Cold-start dead ends now print an executable next action.** Human-mode
+  CLI error paths surface the same ranked recovery step that agent mode
+  emits as JSON: `scan`/`doctor`/`verify` config errors print a
+  `next: …` / `why: …` hint (e.g. `next: agents-shipgate detect …` on a
+  missing manifest), and the `init --write` → `scan` CHANGE_ME placeholder
+  failure routes to the manifest edit instead of the generic missing-file
+  advice — in both human and agent mode. `verify` also gains agent-mode
+  structured errors (`AGENTS_SHIPGATE_AGENT_MODE=1`) and scan-parity
+  flag-error vs run-error handling, so flag mistakes are never answered
+  with manifest diagnostics. Hints are suppressed in agent mode to keep
+  the `docs/errors.json` single-JSON-line contract. Driven by the
+  2026-06-10 cold-start funnel test
+  (`marketing/cold-start-funnel-test-2026-06-10.md`).
+
+- Add the GTM plan of record (`marketing/gtm-strategy.md`), launch kit,
+  design-partner outreach kit, and launch blog draft; README shows the
+  verifier PR-comment verdict ("What your PR sees") and links the
+  coding-agent install path from the quickstart.
+
 - **Agent-native protocol.** `shipgate check --agent
   {codex,claude-code,cursor} --workspace . --format agent-json` is now the
   canonical one-command agent path. It returns the stable

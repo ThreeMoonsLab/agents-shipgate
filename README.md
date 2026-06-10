@@ -71,6 +71,36 @@ no scanner network calls, no scanner telemetry. Audited exceptions are pinned
 in [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
 Apache-2.0.
 
+## What your PR sees
+
+When a PR changes what your agent can do, the GitHub Action posts the merge
+verdict as a PR comment. This is the comment for the first demo PR above —
+the coding-agent diff that adds `stripe.create_refund` to a support agent
+(abridged from the verbatim `pr-comment.md` artifact):
+
+> ### Agents Shipgate result: block
+>
+> Decision: `block` · Risk: `critical` · Required reviewers: `agent-platform`, `security`
+>
+> | Impact | Change | Subject | Why |
+> |---|---|---|---|
+> | blocks release | action added | `stripe.create_refund` | Capability added. |
+> | blocks release | action broadened | `stripe.create_refund` | high-risk effect financial_action added |
+> | blocks release | scope broadened | `stripe.create_refund:stripe:*` | scope added |
+>
+> **Required before merge** — Actor: Human (human authority required — a coding
+> agent must not self-resolve):
+> 1. Declare an approval policy for `stripe.create_refund` or remove this tool
+>    from the release.
+> 2. Declare `approval.required`, `safeguards.audit_log`, and
+>    `safeguards.idempotency` for this financial write action.
+> 3. Replace wildcard/admin scopes with operation-specific scopes.
+>
+> Then re-verify: `agents-shipgate verify --base origin/main --head HEAD --json`
+
+The same `uvx agents-shipgate fixture run ai_generated_refund_pr` command
+above writes this comment verbatim to `reports/pr-comment.md`.
+
 ## Verify-first quickstart
 
 The core loop is verify-first: when a PR changes what your agent can do, run the
@@ -88,6 +118,12 @@ agent-facing instructions:
 ```bash
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 ```
+
+Prefer to delegate? Paste the
+[coding-agent snippet](#copy-this-into-your-coding-agent) into Claude Code,
+Codex, or Cursor and let the agent wire the gate itself — the repo ships
+`AGENTS.md` managed blocks, `llms.txt`, and structured error output for
+exactly this path.
 
 Then verify the committed PR/CI ref. Pass the base and head so the diff — the
 capability delta and trust-root signals — is in scope (the verifier never

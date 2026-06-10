@@ -136,6 +136,64 @@ tool_sources:
     assert "Input parsing error:" in result.output
 
 
+def test_cli_missing_config_prints_next_action_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+
+    result = runner.invoke(app, ["scan", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "Config error:" in result.output
+    # The human reader gets the same rank-1 recovery step that agent
+    # mode emits as JSON — a cold user must not hit a dead end.
+    assert "next: agents-shipgate detect" in result.output
+
+
+def test_cli_change_me_placeholder_error_routes_to_manifest_edit(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: placeholder-repo
+agent:
+  name: placeholder-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: placeholder
+    type: mcp
+    path: CHANGE_ME.yaml
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 3
+    assert "CHANGE_ME placeholders" in result.output
+    assert "next: Edit shipgate.yaml" in result.output
+
+
+def test_cli_agent_mode_suppresses_prose_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(app, ["scan", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    # Agent mode keeps the docs/errors.json single-JSON-line contract:
+    # the prose hint lines stay human-mode only.
+    assert not [
+        line
+        for line in result.output.splitlines()
+        if line.startswith("next: ")
+    ]
+
+
 def test_cli_list_checks_outputs_catalog():
     result = runner.invoke(app, ["list-checks"])
 
