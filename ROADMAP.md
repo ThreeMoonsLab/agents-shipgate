@@ -2,7 +2,7 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-**Latest release: `v0.11.0`** — the AI-coding-workflow **verifier cycle**.
+**Latest release: `v0.13.0`** — the **agent-native protocol** cycle.
 
 ## What Agents Shipgate is
 
@@ -20,7 +20,7 @@ nothing gates independently.
 
 ## Direction
 
-The engine pivoted to the verifier in `v0.11.0`. The next leg is to make the
+The engine pivoted to the verifier in `v0.12.0`. The next leg is to make the
 **agent-native authority protocol explicit** and to turn real coding-agent runs
 into replayable evidence. Active themes, in priority order:
 
@@ -80,9 +80,13 @@ into replayable evidence. Active themes, in priority order:
 
 ## Release history
 
-Releases `v0.2` through `v0.11.0` are complete. Highlights:
+Releases `v0.2` through `v0.13.0` are complete. Highlights:
 
-- **`v0.11.0` — Verifier cycle.** `agents-shipgate verify`; `verifier.json`
+- **`v0.13.0` — Agent-native protocol.** `shipgate check`; the shared
+  `agent_result_v1` contract for Codex, Claude Code, and Cursor; deterministic
+  policy discovery; repair-loop routing; and the read-only `shipgate.check`
+  MCP adapter.
+- **`v0.12.0` — Verifier cycle.** `agents-shipgate verify`; `verifier.json`
   (`merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`,
   `capability_review`); `pr-comment.md`; diff-aware trust-root checks
   (`SHIP-VERIFY-*`: policy-weakened, baseline/waiver-expanded, CI-gate-removed,

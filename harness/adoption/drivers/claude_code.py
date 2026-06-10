@@ -26,6 +26,30 @@ from typing import Any
 from harness.adoption.drivers.base import DriverInputs, RunResult, _sandbox_env
 from harness.adoption.observer.transcript import TranscriptWriter
 
+# Agent-init failure signals observed on SDK events. The stream ends
+# normally after these (no exception), so without explicit detection the
+# cell would score as a real-but-idle run.
+_INIT_FAILURE_ERRORS = frozenset(
+    {"authentication_failed", "invalid_api_key", "billing_error"}
+)
+
+
+def _init_failure(message: Any) -> str | None:
+    """Return a driver-error string when an SDK event signals init failure."""
+    error_value = getattr(message, "error", None)
+    if not isinstance(error_value, str) and isinstance(message, dict):
+        error_value = message.get("error")
+    if isinstance(error_value, str) and error_value in _INIT_FAILURE_ERRORS:
+        return (
+            f"agent failed to initialise: {error_value}. The spawned claude "
+            "CLI found no usable credentials — with the default scoped "
+            "sandbox HOME the real ~/.claude login is unreachable; either "
+            "export ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN into the "
+            "run, or set SHIPGATE_HARNESS_SCOPE_HOME=0 (post-hoc "
+            "stayed_in_workspace blocker still applies)."
+        )
+    return None
+
 # Published Anthropic API prices in USD per 1M tokens. Update when prices change.
 # Read by the budget guard via the ``cost_usd_estimate`` field on RunResult.
 PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
@@ -126,6 +150,17 @@ class ClaudeCodeDriver:
                     await client.query(inputs.prompt_text)
                     async for message in client.receive_response():
                         self._record(message, writer, summary_chunks)
+                        # Fail closed on agent-init failures. A "Not logged
+                        # in" run ends the stream NORMALLY (no exception),
+                        # which previously scored as a legitimate 0-point
+                        # cell — the 2026-W24 paid run produced 31 such
+                        # vacuous rows before this guard existed. Any init
+                        # error must surface as a driver error so the cell
+                        # is marked degraded, never scored.
+                        init_error = _init_failure(message)
+                        if init_error is not None:
+                            error = init_error
+                            break
                         usage = _extract_usage(message)
                         if usage:
                             tokens_in += usage.get("input_tokens", 0) or 0
@@ -186,6 +221,10 @@ class ClaudeCodeDriver:
             final_diff=diff_proc.stdout or "",
             error=error,
         )
+
+    @staticmethod
+    def _detect_init_failure(message: Any) -> str | None:
+        return _init_failure(message)
 
     def _record(self, message: Any, writer: TranscriptWriter, summary: list[str]) -> None:
         """Record an SDK event into the JSONL streams.

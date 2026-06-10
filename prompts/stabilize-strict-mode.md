@@ -37,9 +37,9 @@ The user has Agents Shipgate running in **advisory** mode and wants to graduate 
 
 5. **Update the CI workflow.** Replace the existing advisory step with strict + baseline. Use [`examples/github-actions/03-strict-with-baseline.yml`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/examples/github-actions/03-strict-with-baseline.yml) as the template:
    ```yaml
-   - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+   - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
      with:
-       shipgate_version: '0.11.0'
+       shipgate_version: '0.13.0'
        ci_mode: strict
        fail_on: critical
        baseline: .agents-shipgate/baseline.json

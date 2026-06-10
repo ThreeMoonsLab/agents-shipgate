@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 
 from agents_shipgate.ci.agent_result import AgentResult, build_agent_result
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
+from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -29,6 +33,7 @@ def render_pr_comment(
     report: ReadinessReport | None,
     style: str = "capability-review",
     agent_result: AgentResult | None = None,
+    capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> str:
     agent_result = agent_result or build_agent_result(verifier=verifier, report=report)
     if style == "findings":
@@ -41,6 +46,7 @@ def render_pr_comment(
         verifier,
         report=report,
         agent_result=agent_result,
+        capability_lock_diff=capability_lock_diff,
     )
 
 
@@ -49,6 +55,7 @@ def _render_capability_review_comment(
     *,
     report: ReadinessReport | None,
     agent_result: AgentResult,
+    capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> str:
     lines = [STICKY_MARKER, f"## Agents Shipgate result: {agent_result.decision}"]
     lines.extend(_agent_result_lead(agent_result))
@@ -86,7 +93,10 @@ def _render_capability_review_comment(
         ]
     )
 
-    lines.extend(_capability_change_table(review))
+    if capability_lock_diff is not None:
+        lines.extend(_capability_lock_diff_lines(capability_lock_diff))
+    else:
+        lines.extend(_capability_change_table(review))
     lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
     lines.extend(_trust_root_warning_lines(review, report))
     lines.extend(_trigger_and_base_lines(verifier))
@@ -158,10 +168,6 @@ def _render_findings_comment(
     return _truncate("\n".join(lines), 6000)
 
 
-def _visible_verdict(verifier: VerifierArtifact) -> str:
-    return verifier.merge_verdict
-
-
 def _agent_result_lead(agent_result: AgentResult) -> list[str]:
     lines = [
         "",
@@ -229,6 +235,17 @@ def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
             f"{_table_cell(change.rationale)} |"
         )
     return lines
+
+
+def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
+    rendered = render_capability_lock_diff_markdown(
+        diff,
+        heading_level=3,
+        max_rows=5,
+    ).rstrip()
+    if not rendered:
+        return []
+    return ["", *rendered.splitlines()]
 
 
 def _trust_root_warning_lines(
@@ -377,6 +394,9 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
             "report_json",
             "report_sarif",
             "packet_json",
+            "capability_lock",
+            "capability_lock_diff_json",
+            "capability_lock_diff_markdown",
             "verifier_json",
             "agent_result_json",
         ):
@@ -391,6 +411,9 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
         "report_json",
         "report_sarif",
         "packet_json",
+        "capability_lock",
+        "capability_lock_diff_json",
+        "capability_lock_diff_markdown",
         "verifier_json",
         "agent_result_json",
         "pr_comment",

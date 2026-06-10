@@ -1,0 +1,569 @@
+{
+  "$defs": {
+    "PolicyPackCapabilityMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Auth Types",
+          "type": "array"
+        },
+        "broad_scope": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Broad Scope"
+        },
+        "code_execution": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Execution"
+        },
+        "credential_modes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Credential Modes",
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "destructive",
+              "external_communication",
+              "financial_write",
+              "production_operation",
+              "privileged_data_access",
+              "code_execution",
+              "identity_access"
+            ],
+            "type": "string"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "externally_visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Externally Visible"
+        },
+        "financial": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Financial"
+        },
+        "handles_sensitive_data": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handles Sensitive Data"
+        },
+        "high_risk": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "High Risk"
+        },
+        "missing_approval_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Approval Policy"
+        },
+        "missing_auth_scopes": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Auth Scopes"
+        },
+        "missing_confirmation_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Confirmation Policy"
+        },
+        "missing_idempotency_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Idempotency Policy"
+        },
+        "missing_owner": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Owner"
+        },
+        "operations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackParameterMatch"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Providers",
+          "type": "array"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "source_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Types",
+          "type": "array"
+        },
+        "tool_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Names",
+          "type": "array"
+        }
+      },
+      "title": "PolicyPackCapabilityMatch",
+      "type": "object"
+    },
+    "PolicyPackFile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "rules"
+      ],
+      "title": "PolicyPackFile",
+      "type": "object"
+    },
+    "PolicyPackMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "all_of": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackMatch"
+          },
+          "title": "All Of",
+          "type": "array"
+        },
+        "any_of": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackMatch"
+          },
+          "title": "Any Of",
+          "type": "array"
+        },
+        "capability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyPackCapabilityMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "environment_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Environment Targets",
+          "type": "array"
+        },
+        "missing_approval_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Approval Policy"
+        },
+        "missing_auth_scopes": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Auth Scopes"
+        },
+        "missing_confirmation_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Confirmation Policy"
+        },
+        "missing_idempotency_policy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Idempotency Policy"
+        },
+        "missing_owner": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Owner"
+        },
+        "none_of": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackMatch"
+          },
+          "title": "None Of",
+          "type": "array"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/PolicyPackParameterMatch"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "source_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Types",
+          "type": "array"
+        }
+      },
+      "title": "PolicyPackMatch",
+      "type": "object"
+    },
+    "PolicyPackParameterMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_above": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum Above"
+        },
+        "minimum_below": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Below"
+        },
+        "missing_maximum": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Maximum"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Names",
+          "type": "array"
+        },
+        "required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required"
+        },
+        "types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Types",
+          "type": "array"
+        }
+      },
+      "title": "PolicyPackParameterMatch",
+      "type": "object"
+    },
+    "PolicyPackRule": {
+      "additionalProperties": false,
+      "properties": {
+        "block": {
+          "default": false,
+          "title": "Block",
+          "type": "boolean"
+        },
+        "category": {
+          "default": "policy_pack",
+          "title": "Category",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/PolicyPackMatch"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "recommendation",
+        "match"
+      ],
+      "title": "PolicyPackRule",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/policy-pack-schema.v0.2.json",
+  "$ref": "#/$defs/PolicyPackFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for local Agents Shipgate policy-pack YAML files. Generated from agents_shipgate.schemas.policy_pack.PolicyPackArtifactV1. Do not edit by hand.",
+  "title": "Agents Shipgate Policy Pack v0.2"
+}

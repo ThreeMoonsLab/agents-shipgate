@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from agents_shipgate import _perf
+from agents_shipgate import __version__, _perf
 from agents_shipgate.ci.github_summary import write_github_step_summary
+from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -39,6 +42,7 @@ def run_scan(
     packet_formats: list[str] | None = None,
     packet_generated_at: str | None = None,
     verification_context: VerificationContext | None = None,
+    capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -77,6 +81,21 @@ def run_scan(
         tools_and_agent = _build_tools_and_agent(
             manifest=resolved.manifest,
             inputs=inputs,
+        )
+    if capability_lock_callback is not None:
+        capability_lock_callback(
+            build_capability_lock(
+                resolved.manifest,
+                agent=tools_and_agent.agent,
+                tools=tools_and_agent.tools,
+                config_path=config_path,
+                manifest_dir=resolved.base_dir,
+                cli_version=__version__,
+                source_count=len(inputs.loaded_sources),
+                source_warning_count=len(tools_and_agent.warnings),
+                toolkit_bound_count=len(tools_and_agent.toolkit_bounds),
+                plugins_enabled=plugins_enabled is not False,
+            )
         )
     with _perf.phase("load_diff_references"):
         diffs = _load_diff_references(

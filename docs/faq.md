@@ -102,7 +102,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.25, current). Always parse this for programmatic use.
+  (schema v0.26, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
@@ -137,7 +137,7 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v0.11.0 is the latest released version. The manifest schema is stable
+v0.13.0 is the latest released version. The manifest schema is stable
 across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 

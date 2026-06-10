@@ -1,5 +1,13 @@
 # Use Agents Shipgate with Claude Code
 
+This page is the compatibility guide for Claude Code skill installation. For
+the normative agent protocol, use [claude-code.md](claude-code.md) and
+[protocol.md](protocol.md). The canonical Claude Code control command is:
+
+```bash
+shipgate check --agent claude-code --workspace . --format agent-json
+```
+
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 
 | Surface | What it does | Source path in this repo |
@@ -144,14 +152,31 @@ Claude Code hooks:
 agents-shipgate install-hooks --target claude-code --write
 ```
 
-The hooks are advisory local feedback. They run a cheap trigger check after
-`Edit|Write|MultiEdit`, ignoring the manifest-present force-run rule so
-irrelevant docs edits do not nudge every turn. At `Stop`, they run full
-`agents-shipgate verify` only when the working tree or current branch has a
-relevant change that has not already been checked. Local setup failures such
-as a missing CLI or unavailable base ref are surfaced as context, not as the
-release gate. CI remains authoritative, and changing the hook files or other
-Shipgate trust roots is itself visible to verify-mode `SHIP-VERIFY-*` checks.
+Three hooks are installed:
+
+- **`PreToolUse` (boundary, in-session).** Before `Edit|Write|MultiEdit`
+  touches a protected trust-root surface (`shipgate.yaml`, `policies/`,
+  the Shipgate CI workflow, agent-instruction files, `.mcp.json`, …),
+  the hook routes the call to the human with `permissionDecision:
+  "ask"` and an explanation — the same authority semantics as
+  `merge_verdict: human_review_required`, surfaced *before* the edit
+  happens instead of at PR time. The protected-surface list is rendered
+  at install time from the same `TRUST_ROOT_SURFACES` table the
+  `SHIP-VERIFY-*` checks classify against, so the in-session boundary
+  and the PR gate cannot drift. Set
+  `AGENTS_SHIPGATE_PRETOOLUSE_DECISION=deny` for hard blocking, or
+  `=allow` to disable the boundary without uninstalling.
+- **`PostToolUse` (nudge).** A cheap trigger check after
+  `Edit|Write|MultiEdit`, ignoring the manifest-present force-run rule so
+  irrelevant docs edits do not nudge every turn.
+- **`Stop` (verify).** Full `agents-shipgate verify` only when the
+  working tree or current branch has a relevant change that has not
+  already been checked.
+
+Local setup failures such as a missing CLI or unavailable base ref are
+surfaced as context, not as the release gate. CI remains authoritative,
+and changing the hook files or other Shipgate trust roots is itself
+visible to verify-mode `SHIP-VERIFY-*` checks.
 
 ## Codex / Cursor / Aider
 

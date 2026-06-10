@@ -18,4 +18,3 @@ Read stdout as JSON only. Use `decision` as the local next-action signal:
 
 Do not weaken `shipgate.yaml`, the Shipgate workflow, AGENTS.md, skills, hooks,
 policies, baselines, waivers, or suppressions to make the local check pass.
-

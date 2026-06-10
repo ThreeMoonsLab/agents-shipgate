@@ -1,0 +1,33 @@
+# Surface the merge verdict as a native GitHub Check Run with line-level
+# annotations from the SARIF report. Branch protection can then require
+# the "Agents Shipgate" check directly — no custom exit-code wiring.
+#
+# Conclusion mapping: mergeable → success, blocked → failure, everything
+# else (human_review_required / insufficient_evidence / unknown) →
+# neutral, so human-routed verdicts never hard-fail the check.
+name: Agents Shipgate (check run)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          check_run: 'true'
+          shipgate_version: '0.13.0'
