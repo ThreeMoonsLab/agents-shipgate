@@ -6,6 +6,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
+from agents_shipgate.cli.agent_result import build_codex_agent_result
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
 
@@ -71,6 +72,178 @@ def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
     second = json.loads(runner.invoke(app, args).output)
 
     assert first["audit_id"] == second["audit_id"]
+
+
+# --- Coverage gap: check is boundary-only and must not green-light a -------
+# capability change that only verify gates (the check/verify consistency fix).
+
+_TOOL_SOURCE_DIFF = (
+    "diff --git a/mcp-tools.json b/mcp-tools.json\n"
+    "--- a/mcp-tools.json\n"
+    "+++ b/mcp-tools.json\n"
+    "@@ -1 +1 @@\n"
+    '-{"tools": []}\n'
+    '+{"tools": [{"name": "bash_run"}]}\n'
+)
+
+
+def _validate(payload: dict) -> None:
+    Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
+
+
+def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path) -> None:
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        capability_surfaces_changed=["mcp-tools.json"],
+    )
+    payload = result.model_dump(mode="json", exclude_none=True)
+    _validate(payload)
+    # Was a bare allow before the fix; now a warn that defers to verify.
+    assert payload["decision"] == "warn"
+    assert payload["completion_allowed"] is True
+    assert payload["must_stop"] is False
+    assert payload["first_next_action"]["kind"] == "warn"
+    assert payload["first_next_action"]["command"].startswith("agents-shipgate verify")
+    assert any(d["code"] == "capability_change_requires_verify" for d in payload["diagnostics"])
+    assert any(t["step"] == "coverage" for t in payload["trace"])
+
+
+def test_no_coverage_signal_keeps_clean_allow(tmp_path: Path) -> None:
+    # Same diff, but nothing declares it a tool source -> unchanged allow.
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        capability_surfaces_changed=None,
+    )
+    assert result.decision == "allow"
+    assert result.first_next_action.kind == "continue"
+
+
+def test_coverage_gap_only_escalates_from_allow_never_downgrades_a_block(tmp_path: Path) -> None:
+    # A boundary block plus a tool-surface change must stay blocked, not warn.
+    block_diff = (CORPUS / "mcp_auto_approve_write.diff").read_text(encoding="utf-8")
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=block_diff,
+        agent="claude-code",
+        capability_surfaces_changed=["mcp-tools.json"],
+    )
+    assert result.decision == "block"
+
+
+def test_check_warns_when_manifest_declares_changed_tool_source(tmp_path: Path) -> None:
+    (tmp_path / "shipgate.yaml").write_text(
+        "version: \"0.1\"\n"
+        "project:\n  name: demo\n"
+        "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
+        "environment:\n  target: production_like\n"
+        "tool_sources:\n  - id: mcp_tools\n    type: mcp\n    path: mcp-tools.json\n"
+        "    trust: internal\n",
+        encoding="utf-8",
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate verify")
+
+
+def _write_manifest(tmp_path: Path, tool_sources: str) -> None:
+    (tmp_path / "shipgate.yaml").write_text(
+        "version: \"0.1\"\n"
+        "project:\n  name: demo\n"
+        "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
+        "environment:\n  target: production_like\n"
+        f"tool_sources:\n{tool_sources}",
+        encoding="utf-8",
+    )
+
+
+def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -> None:
+    # A directory tool source (loaders scan files inside it) must match a
+    # changed file *under* the directory, not only an exact path equal to it.
+    _write_manifest(
+        tmp_path,
+        "  - id: sdk\n    type: mcp\n    path: agents\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/agents/refund_agent.py b/agents/refund_agent.py\n"
+        "--- a/agents/refund_agent.py\n"
+        "+++ b/agents/refund_agent.py\n"
+        "@@ -1 +1,2 @@\n"
+        " x = 1\n"
+        "+y = 2\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate verify")
+
+
+def test_check_does_not_warn_on_broad_root_source(tmp_path: Path) -> None:
+    # A source rooted at the workspace (codex_config path: .) must not turn
+    # every changed file — including docs — into a coverage warn.
+    _write_manifest(
+        tmp_path,
+        "  - id: cfg\n    type: codex_config\n    path: .\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " hello\n"
+        "+world\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
+def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> None:
+    # The "no noise on docs-only diffs" property must survive the coverage fix.
+    (tmp_path / "shipgate.yaml").write_text(
+        "version: \"0.1\"\n"
+        "project:\n  name: demo\n"
+        "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
+        "environment:\n  target: production_like\n"
+        "tool_sources:\n  - id: mcp_tools\n    type: mcp\n    path: mcp-tools.json\n"
+        "    trust: internal\n",
+        encoding="utf-8",
+    )
+    docs_diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " hello\n"
+        "+world\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=docs_diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
 
 
 def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
