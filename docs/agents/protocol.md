@@ -77,12 +77,19 @@ same allowed decision.
 | `allow` | Continue. Completion is allowed. |
 | `warn` | Continue, but surface the warning in the final task summary. |
 | `block` with `first_next_action.actor="coding_agent"` and `repair.safe_to_attempt=true` | Apply only the listed repair, then rerun the exact command in `repair.command` or `first_next_action.command`. |
+| `block` with `first_next_action.kind="install"` | The gate cannot run: the binary is missing or stale. Run `first_next_action.command` (install or upgrade), then rerun `shipgate check`. Do not report completion until a rerun returns `allow` or `warn`. |
 | `block` with `first_next_action.actor="human"` | Stop. Do not continue, suppress, waive, or weaken policy. |
 | `require_review` | Stop and ask for human review. |
 
 `must_stop=true` is an explicit stop boundary. An agent must not claim the task
 complete when `must_stop=true`, except to report that human review or install is
 required.
+
+The `kind="install"` block is distinct from the repair loop below: it does not
+fix a finding, it restores a working gate. `repair.safe_to_attempt` is `false`
+(there is no finding to repair), the action routes to the coding agent, and
+`completion_allowed` is `false`. See [Missing Install](#missing-install) and
+[Stale Install](#stale-install) for the two cases and their fixtures.
 
 ## Repair Loop
 
@@ -161,8 +168,37 @@ look like:
 ```
 
 Use `examples/agent-protocol/expected/missing-install.json` as the full
-fixture. Once installed, all other errors must come from Shipgate JSON rather
-than agent-authored prose.
+fixture. Once a current version is installed, all other errors must come from
+Shipgate JSON rather than agent-authored prose.
+
+## Stale Install
+
+A binary that is present but older than the required `>=0.13.0` is the other
+fail-safe case: a stale copy lingering on `PATH` can emit an outdated schema or
+lack the command this protocol expects (a plain `pipx install` is a no-op over
+an already-installed older build). Confirm the version first with
+`agents-shipgate --version`; if it is older than required, do not trust the
+stale binary's output. Surface a schema-valid `agent_result_v1` object that
+routes to an upgrade:
+
+```json
+{
+  "schema_version": "agent_result_v1",
+  "decision": "block",
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "install",
+    "command": "pipx upgrade agents-shipgate",
+    "why": "Installed Agents Shipgate is older than the required >=0.13.0."
+  }
+}
+```
+
+Use `examples/agent-protocol/expected/stale-install.json` as the full fixture.
+The `install` action kind also carries upgrades, so consumers switch on the
+same routing fields as the missing-install case; only the command differs
+(`pipx upgrade agents-shipgate`, or `python -m pip install -U
+"agents-shipgate>=0.13"`). Rerun `shipgate check` after upgrading.
 
 ## Self-Check
 
