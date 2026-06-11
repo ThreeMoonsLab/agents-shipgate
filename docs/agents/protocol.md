@@ -123,7 +123,9 @@ remains the one authoritative capability gate.
 
 So that `check` never disagrees with that gate, a clean boundary result over a
 diff that changes a **manifest-declared tool source** (a `tool_sources[].path`
-entry) does not return `allow`. It returns `decision="warn"` with
+entry — the changed file equals it, or sits under it when the path is a
+scanned directory like an `openai_agents_sdk` agents folder) does not return
+`allow`. It returns `decision="warn"` with
 `first_next_action.kind="warn"` routing to `verify`, plus a
 `diagnostics[].code="capability_change_requires_verify"` marker and a
 `trace[].step="coverage"` event. Completion is still allowed, but the agent

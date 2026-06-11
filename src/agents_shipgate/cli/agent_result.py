@@ -7,6 +7,7 @@ from typing import Any
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.codex_boundary import (
     evaluate_codex_boundary_result,
+    is_boundary_path,
     parse_unified_diff,
 )
 from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
@@ -57,6 +58,16 @@ def _declared_tool_surfaces_changed(
     does not, so a clean boundary ``allow`` over one of them must defer to
     ``verify``. Best-effort: an absent or invalid manifest yields no signal so
     the boundary check degrades to its prior behavior rather than failing.
+
+    A declared ``tool_sources[].path`` may be a single file (``mcp``,
+    ``openapi``) or a directory the loader scans recursively
+    (``openai_agents_sdk``, ``google_adk``, ``langchain``, ``crewai``,
+    ``codex_plugin``, ``codex_config``), so a changed file matches when it
+    equals the declared path or sits under it. Two exclusions keep this from
+    becoming noise: a declared path that resolves to the workspace root (e.g.
+    ``codex_config`` with ``path: .``) is dropped — it would otherwise match
+    every file, including docs — and changed files the boundary evaluator
+    already inspects are dropped, since ``check`` did evaluate those.
     """
 
     if not changed_files or not config_path.is_file():
@@ -75,8 +86,18 @@ def _declared_tool_surfaces_changed(
             rel = (manifest_dir / path).resolve().relative_to(workspace).as_posix()
         except ValueError:
             continue
+        if rel in {"", "."}:  # whole-workspace root: matching all files is noise.
+            continue
         declared.add(rel)
-    return sorted(declared.intersection(changed_files))
+    if not declared:
+        return []
+    matched = [
+        changed
+        for changed in changed_files
+        if not is_boundary_path(changed)
+        and any(changed == decl or changed.startswith(f"{decl}/") for decl in declared)
+    ]
+    return sorted(matched)
 
 
 def git_diff_text(

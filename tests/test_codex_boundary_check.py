@@ -155,6 +155,68 @@ def test_check_warns_when_manifest_declares_changed_tool_source(tmp_path: Path) 
     assert result.first_next_action.command.startswith("agents-shipgate verify")
 
 
+def _write_manifest(tmp_path: Path, tool_sources: str) -> None:
+    (tmp_path / "shipgate.yaml").write_text(
+        "version: \"0.1\"\n"
+        "project:\n  name: demo\n"
+        "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
+        "environment:\n  target: production_like\n"
+        f"tool_sources:\n{tool_sources}",
+        encoding="utf-8",
+    )
+
+
+def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -> None:
+    # A directory tool source (loaders scan files inside it) must match a
+    # changed file *under* the directory, not only an exact path equal to it.
+    _write_manifest(
+        tmp_path,
+        "  - id: sdk\n    type: mcp\n    path: agents\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/agents/refund_agent.py b/agents/refund_agent.py\n"
+        "--- a/agents/refund_agent.py\n"
+        "+++ b/agents/refund_agent.py\n"
+        "@@ -1 +1,2 @@\n"
+        " x = 1\n"
+        "+y = 2\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate verify")
+
+
+def test_check_does_not_warn_on_broad_root_source(tmp_path: Path) -> None:
+    # A source rooted at the workspace (codex_config path: .) must not turn
+    # every changed file — including docs — into a coverage warn.
+    _write_manifest(
+        tmp_path,
+        "  - id: cfg\n    type: codex_config\n    path: .\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " hello\n"
+        "+world\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
 def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> None:
     # The "no noise on docs-only diffs" property must survive the coverage fix.
     (tmp_path / "shipgate.yaml").write_text(

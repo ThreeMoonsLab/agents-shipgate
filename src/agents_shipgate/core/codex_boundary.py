@@ -1815,3 +1815,22 @@ def _is_codex_skill_path(path: str) -> bool:
         path.endswith("/SKILL.md")
         and (path.startswith(".agents/skills/") or "/.agents/skills/" in path)
     )
+
+
+def is_boundary_path(path: str) -> bool:
+    """True when ``evaluate_codex_boundary_result`` inspects this path.
+
+    These are the host/trust-root surfaces ``check`` fully evaluates, so they
+    are not capability-coverage gaps even when a manifest also declares them as
+    a tool source (e.g. a ``codex_config`` source pointing at ``.codex/``).
+    """
+
+    normalized = path.replace("\\", "/")
+    return (
+        _is_codex_config_path(normalized)
+        or _is_codex_hooks_path(normalized)
+        or _is_agent_instructions_path(normalized)
+        or _is_shipgate_workflow_path(normalized)
+        or _is_codex_boundary_policy_path(normalized)
+        or _is_codex_skill_path(normalized)
+    )
