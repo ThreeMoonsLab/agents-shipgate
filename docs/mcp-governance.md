@@ -94,3 +94,41 @@ To inventory host grants without a `shipgate.yaml` (for example, on a
 repo you are evaluating), see `agents-shipgate audit --host` — it reads
 the same host files and prints a one-page Markdown inventory without
 writing anything.
+
+## Host-grant drift detection
+
+PR-time checks only see grants that change inside a reviewed diff. Host
+grants also change outside that loop: a coding agent (or a hurried
+human) edits `.mcp.json`, `.claude/settings.json`, or a workflow
+directly on the default branch, and nothing re-reviews the new
+authority. Drift detection closes that loop with two operations on the
+same inventory:
+
+```bash
+# 1. After a human reviews the current grants, record them as the
+#    acknowledged state (writes .agents-shipgate/host-grants.json):
+agents-shipgate audit --host --save-baseline
+
+# 2. On a schedule (or pre-commit), compare current grants against the
+#    acknowledged state; exit 20 on any drift:
+agents-shipgate audit --host --drift --fail-on-drift
+```
+
+The baseline is content-only (no timestamps, no machine paths), so
+re-saving an unchanged state is byte-identical, and it is meant to be
+committed: `.agents-shipgate/` is already a verify trust-root surface,
+so a PR that edits the snapshot is release-visible like any other
+policy change.
+
+The drift report lists added/removed/changed entries per category and
+names **expansion signals** — the drift shapes that broaden coding-agent
+authority: a new MCP server, a new allow rule (wildcards flagged), a
+**removed** `deny` or `ask` rule (removals broaden here — this is why
+the gate fires on *any* drift rather than trying to classify
+"safe" directions), a new hook event, a workflow gaining write scopes or
+`pull_request_target`, or Codex config appearing.
+
+After reviewing a legitimate drift, re-acknowledge with
+`--save-baseline` again. Do not re-save to silence drift nobody
+reviewed. A scheduled CI recipe is at
+[`examples/github-actions/11-host-grant-drift.yml`](../examples/github-actions/11-host-grant-drift.yml).

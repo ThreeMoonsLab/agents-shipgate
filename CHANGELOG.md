@@ -2,6 +2,21 @@
 
 ## 0.13.0 - Unreleased
 
+- **Host-grant drift detection.** `audit --host --save-baseline` records the
+  current coding-agent host grants (MCP servers, Claude Code permission rules
+  and hooks, workflow scopes, Codex config presence) as the acknowledged state
+  in `.agents-shipgate/host-grants.json` (content-only and byte-idempotent —
+  no timestamps or machine paths; the directory is already a verify trust-root
+  surface, so PR edits to the snapshot stay release-visible). `audit --host
+  --drift` deterministically diffs current grants against that baseline with
+  per-category added/removed/changed buckets plus `expansion_signals` naming
+  the authority-broadening shapes (new server, wildcard allow added, `deny` or
+  `ask` rule **removed**, hook added, workflow write scope or
+  `pull_request_target` gained). Advisory by default; `--fail-on-drift` exits
+  20 for scheduled CI gates — recipe at
+  `examples/github-actions/11-host-grant-drift.yml`. Catches authority changes
+  that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
+  checks cannot see them.
 - **Agent-mode auto-detection.** Agent mode now auto-enables when a known
   coding-agent harness environment is detected (Claude Code exports
   `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`), so structured `next_action`

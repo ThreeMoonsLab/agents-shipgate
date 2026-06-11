@@ -1,0 +1,48 @@
+# Scheduled host-grant drift gate.
+#
+# Coding agents can change their own authority between PRs and reviews:
+# a new MCP server in .mcp.json, a wildcard allow rule or a removed deny
+# rule in .claude/settings.json, a workflow that gains write scopes.
+# This workflow compares the repo's current host grants against the
+# acknowledged baseline (.agents-shipgate/host-grants.json) on a schedule
+# and fails when they drifted, so un-reviewed authority changes surface
+# even when no PR is open.
+#
+# One-time setup (committed by a human after review):
+#
+#   agents-shipgate audit --host --save-baseline
+#   git add .agents-shipgate/host-grants.json && git commit
+#
+# After reviewing a legitimate drift, re-acknowledge the new state with
+# the same command. Do not re-save to silence drift nobody reviewed.
+
+name: host-grant-drift
+
+on:
+  schedule:
+    - cron: "17 6 * * 1-5" # weekday mornings UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install agents-shipgate (pinned)
+        run: python -m pip install "agents-shipgate==0.13.0"
+
+      - name: Compare host grants against the acknowledged baseline
+        run: |
+          agents-shipgate audit --host --drift --fail-on-drift
+          # Exit 20 on drift fails the job; the step log contains the
+          # one-page drift report with expansion signals. For machine
+          # consumption add --json and upload the payload as an artifact.

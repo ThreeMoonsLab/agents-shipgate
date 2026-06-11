@@ -14,6 +14,7 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
 | [`09-risk-labels-and-reviewers.yml`](09-risk-labels-and-reviewers.yml) | Label PRs by risk signal (`agent-capability-change`, `trust-root-touched`, `shipgate-blocked`) and request boundary owners as reviewers. |
 | [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with line-level SARIF annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
+| [`11-host-grant-drift.yml`](11-host-grant-drift.yml) | Scheduled drift gate: fail when current coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes) no longer match the acknowledged `.agents-shipgate/host-grants.json` baseline. Catches authority changes that land outside PR review. |
 
 ## Permissions
 

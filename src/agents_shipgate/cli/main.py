@@ -124,9 +124,12 @@ app.command(
 app.command(
     "audit",
     help=(
-        "Zero-config, read-only audits. `audit --host` inventories "
+        "Zero-config host-grant audits. `audit --host` inventories "
         "coding-agent host grants (MCP servers, permission rules, hooks, "
-        "workflow scopes) without requiring shipgate.yaml."
+        "workflow scopes) without requiring shipgate.yaml; `--save-baseline` "
+        "records the acknowledged state (writes one JSON file under "
+        ".agents-shipgate/) and `--drift [--fail-on-drift]` reports when "
+        "current grants no longer match it."
     ),
 )(_audit_command)
 
