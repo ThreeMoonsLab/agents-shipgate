@@ -51,6 +51,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityReview,
     VerifierFixTask,
+    VerifierRepair,
 )
 
 runner = CliRunner()
@@ -377,6 +378,58 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert '"merge_verdict": "blocked"' in comment
     assert '"fix_task": {' in comment
     assert '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"' in comment
+
+
+def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted() -> None:
+    report = _report(decision="blocked", exit_code=20)
+    bulky_repairs = [
+        VerifierRepair(
+            id=f"repair_{index}",
+            actor="human",
+            kind="review_or_provide_evidence",
+            target=f"tool_{index}",
+            finding_id=f"F-{index}",
+            check_id="SHIP-TEST",
+            command=None,
+            reason="Review the source-backed evidence. " * 20,
+        )
+        for index in range(30)
+    ]
+    verifier = VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        head_status="succeeded",
+        release_decision={"decision": "blocked"},
+        decision="blocked",
+        merge_verdict="blocked",
+        capability_review=build_capability_review(report),
+        fix_task=VerifierFixTask(
+            actor="human",
+            safe_to_attempt=False,
+            instructions=["Human review required."],
+            allowed_repairs=bulky_repairs,
+            forbidden_repairs=bulky_repairs,
+            forbidden_shortcuts=[],
+            verification_command="agents-shipgate verify --base origin/main --head HEAD --json",
+        ),
+        artifacts={
+            "report_json": "agents-shipgate-reports/report.json",
+            "verifier_json": "agents-shipgate-reports/verifier.json",
+        },
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+    payload = json.loads(comment.split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+
+    assert len(comment) <= 6000
+    assert comment.count("### ") == 2
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["fix_task"]["omitted"] is True
+    assert payload["fix_task"]["artifact"] == "agents-shipgate-reports/verifier.json"
+    assert payload["verification_command"] == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
 
 
 def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:

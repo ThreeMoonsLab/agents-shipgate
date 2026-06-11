@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 from agents_shipgate.packet.json_packet import serialize_packet_json
@@ -48,6 +49,15 @@ REMOVED_SCHEMA_IMPORTS = {
     "agents_shipgate.packet.models",
 }
 FORBIDDEN_SCHEMA_LAYER_PREFIXES = ("agents_shipgate.core",)
+ACTION_FACT_SOURCE_FIELDS = {
+    "source_path",
+    "source_ref",
+    "source_pointer",
+    "source_location",
+    "source_start_line",
+    "source_start_column",
+    "source_end_line",
+}
 
 
 def test_repo_does_not_import_removed_schema_boundaries() -> None:
@@ -71,6 +81,23 @@ def test_schemas_do_not_import_core_modules() -> None:
         )
 
     assert offenders == []
+
+
+def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() -> None:
+    v25 = _report_schema_action_fact_properties("0.25")
+    v26 = _report_schema_action_fact_properties("0.26")
+
+    assert ACTION_FACT_SOURCE_FIELDS.isdisjoint(v25)
+    assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
+
+
+def _report_schema_action_fact_properties(version: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"]["ActionFact"]["properties"])
 
 
 def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:

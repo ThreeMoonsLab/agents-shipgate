@@ -26,6 +26,7 @@ _IMPACT_LABELS = {
     "informational": "informational",
     "none": "none",
 }
+_COMMENT_MAX_CHARS = 6000
 
 
 def render_pr_comment(
@@ -58,17 +59,27 @@ def _render_capability_review_comment(
     agent_result: AgentResult,
     capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> str:
-    lines = [STICKY_MARKER, "## Agents Shipgate"]
-    lines.extend(
-        _human_summary_lines(
+    prose_lines = [
+        STICKY_MARKER,
+        "## Agents Shipgate",
+        *_human_summary_lines(
             verifier,
             report=report,
             agent_result=agent_result,
             capability_lock_diff=capability_lock_diff,
-        )
+        ),
+    ]
+    agent_block = _agent_instruction_block(verifier)
+    comment = "\n".join([*prose_lines, *agent_block])
+    if len(comment) <= _COMMENT_MAX_CHARS:
+        return comment
+
+    compact_agent_block = _agent_instruction_block(verifier, compact=True)
+    return _join_with_preserved_agent_block(
+        prose_lines,
+        compact_agent_block,
+        limit=_COMMENT_MAX_CHARS,
     )
-    lines.extend(_agent_instruction_block(verifier))
-    return _truncate("\n".join(lines), 6000)
 
 
 def _human_summary_lines(
@@ -194,7 +205,46 @@ def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
     return lines
 
 
-def _agent_instruction_block(verifier: VerifierArtifact) -> list[str]:
+def _agent_instruction_block(
+    verifier: VerifierArtifact,
+    *,
+    compact: bool = False,
+) -> list[str]:
+    payload = _agent_instruction_payload(verifier, compact=compact)
+    return [
+        "",
+        "### Agent instruction block",
+        "```json",
+        json.dumps(payload, indent=2, sort_keys=True),
+        "```",
+    ]
+
+
+def _agent_instruction_payload(
+    verifier: VerifierArtifact,
+    *,
+    compact: bool,
+) -> dict[str, object]:
+    verifier_json = verifier.artifacts.get("verifier_json")
+    fix_task = (
+        verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
+    )
+    agent_controller = (
+        verifier.agent_controller.model_dump(mode="json")
+        if verifier.agent_controller is not None
+        else None
+    )
+    if compact:
+        if fix_task is not None:
+            fix_task = _artifact_pointer(
+                verifier_json,
+                "fix_task omitted from PR comment size budget; read verifier.json.fix_task.",
+            )
+        if agent_controller is not None:
+            agent_controller = _artifact_pointer(
+                verifier_json,
+                "agent_controller omitted from PR comment size budget; read verifier.json.agent_controller.",
+            )
     payload = {
         "merge_verdict": verifier.merge_verdict,
         "can_merge_without_human": verifier.can_merge_without_human,
@@ -203,29 +253,47 @@ def _agent_instruction_block(verifier: VerifierArtifact) -> list[str]:
             if verifier.first_next_action is not None
             else None
         ),
-        "fix_task": (
-            verifier.fix_task.model_dump(mode="json")
-            if verifier.fix_task is not None
-            else None
-        ),
-        "agent_controller": (
-            verifier.agent_controller.model_dump(mode="json")
-            if verifier.agent_controller is not None
-            else None
-        ),
+        "fix_task": fix_task,
+        "agent_controller": agent_controller,
         "verification_command": (
             verifier.fix_task.verification_command
             if verifier.fix_task is not None
             else None
         ),
     }
-    return [
-        "",
-        "### Agent instruction block",
-        "```json",
-        json.dumps(payload, indent=2, sort_keys=True),
-        "```",
-    ]
+    return payload
+
+
+def _artifact_pointer(artifact: str | None, reason: str) -> dict[str, object]:
+    return {
+        "omitted": True,
+        "reason": reason,
+        "artifact": artifact,
+    }
+
+
+def _join_with_preserved_agent_block(
+    prose_lines: list[str],
+    agent_block: list[str],
+    *,
+    limit: int,
+) -> str:
+    block = "\n".join(agent_block)
+    prose = "\n".join(prose_lines)
+    budget = limit - len(block) - 1
+    if budget > 0:
+        prose = _truncate(prose, budget).rstrip()
+    else:
+        prose = "\n".join(
+            [
+                STICKY_MARKER,
+                "## Agents Shipgate",
+                "",
+                "### Human summary",
+                "- Summary: PR comment prose omitted; read verifier.json for the full review.",
+            ]
+        )
+    return f"{prose}\n{block}"
 
 
 def _source_suffix(path: str | None, line: int | None) -> str:
@@ -576,7 +644,11 @@ def _escape_link(value: object) -> str:
 
 
 def _truncate(value: str, limit: int) -> str:
-    return value if len(value) <= limit else value[: limit - 1] + "..."
+    if len(value) <= limit:
+        return value
+    if limit <= 3:
+        return "." * max(limit, 0)
+    return value[: limit - 3] + "..."
 
 
 __all__ = ["STICKY_MARKER", "render_pr_comment"]

@@ -272,8 +272,6 @@ def run_verify(
     head_tree: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
-    capability_lock_written = False
-    capability_lock_diff_written = False
 
     def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
         nonlocal head_capability_lock
@@ -333,8 +331,6 @@ def run_verify(
                     head_lock=head_capability_lock,
                     base_notes=base_notes,
                 )
-                capability_lock_written = True
-                capability_lock_diff_written = capability_lock_diff is not None
             except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
                 base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
@@ -372,8 +368,6 @@ def run_verify(
             head_exit_code=head_exit_code,
             out_dir=out_dir,
             ci_mode=ci_mode,
-            include_capability_lock=capability_lock_written,
-            include_capability_lock_diff=capability_lock_diff_written,
         )
         try:
             try:
@@ -860,8 +854,6 @@ def _build_verifier(
     out_dir: Path,
     ci_mode: str | None = None,
     preview: bool = False,
-    include_capability_lock: bool = False,
-    include_capability_lock_diff: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -873,8 +865,6 @@ def _build_verifier(
         out_dir,
         git_root=git_root,
         include_scan_artifacts=report is not None,
-        include_capability_lock=include_capability_lock,
-        include_capability_lock_diff=include_capability_lock_diff,
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
@@ -977,8 +967,6 @@ def _artifact_paths(
     *,
     git_root: Path,
     include_scan_artifacts: bool,
-    include_capability_lock: bool = False,
-    include_capability_lock_diff: bool = False,
 ) -> dict[str, str]:
     candidates = {
         "verifier_json": out_dir / "verifier.json",

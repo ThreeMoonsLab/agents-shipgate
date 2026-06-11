@@ -290,16 +290,17 @@ def _mechanical_repairs(
                 )
             )
     if repairs:
-        repairs.append(
+        return _with_terminal_repair(
+            repairs,
             VerifierRepair(
                 id="rerun_verify",
                 actor="coding_agent",
                 kind="verify",
                 command=verification_command,
                 reason="Re-run the verifier after applying allowed mechanical repairs.",
-            )
+            ),
         )
-    return repairs[:_MAX_REPAIRS]
+    return []
 
 
 def _human_repairs(
@@ -344,16 +345,25 @@ def _human_repairs(
                 reason=finding.recommendation or decision.reason,
             )
         )
-    repairs.append(
+    return _with_terminal_repair(
+        repairs,
         VerifierRepair(
             id="rerun_verify_after_human_action",
             actor="human",
             kind="verify",
             command=verification_command,
             reason="Re-run the verifier after the human decision or evidence update.",
-        )
+        ),
     )
-    return repairs[:_MAX_REPAIRS]
+
+
+def _with_terminal_repair(
+    repairs: list[VerifierRepair],
+    terminal: VerifierRepair,
+) -> list[VerifierRepair]:
+    if len(repairs) >= _MAX_REPAIRS:
+        return [*repairs[: _MAX_REPAIRS - 1], terminal]
+    return [*repairs, terminal]
 
 
 def _forbidden_repairs(gating: list[Finding] | None = None) -> list[VerifierRepair]:
