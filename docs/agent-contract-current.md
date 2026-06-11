@@ -175,11 +175,15 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 - `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
   The `actor` separates mechanical coding-agent work from human-only decisions.
 - `fix_task` — `{actor, safe_to_attempt, instructions[], forbidden_shortcuts[],
-  verification_command}` or `null`. This is the deterministic repair boundary:
-  `actor: coding_agent` with `safe_to_attempt: true` means the agent may attempt
-  the listed mechanical fix and rerun `verification_command`; `actor: human`
-  means the agent must not invent approval, idempotency, policy, waiver,
-  baseline, or trust-root evidence to make the gate pass.
+  verification_command, patches[]}` or `null`. This is the deterministic repair
+  boundary: `actor: coding_agent` with `safe_to_attempt: true` means the agent
+  may attempt the listed mechanical fix and rerun `verification_command`;
+  `actor: human` means the agent must not invent approval, idempotency, policy,
+  waiver, baseline, or trust-root evidence to make the gate pass. `patches[]`
+  (v0.13+) carries `{finding_id, check_id, patch}` rows with the
+  machine-applicable suggested patches for the gating findings — populated
+  only when verify ran with `--suggest-patches` and the task routes to the
+  coding agent; repair aids, never gate inputs.
 - `agent_controller` (v0.12.0+) — `null` for `--preview`; otherwise the
   imperative restatement of the verdict for autonomous control:
   `{completion_allowed, must_stop, stop_reason, allowed_next_commands[],

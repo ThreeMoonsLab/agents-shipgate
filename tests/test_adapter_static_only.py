@@ -303,12 +303,13 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=109,
+        line=152,
         snippet="subprocess.run(cmd, capture_output=True, check=check, text=text, timeout=60)",
         rationale=(
             "_run_git helper for verify: executes fixed git argv assembled "
-            "inside Shipgate (rev-parse, diff, show, archive). Capture-only, "
-            "no shell, no user-code execution, and no fetch."
+            "inside Shipgate (rev-parse, diff, show, archive, and the "
+            "default-base detection, which only reads local refs). "
+            "Capture-only, no shell, no user-code execution, and no fetch."
         ),
     ),
     # cli/fixture.py — the ai_generated_refund_pr demo fixture creates a

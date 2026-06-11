@@ -6,12 +6,13 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.ci.agent_result import build_agent_result
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
     _parse_fail_on,
 )
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
@@ -37,7 +38,20 @@ def verify(
     base: str | None = typer.Option(
         None,
         "--base",
-        help="Local base ref/SHA for PR diff. Verify never fetches it.",
+        help=(
+            "Local base ref/SHA for PR diff. Verify never fetches it. When "
+            "omitted, verify auto-detects the default branch (origin/HEAD, "
+            "origin/main, origin/master, main, master) if it points at a "
+            "different commit than the head; --no-base disables that."
+        ),
+    ),
+    no_base: bool = typer.Option(
+        False,
+        "--no-base",
+        help=(
+            "Disable base auto-detection when --base is omitted; scan only "
+            "the working tree or explicit head."
+        ),
     ),
     head: str | None = typer.Option(
         None,
@@ -62,15 +76,23 @@ def verify(
         "--out",
         help="Output directory for verifier and scan artifacts.",
     ),
-    format_: str = typer.Option(
-        "text",
+    format_: str | None = typer.Option(
+        None,
         "--format",
-        help="Verifier stdout format: text or json. Scan artifacts are fixed.",
+        help=(
+            "Verifier stdout format: text, json (full verifier artifact), or "
+            "agent (compact agent result). Defaults to text, or agent when a "
+            "coding-agent environment is detected. Scan artifacts are fixed."
+        ),
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Shortcut for --format json (the coding-agent surface).",
+        help=(
+            "Shortcut for the coding-agent surface: --format agent for "
+            "verify runs, --format json for --preview (relevance data lives "
+            "in the trigger block, which the compact form omits)."
+        ),
     ),
     ci_mode: str | None = typer.Option(
         None,
@@ -140,7 +162,9 @@ def verify(
     # wrong fix.
     try:
         configure_logging(verbose=verbose)
-        stdout_format = "json" if json_output else _parse_verify_format(format_)
+        stdout_format = _resolve_verify_format(
+            format_, json_output=json_output, preview=preview
+        )
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
@@ -198,6 +222,7 @@ def verify(
                 no_heuristics=no_heuristics,
                 pr_comment_style=parsed_pr_comment_style,
                 verbose=verbose,
+                auto_base=base is None and not no_base,
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
@@ -259,7 +284,12 @@ def verify(
         typer.echo(f"Internal error: {exc}", err=True)
         raise typer.Exit(4) from exc
 
-    if stdout_format == "json":
+    if stdout_format == "agent":
+        agent_result = build_agent_result(verifier=verifier, report=_report)
+        typer.echo(
+            json.dumps(agent_result.model_dump(mode="json"), indent=2, sort_keys=True)
+        )
+    elif stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
     else:
         verdict = (
@@ -274,13 +304,33 @@ def verify(
     raise typer.Exit(exit_code)
 
 
+def _resolve_verify_format(
+    value: str | None, *, json_output: bool, preview: bool
+) -> str:
+    """Resolve the stdout format from flags and the agent-mode environment.
+
+    Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode
+    auto-detection > text. ``--json`` maps to the compact agent result for
+    verify runs but keeps the full verifier JSON for ``--preview``, whose
+    relevance answer lives in the ``trigger`` block that the compact form
+    omits. The same split applies when agent mode is auto-detected.
+    """
+    if value is not None:
+        return _parse_verify_format(value)
+    if json_output or is_agent_mode():
+        return "json" if preview else "agent"
+    return "text"
+
+
 def _parse_verify_format(value: str) -> str:
     normalized = value.strip().lower()
     if normalized in {"text", "human"}:
         return "text"
     if normalized == "json":
         return "json"
-    raise ConfigError("--format must be text or json for verify")
+    if normalized == "agent":
+        return "agent"
+    raise ConfigError("--format must be text, json, or agent for verify")
 
 
 def _parse_pr_comment_style(value: str) -> str:

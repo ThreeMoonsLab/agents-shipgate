@@ -230,6 +230,37 @@ stage('Agents Shipgate') {
 }
 ```
 
+## MCP server (optional, provisional)
+
+For coding agents without comfortable shell access (Cursor, restricted
+harnesses), Agents Shipgate can serve three tools over an MCP stdio server.
+It is a thin wrapper over the same engine the CLI uses — `shipgate_verify`
+returns the same compact agent result as `agents-shipgate verify --json`,
+and the release gate stays `report.json.release_decision.decision`. Claude
+Code users should prefer the CLI + hooks surface.
+
+```bash
+pip install 'agents-shipgate[mcp]'
+```
+
+```json
+// .mcp.json
+{
+  "mcpServers": {
+    "agents-shipgate": {
+      "command": "agents-shipgate",
+      "args": ["mcp-serve"]
+    }
+  }
+}
+```
+
+Tools: `shipgate_verify` (run the merge gate; optional `base`/`head`,
+auto-detected otherwise), `shipgate_explain` (check id or `fp_…`
+fingerprint), `shipgate_status` (last verdict from the existing artifacts,
+no rescan). The surface is provisional — names and argument shapes may
+change in a minor release until promoted into STABILITY.md.
+
 ## Pre-commit hook (local)
 
 Run Agents Shipgate locally on every commit that touches a tool-surface artifact. Two equivalent setups:
@@ -252,8 +283,8 @@ repos:
   - repo: local
     hooks:
       - id: agents-shipgate
-        name: Agents Shipgate release-readiness gate
-        entry: agents-shipgate scan -c shipgate.yaml --ci-mode advisory
+        name: Agents Shipgate merge-gate verify
+        entry: agents-shipgate verify --config shipgate.yaml --ci-mode advisory --format text
         language: system
         pass_filenames: false
         files: |
@@ -275,4 +306,4 @@ repos:
           )$
 ```
 
-The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex repo config (`.codex/config.toml`, `.codex/hooks.json`), Codex plugin package files (`.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md`), `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered — pre-commit's `files:` regex is purely path-based. Use the GitHub Action for full trigger coverage on PRs, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.
+The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex repo config (`.codex/config.toml`, `.codex/hooks.json`), Codex plugin package files (`.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md`), `prompts/**`, `policies/**`, and `.github/workflows/agents-shipgate.{yml,yaml}`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-FRAMEWORK-VERSION-BUMP`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered by the regex pre-gate — pre-commit's `files:` regex is purely path-based. Once the hook fires, the `verify` entry runs the full trigger evaluator (including diff rules) and base auto-detection itself. Use the GitHub Action for coverage on commits whose paths don't match the regex at all, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.

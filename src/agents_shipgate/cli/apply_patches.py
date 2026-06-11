@@ -243,23 +243,20 @@ def apply_patches(
 
 
 def _emit_input_error(kind: str, message: str, **fields: object) -> None:
-    """Emit a structured one-line JSON error on stderr when
-    AGENTS_SHIPGATE_AGENT_MODE=1 is set, matching the convention used by
-    other commands. Silent otherwise.
+    """Emit a structured one-line JSON error on stderr when agent mode is
+    active (explicit AGENTS_SHIPGATE_AGENT_MODE or an auto-detected
+    coding-agent harness env), matching the convention used by other
+    commands. Silent otherwise.
 
     ``fields`` may carry ``next_action`` (legacy single string) and
     ``next_actions`` (ranked list of NextAction dicts) so callers can
     attach recovery hints in the same shape as the global agent-mode
     helper."""
-    import os
     import sys
 
-    if os.environ.get("AGENTS_SHIPGATE_AGENT_MODE", "").lower() not in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }:
+    from agents_shipgate.cli.agent_mode import is_agent_mode
+
+    if not is_agent_mode():
         return
     payload = {"error": kind, "message": message, **fields}
     print(json.dumps(payload, default=str), file=sys.stderr)

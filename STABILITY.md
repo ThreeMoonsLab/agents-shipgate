@@ -15,11 +15,11 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | Command | Stable flags |
 |---|---|
 | `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
-| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format`, `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
+| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--no-base` (v0.13+), `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format` (`text`, `json`, and `agent` since v0.13), `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
 | `shipgate check` | `--agent`, `--workspace`, `--format`, `--diff`, `--base`, `--head`, `--config`, `--policy` |
-| `agents-shipgate init` | `--workspace`, `--write`, `--json` |
+| `agents-shipgate init` | `--workspace`, `--write`, `--json`, `--claude-code` (v0.13+) |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |

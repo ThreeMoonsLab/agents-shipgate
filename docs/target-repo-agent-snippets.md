@@ -132,10 +132,10 @@ advisory GitHub Action template under `ci-recipes/`.
 ## `CLAUDE.md`
 
 ````md
-## Agents Shipgate
+## Agents Shipgate — merge gate
 
 Agents Shipgate is the deterministic merge gate for AI-generated agent
-capability changes — a local-first, static Tool-Use Readiness review.
+capability changes. This repo uses it to gate what its AI agent can do.
 
 For agent tool-surface or release-policy changes, run:
 

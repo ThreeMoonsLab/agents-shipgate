@@ -2,6 +2,59 @@
 
 ## 0.13.0 - Unreleased
 
+- **Agent-mode auto-detection.** Agent mode now auto-enables when a known
+  coding-agent harness environment is detected (Claude Code exports
+  `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`), so structured `next_action`
+  errors no longer require remembering `AGENTS_SHIPGATE_AGENT_MODE=1`. An
+  explicit `AGENTS_SHIPGATE_AGENT_MODE=0` still forces it off.
+- **Compact agent stdout for `verify`.** `verify --format agent` (new) prints
+  the compact `agent_result_v1` payload (the same artifact written to
+  `agents-shipgate-reports/agent-result.json`) on stdout, so one `verify`
+  call closes the agent loop without a second file read. Bare `verify --json`
+  resolves to this agent surface for verify runs (and to the full verifier
+  JSON for `--preview`, whose relevance answer lives in the `trigger`
+  block); `verify --format json` is unchanged. Inside a detected
+  coding-agent environment, zero-flag `verify` defaults to the agent format.
+- **Base auto-detection for `verify`.** When `--base` is omitted, verify
+  auto-detects the default branch (`origin/HEAD`, `origin/main`,
+  `origin/master`, `main`, `master`) and uses it for diff context — but only
+  when the detected ref points at a different commit than the head, so a
+  clean checkout of the default branch keeps today's working-tree behavior.
+  The detection never fetches. `--no-base` disables it; an explicit `--base`
+  always wins. The auto-detected ref is recorded in `base_notes`.
+- **`init --claude-code` one-shot setup.** A single flag wires the full
+  Claude Code surface: the `CLAUDE.md` managed block, the
+  `.claude/skills/agents-shipgate/` skill bundle, the Claude Code hooks, and
+  an `agents-shipgate verify --json` alias appended to Makefile /
+  `package.json` scripts when those files exist. Idempotent, dry-run without
+  `--write`, and reported under the additive `claude_code` key in
+  `init --json` output.
+- **Pre-commit hooks now run the verifier.** The `agents-shipgate` and
+  `agents-shipgate-strict` pre-commit hook entries switch from unconditional
+  `scan` to the trigger-gated `verify` flow (the `files:` regex pre-gate is
+  unchanged), so local commits get the same merge-verdict surface as CI and
+  diff-only trigger rules are evaluated once the hook fires.
+- **`fix_task.patches[]`.** When `verify --suggest-patches` routes the repair
+  to the coding agent, the fix task now carries the machine-applicable
+  suggested patches (`{finding_id, check_id, patch}` with the discriminated
+  set/append/remove-pointer payloads) so the agent gets concrete edits, not
+  just prose instructions. Manual patches stay excluded and the field is
+  additive — repair aid, never a gate input.
+- **`fix_task` names low-confidence sources on `insufficient_evidence`.** The
+  verify fix task for an `insufficient_evidence` verdict no longer dead-ends
+  at the threshold sentence: it names each low-confidence source (count,
+  source type, ref) with the explicit-inventory remedy and quotes up to
+  three source warnings. Complements the report-layer
+  `evidence_coverage.evidence_gaps[]` (schema v0.26); the route stays human
+  because declaring an inventory asserts authority a coding agent must not
+  invent. Deeper adapter-level config-bound toolkit detection is designed in
+  `docs/engineering/config-bound-capability-detection.md`.
+- **Claude Code adoption surfaces reworked.** The README gains a
+  "Use with Claude Code" section, `docs/agents/use-with-claude-code.md` opens
+  with the recommended one-command `init --claude-code` setup, and the
+  `agents-shipgate` skill description triggers on change artifacts (MCP
+  servers/tools, tool decorators, permission scopes, approval policies, agent
+  CI) instead of product-name phrases only.
 - **Cold-start dead ends now print an executable next action.** Human-mode
   CLI error paths surface the same ranked recovery step that agent mode
   emits as JSON: `scan`/`doctor`/`verify` config errors print a

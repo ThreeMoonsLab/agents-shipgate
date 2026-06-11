@@ -21,7 +21,18 @@ The skill bundles the [`prompts/`](../../prompts/) recipes plus the advisory CI 
 
 ## Install in your agent project
 
-From the root of the project where you want `/shipgate` and the skill available:
+If the `agents-shipgate` CLI is already available, the one-shot setup wires
+the whole Claude Code surface — the `CLAUDE.md` managed block, the
+`.claude/skills/agents-shipgate/` skill bundle, the Claude Code hooks, and an
+`agents-shipgate verify --json` alias in Makefile / `package.json` scripts
+when those files exist:
+
+```bash
+agents-shipgate init --workspace . --write --claude-code
+```
+
+To install the surfaces manually (no CLI), from the root of the project where
+you want `/shipgate` and the skill available:
 
 ```bash
 # Slash command

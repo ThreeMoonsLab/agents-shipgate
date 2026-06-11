@@ -1,6 +1,6 @@
 ---
 name: agents-shipgate
-description: Use when the user wants to add or run the deterministic merge gate for AI-generated agent capability changes (a local-first, static Tool-Use Readiness review) on an AI agent's tool surface, verify agent-related PRs, fix or triage Shipgate findings, add Shipgate to CI, or interpret Shipgate verifier/report artifacts. Triggers on phrases like "add shipgate", "verify this agent PR", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/verifier.json", "agents-shipgate-reports/report.json", "fix shipgate finding".
+description: Run the deterministic merge gate when a change touches what an AI agent can do. Use after adding or modifying MCP servers or tools, tool/function definitions (@tool, @function_tool), OpenAPI specs that describe agent tools, agent prompts, permission scopes, approval or confirmation policies, agent CI workflows, or shipgate.yaml — and before creating a PR for any such change. Also use to verify agent-related PRs, fix or triage Shipgate findings, add Shipgate to CI, or interpret Shipgate verifier/report artifacts. Triggers on phrases like "add shipgate", "verify this agent PR", "merge verdict", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/verifier.json", "agents-shipgate-reports/report.json", "fix shipgate finding".
 ---
 
 # agents-shipgate skill
@@ -13,6 +13,7 @@ It does **not** run agents, call tools, invoke LLMs, connect to MCP servers, or 
 
 ## When to use this skill
 
+- The current diff adds or modifies MCP server or tool definitions, `@tool`/`@function_tool` decorators, OpenAPI specs describing agent tools, agent prompts, permission scopes, approval/confirmation policies, or agent CI workflows — run the verifier before reporting the change complete or creating a PR.
 - The user asks to add Tool-Use Readiness or pre-merge checks to an agent project.
 - The user asks whether an AI-generated agent PR can merge.
 - The repo already has `shipgate.yaml`, `agents-shipgate-reports/verifier.json`, or `agents-shipgate-reports/report.json`.
@@ -45,7 +46,7 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 
 Always:
 
-1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr.
+1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr (auto-enabled inside Claude Code via the harness's `CLAUDECODE=1` env var, and Cursor via `CURSOR_TRACE_ID`).
 2. For local agent control, run `shipgate check --agent claude-code --workspace . --format agent-json` and read the stdout `agent_result_v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
 3. For verifier runs, parse `agents-shipgate-reports/agent-result.json` first, then `agents-shipgate-reports/verifier.json`:
    `merge_verdict`, `can_merge_without_human`, `first_next_action`,

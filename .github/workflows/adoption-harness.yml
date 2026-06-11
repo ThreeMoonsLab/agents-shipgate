@@ -1,11 +1,17 @@
 name: Adoption Harness
 
-# v1: workflow_dispatch only. No nightly cron — Claude Opus over 24 cells is
-# recurring spend. Operators trigger this manually with an explicit budget cap.
-# Smoke tests on PR CI run separately via the existing tests/harness/ pytest
-# files, with no live API calls.
+# The live `run` job is workflow_dispatch only — no cron, because Claude Opus
+# over the full matrix is recurring spend. Operators trigger it manually with
+# an explicit budget cap. The `smoke` job (mock driver, zero API spend) also
+# runs on a weekly cron so the harness pipeline stays verifiably green
+# between paid runs. Smoke tests on PR CI run separately via the existing
+# tests/harness/ pytest files, with no live API calls.
 
 on:
+  schedule:
+    # Weekly mock-driver smoke only; the paid `run` job is gated to
+    # workflow_dispatch below.
+    - cron: "17 6 * * 1"
   workflow_dispatch:
     inputs:
       matrix_file:
@@ -26,6 +32,8 @@ permissions:
 
 jobs:
   run:
+    # Paid live run — manual dispatch only, never on the cron schedule.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
