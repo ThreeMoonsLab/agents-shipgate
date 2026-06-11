@@ -1,74 +1,38 @@
 # Use Agents Shipgate with Claude Code
 
-Three pieces of agent-facing surface ship with this repo. They differ in how
-reliably they fire, and you should install them in that order:
+This page is the compatibility guide for Claude Code skill installation. For
+the normative agent protocol, use [claude-code.md](claude-code.md) and
+[protocol.md](protocol.md). The canonical Claude Code control command is:
 
-| Surface | Firing mechanism | Source |
+```bash
+shipgate check --agent claude-code --workspace . --format agent-json
+```
+
+Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
+
+| Surface | What it does | Source path in this repo |
 |---|---|---|
-| Claude Code hooks (**recommended**) | Deterministic — the Claude Code harness executes them; they do not depend on the model remembering an instruction, so they keep working on long sessions | `agents-shipgate install-hooks --target claude-code --write` |
-| `agents-shipgate` skill | Probabilistic — auto-discovered when the conversation touches MCP/tool/permission/policy changes or mentions Shipgate artifacts. Routes to bundled recipes. | [`skills/agents-shipgate/SKILL.md`](../../skills/agents-shipgate/SKILL.md) |
-| `/shipgate` slash command | Human-initiated — bootstrap flow: install → `init --write` → fill placeholders → `scan` → report top findings | [`.claude/commands/shipgate.md`](../../.claude/commands/shipgate.md) |
-
-## Recommended setup (two commands)
-
-From the root of your agent project:
-
-```bash
-pipx install agents-shipgate
-agents-shipgate init --workspace . --write --claude-code
-```
-
-This writes the `CLAUDE.md` managed block, the auto-discoverable
-`.claude/skills/agents-shipgate/` skill, an `agents-shipgate verify --json`
-alias in Makefile / package.json scripts when those files exist, and the
-Claude Code hooks described in
-[Hooks: the deterministic path](#hooks-the-deterministic-path-recommended).
-Inside Claude Code, agent mode auto-enables (the harness exports
-`CLAUDECODE=1`), so a zero-flag `agents-shipgate verify` prints the compact
-agent result on stdout — no `AGENTS_SHIPGATE_AGENT_MODE=1` prefix needed.
-
-## Hooks: the deterministic path (recommended)
-
-```bash
-agents-shipgate install-hooks --target claude-code --write
-```
-
-Instruction files and skills are probabilistic surfaces: they depend on the
-model noticing and remembering them, and compliance degrades as a session
-grows. The hooks are the one surface the Claude Code harness executes
-deterministically:
-
-- **PreToolUse** (`Edit|Write|MultiEdit`): a trust-root guard that fires
-  BEFORE the edit happens. When the target path is a Shipgate trust root —
-  `shipgate.yaml`, `.agents-shipgate/` baselines and waivers, `policies/`,
-  the Shipgate CI workflow, the hook files themselves, or an
-  `AGENTS.md`/`CLAUDE.md` that carries the managed Shipgate block — the hook
-  returns `permissionDecision: "ask"` with the reason, routing the edit to a
-  human permission prompt. It never denies outright, so ordinary work is
-  never blocked by a hook failure; it converts "the agent quietly weakened
-  the gate" into "the user was asked first."
-- **PostToolUse** (`Edit|Write|MultiEdit`): a cheap trigger check that adds
-  context only when the edited path matches the trigger catalog — ignoring
-  the manifest-present force-run rule so irrelevant docs edits do not nudge
-  every turn.
-- **Stop**: a full `agents-shipgate verify` that runs only when the working
-  tree or current branch has a relevant change that has not already been
-  checked, before Claude Code reports the work complete.
-
-Local setup failures such as a missing CLI or unavailable base ref are
-surfaced as context, not as the release gate. CI remains authoritative, and
-changing the hook files or other Shipgate trust roots is itself visible to
-verify-mode `SHIP-VERIFY-*` checks.
+| `/shipgate` slash command | Bootstrap flow: install → `init --write` → fill placeholders → `scan` → report top findings | [`.claude/commands/shipgate.md`](../../.claude/commands/shipgate.md) |
+| `agents-shipgate` skill | Auto-discovered when the user mentions release readiness, scanning an agent, fixing a finding, adding Shipgate to CI, or `shipgate.yaml`. Routes to bundled recipes. | [`skills/agents-shipgate/SKILL.md`](../../skills/agents-shipgate/SKILL.md) |
 
 The skill is named `agents-shipgate`, not `shipgate`, on purpose: Claude Code lets a skill with the same name as a command preempt it, which would silently bypass the `/shipgate` slash command. Keeping the names distinct lets users invoke the slash command explicitly **and** lets the skill auto-trigger on relevant phrases.
 
 The skill bundles the [`prompts/`](../../prompts/) recipes plus the advisory CI YAML in its own directory, so a user project does not depend on the upstream `main` branch at runtime. When you change anything in [`prompts/`](../../prompts/) or [`examples/github-actions/01-advisory-pr-comment.yml`](../../examples/github-actions/01-advisory-pr-comment.yml), sync the bundled copy under `skills/agents-shipgate/`.
 
-## Manual install (without the CLI renderer)
+## Install in your agent project
 
-Prefer the [recommended setup](#recommended-setup-three-commands) above. If
-you cannot run `init`, fetch the surfaces directly. From the root of the
-project where you want `/shipgate` and the skill available:
+If the `agents-shipgate` CLI is already available, the one-shot setup wires
+the whole Claude Code surface — the `CLAUDE.md` managed block, the
+`.claude/skills/agents-shipgate/` skill bundle, the Claude Code hooks, and an
+`agents-shipgate verify --json` alias in Makefile / `package.json` scripts
+when those files exist:
+
+```bash
+agents-shipgate init --workspace . --write --claude-code
+```
+
+To install the surfaces manually (no CLI), from the root of the project where
+you want `/shipgate` and the skill available:
 
 ```bash
 # Slash command
@@ -137,9 +101,7 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
 
 For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
 scanned. For committed PR/CI refs, make the base ref available first because
-`verify` never fetches. The `AGENTS_SHIPGATE_AGENT_MODE=1` prefix is optional
-inside Claude Code — agent mode auto-detects via the harness's `CLAUDECODE=1`
-env var, and `--json` prints the compact agent result on stdout.
+`verify` never fetches.
 
 It should then summarize `verifier.json.merge_verdict`,
 `capability_review.top_changes[]`, `first_next_action.actor`,
@@ -191,6 +153,41 @@ The `agents-shipgate` skill routes to bundled recipes (relative paths inside the
 - Upgrade the version → `prompts/upgrade-shipgate-version.md`
 
 For the stable CLI / JSON contract the skill relies on, see [`STABILITY.md`](../../STABILITY.md).
+
+## Optional Claude Code hooks
+
+After the verifier CLI and CI are already working, you can install local
+Claude Code hooks:
+
+```bash
+agents-shipgate install-hooks --target claude-code --write
+```
+
+Three hooks are installed:
+
+- **`PreToolUse` (boundary, in-session).** Before `Edit|Write|MultiEdit`
+  touches a protected trust-root surface (`shipgate.yaml`, `policies/`,
+  the Shipgate CI workflow, agent-instruction files, `.mcp.json`, …),
+  the hook routes the call to the human with `permissionDecision:
+  "ask"` and an explanation — the same authority semantics as
+  `merge_verdict: human_review_required`, surfaced *before* the edit
+  happens instead of at PR time. The protected-surface list is rendered
+  at install time from the same `TRUST_ROOT_SURFACES` table the
+  `SHIP-VERIFY-*` checks classify against, so the in-session boundary
+  and the PR gate cannot drift. Set
+  `AGENTS_SHIPGATE_PRETOOLUSE_DECISION=deny` for hard blocking, or
+  `=allow` to disable the boundary without uninstalling.
+- **`PostToolUse` (nudge).** A cheap trigger check after
+  `Edit|Write|MultiEdit`, ignoring the manifest-present force-run rule so
+  irrelevant docs edits do not nudge every turn.
+- **`Stop` (verify).** Full `agents-shipgate verify` only when the
+  working tree or current branch has a relevant change that has not
+  already been checked.
+
+Local setup failures such as a missing CLI or unavailable base ref are
+surfaced as context, not as the release gate. CI remains authoritative,
+and changing the hook files or other Shipgate trust roots is itself
+visible to verify-mode `SHIP-VERIFY-*` checks.
 
 ## Codex / Cursor / Aider
 

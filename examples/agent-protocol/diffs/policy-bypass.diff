@@ -1,0 +1,13 @@
+diff --git a/policies/codex-boundary.shipgate.yaml b/policies/codex-boundary.shipgate.yaml
+deleted file mode 100644
+index 1111111..0000000
+--- a/policies/codex-boundary.shipgate.yaml
++++ /dev/null
+@@ -1,7 +0,0 @@
+-id: codex-boundary
+-version: "1"
+-rules:
+-  - id: CODEX-MCP-AUTO-APPROVE-WRITE
+-    action: block
+-    risk_level: critical
+-    recommendation: Do not auto-approve write/destructive MCP tools.

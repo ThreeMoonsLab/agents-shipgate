@@ -50,7 +50,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.11.0" in result.output
+    assert "Agents Shipgate 0.13.0" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -136,6 +136,64 @@ tool_sources:
     assert "Input parsing error:" in result.output
 
 
+def test_cli_missing_config_prints_next_action_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+
+    result = runner.invoke(app, ["scan", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "Config error:" in result.output
+    # The human reader gets the same rank-1 recovery step that agent
+    # mode emits as JSON — a cold user must not hit a dead end.
+    assert "next: agents-shipgate detect" in result.output
+
+
+def test_cli_change_me_placeholder_error_routes_to_manifest_edit(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: placeholder-repo
+agent:
+  name: placeholder-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: placeholder
+    type: mcp
+    path: CHANGE_ME.yaml
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["scan", "--config", str(config)])
+
+    assert result.exit_code == 3
+    assert "CHANGE_ME placeholders" in result.output
+    assert "next: Edit shipgate.yaml" in result.output
+
+
+def test_cli_agent_mode_suppresses_prose_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(app, ["scan", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    # Agent mode keeps the docs/errors.json single-JSON-line contract:
+    # the prose hint lines stay human-mode only.
+    assert not [
+        line
+        for line in result.output.splitlines()
+        if line.startswith("next: ")
+    ]
+
+
 def test_cli_list_checks_outputs_catalog():
     result = runner.invoke(app, ["list-checks"])
 
@@ -150,7 +208,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.11.0"
+    assert result.output.strip() == "Agents Shipgate 0.13.0"
 
 
 def test_cli_contract_json_outputs_runtime_contract():

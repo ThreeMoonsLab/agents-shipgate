@@ -7,10 +7,16 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.ci.agent_result import build_agent_result
-from agents_shipgate.cli._helpers import _parse_fail_on
-from agents_shipgate.cli.agent_mode import is_agent_mode
+from agents_shipgate.cli._helpers import (
+    _diagnose_config_error,
+    _echo_next_action_hint,
+    _parse_fail_on,
+)
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
+from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.schemas.diagnostics import NextAction
 
 from .orchestrator import run_preview, run_verify
 
@@ -150,6 +156,10 @@ def verify(
 ) -> None:
     """Run the canonical ongoing-PR verifier around the existing scan engine."""
 
+    # Flag parsing gets its own try block, mirroring scan: a ConfigError
+    # raised here is about flag values, not the manifest — emitting a
+    # manifest diagnostic ("run init") would route the caller to the
+    # wrong fix.
     try:
         configure_logging(verbose=verbose)
         stdout_format = _resolve_verify_format(
@@ -159,6 +169,29 @@ def verify(
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        guidance = (
+            "Fix the invalid CLI flag value referenced in the error and "
+            "re-run verify."
+        )
+        emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "Re-run with a flag value the option parser accepts."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(2) from exc
+
+    try:
         if preview:
             verifier, _report, exit_code = run_preview(
                 workspace=workspace,
@@ -193,12 +226,57 @@ def verify(
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
+        diagnostics = _diagnose_config_error(
+            config=str(config),
+            workspace=workspace,
+            exc=exc,
+            plugins_enabled=False if no_plugins else None,
+        )
+        flattened = top_next_actions(diagnostics)
+        _echo_next_action_hint(flattened)
+        emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            next_action=flattened[0].to_legacy_string(),
+            next_actions=[a.model_dump(mode="json") for a in flattened],
+        )
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        guidance = (
+            "Inspect the file referenced in the error; ensure it exists, "
+            "is valid, and resolves under the manifest directory."
+        )
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "Referenced file is present, parseable, and inside "
+                        "the manifest directory."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
         raise typer.Exit(3) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        guidance = (
+            "Re-run with --verbose for a stack trace, then file an issue if "
+            "the error is not actionable."
+        )
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            next_action=guidance,
+            next_actions=[
+                NextAction(kind="review", why=guidance).model_dump(mode="json")
+            ],
+        )
         raise typer.Exit(4) from exc
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:

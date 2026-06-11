@@ -28,25 +28,29 @@ policy impact unless the user explicitly asks.
 Commands:
 
 ```bash
+shipgate check --agent codex --workspace . --format agent-json
 agents-shipgate verify --preview --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \\
   --ci-mode advisory --format json
 ```
 
-Read `agents-shipgate-reports/verifier.json` first and lead with
-`merge_verdict`. Then read `agents-shipgate-reports/report.json`; use
-`release_decision.decision` as the release gate.
+For local agent control, read the `shipgate check` stdout JSON only. It is
+`agent_result_v1`; switch on `decision`, then follow `first_next_action`,
+`repair`, and `human_review`. Do not infer a decision from prose.
 
-Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
-`agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
-verdict. For committed PR/CI verification, pass
-`--base origin/main --head HEAD` after making the base ref available. For local
-uncommitted work, omit `--base` and `--head` so uncommitted edits are scanned.
-`verify` never fetches.
-Do not claim completion when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user explicitly
-accepts human review.
+Before finishing an agent-related diff, run `shipgate check`. If
+`decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`
+is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
+repair and rerun the command. If `human_review.required=true` or
+`must_stop=true`, stop and surface the JSON result to a human.
+
+For committed PR/CI verification, run `agents-shipgate verify --base
+origin/main --head HEAD --json` after making the base ref available; it never
+fetches. Read `agents-shipgate-reports/agent-result.json` first, then
+`agents-shipgate-reports/verifier.json` for `merge_verdict` and
+`agents-shipgate-reports/report.json.release_decision.decision` for the release
+gate.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;

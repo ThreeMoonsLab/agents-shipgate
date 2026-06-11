@@ -101,8 +101,19 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE` | high | Codex app connector tool approval changed to approve. |
 | `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` | medium | AGENTS.md removed a Shipgate requirement. |
 | `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED` | critical | Shipgate GitHub Action no longer invokes the gate. |
+| `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED` | critical | Codex boundary policy was weakened. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
 | `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
+| `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
+| `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
+| `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED` | high | GitHub workflow permissions expanded. |
+| `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED` | critical | A GitHub workflow gained a pull_request_target trigger. |
 | `LINT-SPEC-002` | high | A skill has invalid YAML frontmatter. |
 | `LINT-SPEC-003` | high | A skill is missing required `name` frontmatter. |
 | `LINT-SPEC-004` | high | A skill is missing required `description` frontmatter. |
@@ -559,6 +570,11 @@ instructions were not weakened.
 The Shipgate GitHub Actions workflow was deleted or no longer contains a
 Shipgate invocation. Restore the workflow or get human approval to remove it.
 
+### SHIP-CODEX-BOUNDARY-POLICY-WEAKENED
+
+The Codex boundary policy was deleted or downgraded. Restore the stricter
+policy or get human approval before weakening the local boundary gate.
+
 ### SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
 
 A changed Codex hooks source contains a command hook. Review executable hooks
@@ -568,6 +584,63 @@ before relying on them.
 
 A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
 command-bearing skill changes before local automation.
+
+### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
+
+A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
+or its content cannot be resolved from the diff. Fix the malformed host config
+or have a human review the change.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
+
+A changed MCP server declaration file adds a server key that did not exist
+before. Have a human review the new MCP server before the agent can use it.
+
+### SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED
+
+An existing MCP server changed its `command`, `args`, `url`, `serverUrl`, or
+`env` keys. Review the change — env var values never appear in evidence, key
+names only.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
+
+A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
+allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
+`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
+commands.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
+
+A changed Claude Code settings file adds a non-wildcard `permissions.allow`
+entry. Have a human approve the new permission allow rule.
+
+### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
+
+A changed Claude Code settings file drops an entry from `permissions.deny`.
+Have a human confirm the removed deny rule is no longer needed.
+
+### SHIP-HOST-BOUNDARY-HOOK-CHANGED
+
+A changed Claude Code settings file adds, modifies, or removes hook handlers.
+Review executable hook changes before the agent relies on them.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL
+
+A changed `.github/workflows` file sets `permissions: write-all` at the top
+level or for a job. Replace write-all with the minimal explicit permission
+scopes.
+
+### SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED
+
+A changed `.github/workflows` file grants an explicit write scope that the
+base did not grant, at the top level or per job. Have a human approve the
+expanded workflow write permission.
+
+### SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED
+
+A changed `.github/workflows` file adds `pull_request_target` to its triggers.
+Review it carefully — `pull_request_target` runs with secrets on fork PRs.
 
 ### LINT-BODY-001
 
@@ -870,6 +943,42 @@ would degrade the verdict to `insufficient_evidence` instead of `blocked`. A
 coding agent cannot self-approve the broadening; a human must re-apply a
 least-privilege configuration or explicitly approve the expanded surface. A
 narrowing (bound added or tightened) emits nothing.
+
+### SHIP-MCP-ENV-SECRET-PASSTHROUGH
+
+Fires when a statically parsed MCP server passes through secret-like
+environment variables, such as token, password, API key, or credential
+names. Secret pass-through changes the credential boundary available to the
+server, so Shipgate routes the change to human review without exposing raw
+secret values in evidence.
+
+### SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
+
+Fires when an MCP tool classified as write, destructive, external,
+financial, or production is configured with approval mode `approve`. This is
+an explicit release blocker because auto-approved side-effecting MCP tools
+can let an agent act outside the review boundary.
+
+### SHIP-MCP-UNKNOWN-TOOL-SCHEMA
+
+Fires for new or changed MCP capabilities whose static metadata cannot prove
+the callable surface and side effect, including wildcard server exposure.
+Provide an explicit local MCP inventory/schema or keep the server behind
+human review. Unknown side effects route to review by default; they become
+blockers only when paired with a separate blocking condition such as
+auto-approved side-effecting access.
+
+### SHIP-MCP-PERMISSION-EXPANDED
+
+Fires when the MCP capability diff broadens scope, effect, risk tags,
+controls, or accepted input schema. Narrowing and pure least-privilege
+downgrades do not block by default.
+
+### SHIP-MCP-READONLY-SERVER-ADDED
+
+Fires as a low-severity warning when a new local documentation MCP server is
+classified as read-only. It keeps benign expansion visible in review
+artifacts while remaining non-blocking by default.
 
 Risk tags are hints, not findings by themselves. Checks consume tags with confidence thresholds.
 

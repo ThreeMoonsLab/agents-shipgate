@@ -275,11 +275,47 @@ class ReleaseDecisionItem(BaseModel):
     capability_trace_refs: list[str] = Field(default_factory=list)
 
 
+class EvidenceGapAction(BaseModel):
+    """One concrete, mechanically-executable step that closes a gap.
+
+    Mirrors the agent-mode ``next_actions[]`` error shape
+    (``kind``/``command``/``path``/``why``/``expects``) so agents reuse
+    one routing vocabulary across error recovery and evidence repair.
+    """
+
+    kind: Literal["declare_tool_inventory", "provide_source", "review_warning"]
+    command: str | None = None
+    path: str | None = None
+    why: str
+    expects: str
+
+
+class EvidenceGap(BaseModel):
+    """v0.26: one structured row per measurable evidence gap.
+
+    ``insufficient_evidence`` previously diagnosed without prescribing;
+    each gap names the degraded subject and the specific next action
+    that raises extraction confidence. Purely explanatory — gating
+    still uses only the counts (the gap list is a projection of them).
+    """
+
+    kind: Literal["low_confidence_tool", "source_warning"]
+    subject: str
+    source_type: str | None = None
+    source_ref: str | None = None
+    why: str
+    next_action: EvidenceGapAction
+
+
 class EvidenceCoverageDecision(BaseModel):
     level: str
     human_review_recommended: bool
     source_warning_count: int
     low_confidence_tool_count: int
+    # v0.26: structured per-gap remediation rows; a deterministic
+    # projection of the two counts above. Default empty so older
+    # payloads load as baselines unchanged.
+    evidence_gaps: list[EvidenceGap] = Field(default_factory=list)
 
 
 class BaselineDelta(BaseModel):
@@ -746,7 +782,12 @@ class ReadinessReport(BaseModel):
     # linked to capability facts. Runtime trace evidence is declared
     # local audit metadata only; it is not live collection and it is not
     # part of the static capability lock envelope.
-    report_schema_version: str = "0.25"
+    # v0.26: additive structured evidence gaps
+    # (``release_decision.evidence_coverage.evidence_gaps[]``) — one
+    # actionable remediation row per low-confidence tool / source
+    # warning, plus the advisory ``suggested-inventory.json`` artifact.
+    # Pure projection of existing counts; gate behavior unchanged.
+    report_schema_version: str = "0.26"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

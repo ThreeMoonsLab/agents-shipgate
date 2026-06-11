@@ -8,18 +8,18 @@ import typer
 from agents_shipgate.cli.agent_result import (
     agent_result_json,
     build_codex_agent_result,
+    git_diff_text,
 )
-from agents_shipgate.core.codex_boundary import DEFAULT_POLICY_PATH
 
 
 def check(
     agent: str = typer.Option(
         "codex",
         "--agent",
-        help="Agent runtime to check. Phase 1 supports only codex.",
+        help="Agent runtime to check: codex, claude-code, or cursor.",
     ),
-    diff: str = typer.Option(
-        "-",
+    diff: str | None = typer.Option(
+        None,
         "--diff",
         help=(
             "Unified diff file to evaluate, or '-' to read stdin. The workspace "
@@ -30,7 +30,7 @@ def check(
     format_: str = typer.Option(
         "agent-json",
         "--format",
-        help="Output format. Phase 1 supports only agent-json.",
+        help="Output format. Supports agent-json.",
     ),
     workspace: Path = typer.Option(
         Path("."),
@@ -43,27 +43,43 @@ def check(
         "-c",
         help="Shipgate manifest path used for trigger context.",
     ),
-    policy: Path = typer.Option(
-        DEFAULT_POLICY_PATH,
+    policy: Path | None = typer.Option(
+        None,
         "--policy",
-        help="Codex boundary policy file.",
+        help="Optional Codex boundary policy file. Defaults to workspace policy then packaged default.",
+    ),
+    base: str | None = typer.Option(
+        None,
+        "--base",
+        help="Base git ref for diff resolution when --diff is omitted.",
+    ),
+    head: str | None = typer.Option(
+        None,
+        "--head",
+        help="Head git ref for diff resolution when --diff is omitted.",
     ),
 ) -> None:
-    """Run the Codex-compatible local boundary check."""
+    """Run the agent-native local boundary check."""
 
-    if agent != "codex":
-        typer.echo("--agent must be 'codex' in Phase 1.", err=True)
+    if agent not in {"codex", "claude-code", "cursor"}:
+        typer.echo("--agent must be one of: codex, claude-code, cursor.", err=True)
         raise typer.Exit(2)
     if format_ != "agent-json":
-        typer.echo("--format must be 'agent-json' in Phase 1.", err=True)
+        typer.echo("--format must be 'agent-json'.", err=True)
         raise typer.Exit(2)
     try:
-        diff_text = sys.stdin.read() if diff == "-" else Path(diff).read_text(encoding="utf-8")
-    except OSError as exc:
+        if diff == "-":
+            diff_text = sys.stdin.read()
+        elif diff:
+            diff_text = Path(diff).read_text(encoding="utf-8")
+        else:
+            diff_text = git_diff_text(workspace=workspace, base=base, head=head)
+    except (OSError, RuntimeError) as exc:
         typer.echo(f"Could not read --diff input: {exc}", err=True)
         raise typer.Exit(2) from exc
 
     result = build_codex_agent_result(
+        agent=agent,
         workspace=workspace,
         diff_text=diff_text,
         config=config,

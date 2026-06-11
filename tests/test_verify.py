@@ -11,10 +11,17 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify.capability_review import build_capability_review
+from agents_shipgate.cli.verify.git import read_file_at_ref
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.capabilities import (
+    CapabilityLockFileV1,
+    CapabilityLockHashes,
+    CapabilityLockSource,
+    CapabilityLockSummary,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeMember,
@@ -649,6 +656,77 @@ def test_verify_head_errors_preserve_exit_codes(
     assert message in result.output
 
 
+def test_verify_config_error_prints_next_action_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**_kwargs: Any):
+        raise ConfigError("bad config")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
+    )
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"],
+    )
+
+    assert result.exit_code == 2
+    # The manifest exists but the loader rejected it, so the rank-1
+    # recovery step is the invalid-manifest edit hint.
+    assert "next: Edit" in result.output
+
+
+def test_verify_agent_mode_emits_structured_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**_kwargs: Any):
+        raise ConfigError("bad config")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
+    )
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"],
+    )
+
+    assert result.exit_code == 2
+    json_lines = [
+        line for line in result.output.splitlines() if line.startswith("{")
+    ]
+    assert json_lines
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "config_error"
+    assert payload["next_actions"]
+
+
+def test_verify_flag_error_emits_structured_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(app, ["verify", "--format", "bogus"])
+
+    assert result.exit_code == 2
+    json_lines = [
+        line for line in result.output.splitlines() if line.startswith("{")
+    ]
+    assert json_lines
+    payload = json.loads(json_lines[-1])
+    assert payload["error"] == "config_error"
+    # Flag errors must NOT carry manifest diagnostics — the fix is the
+    # flag value, not shipgate.yaml.
+    assert payload["next_actions"][0]["kind"] == "review"
+
+
 def test_verify_artifact_write_failure_does_not_mask_scan_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -675,6 +753,58 @@ def test_verify_artifact_write_failure_does_not_mask_scan_error(
     assert result.exit_code == 2
     assert "Config error: bad config" in result.output
     assert "artifact failed" not in result.output
+
+
+def test_verify_capability_review_artifact_failure_does_not_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**kwargs: Any):
+        callback = kwargs.get("capability_lock_callback")
+        if callback is not None:
+            callback(_empty_capability_lock())
+        report = _report(decision="passed", exit_code=0)
+        out_dir = Path(kwargs["output_dir"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.json").write_text(
+            json.dumps(report_json_payload(report), indent=2),
+            encoding="utf-8",
+        )
+        return report, 0
+
+    def fail_review_artifacts(**_kwargs: Any):
+        raise RuntimeError("artifact boom")
+
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan)
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator._write_capability_review_artifacts",
+        fail_review_artifacts,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "succeeded"
+    assert payload["head_exit_code"] == 0
+    assert payload["merge_verdict"] == "mergeable"
+    assert "capability_lock" not in payload["artifacts"]
+    assert payload["base_notes"] == [
+        "Capability review artifacts unavailable: artifact boom"
+    ]
 
 
 def test_verify_base_materialization_does_not_create_git_worktree(
@@ -708,6 +838,20 @@ def test_verify_base_materialization_does_not_create_git_worktree(
         text=True,
     ).stdout
     assert worktrees.count("worktree ") == 1
+
+
+def test_read_file_at_ref_reads_single_blob(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    lock = repo / ".agents-shipgate" / "capabilities.lock.json"
+    lock.parent.mkdir()
+    lock.write_text('{"ok": true}\n', encoding="utf-8")
+    _commit_all(repo, "lock")
+
+    assert (
+        read_file_at_ref(repo, "HEAD", Path(".agents-shipgate/capabilities.lock.json"))
+        == '{"ok": true}\n'
+    )
+    assert read_file_at_ref(repo, "HEAD", Path("missing.json")) is None
 
 
 def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
@@ -866,6 +1010,25 @@ def _report(*, decision: str, exit_code: int) -> ReadinessReport:
             ),
         ),
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+    )
+
+
+def _empty_capability_lock() -> CapabilityLockFileV1:
+    return CapabilityLockFileV1(
+        cli_version="test",
+        source=CapabilityLockSource(
+            config_path="shipgate.yaml",
+            manifest_dir=".",
+            agent_id="agent:test",
+            agent_name="test-agent",
+        ),
+        summary=CapabilityLockSummary(),
+        hashes=CapabilityLockHashes(
+            semantic_capability_set_hash="0" * 64,
+            evidence_set_hash="1" * 64,
+            source_set_hash="2" * 64,
+        ),
+        capabilities=[],
     )
 
 

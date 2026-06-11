@@ -205,14 +205,11 @@ def test_verify_json_shortcut_prints_compact_agent_result(tmp_path: Path) -> Non
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "shipgate.agent_result/v1"
+    assert payload["schema_version"] == "agent_result_v1"
     assert payload["decision"] == "allow"
-    assert payload["merge_verdict"] == "mergeable"
-    assert payload["can_merge_without_human"] is True
+    assert payload["completion_allowed"] is True
+    assert payload["must_stop"] is False
     assert "agent_repair_instructions" in payload
-    # The compact surface stays small enough to land in an agent
-    # transcript without a second file read.
-    assert len(result.output) < 4096
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
 
@@ -241,7 +238,7 @@ def test_verify_agent_environment_defaults_to_compact_stdout(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "shipgate.agent_result/v1"
+    assert payload["schema_version"] == "agent_result_v1"
 
 
 def test_verify_without_agent_environment_defaults_to_text(

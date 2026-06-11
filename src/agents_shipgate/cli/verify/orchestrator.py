@@ -13,9 +13,21 @@ from agents_shipgate import __version__
 from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.capability_lock import (
+    DEFAULT_CAPABILITY_LOCK_PATH,
+    DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
+    diff_capability_locks,
+    load_capability_lock_json,
+    render_capability_lock_diff_json,
+    render_capability_lock_json,
+)
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.pr_comment import render_pr_comment
+from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
 from agents_shipgate.schemas.report import AgentSummary, ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import (
@@ -40,6 +52,7 @@ from .git import (
     diff_context,
     ensure_git_workspace,
     git_path,
+    read_file_at_ref,
     ref_exists,
     tree_sha,
     working_tree_context,
@@ -252,6 +265,15 @@ def run_verify(
     head_config_path = config_path
     head_policy_pack_paths = policy_pack_paths
     head_tree: str | None = None
+    head_capability_lock: CapabilityLockFileV1 | None = None
+    capability_lock_diff: CapabilityLockDiffV1 | None = None
+    capability_lock_written = False
+    capability_lock_diff_written = False
+
+    def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
+        nonlocal head_capability_lock
+        head_capability_lock = lock
+
     try:
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
@@ -290,11 +312,25 @@ def run_verify(
                 diff_text_available=bool(diff_text),
                 trigger_result=trigger,
             ),
+            capability_lock_callback=capture_capability_lock,
         )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
         head_status = "succeeded"
+        if head_capability_lock is not None:
+            try:
+                capability_lock_diff = _write_capability_review_artifacts(
+                    git_root=git_root,
+                    out_dir=out_dir,
+                    base=base,
+                    head_lock=head_capability_lock,
+                    base_notes=base_notes,
+                )
+                capability_lock_written = True
+                capability_lock_diff_written = capability_lock_diff is not None
+            except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
+                base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
         scan_error = exc
         head_exit_code = 2
@@ -330,6 +366,8 @@ def run_verify(
             head_exit_code=head_exit_code,
             out_dir=out_dir,
             ci_mode=ci_mode,
+            include_capability_lock=capability_lock_written,
+            include_capability_lock_diff=capability_lock_diff_written,
         )
         try:
             try:
@@ -340,6 +378,7 @@ def run_verify(
                     agent_result_path,
                     report=report,
                     pr_comment_style=pr_comment_style,
+                    capability_lock_diff=capability_lock_diff,
                 )
             except Exception:
                 if scan_error is None:
@@ -739,6 +778,8 @@ def _build_verifier(
     out_dir: Path,
     ci_mode: str | None = None,
     preview: bool = False,
+    include_capability_lock: bool = False,
+    include_capability_lock_diff: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -750,6 +791,8 @@ def _build_verifier(
         out_dir,
         git_root=git_root,
         include_scan_artifacts=report is not None,
+        include_capability_lock=include_capability_lock,
+        include_capability_lock_diff=include_capability_lock_diff,
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
@@ -854,6 +897,8 @@ def _artifact_paths(
     *,
     git_root: Path,
     include_scan_artifacts: bool,
+    include_capability_lock: bool = False,
+    include_capability_lock_diff: bool = False,
 ) -> dict[str, str]:
     candidates = {
         "verifier_json": out_dir / "verifier.json",
@@ -868,6 +913,13 @@ def _artifact_paths(
             "packet_json": out_dir / "packet.json",
             **candidates,
         }
+    if include_capability_lock:
+        candidates["capability_lock"] = out_dir / "capabilities.lock.json"
+    if include_capability_lock_diff:
+        candidates["capability_lock_diff_json"] = out_dir / "capability-lock-diff.json"
+        candidates["capability_lock_diff_markdown"] = (
+            out_dir / "capability-lock-diff.md"
+        )
     return {
         key: _display_path(path.resolve(), git_root)
         for key, path in candidates.items()
@@ -882,6 +934,7 @@ def _write_artifacts(
     *,
     report: ReadinessReport | None,
     pr_comment_style: str,
+    capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     agent_result = build_agent_result(verifier=verifier, report=report)
@@ -896,6 +949,7 @@ def _write_artifacts(
             report=report,
             style=pr_comment_style,
             agent_result=agent_result,
+            capability_lock_diff=capability_lock_diff,
         ),
         encoding="utf-8",
     )
@@ -903,6 +957,74 @@ def _write_artifacts(
     # in-memory report can still produce the canonical public payload.
     if report is not None:
         report_json_payload(report)
+
+
+def _write_capability_review_artifacts(
+    *,
+    git_root: Path,
+    out_dir: Path,
+    base: str | None,
+    head_lock: CapabilityLockFileV1,
+    base_notes: list[str],
+) -> CapabilityLockDiffV1 | None:
+    lock_path = out_dir / "capabilities.lock.json"
+    lock_path.write_text(render_capability_lock_json(head_lock), encoding="utf-8")
+    if not base:
+        base_notes.append(
+            "Capability lock diff unavailable: no --base ref was provided."
+        )
+        return None
+    base_lock = _load_base_capability_lock(
+        git_root=git_root,
+        base=base,
+        base_notes=base_notes,
+    )
+    if base_lock is None:
+        return None
+    diff = diff_capability_locks(
+        base_lock,
+        head_lock,
+        base_path=DEFAULT_CAPABILITY_LOCK_PATH,
+        head_path=DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
+    )
+    (out_dir / "capability-lock-diff.json").write_text(
+        render_capability_lock_diff_json(diff),
+        encoding="utf-8",
+    )
+    (out_dir / "capability-lock-diff.md").write_text(
+        render_capability_lock_diff_markdown(diff),
+        encoding="utf-8",
+    )
+    base_notes.append(
+        "Capability lock diff compared the base reviewed envelope at "
+        f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+    )
+    return diff
+
+
+def _load_base_capability_lock(
+    *,
+    git_root: Path,
+    base: str,
+    base_notes: list[str],
+) -> CapabilityLockFileV1 | None:
+    content = read_file_at_ref(git_root, base, DEFAULT_CAPABILITY_LOCK_PATH)
+    if content is None:
+        base_notes.append(
+            "Capability lock diff unavailable: base tree does not contain "
+            f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+        )
+        return None
+    try:
+        return load_capability_lock_json(
+            content,
+            source=f"{base}:{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}",
+        )
+    except InputParseError as exc:
+        base_notes.append(
+            f"Capability lock diff unavailable: base lock is invalid: {exc}"
+        )
+        return None
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:

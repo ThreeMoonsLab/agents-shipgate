@@ -89,7 +89,7 @@ readiness issue, its patch removes a blocker by editing `shipgate.yaml`.
 
 Touching a release-gate trust root requires at least human review. The attempt to
 weaken the gate becomes a visible, release-relevant signal rather than a silent
-pass. `v0.11.0` includes both path-level trust-root detection and semantic
+pass. `v0.12.0` includes both path-level trust-root detection and semantic
 weakening checks over the normalized effective policy: `ci.mode` downgrades,
 loosened `fail_on`, suppression/waiver/baseline expansion, CI gate removal,
 agent-instruction edits, and trigger catalog drift route to human review or
@@ -149,13 +149,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.13.0'
       - name: Gate on the merge verdict
         run: |
           echo "merge_verdict=${{ steps.shipgate.outputs.merge_verdict }}"
