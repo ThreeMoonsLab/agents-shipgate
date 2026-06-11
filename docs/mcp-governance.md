@@ -118,7 +118,15 @@ The baseline is content-only (no timestamps, no machine paths), so
 re-saving an unchanged state is byte-identical, and it is meant to be
 committed: `.agents-shipgate/` is already a verify trust-root surface,
 so a PR that edits the snapshot is release-visible like any other
-policy change.
+policy change. The stored `inventory_sha256` is verified on every
+`--drift` load — a hand-edited or corrupted baseline fails closed
+(exit 2) instead of silently reporting no drift.
+
+MCP server and hook entries carry a `config_sha256` over their full
+configuration with secret-bearing `env`/`headers` *values* redacted
+before hashing. Editing what an existing server or hook can do (args,
+commands, matchers, URL, env/header *keys*) is drift; rotating a token
+value is not.
 
 The drift report lists added/removed/changed entries per category and
 names **expansion signals** — the drift shapes that broaden coding-agent

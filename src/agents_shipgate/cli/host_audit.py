@@ -99,6 +99,12 @@ def host_audit_inventory(workspace: Path) -> dict[str, Any]:
                     "transport": _transport_hint(server),
                     "command_or_url": _command_or_url(server),
                     "env_keys": env_keys,
+                    # Redacted hash of the FULL server config so drift sees
+                    # edits the display fields miss (args, cwd, url params,
+                    # header keys). Secret-bearing env/header values are
+                    # redacted before hashing, so rotating a token is not
+                    # drift but changing what the server can do is.
+                    "config_sha256": redacted_config_sha256(server),
                 }
             )
 
@@ -124,7 +130,16 @@ def host_audit_inventory(workspace: Path) -> dict[str, Any]:
         hooks = data.get("hooks")
         if isinstance(hooks, dict):
             for event in sorted(hooks):
-                inventory["hooks"].append({"file": relative, "event": str(event)})
+                inventory["hooks"].append(
+                    {
+                        "file": relative,
+                        "event": str(event),
+                        # Hash the event's full hook configuration so editing
+                        # a hook command under an existing event is drift,
+                        # not just adding/removing the event itself.
+                        "config_sha256": redacted_config_sha256(hooks[event]),
+                    }
+                )
 
     workflows_dir = root / ".github" / "workflows"
     if workflows_dir.is_dir():
@@ -293,6 +308,41 @@ def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Dict keys whose VALUES carry secrets (tokens, API keys) rather than
+# authority shape. Values under these keys are redacted before config
+# hashing so secret rotation is not drift; the key set itself still is.
+_SECRET_VALUE_KEYS = frozenset({"env", "headers"})
+
+
+def _redact_secret_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (
+                {inner_key: "<redacted>" for inner_key in sorted(inner)}
+                if key in _SECRET_VALUE_KEYS and isinstance(inner, dict)
+                else _redact_secret_values(inner)
+            )
+            for key, inner in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secret_values(item) for item in value]
+    return value
+
+
+def redacted_config_sha256(config: Any) -> str:
+    """Content hash of a host-config fragment with secret values redacted.
+
+    The hash makes any grant-shaping edit (args, commands, matchers, URL,
+    header/env *keys*) visible to drift without ever storing the raw
+    config — and without making env/header *value* rotation count as
+    drift."""
+
+    redacted = _redact_secret_values(config)
+    return hashlib.sha256(
+        json.dumps(redacted, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def normalized_host_grants(inventory: dict[str, Any]) -> dict[str, Any]:
     """Portable, hashable projection of the inventory for baseline/diff use.
 
@@ -365,6 +415,37 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
             f"Host-grants baseline {path} is missing its inventory. "
             "Re-record it: agents-shipgate audit --host --save-baseline"
         )
+    # Fail closed on malformed shapes so a corrupt baseline is a routable
+    # exit-2 error, never a traceback deeper in the diff.
+    for category, identity in _GRANT_CATEGORIES:
+        entries = inventory.get(category, [])
+        if not isinstance(entries, list):
+            raise ValueError(
+                f"Host-grants baseline {path} has a malformed {category!r} "
+                "category (expected a list). Re-record it: "
+                "agents-shipgate audit --host --save-baseline"
+            )
+        expected = str if identity is None else dict
+        for entry in entries:
+            if not isinstance(entry, expected):
+                raise ValueError(
+                    f"Host-grants baseline {path} has a malformed entry in "
+                    f"{category!r} (expected {expected.__name__} entries). "
+                    "Re-record it: agents-shipgate audit --host --save-baseline"
+                )
+    # Tamper evidence: the stored hash must match the inventory it ships
+    # with. A mismatch means the file was hand-edited or corrupted — drift
+    # against an unacknowledged baseline would be meaningless.
+    stored_sha = data.get("inventory_sha256")
+    recomputed_sha = host_grants_sha256(normalized_host_grants(inventory))
+    if stored_sha != recomputed_sha:
+        raise ValueError(
+            f"Host-grants baseline {path} failed its integrity check: "
+            f"stored inventory_sha256 {stored_sha!r} does not match the "
+            f"inventory content ({recomputed_sha}). The file was hand-edited "
+            "or corrupted. After a human reviews the current grants, "
+            "re-record it: agents-shipgate audit --host --save-baseline"
+        )
     return data
 
 
@@ -421,6 +502,9 @@ def host_grant_expansion_signals(drift: dict[str, Any]) -> list[str]:
     signals: list[str] = []
     for server in drift["mcp_servers"]["added"]:
         signals.append(f"mcp_server_added: {server['host']}:{server['server']}")
+    for change in drift["mcp_servers"]["changed"]:
+        server = change["current"]
+        signals.append(f"mcp_server_changed: {server['host']}:{server['server']}")
     for rule in drift["permission_rules"]["added"]:
         if rule["kind"] == "allow":
             kind = "wildcard_allow_added" if rule.get("wildcard") else "allow_rule_added"
@@ -432,6 +516,9 @@ def host_grant_expansion_signals(drift: dict[str, Any]) -> list[str]:
             signals.append(f"ask_rule_removed: {rule['rule']}")
     for hook in drift["hooks"]["added"]:
         signals.append(f"hook_added: {hook['file']}:{hook['event']}")
+    for change in drift["hooks"]["changed"]:
+        hook = change["current"]
+        signals.append(f"hook_changed: {hook['file']}:{hook['event']}")
     for workflow in drift["workflows"]["added"]:
         if workflow["write_scopes"] or workflow["pull_request_target"]:
             signals.append(f"workflow_write_added: {workflow['file']}")

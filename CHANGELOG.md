@@ -10,10 +10,15 @@
   surface, so PR edits to the snapshot stay release-visible). `audit --host
   --drift` deterministically diffs current grants against that baseline with
   per-category added/removed/changed buckets plus `expansion_signals` naming
-  the authority-broadening shapes (new server, wildcard allow added, `deny` or
-  `ask` rule **removed**, hook added, workflow write scope or
-  `pull_request_target` gained). Advisory by default; `--fail-on-drift` exits
-  20 for scheduled CI gates — recipe at
+  the authority-broadening shapes (new or **changed** server, wildcard allow
+  added, `deny` or `ask` rule **removed**, hook added or **changed**, workflow
+  write scope or `pull_request_target` gained). MCP server and hook entries
+  carry a `config_sha256` over their full configuration with secret `env` /
+  `headers` values redacted before hashing, so editing what an existing server
+  or hook can do is drift while token rotation is not; the baseline's stored
+  `inventory_sha256` is verified at load time and hand-edited or malformed
+  baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
+  exits 20 for scheduled CI gates — recipe at
   `examples/github-actions/11-host-grant-drift.yml`. Catches authority changes
   that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
   checks cannot see them.
