@@ -207,7 +207,7 @@
     },
     "VerifierFixTask": {
       "additionalProperties": false,
-      "description": "The single repair task a verify run hands to whoever acts next.\n\nRouting is deterministic and projected from the head scan \u2014 never an LLM\njudgment. ``coding_agent`` + ``safe_to_attempt=True`` means the gating\ngaps are mechanical (every gating finding is ``autofix_safe``): the agent\nmay fix them and re-run ``verification_command``. ``human`` +\n``safe_to_attempt=False`` means an authority gap a coding agent must not\ninvent its way past \u2014 missing approval/idempotency evidence, a weakened\npolicy, or a touched trust root. ``forbidden_shortcuts`` are the\nreward-hacking moves that are never acceptable for either actor.",
+      "description": "The single repair task a verify run hands to whoever acts next.\n\nRouting is deterministic and projected from the head scan \u2014 never an LLM\njudgment. ``coding_agent`` + ``safe_to_attempt=True`` means the gating\ngaps are mechanical (every gating finding is ``autofix_safe``): the agent\nmay fix them and re-run ``verification_command``. ``human`` +\n``safe_to_attempt=False`` means an authority gap a coding agent must not\ninvent its way past \u2014 missing approval/idempotency evidence, a weakened\npolicy, or a touched trust root. ``forbidden_shortcuts`` are the\nreward-hacking moves that are never acceptable for either actor.\n``patches`` (v0.12+) carries the machine-applicable suggested patches for\nthe gating findings when verify ran with ``--suggest-patches`` and the\ntask routes to the coding agent.",
       "properties": {
         "actor": {
           "enum": [
@@ -245,6 +245,13 @@
           "title": "Instructions",
           "type": "array"
         },
+        "patches": {
+          "items": {
+            "$ref": "#/$defs/VerifierFixTaskPatch"
+          },
+          "title": "Patches",
+          "type": "array"
+        },
         "safe_to_attempt": {
           "title": "Safe To Attempt",
           "type": "boolean"
@@ -267,6 +274,36 @@
         "safe_to_attempt"
       ],
       "title": "VerifierFixTask",
+      "type": "object"
+    },
+    "VerifierFixTaskPatch": {
+      "additionalProperties": false,
+      "description": "A machine-applicable patch projected into the fix task.\n\nRepair aid only \u2014 never a gate input. ``patch`` carries the\ndiscriminated Patch payload (``set_pointer`` / ``append_pointer`` /\n``remove_pointer``) exactly as the head scan emitted it; ``manual``\npatches are intentionally excluded because their guidance already\nappears in ``instructions``.",
+      "properties": {
+        "check_id": {
+          "default": "",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "patch": {
+          "additionalProperties": true,
+          "title": "Patch",
+          "type": "object"
+        }
+      },
+      "title": "VerifierFixTaskPatch",
       "type": "object"
     },
     "VerifierHumanReview": {

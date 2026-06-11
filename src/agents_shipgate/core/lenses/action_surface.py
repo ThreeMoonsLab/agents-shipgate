@@ -63,6 +63,7 @@ _RISK_TAG_MAP = {
     "customer_data": "customer_data",
     "secret_access": "secret_access",
     "irreversible": "irreversible",
+    "unknown_side_effect": "unknown_side_effect",
 }
 _CRITICAL_RISK_TAGS = {
     "financial_write",
@@ -787,6 +788,8 @@ def _infer_effect(tool: Tool, tags: list[str]) -> str:
         return "identity_access"
     if "privileged_data" in tag_set:
         return "privileged_data_access"
+    if "unknown_side_effect" in tag_set:
+        return "write"
     if "writes_data" in tag_set:
         return "write"
     method = str(tool.annotations.get("httpMethod") or "").upper()

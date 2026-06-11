@@ -1,0 +1,75 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.11.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "block",
+  "risk_level": "none",
+  "audit_id": "stale_install_pipx",
+  "policy_version": "unavailable",
+  "summary": "Installed Agents Shipgate is older than the required version.",
+  "changed_files": [],
+  "completion_allowed": false,
+  "must_stop": true,
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "install",
+    "command": "pipx upgrade agents-shipgate",
+    "why": "Installed Agents Shipgate is older than the required >=0.13.0; a stale binary can emit an outdated schema or miss commands."
+  },
+  "human_review": {
+    "required": false,
+    "required_reviewers": []
+  },
+  "repair": {
+    "actor": "coding_agent",
+    "safe_to_attempt": false,
+    "instructions": [],
+    "forbidden_shortcuts": [
+      "Do not suppress Shipgate findings to continue with a stale gate.",
+      "Do not weaken policy, baselines, waivers, CI, or agent instructions to bypass the upgrade.",
+      "Do not trust the stale binary's output instead of upgrading."
+    ]
+  },
+  "policy": {
+    "id": "unavailable",
+    "version": "unavailable",
+    "source": "missing",
+    "discovery": [
+      "binary_stale"
+    ]
+  },
+  "violated_rules": [],
+  "affected_files": [],
+  "required_reviewers": [],
+  "explanation": "Upgrade Agents Shipgate to >=0.13.0, then rerun shipgate check.",
+  "suggested_fixes": [
+    "pipx upgrade agents-shipgate"
+  ],
+  "agent_repair_instructions": [
+    "Upgrade Agents Shipgate with pipx upgrade agents-shipgate (or python -m pip install -U \"agents-shipgate>=0.13\").",
+    "Rerun shipgate check --agent codex --workspace . --format agent-json."
+  ],
+  "diagnostics": [
+    {
+      "level": "error",
+      "code": "shipgate_stale_install",
+      "message": "The installed shipgate binary is older than the required >=0.13.0."
+    }
+  ],
+  "trace": [
+    {
+      "step": "version_preflight",
+      "summary": "Agent instruction fallback emitted a schema-valid upgrade action because the installed binary was stale."
+    }
+  ],
+  "source_artifacts": {},
+  "finding_fingerprints": [],
+  "policy_snapshot_sha256": null,
+  "exit_code_hint": 20
+}

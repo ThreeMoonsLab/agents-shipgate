@@ -1,0 +1,136 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "claude-code",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.13.0"
+  },
+  "subject": {
+    "agent": "claude-code"
+  },
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "codex_boundary_09e9439b32f4a0c65e606a06",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) block local continuation.",
+  "changed_files": [
+    "policies/codex-boundary.shipgate.yaml"
+  ],
+  "completion_allowed": false,
+  "must_stop": true,
+  "first_next_action": {
+    "actor": "human",
+    "kind": "stop",
+    "why": "Codex boundary policy was weakened"
+  },
+  "human_review": {
+    "required": true,
+    "why": "Codex boundary policy was weakened",
+    "required_reviewers": [
+      "agent-platform",
+      "security"
+    ]
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
+    ],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-POLICY-WEAKENED",
+      "check_id": "SHIP-CODEX-BOUNDARY-POLICY-WEAKENED",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Codex boundary policy was weakened",
+      "path": "policies/codex-boundary.shipgate.yaml",
+      "evidence": {
+        "kind": "codex_boundary_policy_weakened",
+        "deleted": false,
+        "weakened_action": true,
+        "weakened_risk": false
+      },
+      "recommendation": "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
+    }
+  ],
+  "affected_files": [
+    {
+      "path": "policies/codex-boundary.shipgate.yaml"
+    }
+  ],
+  "required_reviewers": [
+    "agent-platform",
+    "security"
+  ],
+  "explanation": "1 Codex boundary change(s) block local continuation.",
+  "suggested_fixes": [
+    "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
+  ],
+  "agent_repair_instructions": [
+    "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
+  ],
+  "diagnostics": [],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to block."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-PROMPTS-OR-POLICIES",
+        "action": "run_shipgate",
+        "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces.",
+        "command": null
+      }
+    ],
+    "changed_files": [
+      "policies/codex-boundary.shipgate.yaml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "agents-shipgate detect --workspace . --json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_056a03eff7fb8a68"
+  ],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 20
+}

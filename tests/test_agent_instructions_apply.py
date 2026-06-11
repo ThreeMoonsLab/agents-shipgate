@@ -15,6 +15,7 @@ import pytest
 
 from agents_shipgate.cli.discovery.agent_instructions import (
     BLOCK_VERSION,
+    DEFAULT_TARGETS,
     TARGETS,
     InvalidSelector,
     apply_agent_instructions,
@@ -35,8 +36,10 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_code_skill_files,
+    render_claude_command_file,
     render_codex_skill_files,
     render_cursor_file,
+    render_local_contract_file,
 )
 
 
@@ -82,7 +85,15 @@ def _write_sidecar(
         encoding="utf-8",
     )
 
+
 # --- selector parsing ------------------------------------------------------
+
+
+def test_parse_selector_default_returns_default_target_kit() -> None:
+    assert parse_selector("default") == list(DEFAULT_TARGETS)
+    assert parse_selector("recommended") == list(DEFAULT_TARGETS)
+    assert "codex-skill" not in DEFAULT_TARGETS
+    assert "claude-code-skill" not in DEFAULT_TARGETS
 
 
 def test_parse_selector_all_returns_every_target() -> None:
@@ -142,6 +153,8 @@ def test_apply_write_fresh_workspace_creates_all_targets(tmp_path: Path) -> None
     assert (tmp_path / ".agents/skills/agents-shipgate" / SIDECAR_FILENAME).exists()
     assert (tmp_path / ".claude/skills/agents-shipgate" / SIDECAR_FILENAME).exists()
     assert (tmp_path / ".cursor/rules/agents-shipgate.mdc").exists()
+    assert (tmp_path / ".claude/commands/shipgate.md").exists()
+    assert (tmp_path / ".shipgate/agent-contract.json").exists()
     assert (tmp_path / PR_TEMPLATE_LOWER).exists()
     # AGENTS.md preamble + block.
     agents_md = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
@@ -165,6 +178,57 @@ def test_codex_skill_current_files_match_renderer() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     for rel, content in render_codex_skill_files().items():
         assert (repo_root / rel).read_text(encoding="utf-8") == content
+
+
+def test_claude_command_current_file_matches_renderer() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    assert (repo_root / ".claude/commands/shipgate.md").read_text(
+        encoding="utf-8"
+    ) == render_claude_command_file()
+
+
+def test_local_contract_renderer_has_required_fields() -> None:
+    payload = json.loads(render_local_contract_file())
+    assert payload["schema_version"] == "1"
+    assert payload["contract_version"] == "3"
+    assert payload["gating_signal"] == "release_decision.decision"
+    assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
+    assert payload["verifier_read_order"][:5] == [
+        "merge_verdict",
+        "can_merge_without_human",
+        "first_next_action",
+        "fix_task",
+        "capability_review.top_changes",
+    ]
+
+
+def test_local_contract_updates_prior_managed_contract(tmp_path: Path) -> None:
+    apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+    target = tmp_path / ".shipgate/agent-contract.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["agents_shipgate_version"] = "0.0.0-prior"
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "updated"
+    assert json.loads(target.read_text(encoding="utf-8")) == json.loads(
+        render_local_contract_file()
+    )
+
+
+def test_local_contract_refuses_user_authored_json(tmp_path: Path) -> None:
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    target.write_text('{"schema_version": "custom"}\n', encoding="utf-8")
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "skipped_user_modified"
+    assert result.exit_code == 2
+    assert target.read_text(encoding="utf-8") == '{"schema_version": "custom"}\n'
 
 
 def test_codex_skill_skipped_when_user_modified(tmp_path: Path) -> None:
@@ -257,9 +321,10 @@ def test_codex_skill_reports_migrate_and_repair_from_sidecar(
 
     [outcome] = result.targets
     assert outcome.status == "migrated_and_repaired"
-    assert skill.read_text(encoding="utf-8") == render_codex_skill_files()[
-        ".agents/skills/agents-shipgate/SKILL.md"
-    ]
+    assert (
+        skill.read_text(encoding="utf-8")
+        == render_codex_skill_files()[".agents/skills/agents-shipgate/SKILL.md"]
+    )
     assert missing.exists()
 
 
@@ -321,9 +386,10 @@ def test_claude_code_skill_reports_migrate_and_repair_from_sidecar(
 
     [outcome] = result.targets
     assert outcome.status == "migrated_and_repaired"
-    assert skill.read_text(encoding="utf-8") == render_claude_code_skill_files()[
-        ".claude/skills/agents-shipgate/SKILL.md"
-    ]
+    assert (
+        skill.read_text(encoding="utf-8")
+        == render_claude_code_skill_files()[".claude/skills/agents-shipgate/SKILL.md"]
+    )
     assert missing.exists()
 
 
@@ -359,9 +425,7 @@ def test_apply_appends_to_existing_agents_md_without_markers(tmp_path: Path) -> 
 
 def test_apply_updates_existing_block_when_content_differs(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        "<!-- agents-shipgate:start v=1 -->\n"
-        "outdated body\n"
-        "<!-- agents-shipgate:end -->\n",
+        "<!-- agents-shipgate:start v=1 -->\noutdated body\n<!-- agents-shipgate:end -->\n",
         encoding="utf-8",
     )
     result = apply_agent_instructions(tmp_path, ["agents-md"], write=True)
@@ -374,9 +438,7 @@ def test_apply_updates_existing_block_when_content_differs(tmp_path: Path) -> No
 
 def test_apply_skips_when_block_version_is_newer(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        "<!-- agents-shipgate:start v=99 -->\n"
-        "future content\n"
-        "<!-- agents-shipgate:end -->\n",
+        "<!-- agents-shipgate:start v=99 -->\nfuture content\n<!-- agents-shipgate:end -->\n",
         encoding="utf-8",
     )
     result = apply_agent_instructions(tmp_path, ["agents-md"], write=True)
@@ -477,10 +539,7 @@ def test_pr_template_picks_marked_one_when_both_exist(tmp_path: Path) -> None:
     upper.write_text("# Untouched\n", encoding="utf-8")
     lower = tmp_path / PR_TEMPLATE_LOWER
     lower.write_text(
-        "# With marker\n"
-        "<!-- agents-shipgate:start v=1 -->\n"
-        "stale\n"
-        "<!-- agents-shipgate:end -->\n",
+        "# With marker\n<!-- agents-shipgate:start v=1 -->\nstale\n<!-- agents-shipgate:end -->\n",
         encoding="utf-8",
     )
     result = apply_agent_instructions(tmp_path, ["pr-template"], write=True)
@@ -552,9 +611,7 @@ def test_apply_refuses_to_follow_symlink_for_managed_block_target(
     assert outcome.status == "skipped_symlink"
     assert result.exit_code == 2
     # The link target was not mutated.
-    assert decoy_target.read_text(encoding="utf-8") == (
-        "USER PROSE outside the snippet system\n"
-    )
+    assert decoy_target.read_text(encoding="utf-8") == ("USER PROSE outside the snippet system\n")
     # The symlink still points at the original target.
     assert link.is_symlink()
     assert link.readlink() == decoy_target

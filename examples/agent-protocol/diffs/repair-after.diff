@@ -1,0 +1,12 @@
+diff --git a/.codex/config.toml b/.codex/config.toml
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/.codex/config.toml
+@@ -0,0 +1,6 @@
++model = "gpt-5"
++
++[mcp_servers.filesystem]
++command = "mcp-filesystem"
++enabled_tools = ["write_file"]
++default_tools_approval_mode = "ask"

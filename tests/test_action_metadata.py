@@ -68,6 +68,8 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert data["inputs"]["fail_on_decisions"]["default"] == ""
     assert data["inputs"]["check_annotations"]["default"] == "true"
     assert data["inputs"]["check_annotation_limit"]["default"] == "50"
+    assert data["inputs"]["check_run"]["default"] == "false"
+    assert data["inputs"]["check_run_name"]["default"] == "Agents Shipgate"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
 
@@ -117,6 +119,12 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "fail_on_decisions" in text
     assert "Apply Agents Shipgate decision policy" in text
     assert "decision_policy_exit_code" in text
+    assert (
+        "if: ${{ always() && inputs.fail_on_decisions != '' }}" in text
+    )
+    assert "agent-result.json did not expose an agent decision" in text
+    assert "scripts/github_check_run.py" in text
+    assert "check-run-payload.json" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text

@@ -10,7 +10,7 @@
     "capability_count": 1
   },
   "head": {
-    "path": "agents-shipgate-reports/head.capabilities.lock.json",
+    "path": "agents-shipgate-reports/capabilities.lock.json",
     "capability_lock_schema_version": "0.2",
     "semantic_capability_set_hash": "5555555555555555555555555555555555555555555555555555555555555555",
     "evidence_set_hash": "3333333333333333333333333333333333333333333333333333333333333333",

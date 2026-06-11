@@ -77,15 +77,11 @@ def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module in REMOVED_SCHEMA_IMPORTS:
-            offenders.append(
-                f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {node.module}"
-            )
+            offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {node.module}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in REMOVED_SCHEMA_IMPORTS:
-                    offenders.append(
-                        f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {alias.name}"
-                    )
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {alias.name}")
 
 
 def _collect_forbidden_import_prefixes(
@@ -98,15 +94,11 @@ def _collect_forbidden_import_prefixes(
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module is not None:
             if node.module.startswith(prefixes):
-                offenders.append(
-                    f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {node.module}"
-                )
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {node.module}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.startswith(prefixes):
-                    offenders.append(
-                        f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {alias.name}"
-                    )
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {alias.name}")
 
 
 def test_representative_schema_payloads_keep_wire_fields() -> None:
@@ -119,7 +111,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.25"
+    assert report_payload["report_schema_version"] == "0.26"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -236,7 +228,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="2",
+        contract_version="3",
         cli_version="0.0.0",
         report_schema_version="0.17",
         packet_schema_version="0.6",
@@ -248,8 +240,15 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         external_integration_surfaces=[],
         gating_signal="release_decision.decision",
         manual_review_signals=[],
+        commands={"preview": "agents-shipgate verify --preview --json"},
+        default_paths={"manifest": "shipgate.yaml"},
+        artifacts={"verifier": "agents-shipgate-reports/verifier.json"},
+        verifier_read_order=["merge_verdict"],
+        merge_verdicts=["mergeable", "blocked"],
+        release_decisions=["passed", "blocked"],
+        do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "2",
+        "contract_version": "3",
         "cli_version": "0.0.0",
         "report_schema_version": "0.17",
         "packet_schema_version": "0.6",
@@ -261,6 +260,13 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "external_integration_surfaces": [],
         "gating_signal": "release_decision.decision",
         "manual_review_signals": [],
+        "commands": {"preview": "agents-shipgate verify --preview --json"},
+        "default_paths": {"manifest": "shipgate.yaml"},
+        "artifacts": {"verifier": "agents-shipgate-reports/verifier.json"},
+        "verifier_read_order": ["merge_verdict"],
+        "merge_verdicts": ["mergeable", "blocked"],
+        "release_decisions": ["passed", "blocked"],
+        "do_not_auto_assert": ["approval"],
     }
 
     assert DetectResult(is_agent_project=False).model_dump(mode="json") == {

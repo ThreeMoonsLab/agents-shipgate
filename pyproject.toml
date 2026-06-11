@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.11.0"
+version = "0.13.0"
 description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -75,6 +75,12 @@ pdf = [
   # warning if not installed; the rest of the packet still renders.
   "weasyprint>=68.1,<70",
 ]
+mcp = [
+  # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
+  # server exposing only read-only shipgate.check, which returns agent_result_v1
+  # from caller-provided diff text.
+  "mcp>=1.2,<2",
+]
 dev = [
   "build>=1.5.0,<2",
   "cyclonedx-bom>=7.3.0,<8",
@@ -92,6 +98,7 @@ dev = [
 [project.scripts]
 agents-shipgate = "agents_shipgate.cli.main:app"
 shipgate = "agents_shipgate.cli.main:app"
+agents-shipgate-mcp = "agents_shipgate.mcp_server.server:main"
 
 [project.entry-points."agents_shipgate.checks"]
 inventory = "agents_shipgate.checks.inventory:run"
@@ -116,6 +123,7 @@ packages = ["src/agents_shipgate"]
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
 "docs/triggers.json" = "agents_shipgate/_meta/triggers.json"
+".claude/commands/shipgate.md" = "agents_shipgate/_meta/claude-command/shipgate.md"
 # Per-category check metadata YAMLs. Loaded at import time by
 # agents_shipgate.checks._metadata_loader to build CHECK_METADATA.
 # Without this entry the wheel ships without the catalog and the
@@ -124,6 +132,8 @@ packages = ["src/agents_shipgate"]
 # source-checkout dev path).
 "docs/checks" = "agents_shipgate/_meta/checks"
 "policies/codex-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/codex-boundary.shipgate.yaml"
+"policies/mcp-permissions.shipgate.yaml" = "agents_shipgate/_meta/policies/mcp-permissions.shipgate.yaml"
+"policies/host-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/host-boundary.shipgate.yaml"
 "adoption-kits" = "agents_shipgate/_adoption_kits"
 
 [tool.hatch.build.targets.sdist]

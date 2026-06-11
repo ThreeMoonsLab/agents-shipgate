@@ -138,6 +138,23 @@ class VerifierRepair(BaseModel):
     reason: str
 
 
+class VerifierFixTaskPatch(BaseModel):
+    """A machine-applicable patch projected into the fix task.
+
+    Repair aid only — never a gate input. ``patch`` carries the
+    discriminated Patch payload (``set_pointer`` / ``append_pointer`` /
+    ``remove_pointer``) exactly as the head scan emitted it; ``manual``
+    patches are intentionally excluded because their guidance already
+    appears in ``instructions``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str | None = None
+    check_id: str = ""
+    patch: dict[str, Any] = Field(default_factory=dict)
+
+
 class VerifierFixTask(BaseModel):
     """The single repair task a verify run hands to whoever acts next.
 
@@ -149,6 +166,9 @@ class VerifierFixTask(BaseModel):
     invent its way past — missing approval/idempotency evidence, a weakened
     policy, or a touched trust root. ``forbidden_shortcuts`` are the
     reward-hacking moves that are never acceptable for either actor.
+    ``patches`` (v0.12+) carries the machine-applicable suggested patches for
+    the gating findings when verify ran with ``--suggest-patches`` and the
+    task routes to the coding agent.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -160,6 +180,7 @@ class VerifierFixTask(BaseModel):
     forbidden_repairs: list[VerifierRepair] = Field(default_factory=list)
     forbidden_shortcuts: list[str] = Field(default_factory=list)
     verification_command: str | None = None
+    patches: list[VerifierFixTaskPatch] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _human_tasks_are_never_agent_safe(self) -> VerifierFixTask:
@@ -401,6 +422,7 @@ __all__ = [
     "VerifierCapabilityChange",
     "VerifierCapabilityReview",
     "VerifierFixTask",
+    "VerifierFixTaskPatch",
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",

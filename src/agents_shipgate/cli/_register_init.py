@@ -27,6 +27,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
+from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -39,6 +40,129 @@ def _validate_manifest_text(text: str) -> None:
 
     data = yaml.safe_load(text)
     AgentsShipgateManifest.model_validate(data)
+
+
+_VERIFY_ALIAS_COMMAND = "agents-shipgate verify --json"
+_MAKEFILE_ALIAS_BLOCK = (
+    "\n# agents-shipgate:start verify alias\n"
+    ".PHONY: shipgate-verify\n"
+    "shipgate-verify:\n"
+    f"\t{_VERIFY_ALIAS_COMMAND}\n"
+    "# agents-shipgate:end\n"
+)
+
+
+def _apply_claude_code_extras(workspace: Path, *, write: bool) -> dict[str, object]:
+    """Install hooks + conventional verify aliases for the Claude Code setup."""
+    from agents_shipgate.cli.install_hooks import render_or_install_hooks
+    from agents_shipgate.core.errors import ConfigError
+
+    hooks: dict[str, object]
+    try:
+        result = render_or_install_hooks(
+            workspace=workspace,
+            target="claude-code",
+            write=write,
+            config=Path("shipgate.yaml"),
+            base="origin/main",
+            head="",
+            ci_mode="advisory",
+        )
+        hooks = {
+            "settings_path": result.settings_path,
+            "settings_status": result.settings_status,
+            "script_path": result.script_path,
+            "script_status": result.script_status,
+        }
+    except ConfigError as exc:
+        hooks = {"status": "error", "message": str(exc)}
+    return {
+        "hooks": hooks,
+        "verify_alias": {
+            "makefile": _upsert_makefile_alias(workspace, write=write),
+            "package_json": _upsert_package_json_alias(workspace, write=write),
+        },
+    }
+
+
+def _upsert_makefile_alias(workspace: Path, *, write: bool) -> dict[str, str]:
+    for name in ("Makefile", "makefile", "GNUmakefile"):
+        path = workspace / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            return {"path": str(path), "status": "skipped_unreadable", "message": str(exc)}
+        if "shipgate-verify:" in text or "# agents-shipgate:start verify alias" in text:
+            return {"path": str(path), "status": "unchanged"}
+        if not write:
+            return {"path": str(path), "status": "planned"}
+        suffix = "" if text.endswith("\n") else "\n"
+        path.write_text(text + suffix + _MAKEFILE_ALIAS_BLOCK, encoding="utf-8")
+        return {"path": str(path), "status": "appended"}
+    return {"status": "skipped_missing"}
+
+
+def _upsert_package_json_alias(workspace: Path, *, write: bool) -> dict[str, str]:
+    path = workspace / "package.json"
+    if not path.is_file():
+        return {"status": "skipped_missing"}
+    try:
+        text = path.read_text(encoding="utf-8")
+        data = json.loads(text)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"path": str(path), "status": "skipped_invalid", "message": str(exc)}
+    if not isinstance(data, dict):
+        return {"path": str(path), "status": "skipped_invalid"}
+    scripts = data.get("scripts")
+    if scripts is not None and not isinstance(scripts, dict):
+        return {"path": str(path), "status": "skipped_invalid"}
+    if scripts and "shipgate:verify" in scripts:
+        return {"path": str(path), "status": "unchanged"}
+    if not write:
+        return {"path": str(path), "status": "planned"}
+    data.setdefault("scripts", {})["shipgate:verify"] = _VERIFY_ALIAS_COMMAND
+    indent = _detect_json_indent(text)
+    rendered = json.dumps(data, indent=indent, ensure_ascii=False)
+    if text.endswith("\n"):
+        rendered += "\n"
+    path.write_text(rendered, encoding="utf-8")
+    return {"path": str(path), "status": "appended"}
+
+
+def _detect_json_indent(text: str) -> int:
+    for line in text.splitlines()[1:]:
+        stripped = line.lstrip(" ")
+        if stripped and len(line) > len(stripped):
+            return len(line) - len(stripped)
+    return 2
+
+
+def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
+    lines: list[str] = []
+    hooks = outcome.get("hooks")
+    if isinstance(hooks, dict):
+        if hooks.get("status") == "error":
+            lines.append(f"Claude Code hooks: error — {hooks.get('message')}")
+        else:
+            lines.append(
+                "Claude Code hooks: "
+                f"{hooks.get('settings_path')} ({hooks.get('settings_status')}), "
+                f"{hooks.get('script_path')} ({hooks.get('script_status')})"
+            )
+    alias = outcome.get("verify_alias")
+    if isinstance(alias, dict):
+        for key in ("makefile", "package_json"):
+            entry = alias.get(key)
+            if not isinstance(entry, dict):
+                continue
+            status = entry.get("status")
+            if status == "skipped_missing":
+                continue
+            label = entry.get("path", key)
+            lines.append(f"Verify alias ({key}): {label} ({status})")
+    return lines
 
 
 def register(app: typer.Typer) -> None:
@@ -80,23 +204,39 @@ def register(app: typer.Typer) -> None:
                 "calls ThreeMoonsLab/agents-shipgate."
             ),
         ),
+        claude_code: bool = typer.Option(
+            False,
+            "--claude-code",
+            help=(
+                "One-shot Claude Code setup. Implies "
+                "--agent-instructions=claude-md,claude-code-skill (unless "
+                "--agent-instructions is passed explicitly), installs the "
+                "Claude Code hooks (PostToolUse trigger + Stop verifier via "
+                "install-hooks), and adds an `agents-shipgate verify --json` "
+                "alias to Makefile / package.json scripts when those files "
+                "exist. Dry-run without --write."
+            ),
+        ),
         agent_instructions: str | None = typer.Option(
             None,
             "--agent-instructions",
             help=(
                 "Render or write agent-instruction snippets for the target repo. "
-                "Pass --agent-instructions=all for every target, "
-                "--agent-instructions=agents-md,cursor for a subset, or "
-                "--agent-instructions=none to opt out. "
+                "Pass --agent-instructions=default for the recommended downstream "
+                "kit (AGENTS.md, Cursor rule, Claude command, and local contract), "
+                "--agent-instructions=all for every supported target, "
+                "--agent-instructions=agents-md,codex-skill for an explicit "
+                "subset, or --agent-instructions=none to opt out. "
                 "Without --write, snippets are printed to stdout (or returned in "
                 "--json). With --write, snippets are written to AGENTS.md, "
                 ".agents/skills/agents-shipgate/, "
                 ".claude/skills/agents-shipgate/, CLAUDE.md, "
-                ".cursor/rules/agents-shipgate.mdc, and the PR template "
-                "via managed `<!-- agents-shipgate:start -->` markers (idempotent "
-                "where host files are shared, full-file/skill-bundle safe-update "
-                "checks elsewhere). Strict CI and baselines remain opt-in human "
-                "decisions; this flag only emits advisory guidance."
+                ".claude/commands/shipgate.md, .cursor/rules/agents-shipgate.mdc, "
+                f"{LOCAL_CONTRACT_RELATIVE_PATH}, and the PR template via managed "
+                "`<!-- agents-shipgate:start -->` markers (idempotent where host "
+                "files are shared, full-file/skill-bundle safe-update checks "
+                "elsewhere). Strict CI and baselines remain opt-in human "
+                "decisions; generated CI stays advisory by default."
             ),
         ),
         agent_instructions_kit: Path | None = typer.Option(
@@ -133,23 +273,26 @@ def register(app: typer.Typer) -> None:
                     "config_error",
                     message=str(exc),
                     next_action=(
-                        "Pass --agent-instructions=all, --agent-instructions=none, "
-                        "or a comma-separated subset."
+                        "Pass --agent-instructions=default, --agent-instructions=all, "
+                        "--agent-instructions=none, or a comma-separated subset."
                     ),
                     next_actions=[
                         NextAction(
                             kind="command",
-                            command="agents-shipgate init --agent-instructions=all",
+                            command="agents-shipgate init --agent-instructions=default",
                             why=str(exc),
                             expects=(
-                                "Snippets render for every supported target "
-                                "(AGENTS.md, Codex skill, Claude Code skill, "
-                                "CLAUDE.md, Cursor rule, PR template)."
+                                "Snippets render for the recommended downstream "
+                                "agent kit (AGENTS.md, Cursor rule, Claude "
+                                "command, and local contract)."
                             ),
                         ).model_dump(mode="json")
                     ],
                 )
                 raise typer.Exit(2) from exc
+
+        if claude_code and requested_targets is None:
+            requested_targets = parse_selector("claude-md,claude-code-skill")
 
         if minimal:
             template = render_manifest_template(workspace_resolved)
@@ -220,9 +363,7 @@ def register(app: typer.Typer) -> None:
             next_action_create = (
                 "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
             )
-            next_action_dry = (
-                "Inspect the template, then re-run with --write to commit it."
-            )
+            next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
         kit_config = None
         if agent_instructions_kit is not None or requested_targets is not None:
@@ -275,7 +416,8 @@ def register(app: typer.Typer) -> None:
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
-        if ci:
+        workflow_requested = ci
+        if workflow_requested:
             result = write_ci_workflow(workspace_resolved)
             workflow_outcome = {
                 "status": result.status,
@@ -299,6 +441,12 @@ def register(app: typer.Typer) -> None:
             agent_instructions_outcome = ai_result.to_json()
             agent_instructions_exit = ai_result.exit_code
             agent_instructions_targets = list(ai_result.targets)
+            local_contract_target = next(
+                (t for t in agent_instructions_targets if t.name == "local-contract"),
+                None,
+            )
+        else:
+            local_contract_target = None
 
         # Gitignore action — runs unconditionally on --write so the reports
         # directory created by the first `scan` is never silently committed.
@@ -309,10 +457,16 @@ def register(app: typer.Typer) -> None:
         # Shipgate before this CLI version was released get the line on their
         # next `init --write`.
         gitignore_outcome = (
-            ensure_reports_gitignore(workspace_resolved, write=write)
-            if write
-            else None
+            ensure_reports_gitignore(workspace_resolved, write=write) if write else None
         )
+
+        # Claude Code extras — hooks plus a conventional verify alias.
+        # Best-effort and advisory: failures are reported in the outcome,
+        # never as an init exit code (the instructions/manifest actions
+        # above carry the contract).
+        claude_code_outcome: dict[str, object] | None = None
+        if claude_code:
+            claude_code_outcome = _apply_claude_code_extras(workspace_resolved, write=write)
 
         # Idempotency reconciliation: when --agent-instructions selects at least
         # one real target AND the manifest already exists, treat the manifest
@@ -368,8 +522,12 @@ def register(app: typer.Typer) -> None:
                 payload["workflow"] = workflow_outcome
             if agent_instructions_outcome is not None:
                 payload["agent_instructions"] = agent_instructions_outcome
+            if local_contract_target is not None:
+                payload["local_contract"] = local_contract_target.to_json()
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
+            if claude_code_outcome is not None:
+                payload["claude_code"] = claude_code_outcome
             typer.echo(json.dumps(payload, indent=2))
         else:
             if not write:
@@ -397,9 +555,7 @@ def register(app: typer.Typer) -> None:
                     typer.echo(manifest_message, err=True)
             if workflow_outcome is not None:
                 stream = (
-                    sys.stderr
-                    if workflow_outcome["status"].startswith("skipped")
-                    else sys.stdout
+                    sys.stderr if workflow_outcome["status"].startswith("skipped") else sys.stdout
                 )
                 print(workflow_outcome["message"], file=stream)
             if write and agent_instructions_targets:
@@ -424,6 +580,9 @@ def register(app: typer.Typer) -> None:
                         else sys.stdout
                     )
                     print(gitignore_outcome.message, file=stream)
+            if claude_code_outcome is not None:
+                for line in _claude_code_outcome_lines(claude_code_outcome):
+                    typer.echo(line)
 
         # Surface a structured next_action JSON line for the rank-1 skipped target
         # so coding-agent callers can route to a fix without scraping stdout. Gated

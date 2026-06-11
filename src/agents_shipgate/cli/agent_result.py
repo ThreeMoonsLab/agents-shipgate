@@ -9,15 +9,17 @@ from agents_shipgate.core.codex_boundary import (
     parse_unified_diff,
 )
 from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+from agents_shipgate.triggers import _git_diff_context
 from agents_shipgate.triggers import evaluate as evaluate_trigger
 
 
 def build_codex_agent_result(
     *,
+    agent: str = "codex",
     workspace: Path,
     diff_text: str,
     config: Path,
-    policy: Path,
+    policy: Path | None,
 ) -> AgentResultV1:
     workspace = workspace.resolve()
     changed_files = sorted({item.path for item in parse_unified_diff(diff_text) if item.path})
@@ -31,9 +33,33 @@ def build_codex_agent_result(
     return evaluate_codex_boundary_result(
         workspace=workspace,
         diff_text=diff_text,
+        agent=agent,
         policy_path=policy,
         trigger=trigger,
     )
+
+
+def git_diff_text(
+    *,
+    workspace: Path,
+    base: str | None,
+    head: str | None,
+) -> str:
+    workspace = workspace.resolve()
+    if bool(base) != bool(head):
+        raise RuntimeError(
+            "--base and --head must be provided together; omit both to check "
+            "local uncommitted changes."
+        )
+    if base and head:
+        revspec = f"{base}...{head}"
+    else:
+        revspec = ""
+    try:
+        _, diff_text = _git_diff_context(revspec, cwd=workspace)
+    except Exception as exc:  # noqa: BLE001 - normalize git probe failures for CLI.
+        raise RuntimeError(str(exc) or "git diff failed") from exc
+    return diff_text
 
 
 def agent_result_json_payload(result: AgentResultV1) -> dict[str, Any]:
@@ -42,4 +68,3 @@ def agent_result_json_payload(result: AgentResultV1) -> dict[str, Any]:
 
 def agent_result_json(result: AgentResultV1) -> str:
     return json.dumps(agent_result_json_payload(result), indent=2, sort_keys=False)
-

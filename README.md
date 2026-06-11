@@ -21,6 +21,35 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 
 <!-- Canonical tagline: The deterministic merge gate for AI-generated agent capability changes. -->
 
+## 60 seconds: watch it block two PRs
+
+Claude Code adds `stripe.create_refund` to your support agent and opens a
+PR. The diff looks fine to a human skimming it. Should it merge?
+
+```bash
+uvx agents-shipgate fixture run ai_generated_refund_pr
+```
+
+→ `merge_verdict: blocked` — the new refund capability has no declared
+approval policy and no idempotency evidence. The verifier explains both
+blockers and routes the PR to a human.
+
+Now the move every reviewer fears — the agent deletes the Shipgate CI
+gate to make its PR pass:
+
+```bash
+uvx agents-shipgate fixture run agent_weakens_gate
+```
+
+→ `merge_verdict: blocked`, `can_merge_without_human: false`. The
+gate-removal checks are suppression-immune: the cheapest reward-hack is
+also the most visible one.
+
+One engine decides (`report.json.release_decision.decision`); everything
+else — `merge_verdict`, PR comments, Check Runs, Action outputs — is a
+deterministic projection of it. Five-minute version:
+[`docs/mental-model.md`](docs/mental-model.md).
+
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
 Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
@@ -42,6 +71,36 @@ no scanner network calls, no scanner telemetry. Audited exceptions are pinned
 in [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
 Apache-2.0.
 
+## What your PR sees
+
+When a PR changes what your agent can do, the GitHub Action posts the merge
+verdict as a PR comment. This is the comment for the first demo PR above —
+the coding-agent diff that adds `stripe.create_refund` to a support agent
+(abridged from the verbatim `pr-comment.md` artifact):
+
+> ### Agents Shipgate result: block
+>
+> Decision: `block` · Risk: `critical` · Required reviewers: `agent-platform`, `security`
+>
+> | Impact | Change | Subject | Why |
+> |---|---|---|---|
+> | blocks release | action added | `stripe.create_refund` | Capability added. |
+> | blocks release | action broadened | `stripe.create_refund` | high-risk effect financial_action added |
+> | blocks release | scope broadened | `stripe.create_refund:stripe:*` | scope added |
+>
+> **Required before merge** — Actor: Human (human authority required — a coding
+> agent must not self-resolve):
+> 1. Declare an approval policy for `stripe.create_refund` or remove this tool
+>    from the release.
+> 2. Declare `approval.required`, `safeguards.audit_log`, and
+>    `safeguards.idempotency` for this financial write action.
+> 3. Replace wildcard/admin scopes with operation-specific scopes.
+>
+> Then re-verify: `agents-shipgate verify --base origin/main --head HEAD --json`
+
+The same `uvx agents-shipgate fixture run ai_generated_refund_pr` command
+above writes this comment verbatim to `reports/pr-comment.md`.
+
 ## Verify-first quickstart
 
 The core loop is verify-first: when a PR changes what your agent can do, run the
@@ -57,8 +116,14 @@ If the repo is not configured yet, install the manifest, advisory CI, and
 agent-facing instructions:
 
 ```bash
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 ```
+
+Prefer to delegate? Paste the
+[coding-agent snippet](#copy-this-into-your-coding-agent) into Claude Code,
+Codex, or Cursor and let the agent wire the gate itself — the repo ships
+`AGENTS.md` managed blocks, `llms.txt`, and structured error output for
+exactly this path.
 
 Then verify the committed PR/CI ref. Pass the base and head so the diff — the
 capability delta and trust-root signals — is in scope (the verifier never
@@ -91,6 +156,17 @@ refund PR fixture:
 ```bash
 agents-shipgate fixture run ai_generated_refund_pr
 ```
+
+To see the trust-root defense itself — a coding agent deleting the Shipgate
+CI gate to make its PR pass, and the verifier blocking the merge — run:
+
+```bash
+agents-shipgate fixture run agent_weakens_gate
+```
+
+The expected verdict is `blocked` with `can_merge_without_human: false`:
+the gate-removal checks are suppression-immune, so the cheapest reward-hack
+is also the most visible one.
 
 It builds a temporary base/head git history where the head commit adds
 `stripe.create_refund`, then writes `verifier.json`, `report.json`, and
@@ -197,7 +273,7 @@ Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents S
 Run:
 agents-shipgate verify --preview --json
 If Shipgate is relevant, run:
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
@@ -212,6 +288,33 @@ broad-scope safety, prohibited-action enforcement, runtime-trace proof,
 suppressions, waivers, baselines, or policy weakening. Never remove Shipgate CI
 or weaken agent instructions just to make the verifier pass.
 ```
+
+## Use with Claude Code
+
+Two commands wire the full Claude Code surface:
+
+```bash
+pipx install agents-shipgate
+agents-shipgate init --workspace . --write --claude-code
+```
+
+`init --claude-code` writes the `CLAUDE.md` managed block, the
+auto-discoverable `.claude/skills/agents-shipgate/` skill, an
+`agents-shipgate verify --json` alias in Makefile / package.json scripts when
+present, and the Claude Code hooks (also available standalone via
+`agents-shipgate install-hooks --target claude-code --write`). The hooks run
+a cheap trigger check after `Edit|Write|MultiEdit` and the full verifier at
+`Stop` — so Claude Code re-checks agent capability changes before reporting
+work complete, even on long sessions where instruction files lose attention.
+CI stays authoritative; the hooks are the local feedback loop.
+
+Inside Claude Code, agent mode auto-enables (the harness exports
+`CLAUDECODE=1`), so a zero-flag `agents-shipgate verify` prints the compact
+agent result on stdout: `merge_verdict`, `can_merge_without_human`,
+`suggested_fixes`, and `agent_repair_instructions` in one call.
+
+See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md)
+for the `/shipgate` slash command, skill internals, and manual install paths.
 
 ## Install the Codex plugin
 
@@ -243,7 +346,7 @@ $agents-shipgate verify this agent PR and summarize the merge verdict.
 
 The plugin supplies Codex workflows, not the scanner binary. Install or upgrade
 the CLI in the environment where Codex will run commands, then confirm
-`agents-shipgate --version` reports `0.11.0` or newer:
+`agents-shipgate --version` reports `0.13.0` or newer:
 
 ```bash
 pipx install agents-shipgate
@@ -254,7 +357,7 @@ agents-shipgate --version
 If `pipx` is unavailable, use:
 
 ```bash
-python -m pip install -U "agents-shipgate>=0.11"
+python -m pip install -U "agents-shipgate>=0.13"
 agents-shipgate --version
 ```
 
@@ -318,7 +421,7 @@ evidence around them:
 
 ```bash
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 # Replace any CHANGE_ME placeholders reported by init.
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
@@ -326,18 +429,21 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Verify writes
-`agents-shipgate-reports/verifier.json`, `pr-comment.md`, and the normal
-`report.{md,json,sarif}` / packet artifacts when a scan is required. Lead with
-`merge_verdict`, `can_merge_without_human`, `first_next_action`, and
+`agents-shipgate-reports/verifier.json`, `pr-comment.md`, the head capability
+lock, and the normal `report.{md,json,sarif}` / packet artifacts when a scan is
+required. If the base scan can be materialized, verify also writes
+`base.capabilities.lock.json` plus `capability-lock-diff.{json,md}`, and the PR
+comment includes a compact semantic capability diff summary. Lead with
+`merge_verdict`, `can_merge_without_human`, `first_next_action`, and the capability diff or
 `capability_review.top_changes`; use `release_decision.decision` as the release
 gate.
 
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
 ```bash
-python -m pip install -U "agents-shipgate>=0.11"    # global pip
+python -m pip install -U "agents-shipgate>=0.13"    # global pip
 uv tool install --upgrade agents-shipgate            # via uv
-agents-shipgate --version                            # require >=0.11.0
+agents-shipgate --version                            # require >=0.13.0
 ```
 
 ## Adopt in one turn (scan helper)
@@ -370,7 +476,7 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.13.0
   with:
     config: shipgate.yaml
     ci_mode: advisory
@@ -378,7 +484,8 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
     pr_comment: "true"
 ```
 
-The PR comment leads with `merge_verdict`, capability changes, required next
+The PR comment is fixed into a human summary plus agent instruction block, with
+`merge_verdict`, the semantic capability diff when available, required next
 action, and artifact links:
 
 ![Preview of the optional Agents Shipgate PR comment showing merge verdict, capability changes, required next action, and report artifacts.](assets/pr-comment-preview.png)
@@ -405,7 +512,8 @@ When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
 - **`agents-shipgate-reports/verifier.json`** — the **primary, agent-facing artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `first_next_action`, and `fix_task` to decide whether to continue, repair, or stop for a human. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
-- **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and capability changes, shaped for a reviewer.
+- **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and semantic capability diff when available, shaped for a reviewer.
+- **`agents-shipgate-reports/capabilities.lock.json`** + **`agents-shipgate-reports/base.capabilities.lock.json`** + **`agents-shipgate-reports/capability-lock-diff.{json,md}`** — the **capability review primitive**. Verify always emits the head lock after a successful scan; it emits the base lock and diff when the base scan can be materialized, falling back to the reviewed committed lock at `.agents-shipgate/capabilities.lock.json` if needed.
 - **Gate source of truth** — `report.json.release_decision.decision` (`passed | review_required | insufficient_evidence | blocked`). `merge_verdict` is a deterministic projection of it; the report stays the one decision engine.
 - **Tool-Use Readiness Report** (supporting) — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents, SARIF for GitHub code-scanning workflows. This is the underlying check domain the verdict summarizes.
 - **Release Evidence Packet** (supporting) — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default; see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v07).
@@ -446,13 +554,16 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`docs/zero-install.md`](docs/zero-install.md)** — single-file detector, `uvx`, and GitHub Action paths for evaluating Shipgate without a local install.
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
+- **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
+- **`agents-shipgate mcp-serve`** (provisional, `[mcp]` extra) — stdio MCP server exposing `shipgate_verify` / `shipgate_explain` / `shipgate_status` for agents without comfortable shell access. Same engine, same gate. See [`docs/integrations.md`](docs/integrations.md#mcp-server-optional-provisional).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.25"`). v0.25 adds opt-in capability-linked local trace/provenance evidence (`capability_runtime_evidence`, `findings[].capability_trace_refs`, and mirrored `ReleaseDecisionItem.capability_trace_refs`) while preserving fingerprints, baselines, capability locks, and release gating. v0.24 added capability-native policy evidence (`findings[].capability_refs`, optional `findings[].capability_policy_evidence`, and mirrored `ReleaseDecisionItem.capability_refs`). v0.23 added semantic metadata to `capability_change` members while preserving the existing buckets and release gate. v0.22 added the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
-- **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability`; non-gating and separate from `report.json`.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.26"`). v0.26 adds structured evidence gaps (`release_decision.evidence_coverage.evidence_gaps[]` — one actionable remediation row per low-confidence tool or source warning) plus the advisory `suggested-inventory.json` skeleton written next to `report.json`; gate behavior is unchanged. v0.25 added opt-in capability-linked local trace/provenance evidence (`capability_runtime_evidence`, `findings[].capability_trace_refs`, and mirrored `ReleaseDecisionItem.capability_trace_refs`) while preserving fingerprints, baselines, capability locks, and release gating. v0.24 added capability-native policy evidence (`findings[].capability_refs`, optional `findings[].capability_policy_evidence`, and mirrored `ReleaseDecisionItem.capability_refs`). v0.23 added semantic metadata to `capability_change` members while preserving the existing buckets and release gate. v0.22 added the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
+- **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability` and, in PR workflows, by `agents-shipgate verify`; non-gating and separate from `report.json`.
+- **[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json)** — deterministic local attestation schema; v0.2 binds verifier artifacts plus capability lock/diff hashes when present.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
-Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
+Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when agent mode is active — set `AGENTS_SHIPGATE_AGENT_MODE=1`, or rely on auto-detection inside a coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`). `AGENTS_SHIPGATE_AGENT_MODE=0` forces it off.
 
 ## Why this exists
 
@@ -638,7 +749,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.25"` (additive opt-in local trace/provenance evidence over v0.24's capability-native policy evidence) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.26"` (additive structured evidence gaps over v0.25's opt-in local trace/provenance evidence) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -670,18 +781,18 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
         with:
           ci_mode: advisory
           diff_base: target
           check_annotations: 'true'
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.13.0'
 ```
 
-After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`; [`examples/github-actions/09-fail-on-insufficient-evidence.yml`](examples/github-actions/09-fail-on-insufficient-evidence.yml) fails only when `merge_verdict == insufficient_evidence`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
+After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`; [`examples/github-actions/11-fail-on-insufficient-evidence.yml`](examples/github-actions/11-fail-on-insufficient-evidence.yml) fails only when `merge_verdict == insufficient_evidence`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `check_annotations`, `check_annotation_limit`, `pr_comment`, `github_token`, `shipgate_version`. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `check_annotations`, `check_annotation_limit`, `pr_comment`, `check_run`, `check_run_name`, `github_token`, `shipgate_version`. Set `check_run: true` (with `checks: write` permission) to publish the merge verdict as a native Check Run with line-level SARIF annotations. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
 
 Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `check_annotations_json`, `capability_lock_json`, `base_capability_lock_json`, `capability_lock_diff_json`, `exit_code`. Use `decision` / `ci_would_fail` for CI gating, use `merge_verdict` / `can_merge_without_human` for PR-controller routing, and avoid legacy `status` for new gates.
 
@@ -726,12 +837,15 @@ the same canonical concepts in human-readable, search-optimised form:
 below are the canonical contract; the marketing pages are sized for first-time
 readers and AI search ingest.
 
+- [The 5-minute mental model](docs/mental-model.md)
+- [MCP and host-permission governance](docs/mcp-governance.md)
+- [MCP server mode](docs/mcp-server.md)
 - [Tool-Use Readiness release gate category](docs/category.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.25](docs/report-schema.v0.25.json)
+- [JSON report schema v0.26](docs/report-schema.v0.26.json)
 - [Capability standard](docs/capability-standard.md)
 - [Capability lock schema v0.2](docs/capability-lock-schema.v0.2.json)
 - [Capability lock diff schema v0.3](docs/capability-lock-diff-schema.v0.3.json)

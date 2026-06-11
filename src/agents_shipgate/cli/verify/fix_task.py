@@ -19,6 +19,7 @@ from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
     VerifierFixTask,
+    VerifierFixTaskPatch,
     VerifierRepair,
 )
 
@@ -145,12 +146,15 @@ def build_fix_task(
             forbidden_repairs=_forbidden_repairs(gating),
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
             verification_command=verification_command,
+            patches=_machine_patches(gating),
         )
 
     return VerifierFixTask(
         actor="human",
         safe_to_attempt=False,
-        instructions=_human_instructions(report, capability_review, gating),
+        instructions=_human_instructions(
+            report, capability_review, gating, merge_verdict=merge_verdict
+        ),
         allowed_repairs=_human_repairs(
             report,
             capability_review,
@@ -185,10 +189,14 @@ def _human_instructions(
     report: ReadinessReport,
     capability_review: VerifierCapabilityReview,
     gating: list[Finding],
+    *,
+    merge_verdict: MergeVerdict = "human_review_required",
 ) -> list[str]:
     decision = report.release_decision
     assert decision is not None
     out: list[str] = [decision.reason]
+    if merge_verdict == "insufficient_evidence":
+        out.extend(_insufficient_evidence_remedies(report))
     if capability_review.policy_weakened:
         out.append(
             "A human must approve the release-policy change in this PR; the "
@@ -203,6 +211,48 @@ def _human_instructions(
     # whole decision, including findings whose routing fields were ambiguous.
     out.extend(finding.recommendation for finding in gating if finding.recommendation)
     return _dedupe_cap(out)
+
+
+def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
+    """Concrete remedies for the ``insufficient_evidence`` dead-end.
+
+    The verdict means static evidence is too weak to gate — typically a
+    dynamic or config/factory-bound toolkit whose authority the adapters
+    cannot enumerate, or unreadable sources. The remedy is always the same
+    shape — make the hidden authority statically enumerable — so name the
+    exact sources instead of restating the threshold. Adding or editing an
+    inventory asserts what the agent can do, which is why this path stays
+    human-routed: a human reviews the declared inventory, the agent must
+    not invent one.
+    """
+    out: list[str] = []
+    by_source: dict[tuple[str, str], int] = {}
+    for tool in report.tool_inventory:
+        if str(tool.get("confidence") or "") == "high":
+            continue
+        key = (
+            str(tool.get("source_type") or "unknown"),
+            str(tool.get("source_ref") or tool.get("source_path") or "unknown"),
+        )
+        by_source[key] = by_source.get(key, 0) + 1
+    for (source_type, source_ref), count in sorted(by_source.items()):
+        noun = "tool" if count == 1 else "tools"
+        out.append(
+            f"{count} {noun} from {source_type} source {source_ref!r} extracted "
+            "with low confidence: declare an explicit local tool inventory for "
+            "that source in shipgate.yaml (tool_inventories), or replace the "
+            "dynamic/config-bound toolkit with statically enumerable tool "
+            "definitions, then re-run verify."
+        )
+    for warning in report.source_warnings[:3]:
+        out.append(f"Resolve source warning: {warning}")
+    if not out:
+        out.append(
+            "Provide clearer static sources — an MCP export, OpenAPI spec, or "
+            "explicit local tool inventory — so the scan can enumerate the "
+            "tool surface, then re-run verify."
+        )
+    return out
 
 
 def _mechanical_instructions(gating: list[Finding]) -> list[str]:
@@ -334,6 +384,34 @@ def _patch_target(patch: object) -> str | None:
     if target_file and pointer is not None:
         return f"{target_file}#{pointer}"
     return target_file
+
+
+_MAX_PATCHES = 10
+
+
+def _machine_patches(gating: list[Finding]) -> list[VerifierFixTaskPatch]:
+    """Project the machine-applicable suggested patches of gating findings.
+
+    Present only when the head scan ran with ``--suggest-patches``
+    (``Finding.patches`` is absent otherwise). ``manual`` patches are
+    skipped — their guidance is already carried by ``instructions`` and
+    they are intentionally never auto-applied.
+    """
+    out: list[VerifierFixTaskPatch] = []
+    for finding in gating:
+        for patch in finding.patches or []:
+            if getattr(patch, "kind", "manual") == "manual":
+                continue
+            out.append(
+                VerifierFixTaskPatch(
+                    finding_id=finding.id or None,
+                    check_id=finding.check_id,
+                    patch=patch.model_dump(mode="json"),
+                )
+            )
+            if len(out) >= _MAX_PATCHES:
+                return out
+    return out
 
 
 def _dedupe_cap(items: list[str]) -> list[str]:

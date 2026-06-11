@@ -1,0 +1,143 @@
+{
+  "schema_version": "agent_result_v1",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.13.0"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "codex_boundary_f7da95c236bd8cd2c0aac925",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) block local continuation.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "completion_allowed": false,
+  "must_stop": false,
+  "first_next_action": {
+    "actor": "coding_agent",
+    "kind": "repair",
+    "command": "shipgate check --agent codex --workspace . --format agent-json",
+    "why": "Do not auto-approve write/destructive MCP tools."
+  },
+  "human_review": {
+    "required": false,
+    "required_reviewers": []
+  },
+  "repair": {
+    "actor": "coding_agent",
+    "safe_to_attempt": true,
+    "instructions": [
+      "Do not auto-approve write/destructive MCP tools.",
+      "Rerun: shipgate check --agent codex --workspace . --format agent-json"
+    ],
+    "command": "shipgate check --agent codex --workspace . --format agent-json",
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "codex-boundary-default",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "discovery": [
+      "workspace_missing:policies/codex-boundary.shipgate.yaml",
+      "packaged_default"
+    ]
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
+      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Codex MCP write tool is auto-approved",
+      "path": ".codex/config.toml",
+      "evidence": {
+        "kind": "mcp_default_auto_approve",
+        "server": "mcp_servers.filesystem",
+        "risky_tools": [
+          "write_file"
+        ],
+        "tool_names": [
+          "write_file"
+        ]
+      },
+      "recommendation": "Do not auto-approve write/destructive MCP tools."
+    }
+  ],
+  "affected_files": [
+    {
+      "path": ".codex/config.toml"
+    }
+  ],
+  "required_reviewers": [],
+  "explanation": "1 Codex boundary change(s) block local continuation.",
+  "suggested_fixes": [
+    "Do not auto-approve write/destructive MCP tools."
+  ],
+  "agent_repair_instructions": [
+    "Do not auto-approve write/destructive MCP tools."
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to block."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --workspace . --format agent-json"
+      }
+    ],
+    "changed_files": [
+      ".codex/config.toml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_71c94cd92ba68747"
+  ],
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+  "exit_code_hint": 20
+}

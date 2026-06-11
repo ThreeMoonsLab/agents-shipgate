@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,16 +13,21 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.cli._helpers import _apply_strict_plugins
-from agents_shipgate.cli.capability import build_capability_lock_from_config
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import (
+    DEFAULT_CAPABILITY_LOCK_PATH,
     diff_capability_locks,
+    load_capability_lock_json,
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.pr_comment import render_pr_comment
+from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
 from agents_shipgate.schemas.report import AgentSummary, ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import (
@@ -42,9 +48,11 @@ from .capability_review import build_capability_review
 from .fix_task import build_fix_task
 from .git import (
     archive_tree,
+    detect_default_base,
     diff_context,
     ensure_git_workspace,
     git_path,
+    read_file_at_ref,
     ref_exists,
     tree_sha,
     working_tree_context,
@@ -78,6 +86,7 @@ def run_verify(
     no_heuristics: bool,
     verbose: bool,
     pr_comment_style: str = "capability-review",
+    auto_base: bool = False,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
     config_path = _resolve_under_workspace(git_root, config)
@@ -99,12 +108,22 @@ def run_verify(
     base_status: VerifierBaseStatus = "not_requested"
     base_tree: str | None = None
     base_report: Path | None = None
+    base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
         raise ConfigError(f"Head ref does not exist locally: {head}")
+
+    if base is None and auto_base:
+        detected = detect_default_base(git_root, head)
+        if detected is not None:
+            base = detected
+            base_notes.append(
+                f"Auto-detected base {detected!r} for diff context; "
+                "pass --base to override or --no-base to disable."
+            )
 
     base_exists = False
     if base:
@@ -223,11 +242,15 @@ def run_verify(
     if diff_from is not None:
         base_status = "diff_from_provided"
         base_report = _resolve_under_workspace(git_root, diff_from)
-        base_notes.append(
-            f"Using explicit diff reference: {_display_path(base_report, git_root)}"
-        )
+        base_notes.append(f"Using explicit diff reference: {_display_path(base_report, git_root)}")
     elif base and base_exists:
-        base_status, base_tree, base_report, cache_notes = _prepare_base_report(
+        (
+            base_status,
+            base_tree,
+            base_report,
+            base_capability_lock,
+            cache_notes,
+        ) = _prepare_base_report(
             git_root=git_root,
             base=base,
             config_relative=config_relative,
@@ -247,6 +270,15 @@ def run_verify(
     head_config_path = config_path
     head_policy_pack_paths = policy_pack_paths
     head_tree: str | None = None
+    head_capability_lock: CapabilityLockFileV1 | None = None
+    capability_lock_diff: CapabilityLockDiffV1 | None = None
+    capability_lock_written = False
+    capability_lock_diff_written = False
+
+    def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
+        nonlocal head_capability_lock
+        head_capability_lock = lock
+
     try:
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
@@ -285,22 +317,26 @@ def run_verify(
                 diff_text_available=bool(diff_text),
                 trigger_result=trigger,
             ),
+            capability_lock_callback=capture_capability_lock,
         )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
         head_status = "succeeded"
-        base_notes.extend(
-            _write_capability_artifacts(
-                git_root=git_root,
-                config_relative=config_relative,
-                head_config_path=head_config_path,
-                base=base if base_exists else None,
-                out_dir=out_dir,
-                plugins_enabled=plugins_enabled,
-                verbose=verbose,
-            )
-        )
+        if head_capability_lock is not None:
+            try:
+                capability_lock_diff = _write_capability_review_artifacts(
+                    git_root=git_root,
+                    out_dir=out_dir,
+                    base=base,
+                    base_lock=base_capability_lock,
+                    head_lock=head_capability_lock,
+                    base_notes=base_notes,
+                )
+                capability_lock_written = True
+                capability_lock_diff_written = capability_lock_diff is not None
+            except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
+                base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
         scan_error = exc
         head_exit_code = 2
@@ -336,6 +372,8 @@ def run_verify(
             head_exit_code=head_exit_code,
             out_dir=out_dir,
             ci_mode=ci_mode,
+            include_capability_lock=capability_lock_written,
+            include_capability_lock_diff=capability_lock_diff_written,
         )
         try:
             try:
@@ -346,6 +384,7 @@ def run_verify(
                     agent_result_path,
                     report=report,
                     pr_comment_style=pr_comment_style,
+                    capability_lock_diff=capability_lock_diff,
                 )
             except Exception:
                 if scan_error is None:
@@ -369,12 +408,18 @@ def _prepare_base_report(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     verbose: bool,
-) -> tuple[VerifierBaseStatus, str | None, Path | None, list[str]]:
+) -> tuple[
+    VerifierBaseStatus,
+    str | None,
+    Path | None,
+    CapabilityLockFileV1 | None,
+    list[str],
+]:
     notes: list[str] = []
     try:
         base_tree = tree_sha(git_root, base)
     except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-        return "archive_failed", None, None, [f"Could not resolve base tree: {exc}"]
+        return "archive_failed", None, None, None, [f"Could not resolve base tree: {exc}"]
 
     cache_report = _cache_report_path(
         base_tree=base_tree,
@@ -386,9 +431,14 @@ def _prepare_base_report(
         no_heuristics=no_heuristics,
     )
     if cache_report.exists():
-        return "cache_hit", base_tree, cache_report, [
-            f"Reused cached base report for tree {base_tree}."
-        ]
+        base_lock, lock_notes = _load_cached_capability_lock(cache_report)
+        return (
+            "cache_hit",
+            base_tree,
+            cache_report,
+            base_lock,
+            [f"Reused cached base report for tree {base_tree}.", *lock_notes],
+        )
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
         tmp_root = Path(tmp)
@@ -397,15 +447,29 @@ def _prepare_base_report(
         try:
             archive_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-            return "archive_failed", base_tree, None, [
-                f"Could not materialize base tree {base!r}: {exc}"
-            ]
+            return (
+                "archive_failed",
+                base_tree,
+                None,
+                None,
+                [f"Could not materialize base tree {base!r}: {exc}"],
+            )
 
         base_config = base_tree_dir / config_relative
         if not base_config.is_file():
-            return "missing_manifest", base_tree, None, [
-                f"Base tree does not contain {config_relative.as_posix()}."
-            ]
+            return (
+                "missing_manifest",
+                base_tree,
+                None,
+                None,
+                [f"Base tree does not contain {config_relative.as_posix()}."],
+            )
+
+        base_capability_lock: CapabilityLockFileV1 | None = None
+
+        def capture_base_capability_lock(lock: CapabilityLockFileV1) -> None:
+            nonlocal base_capability_lock
+            base_capability_lock = lock
 
         try:
             with _without_github_step_summary():
@@ -433,24 +497,41 @@ def _prepare_base_report(
                     packet_enabled=False,
                     packet_formats=None,
                     no_heuristics=no_heuristics,
+                    capability_lock_callback=capture_base_capability_lock,
                 )
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-            return "scan_failed", base_tree, None, [
-                f"Base scan failed without changing the head gate: {exc}"
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                None,
+                [f"Base scan failed without changing the head gate: {exc}"],
+            )
         if base_exit not in {0, 20}:
-            return "scan_failed", base_tree, None, [
-                f"Base scan exited {base_exit}; diff enrichment disabled."
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                None,
+                [f"Base scan exited {base_exit}; diff enrichment disabled."],
+            )
         source_report = base_out / "report.json"
         if not source_report.is_file():
-            return "scan_failed", base_tree, None, [
-                "Base scan did not produce report.json; diff enrichment disabled."
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                None,
+                ["Base scan did not produce report.json; diff enrichment disabled."],
+            )
         _copy_report_to_cache(source_report, cache_report)
+        if base_capability_lock is not None:
+            _write_capability_lock_to_cache(base_capability_lock, cache_report)
+        else:
+            notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
         notes.append(f"Cached base report for tree {base_tree}.")
-    return "succeeded", base_tree, cache_report, notes
+    return "succeeded", base_tree, cache_report, base_capability_lock, notes
 
 
 def _cache_report_path(
@@ -469,13 +550,9 @@ def _cache_report_path(
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
         "baseline": (
-            _display_path(baseline_path.resolve(), git_root)
-            if baseline_path is not None
-            else None
+            _display_path(baseline_path.resolve(), git_root) if baseline_path is not None else None
         ),
-        "policy_packs": [
-            _display_path(path.resolve(), git_root) for path in policy_packs
-        ],
+        "policy_packs": [_display_path(path.resolve(), git_root) for path in policy_packs],
         "plugins_enabled": plugins_enabled,
         "no_heuristics": no_heuristics,
     }
@@ -497,6 +574,50 @@ def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
     try:
         shutil.copy2(source_report, temp_path)
         temp_path.replace(cache_report)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _base_capability_lock_cache_path(cache_report: Path) -> Path:
+    return cache_report.with_name("capabilities.lock.json")
+
+
+def _load_cached_capability_lock(
+    cache_report: Path,
+) -> tuple[CapabilityLockFileV1 | None, list[str]]:
+    cache_lock = _base_capability_lock_cache_path(cache_report)
+    if not cache_lock.exists():
+        return None, ["Cached base capability lock missing; capability diff may fall back."]
+    try:
+        return (
+            load_capability_lock_json(
+                cache_lock.read_text(encoding="utf-8"),
+                source=str(cache_lock),
+            ),
+            [],
+        )
+    except (OSError, InputParseError) as exc:
+        return None, [f"Cached base capability lock invalid; capability diff may fall back: {exc}"]
+
+
+def _write_capability_lock_to_cache(
+    lock: CapabilityLockFileV1,
+    cache_report: Path,
+) -> None:
+    cache_lock = _base_capability_lock_cache_path(cache_report)
+    cache_lock.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=cache_lock.parent,
+        prefix="capabilities-",
+        suffix=".tmp",
+        delete=False,
+        mode="w",
+        encoding="utf-8",
+    ) as handle:
+        temp_path = Path(handle.name)
+        handle.write(render_capability_lock_json(lock))
+    try:
+        temp_path.replace(cache_lock)
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -617,9 +738,7 @@ def _human_review(
     reason = release_decision.reason if release_decision is not None else None
     return VerifierHumanReview(
         required=True,
-        why=note
-        or reason
-        or "A human must review this agent-capability change before merge.",
+        why=note or reason or "A human must review this agent-capability change before merge.",
     )
 
 
@@ -643,18 +762,14 @@ def _first_next_action(
         # Defensive self-approval path (e.g. a 'mergeable' verdict that still
         # carries a self-approval note): a human must review — never emit the
         # "safe to merge" action.
-        return VerifierNextAction(
-            actor="human", kind="review", command=None, why=self_approval
-        )
+        return VerifierNextAction(actor="human", kind="review", command=None, why=self_approval)
     # The fix_task is the single repair contract; the headline next-step must
     # not contradict it. Borrow the agent summary's concrete action (e.g. an
     # apply-patches command) only when its implied actor agrees with the
     # fix_task routing — otherwise derive the pointer from the fix_task so that
     # actor, command, and why all come from one source.
     actor = fix_task.actor if fix_task is not None else "human"
-    recommended = (
-        agent_summary.first_recommended_action if agent_summary is not None else None
-    )
+    recommended = agent_summary.first_recommended_action if agent_summary is not None else None
     if recommended is not None:
         # The PR comment infers a recommendation's actor the same way: a
         # runnable command implies the coding agent, an info note a human.
@@ -745,6 +860,8 @@ def _build_verifier(
     out_dir: Path,
     ci_mode: str | None = None,
     preview: bool = False,
+    include_capability_lock: bool = False,
+    include_capability_lock_diff: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -756,6 +873,8 @@ def _build_verifier(
         out_dir,
         git_root=git_root,
         include_scan_artifacts=report is not None,
+        include_capability_lock=include_capability_lock,
+        include_capability_lock_diff=include_capability_lock_diff,
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
@@ -820,9 +939,7 @@ def _build_verifier(
         head_exit_code=head_exit_code,
         release_decision=release_decision,
         agent_summary=(
-            agent_summary_model.model_dump(mode="json")
-            if agent_summary_model is not None
-            else None
+            agent_summary_model.model_dump(mode="json") if agent_summary_model is not None else None
         ),
         reviewer_summary=(
             report.reviewer_summary.model_dump(mode="json")
@@ -860,6 +977,8 @@ def _artifact_paths(
     *,
     git_root: Path,
     include_scan_artifacts: bool,
+    include_capability_lock: bool = False,
+    include_capability_lock_diff: bool = False,
 ) -> dict[str, str]:
     candidates = {
         "verifier_json": out_dir / "verifier.json",
@@ -875,6 +994,7 @@ def _artifact_paths(
             "capability_lock_json": out_dir / "capabilities.lock.json",
             "base_capability_lock_json": out_dir / "base.capabilities.lock.json",
             "capability_lock_diff_json": out_dir / "capability-lock-diff.json",
+            "capability_lock_diff_markdown": out_dir / "capability-lock-diff.md",
             **candidates,
         }
     return {
@@ -882,82 +1002,6 @@ def _artifact_paths(
         for key, path in candidates.items()
         if key in {"verifier_json", "pr_comment", "agent_result_json"} or path.exists()
     }
-
-
-def _write_capability_artifacts(
-    *,
-    git_root: Path,
-    config_relative: Path,
-    head_config_path: Path,
-    base: str | None,
-    out_dir: Path,
-    plugins_enabled: bool | None,
-    verbose: bool,
-) -> list[str]:
-    """Write non-gating capability lock artifacts for a verify run.
-
-    Failures are reported as verifier notes instead of changing the release
-    decision. The report/verifier gate remains the source of truth.
-    """
-    notes: list[str] = []
-    no_plugins = plugins_enabled is False
-    head_lock_path = out_dir / "capabilities.lock.json"
-    base_lock_path = out_dir / "base.capabilities.lock.json"
-    diff_path = out_dir / "capability-lock-diff.json"
-    head_lock = None
-    base_lock = None
-
-    try:
-        head_lock = build_capability_lock_from_config(
-            config=head_config_path,
-            no_plugins=no_plugins,
-            verbose=verbose,
-        )
-        _write_text(head_lock_path, render_capability_lock_json(head_lock))
-    except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
-        notes.append(f"Capability lock export skipped for head: {exc}")
-
-    if base is None:
-        return notes
-
-    with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-cap-base-") as tmp:
-        base_tree_dir = Path(tmp) / "base"
-        try:
-            archive_tree(git_root, base, base_tree_dir)
-            base_config = base_tree_dir / config_relative
-            if not base_config.is_file():
-                notes.append(
-                    "Capability lock export skipped for base: base tree does "
-                    f"not contain {config_relative.as_posix()}."
-                )
-                return notes
-            base_lock = build_capability_lock_from_config(
-                config=base_config,
-                no_plugins=no_plugins,
-                verbose=verbose,
-            )
-            _write_text(base_lock_path, render_capability_lock_json(base_lock))
-        except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
-            notes.append(f"Capability lock export skipped for base: {exc}")
-            return notes
-
-    if head_lock is not None and base_lock is not None:
-        try:
-            diff = diff_capability_locks(
-                base_lock,
-                head_lock,
-                base_path=base_lock_path,
-                head_path=head_lock_path,
-            )
-            _write_text(diff_path, render_capability_lock_diff_json(diff))
-        except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
-            notes.append(f"Capability lock diff skipped: {exc}")
-    return notes
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
 
 
 def _write_artifacts(
@@ -968,6 +1012,7 @@ def _write_artifacts(
     *,
     report: ReadinessReport | None,
     pr_comment_style: str,
+    capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     agent_result = build_agent_result(verifier=verifier, report=report)
@@ -982,6 +1027,7 @@ def _write_artifacts(
             report=report,
             style=pr_comment_style,
             agent_result=agent_result,
+            capability_lock_diff=capability_lock_diff,
         ),
         encoding="utf-8",
     )
@@ -989,6 +1035,78 @@ def _write_artifacts(
     # in-memory report can still produce the canonical public payload.
     if report is not None:
         report_json_payload(report)
+
+
+def _write_capability_review_artifacts(
+    *,
+    git_root: Path,
+    out_dir: Path,
+    base: str | None,
+    base_lock: CapabilityLockFileV1 | None,
+    head_lock: CapabilityLockFileV1,
+    base_notes: list[str],
+) -> CapabilityLockDiffV1 | None:
+    lock_path = out_dir / "capabilities.lock.json"
+    base_lock_path = out_dir / "base.capabilities.lock.json"
+    lock_path.write_text(render_capability_lock_json(head_lock), encoding="utf-8")
+    if not base:
+        base_notes.append("Capability lock diff unavailable: no --base ref was provided.")
+        return None
+    used_scan_derived_base = base_lock is not None
+    if base_lock is None:
+        base_lock = _load_base_capability_lock(
+            git_root=git_root,
+            base=base,
+            base_notes=base_notes,
+        )
+    if base_lock is None:
+        return None
+    base_lock_path.write_text(render_capability_lock_json(base_lock), encoding="utf-8")
+    diff = diff_capability_locks(
+        base_lock,
+        head_lock,
+        base_path=base_lock_path,
+        head_path=lock_path,
+    )
+    (out_dir / "capability-lock-diff.json").write_text(
+        render_capability_lock_diff_json(diff),
+        encoding="utf-8",
+    )
+    (out_dir / "capability-lock-diff.md").write_text(
+        render_capability_lock_diff_markdown(diff),
+        encoding="utf-8",
+    )
+    if used_scan_derived_base:
+        base_notes.append("Capability lock diff compared scan-derived base/head locks.")
+    else:
+        base_notes.append(
+            "Capability lock diff compared the base reviewed envelope at "
+            f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+        )
+    return diff
+
+
+def _load_base_capability_lock(
+    *,
+    git_root: Path,
+    base: str,
+    base_notes: list[str],
+) -> CapabilityLockFileV1 | None:
+    content = read_file_at_ref(git_root, base, DEFAULT_CAPABILITY_LOCK_PATH)
+    if content is None:
+        base_notes.append(
+            "Capability lock diff unavailable: base tree does not contain "
+            f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+        )
+        return None
+    try:
+        return load_capability_lock_json(
+            content,
+            source=f"{base}:{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}",
+        )
+    except InputParseError as exc:
+        base_notes.append(f"Capability lock diff unavailable: base lock is invalid: {exc}")
+        return None
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
@@ -1019,6 +1137,51 @@ def _display_path(path: Path, root: Path) -> str:
         return path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
+
+
+def _shell_join(parts: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _preview_init_command(workspace: Path) -> str:
+    return _shell_join(
+        [
+            "agents-shipgate",
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--ci",
+            "--agent-instructions=default",
+            "--json",
+        ]
+    )
+
+
+def _preview_verify_command(
+    *,
+    workspace: Path,
+    config: Path,
+    base: str | None,
+    head: str | None,
+    out: Path | None,
+) -> str:
+    parts = [
+        "agents-shipgate",
+        "verify",
+        "--workspace",
+        str(workspace),
+        "--config",
+        str(config),
+    ]
+    if base is not None:
+        parts.extend(["--base", base])
+    if head is not None:
+        parts.extend(["--head", head])
+    if out is not None:
+        parts.extend(["--out", str(out)])
+    parts.extend(["--ci-mode", "advisory", "--json"])
+    return _shell_join(parts)
 
 
 @contextlib.contextmanager
@@ -1077,7 +1240,21 @@ def run_preview(
         user_requested=True,
     )
 
-    if diff_unavailable:
+    # Trigger previews may recommend detect/init as a generic recovery path.
+    # Verify preview deliberately returns the exact one-shot init command that
+    # installs the local contract, default agent kit, and advisory CI workflow
+    # for unconfigured workspaces so cold-start agents do not need to infer the
+    # next command from README prose.
+    init_command = _preview_init_command(workspace)
+    verify_command = _preview_verify_command(
+        workspace=workspace,
+        config=config,
+        base=base,
+        head=head,
+        out=out,
+    )
+
+    if diff_unavailable and manifest_present:
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="fetch_base",
@@ -1092,52 +1269,43 @@ def run_preview(
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
-            command="agents-shipgate verify --base origin/main --head HEAD --json",
+            command=verify_command,
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
-        headline = (
-            "Shipgate is configured; run verify on the PR to get a merge verdict."
-        )
+        headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
-        trigger_action = trigger.get("next_action") or {}
         next_action = VerifierNextAction(
             actor="coding_agent",
-            kind=trigger_action.get("kind") or "command",
-            command=trigger_action.get("command")
-            or "agents-shipgate detect --workspace . --json",
-            why=trigger_action.get("why")
-            or "This change looks agent-related; detect tool surfaces first.",
+            kind="command",
+            command=init_command,
+            why=(
+                "This unconfigured workspace looks agent-related; initialize "
+                "the local Shipgate contract and advisory agent workflow."
+            ),
         )
-        headline = (
-            "Shipgate is relevant to this diff; detect the workspace before "
-            "initializing the gate."
-        )
+        headline = "Shipgate is relevant to this diff; initialize the local agent workflow."
     elif not (base or head):
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
-            command=(
-                "agents-shipgate init --workspace . --write --ci "
-                "--agent-instructions=all"
-            ),
+            command=init_command,
             why=(
                 "No PR diff was supplied and no shipgate.yaml was found; "
                 "initialize Shipgate if this workspace contains an agent."
             ),
         )
-        headline = (
-            "Shipgate is not set up here yet; initialize it to gate "
-            "agent-capability PRs."
-        )
+        headline = "Shipgate is not set up here yet; initialize it to gate agent-capability PRs."
     else:
-        trigger_action = trigger.get("next_action") or {}
         next_action = VerifierNextAction(
             actor="coding_agent",
-            kind=trigger_action.get("kind") or "none",
-            command=trigger_action.get("command"),
-            why=trigger_action.get("why") or "No Shipgate-relevant changes detected.",
+            kind="command",
+            command=init_command,
+            why=(
+                "No shipgate.yaml was found. Initialize the local Shipgate "
+                "contract if this workspace contains an agent."
+            ),
         )
-        headline = "No Shipgate-relevant agent-capability changes detected in this diff."
+        headline = "Shipgate is not configured in this workspace."
 
     verifier = VerifierArtifact(
         workspace=str(root),

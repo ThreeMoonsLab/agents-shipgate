@@ -41,9 +41,11 @@ def trigger_action(trigger: dict[str, Any]) -> str:
 
 def decision_policy_exit_code(agent_decision: str, fail_on_decisions: str) -> int:
     """Exit 20 when the compact agent decision matches the opt-in policy."""
+    if not fail_on_decisions.strip():
+        return 0
     normalized = _normalize_decision_token(agent_decision)
     if not normalized:
-        return 0
+        return 21
     for raw in fail_on_decisions.split(","):
         if _normalize_decision_token(raw) == normalized:
             return 20

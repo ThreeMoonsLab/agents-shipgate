@@ -24,3 +24,18 @@ if existing_pythonpath:
     parts.append(existing_pythonpath)
 # Subprocess smoke tests must import this worktree, not another editable install.
 os.environ["PYTHONPATH"] = os.pathsep.join(parts)
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _scrub_agent_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the suite hermetic when it runs inside a coding agent.
+
+    Claude Code exports ``CLAUDECODE=1`` and Cursor ``CURSOR_TRACE_ID`` in
+    every shell they spawn, which auto-enables agent mode (see
+    ``agents_shipgate.cli.agent_mode.is_agent_mode``). Tests that want
+    agent mode set ``AGENTS_SHIPGATE_AGENT_MODE`` explicitly.
+    """
+    for var in ("CLAUDECODE", "CURSOR_TRACE_ID", "AGENTS_SHIPGATE_AGENT_MODE"):
+        monkeypatch.delenv(var, raising=False)

@@ -13,7 +13,7 @@ In your repo's `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.11.0
+    rev: v0.13.0
     hooks:
       - id: agents-shipgate
 ```
@@ -40,7 +40,7 @@ repos:
     hooks:
       - id: agents-shipgate
         name: Agents Shipgate release-readiness gate
-        entry: agents-shipgate scan -c shipgate.yaml --ci-mode advisory
+        entry: agents-shipgate verify --config shipgate.yaml --ci-mode advisory --format text
         language: system
         pass_filenames: false
         files: |
@@ -81,7 +81,7 @@ pre-commit's `files:` regex is purely path-based; it cannot inspect diff content
 - `TRIGGER-FRAMEWORK-VERSION-BUMP` — fires when `openai-agents`, `langchain`, `crewai`, or `google-adk` appears in a dependency-change diff.
 - `TRIGGER-SHIPGATE-CI-WORKFLOW` also has a diff-only leg (`ThreeMoonsLab/agents-shipgate` string match) that this hook doesn't see.
 
-For full trigger coverage on PRs, rely on the GitHub Action — it runs `agents-shipgate scan` unconditionally on the configured event, so diff content doesn't gate it. For local diff-aware checks, `python -m agents_shipgate.triggers --git-diff HEAD` (or `--diff-text "..."`) evaluates the full catalog against any file set or diff payload.
+For full trigger coverage on PRs, rely on the GitHub Action — it runs `agents-shipgate verify` on the configured event and evaluates the full trigger catalog (including the diff-only legs) itself, so diff content doesn't gate discovery the way the path-based `files:` regex does. For local diff-aware checks, `python -m agents_shipgate.triggers --git-diff HEAD` (or `--diff-text "..."`) evaluates the full catalog against any file set or diff payload.
 
 A pure docs/test commit doesn't trigger the scan — same semantic as the AGENTS.md trigger table (`TRIGGER-DOCS-ONLY-NEGATIVE`).
 
@@ -92,10 +92,10 @@ Use the `agents-shipgate-strict` hook ID for the strict variant, or override the
 ```yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.11.0
+    rev: v0.13.0
     hooks:
       - id: agents-shipgate
-        entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical
+        entry: agents-shipgate verify --config shipgate.yaml --ci-mode strict --fail-on critical --format text
 ```
 
 Pair strict mode with a baseline ([`baseline.md`](../../docs/baseline.md)) so existing accepted findings don't fail every commit.

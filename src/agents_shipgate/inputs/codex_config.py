@@ -5,6 +5,7 @@ from typing import ClassVar, Literal
 
 from agents_shipgate.core.artifact_models import CodexBoundaryArtifacts
 from agents_shipgate.inputs.common import manifest_relative_path, resolve_input_path
+from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
 
@@ -27,7 +28,12 @@ class CodexConfigAdapter:
         if root.is_file():
             root = root.parent
         artifact = _collect_codex_boundary_artifacts(root, base_dir)
-        return LoadedAdapterResult(artifact=artifact, warnings=list(artifact.warnings))
+        mcp_sources = load_codex_config_mcp_sources(root, base_dir)
+        return LoadedAdapterResult(
+            tool_sources=mcp_sources,
+            artifact=artifact,
+            warnings=list(artifact.warnings),
+        )
 
 
 def _collect_codex_boundary_artifacts(root: Path, base_dir: Path) -> CodexBoundaryArtifacts:
@@ -67,4 +73,3 @@ def _relative(path: Path, root: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
-

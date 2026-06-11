@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def load_policy_packs(
     for config in configs:
         try:
             path = resolve_input_path(base_dir, config.path)
+            _verify_pack_pin(path, config)
             data = load_structured_file(path)
             if not isinstance(data, dict):
                 raise ConfigError(f"Policy pack must contain a YAML object: {config.path}")
@@ -119,6 +121,26 @@ def run_policy_pack_rules(
                 )
             )
     return findings
+
+
+def _verify_pack_pin(path: Path, config: PolicyPackConfig) -> None:
+    """v0.2: enforce the optional sha256 content pin on shared packs."""
+    pinned = (config.sha256 or "").strip().lower()
+    if not pinned:
+        return
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ConfigError(
+            f"Could not hash pinned policy pack {config.path!r}: {exc}"
+        ) from exc
+    if digest != pinned:
+        raise ConfigError(
+            f"Policy pack {config.path!r} does not match its pinned sha256. "
+            f"Expected {pinned}, got {digest}. The pack content changed since "
+            "it was pinned; re-review the pack and update the pin, or restore "
+            "the pinned content."
+        )
 
 
 def _validate_rule_ids(rules: list[ResolvedPolicyPackRule]) -> None:

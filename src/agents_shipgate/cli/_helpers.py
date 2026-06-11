@@ -237,6 +237,24 @@ def _diagnose_config_error(
     )
 
 
+def _echo_next_action_hint(actions: list, *, limit: int = 1) -> None:
+    """Print the top ranked recovery step(s) for a human reader.
+
+    Coding agents get the same actions as one structured JSON line via
+    ``emit_agent_mode_error``; these prose lines are suppressed in agent
+    mode so that JSON line stays the only machine-relevant stderr output
+    (per the ``docs/errors.json`` single-JSON-line contract).
+    """
+    from agents_shipgate.cli.agent_mode import is_agent_mode
+
+    if is_agent_mode():
+        return
+    for action in actions[:limit]:
+        typer.echo(f"next: {action.to_legacy_string()}", err=True)
+        if action.kind in {"command", "edit"} and action.why:
+            typer.echo(f"  why: {action.why}", err=True)
+
+
 def _maybe_diagnose_unknown_adapter(
     *,
     config: str,

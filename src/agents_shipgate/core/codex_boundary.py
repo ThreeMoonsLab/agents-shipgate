@@ -4,16 +4,46 @@ import hashlib
 import json
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+# The shared unified-diff plumbing moved to
+# ``agents_shipgate.core.boundary_diff``. These re-exports preserve the
+# pre-split import surface of this module: existing imports such as
+# ``from agents_shipgate.core.codex_boundary import parse_unified_diff``
+# (tests, checks, CLI) keep working unchanged.
+from agents_shipgate.core.boundary_diff import (  # noqa: F401
+    DiffFile,
+    DiffHunk,
+    ResolvedFileText,
+    _apply_hunks,
+    _canonical_json,
+    _content_source_diagnostic,
+    _evaluated_file_record,
+    _is_insertion_only_change,
+    _join_lines,
+    _new_text_from_hunks,
+    _parse_hunk_header,
+    _resolve_changed_file_text,
+    _safe_workspace_path,
+    _sha256_text,
+    _strip_diff_prefix,
+    _unresolved_text,
+    parse_unified_diff,
+)
 from agents_shipgate.schemas.agent_result_v1 import (
+    AgentResultAffectedFile,
     AgentResultDiagnostic,
+    AgentResultHumanReview,
     AgentResultNextAction,
+    AgentResultPolicy,
+    AgentResultRepair,
     AgentResultRiskLevel,
+    AgentResultSubject,
+    AgentResultTraceEvent,
     AgentResultV1,
     AgentResultViolatedRule,
 )
@@ -29,6 +59,7 @@ _RISK_BY_ACTION: dict[str, AgentResultRiskLevel] = {
     "require_review": "medium",
     "block": "critical",
 }
+_AGENT_SAFE_REPAIR_RULE_IDS = frozenset({"CODEX-MCP-AUTO-APPROVE-WRITE"})
 
 _SHIPGATE_TERMS = (
     "agents-shipgate",
@@ -143,10 +174,16 @@ _SHIPGATE_INVOCATION_RE = re.compile(
     r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
     r"\s+(?:verify|scan|check)\b"
 )
+_SHIPGATE_CLI_COMMAND_RE = re.compile(
+    r"^\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+|env)\s+)*"
+    r"(?:(?:python|python3)\s+-m\s+agents_shipgate|agents-shipgate|shipgate)"
+    r"(?:\s|$)"
+)
 _SHIPGATE_ACTION_RE = re.compile(
     r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
 )
+_LOCAL_ACTION_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+\./?\s*(?:#.*)?$")
 _COMMAND_SKILL_RE = re.compile(
     r"(exec_command|write_stdin|apply_patch|shell|subprocess|python\s|node\s|"
     r"bash\s|sh\s|scripts?/|command:|cmd:|run:)",
@@ -179,39 +216,6 @@ _NETWORK_KEYS = {
 
 
 @dataclass(frozen=True)
-class DiffHunk:
-    old_start: int
-    old_count: int
-    new_start: int
-    new_count: int
-    lines: list[tuple[str, str]] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class DiffFile:
-    old_path: str | None
-    new_path: str | None
-    added_lines: list[str] = field(default_factory=list)
-    removed_lines: list[str] = field(default_factory=list)
-    hunks: list[DiffHunk] = field(default_factory=list)
-    is_deleted: bool = False
-    is_new: bool = False
-
-    @property
-    def path(self) -> str:
-        return self.new_path or self.old_path or ""
-
-
-@dataclass(frozen=True)
-class ResolvedFileText:
-    old_text: str | None
-    new_text: str | None
-    source: str
-    old_sha256: str | None
-    new_sha256: str | None
-
-
-@dataclass(frozen=True)
 class CodexBoundaryRule:
     id: str
     check_id: str
@@ -226,6 +230,10 @@ class CodexBoundaryPolicy:
     id: str
     version: str
     rules: dict[str, CodexBoundaryRule]
+    source: str = "packaged_default"
+    path: str | None = None
+    snapshot_sha256: str | None = None
+    discovery: tuple[str, ...] = ()
 
 
 DEFAULT_RULES: dict[str, CodexBoundaryRule] = {
@@ -309,6 +317,14 @@ DEFAULT_RULES: dict[str, CodexBoundaryRule] = {
         risk_level="critical",
         recommendation="Restore the Shipgate workflow or get human approval to remove it.",
     ),
+    "CODEX-POLICY-WEAKENED": CodexBoundaryRule(
+        id="CODEX-POLICY-WEAKENED",
+        check_id="SHIP-CODEX-BOUNDARY-POLICY-WEAKENED",
+        title="Codex boundary policy was weakened",
+        action="block",
+        risk_level="critical",
+        recommendation="Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval.",
+    ),
     "CODEX-HOOK-COMMAND-CHANGED": CodexBoundaryRule(
         id="CODEX-HOOK-COMMAND-CHANGED",
         check_id="SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED",
@@ -332,18 +348,22 @@ def evaluate_codex_boundary_result(
     *,
     workspace: Path,
     diff_text: str,
+    agent: str = "codex",
     policy_path: Path | None = None,
     trigger: dict[str, Any] | None = None,
     release_decision: dict[str, Any] | None = None,
 ) -> AgentResultV1:
     """Return the local Codex agent-result projection for a unified diff."""
 
+    # Keep this local diff projector aligned with
+    # agents_shipgate.ci.agent_result.build_agent_result; both produce
+    # agent_result_v1 routing fields for different substrates.
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
     policy, diagnostics = load_codex_boundary_policy(
         workspace=workspace,
-        policy_path=policy_path or DEFAULT_POLICY_PATH,
+        policy_path=policy_path,
     )
     violations: list[AgentResultViolatedRule] = []
     evaluated_files: list[dict[str, Any]] = []
@@ -363,6 +383,18 @@ def evaluate_codex_boundary_result(
             )
         )
 
+    for diagnostic in diagnostics:
+        if diagnostic.level == "error" and diagnostic.code.startswith("policy_"):
+            add(
+                "CODEX-CONFIG-PARSE-FAILED",
+                path=diagnostic.path,
+                evidence={
+                    "kind": "codex_boundary_policy_invalid",
+                    "code": diagnostic.code,
+                    "message": diagnostic.message,
+                },
+            )
+
     for diff_file in diff_files:
         path = diff_file.path
         if not path:
@@ -381,13 +413,19 @@ def evaluate_codex_boundary_result(
         if _is_shipgate_workflow_path(normalized):
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             evaluated_files.append(_evaluated_file_record(path, resolved))
-            _evaluate_shipgate_workflow(diff_file, resolved, add)
+            _evaluate_shipgate_workflow(diff_file, resolved, add, workspace=workspace)
+        if _is_codex_boundary_policy_path(normalized):
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            _evaluate_codex_boundary_policy(diff_file, resolved, add)
         if _is_codex_skill_path(normalized):
             _evaluate_skill(diff_file, add)
 
     violations = _dedupe_violations(violations)
     decision = _decision_for(violations, release_decision=release_decision)
     risk_level = _risk_for(violations)
+    repair = _repair_for(decision, violations, agent)
+    human_review = _human_review_for(decision, violations, repair)
     finding_fingerprints = [_violation_fingerprint(item) for item in violations]
     audit_id = _audit_id(
         changed_files=changed_files,
@@ -397,144 +435,167 @@ def evaluate_codex_boundary_result(
         evaluated_files=evaluated_files,
     )
     return AgentResultV1(
+        agent=agent,  # type: ignore[arg-type]
+        subject=AgentResultSubject(agent=agent),
         decision=decision,  # type: ignore[arg-type]
         risk_level=risk_level,
         audit_id=audit_id,
         policy_version=policy.version,
         summary=_summary_for(decision, violations),
         changed_files=changed_files,
-        first_next_action=_next_action_for(decision, violations),
+        completion_allowed=decision in {"allow", "warn"},
+        must_stop=decision in {"require_review", "block"} and not repair.safe_to_attempt,
+        first_next_action=_next_action_for(decision, violations, repair),
+        human_review=human_review,
+        repair=repair,
+        policy=_policy_result(policy),
         violated_rules=violations,
+        affected_files=_affected_files_for(violations, changed_files),
+        required_reviewers=human_review.required_reviewers,
+        explanation=_summary_for(decision, violations),
+        suggested_fixes=[item.recommendation for item in violations[:5]],
+        agent_repair_instructions=_agent_repair_instructions(decision, violations),
         diagnostics=diagnostics,
+        trace=_trace_for(policy, decision, violations),
         release_decision=release_decision,
         trigger=trigger,
         finding_fingerprints=finding_fingerprints,
+        policy_snapshot_sha256=policy.snapshot_sha256,
+        exit_code_hint=20 if decision == "block" else 0,
     )
-
-
-def parse_unified_diff(diff_text: str) -> list[DiffFile]:
-    files_out: list[DiffFile] = []
-    current: dict[str, Any] | None = None
-    current_hunk: DiffHunk | None = None
-
-    def finish() -> None:
-        nonlocal current, current_hunk
-        if current is None:
-            return
-        if current_hunk is not None:
-            current.setdefault("hunks", []).append(current_hunk)
-            current_hunk = None
-        files_out.append(
-            DiffFile(
-                old_path=current.get("old_path"),
-                new_path=current.get("new_path"),
-                added_lines=current.get("added_lines", []),
-                removed_lines=current.get("removed_lines", []),
-                hunks=current.get("hunks", []),
-                is_deleted=bool(current.get("is_deleted")),
-                is_new=bool(current.get("is_new")),
-            )
-        )
-        current = None
-
-    for raw_line in diff_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        if raw_line.startswith("diff --git "):
-            finish()
-            parts = raw_line.split()
-            old_path = _strip_diff_prefix(parts[2]) if len(parts) > 2 else None
-            new_path = _strip_diff_prefix(parts[3]) if len(parts) > 3 else old_path
-            current = {
-                "old_path": old_path,
-                "new_path": new_path,
-                "added_lines": [],
-                "removed_lines": [],
-                "hunks": [],
-                "is_deleted": False,
-                "is_new": False,
-            }
-            current_hunk = None
-            continue
-        if current is None:
-            continue
-        if raw_line.startswith("deleted file mode"):
-            current["is_deleted"] = True
-        elif raw_line.startswith("new file mode"):
-            current["is_new"] = True
-        elif raw_line.startswith("--- "):
-            value = raw_line[4:].strip()
-            current["old_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
-        elif raw_line.startswith("+++ "):
-            value = raw_line[4:].strip()
-            current["new_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
-            if value == "/dev/null":
-                current["is_deleted"] = True
-        elif raw_line.startswith("@@ "):
-            if current_hunk is not None:
-                current.setdefault("hunks", []).append(current_hunk)
-            current_hunk = _parse_hunk_header(raw_line)
-        elif raw_line.startswith("+") and not raw_line.startswith("+++"):
-            current["added_lines"].append(raw_line[1:])
-            if current_hunk is not None:
-                current_hunk.lines.append(("+", raw_line[1:]))
-        elif raw_line.startswith("-") and not raw_line.startswith("---"):
-            current["removed_lines"].append(raw_line[1:])
-            if current_hunk is not None:
-                current_hunk.lines.append(("-", raw_line[1:]))
-        elif raw_line.startswith(" ") and current_hunk is not None:
-            current_hunk.lines.append((" ", raw_line[1:]))
-    finish()
-    return files_out
 
 
 def load_codex_boundary_policy(
     *,
     workspace: Path,
-    policy_path: Path,
+    policy_path: Path | None,
 ) -> tuple[CodexBoundaryPolicy, list[AgentResultDiagnostic]]:
     diagnostics: list[AgentResultDiagnostic] = []
-    candidate = policy_path if policy_path.is_absolute() else workspace / policy_path
+    discovery: list[str] = []
+    explicit = policy_path is not None
+    if explicit:
+        candidate = policy_path if policy_path.is_absolute() else workspace / policy_path
+        source = "explicit"
+        display_path = _display_path(candidate, workspace)
+        discovery.append(f"explicit:{display_path}")
+    else:
+        workspace_candidate = workspace / DEFAULT_POLICY_PATH
+        if workspace_candidate.is_file():
+            candidate = workspace_candidate
+            source = "workspace"
+            display_path = _display_path(candidate, workspace)
+            discovery.append(f"workspace:{display_path}")
+        else:
+            candidate = None
+            source = "packaged_default"
+            display_path = None
+            discovery.append(f"workspace_missing:{DEFAULT_POLICY_PATH.as_posix()}")
+            discovery.append("packaged_default")
     data: dict[str, Any] | None = None
-    if candidate.is_file():
+    raw_text: str | None = None
+    if candidate is not None and candidate.is_file():
         try:
-            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            raw_text = candidate.read_text(encoding="utf-8")
+            loaded = yaml.safe_load(raw_text) or {}
             if isinstance(loaded, dict):
                 data = loaded
+            else:
+                diagnostics.append(
+                    AgentResultDiagnostic(
+                        level="error" if explicit else "warning",
+                        code="policy_load_failed",
+                        message="Codex boundary policy did not contain a mapping; using defaults.",
+                        path=display_path,
+                    )
+                )
         except (OSError, yaml.YAMLError) as exc:
             diagnostics.append(
                 AgentResultDiagnostic(
-                    level="warning",
+                    level="error" if explicit else "warning",
                     code="policy_load_failed",
                     message=f"Could not load Codex boundary policy: {exc}",
-                    path=_display_path(candidate, workspace),
+                    path=display_path,
                 )
             )
-    elif policy_path == DEFAULT_POLICY_PATH:
+            if explicit:
+                return _default_policy(
+                    source="invalid",
+                    path=display_path,
+                    discovery=discovery,
+                ), diagnostics
+    elif candidate is None:
         data = _load_packaged_default_policy()
+        raw_text = _packaged_policy_text()
     else:
         diagnostics.append(
             AgentResultDiagnostic(
-                level="warning",
+                level="error" if explicit else "warning",
                 code="policy_missing",
                 message="Codex boundary policy file was not found; using defaults.",
-                path=str(policy_path),
+                path=display_path or str(policy_path),
             )
         )
+        if explicit:
+            return _default_policy(
+                source="missing",
+                path=display_path,
+                discovery=discovery,
+            ), diagnostics
+        data = _load_packaged_default_policy()
+        raw_text = _packaged_policy_text()
     if data is None:
-        return CodexBoundaryPolicy(
-            id="codex-boundary-default",
-            version=DEFAULT_POLICY_VERSION,
-            rules=dict(DEFAULT_RULES),
-        ), diagnostics
+        return _default_policy(source=source, path=display_path, discovery=discovery), diagnostics
     rules = dict(DEFAULT_RULES)
+    unknown_fields = sorted(set(data) - {"id", "name", "version", "rules"})
+    if unknown_fields:
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="error" if explicit else "warning",
+                code="policy_unknown_fields",
+                message=(
+                    "Codex boundary policy contains unknown top-level fields: "
+                    + ", ".join(unknown_fields)
+                ),
+                path=display_path,
+            )
+        )
+        if explicit:
+            return _default_policy(
+                source="invalid",
+                path=display_path,
+                discovery=discovery,
+            ), diagnostics
+    invalid_rule = False
     for raw_rule in data.get("rules") or []:
         if not isinstance(raw_rule, dict) or not isinstance(raw_rule.get("id"), str):
+            invalid_rule = True
             continue
+        unknown_rule_fields = sorted(
+            set(raw_rule)
+            - {"id", "check_id", "title", "action", "risk_level", "recommendation"}
+        )
+        if unknown_rule_fields:
+            invalid_rule = True
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="error" if explicit else "warning",
+                    code="policy_unknown_fields",
+                    message=(
+                        f"Codex boundary policy rule {raw_rule['id']!r} contains "
+                        "unknown fields: "
+                        + ", ".join(unknown_rule_fields)
+                    ),
+                    path=display_path,
+                )
+            )
         rule_id = raw_rule["id"]
         base = rules.get(rule_id)
         if base is None:
+            invalid_rule = True
             continue
         action = str(raw_rule.get("action", base.action))
         if action not in _DECISION_RANK:
+            invalid_rule = True
             action = "require_review"
         raw_risk = str(raw_rule.get("risk_level", base.risk_level))
         risk: AgentResultRiskLevel = (
@@ -548,10 +609,21 @@ def load_codex_boundary_policy(
             risk_level=risk,
             recommendation=str(raw_rule.get("recommendation", base.recommendation)),
         )
+    if invalid_rule and explicit:
+        return _default_policy(
+            source="invalid",
+            path=display_path,
+            discovery=discovery,
+        ), diagnostics
+    snapshot = _policy_snapshot_sha256(data, raw_text)
     return CodexBoundaryPolicy(
         id=str(data.get("id") or "codex-boundary"),
         version=str(data.get("version") or DEFAULT_POLICY_VERSION),
         rules=rules,
+        source=source,
+        path=display_path,
+        snapshot_sha256=snapshot,
+        discovery=tuple(discovery),
     ), diagnostics
 
 
@@ -925,10 +997,13 @@ def _evaluate_shipgate_workflow(
     diff_file: DiffFile,
     resolved: ResolvedFileText,
     add,
+    *,
+    workspace: Path,
 ) -> None:
     path = diff_file.path
     invocation_present = bool(
-        resolved.new_text and _has_shipgate_gate_invocation(resolved.new_text)
+        resolved.new_text
+        and _has_shipgate_gate_invocation(resolved.new_text, workspace=workspace)
     )
     if diff_file.is_deleted or resolved.new_text is None or not invocation_present:
         add(
@@ -943,6 +1018,164 @@ def _evaluate_shipgate_workflow(
         )
 
 
+def _evaluate_codex_boundary_policy(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+    add,
+) -> None:
+    weakened_action, weakened_risk, weakened_rules = _policy_weakening_from_diff(
+        diff_file,
+        resolved,
+    )
+    if diff_file.is_deleted or weakened_action or weakened_risk:
+        evidence: dict[str, Any] = {
+            "kind": "codex_boundary_policy_weakened",
+            "deleted": diff_file.is_deleted,
+            "weakened_action": weakened_action,
+            "weakened_risk": weakened_risk,
+        }
+        if weakened_rules:
+            evidence["weakened_rules"] = weakened_rules[:5]
+        add(
+            "CODEX-POLICY-WEAKENED",
+            path=diff_file.path,
+            evidence=evidence,
+        )
+
+
+def _policy_weakening_from_diff(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+) -> tuple[bool, bool, list[dict[str, Any]]]:
+    if diff_file.is_deleted:
+        return False, False, []
+
+    old_rules = _policy_rules_from_text(diff_file, resolved, side="old")
+    new_rules = _policy_rules_from_text(diff_file, resolved, side="new")
+    weakened_action = False
+    weakened_risk = False
+    weakened_rules: list[dict[str, Any]] = []
+
+    for rule_id in sorted(old_rules):
+        old_rule = old_rules[rule_id]
+        new_rule = new_rules.get(rule_id)
+        if new_rule is None:
+            old_action = old_rule.get("action")
+            old_risk = old_rule.get("risk_level")
+            if old_action in _DECISION_RANK or old_risk in _RISK_RANK:
+                weakened_action = old_action in _DECISION_RANK
+                weakened_risk = old_risk in _RISK_RANK
+                weakened_rules.append(
+                    {
+                        "id": rule_id,
+                        "removed": True,
+                        "old_action": old_action,
+                        "new_action": None,
+                        "old_risk_level": old_risk,
+                        "new_risk_level": None,
+                    }
+                )
+            continue
+
+        old_action = old_rule.get("action")
+        new_action = new_rule.get("action")
+        action_weakened = (
+            old_action in _DECISION_RANK
+            and new_action in _DECISION_RANK
+            and _DECISION_RANK[new_action] < _DECISION_RANK[old_action]
+        )
+        old_risk = old_rule.get("risk_level")
+        new_risk = new_rule.get("risk_level")
+        risk_weakened = (
+            old_risk in _RISK_RANK
+            and new_risk in _RISK_RANK
+            and _RISK_RANK[new_risk] < _RISK_RANK[old_risk]
+        )
+        if not action_weakened and not risk_weakened:
+            continue
+        weakened_action = weakened_action or action_weakened
+        weakened_risk = weakened_risk or risk_weakened
+        weakened_rules.append(
+            {
+                "id": rule_id,
+                "old_action": old_action,
+                "new_action": new_action,
+                "old_risk_level": old_risk,
+                "new_risk_level": new_risk,
+            }
+        )
+    return weakened_action, weakened_risk, weakened_rules
+
+
+def _policy_rules_from_text(
+    diff_file: DiffFile,
+    resolved: ResolvedFileText,
+    *,
+    side: str,
+) -> dict[str, dict[str, str]]:
+    resolved_text = resolved.old_text if side == "old" else resolved.new_text
+    text = (
+        resolved_text
+        if resolved_text is not None
+        else _policy_side_text_from_diff(diff_file, side=side)
+    )
+    return _policy_rules_from_yaml_text(text)
+
+
+def _policy_side_text_from_diff(diff_file: DiffFile, *, side: str) -> str:
+    kinds = {"old": {" ", "-"}, "new": {" ", "+"}}[side]
+    return "\n".join(
+        text
+        for hunk in diff_file.hunks
+        for kind, text in hunk.lines
+        if kind in kinds
+    )
+
+
+def _policy_rules_from_yaml_text(text: str) -> dict[str, dict[str, str]]:
+    if not text.strip():
+        return {}
+    candidates = [text]
+    stripped = text.lstrip()
+    if stripped.startswith("- "):
+        candidates.append("rules:\n" + text)
+
+    for candidate in candidates:
+        try:
+            loaded = yaml.safe_load(candidate) or {}
+        except yaml.YAMLError:
+            continue
+        raw_rules: Any
+        if isinstance(loaded, dict):
+            if isinstance(loaded.get("rules"), list):
+                raw_rules = loaded["rules"]
+            elif isinstance(loaded.get("id"), str):
+                raw_rules = [loaded]
+            else:
+                raw_rules = []
+        elif isinstance(loaded, list):
+            raw_rules = loaded
+        else:
+            raw_rules = []
+
+        rules: dict[str, dict[str, str]] = {}
+        for raw_rule in raw_rules:
+            if not isinstance(raw_rule, dict):
+                continue
+            rule_id = raw_rule.get("id")
+            if not isinstance(rule_id, str) or not rule_id.strip():
+                continue
+            rule: dict[str, str] = {}
+            for key in ("action", "risk_level"):
+                value = raw_rule.get(key)
+                if isinstance(value, str):
+                    rule[key] = value.strip()
+            rules[rule_id.strip()] = rule
+        if rules:
+            return rules
+    return {}
+
+
 def _evaluate_skill(diff_file: DiffFile, add) -> None:
     if any(_COMMAND_SKILL_RE.search(line) for line in diff_file.added_lines):
         add(
@@ -950,202 +1183,6 @@ def _evaluate_skill(diff_file: DiffFile, add) -> None:
             path=diff_file.path,
             evidence={"kind": "command_bearing_skill_change"},
         )
-
-
-def _resolve_changed_file_text(
-    workspace: Path,
-    diff_file: DiffFile,
-    diagnostics: list[AgentResultDiagnostic],
-) -> ResolvedFileText:
-    path = diff_file.path
-    if diff_file.is_deleted:
-        resolved = ResolvedFileText(
-            old_text=None,
-            new_text=None,
-            source="diff_deleted_file",
-            old_sha256=None,
-            new_sha256=None,
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-    if diff_file.is_new:
-        new_text = _new_text_from_hunks(diff_file)
-        resolved = ResolvedFileText(
-            old_text="",
-            new_text=new_text,
-            source="diff_new_file",
-            old_sha256=_sha256_text(""),
-            new_sha256=_sha256_text(new_text),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    head_path = _safe_workspace_path(workspace, path)
-    if head_path is None:
-        resolved = _unresolved_text("path_outside_workspace")
-        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-        return resolved
-    if not head_path.is_file():
-        resolved = _unresolved_text("workspace_file_missing")
-        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-        return resolved
-    try:
-        workspace_text = head_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        resolved = _unresolved_text("workspace_read_failed")
-        diagnostics.append(
-            AgentResultDiagnostic(
-                level="warning",
-                code="content_source",
-                message=f"Could not read changed Codex boundary file: {exc}",
-                path=path,
-            )
-        )
-        return resolved
-
-    if _is_insertion_only_change(diff_file):
-        reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
-        if reversed_text is not None:
-            resolved = ResolvedFileText(
-                old_text=reversed_text,
-                new_text=workspace_text,
-                source="workspace_already_contains_diff_head",
-                old_sha256=_sha256_text(reversed_text),
-                new_sha256=_sha256_text(workspace_text),
-            )
-            diagnostics.append(_content_source_diagnostic(path, resolved))
-            return resolved
-
-    applied = _apply_hunks(workspace_text, diff_file.hunks, direction="forward")
-    if applied is not None:
-        resolved = ResolvedFileText(
-            old_text=workspace_text,
-            new_text=applied,
-            source="diff_applied_to_workspace_base",
-            old_sha256=_sha256_text(workspace_text),
-            new_sha256=_sha256_text(applied),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    reversed_text = _apply_hunks(workspace_text, diff_file.hunks, direction="reverse")
-    if reversed_text is not None:
-        resolved = ResolvedFileText(
-            old_text=reversed_text,
-            new_text=workspace_text,
-            source="workspace_already_contains_diff_head",
-            old_sha256=_sha256_text(reversed_text),
-            new_sha256=_sha256_text(workspace_text),
-        )
-        diagnostics.append(_content_source_diagnostic(path, resolved))
-        return resolved
-
-    resolved = _unresolved_text("diff_workspace_mismatch")
-    diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
-    return resolved
-
-
-def _unresolved_text(source: str) -> ResolvedFileText:
-    return ResolvedFileText(
-        old_text=None,
-        new_text=None,
-        source=source,
-        old_sha256=None,
-        new_sha256=None,
-    )
-
-
-def _content_source_diagnostic(
-    path: str,
-    resolved: ResolvedFileText,
-    *,
-    level: str = "info",
-) -> AgentResultDiagnostic:
-    return AgentResultDiagnostic(
-        level=level,  # type: ignore[arg-type]
-        code="content_source",
-        message=f"Evaluated Codex boundary file from {resolved.source}.",
-        path=path,
-    )
-
-
-def _evaluated_file_record(path: str, resolved: ResolvedFileText) -> dict[str, Any]:
-    return {
-        "path": path,
-        "source": resolved.source,
-        "old_sha256": resolved.old_sha256,
-        "new_sha256": resolved.new_sha256,
-    }
-
-
-def _new_text_from_hunks(diff_file: DiffFile) -> str:
-    if diff_file.hunks:
-        lines = [
-            text
-            for hunk in diff_file.hunks
-            for kind, text in hunk.lines
-            if kind in {" ", "+"}
-        ]
-        return _join_lines(lines)
-    if diff_file.added_lines:
-        return _join_lines(diff_file.added_lines)
-    return ""
-
-
-def _apply_hunks(
-    text: str,
-    hunks: list[DiffHunk],
-    *,
-    direction: str,
-) -> str | None:
-    if not hunks:
-        return text
-    lines = text.splitlines()
-    offset = 0
-    for hunk in hunks:
-        if direction == "forward":
-            start = hunk.old_start - 1 if hunk.old_count > 0 else hunk.old_start
-            expected = [value for kind, value in hunk.lines if kind in {" ", "-"}]
-            replacement = [value for kind, value in hunk.lines if kind in {" ", "+"}]
-        else:
-            start = hunk.new_start - 1 if hunk.new_count > 0 else hunk.new_start
-            expected = [value for kind, value in hunk.lines if kind in {" ", "+"}]
-            replacement = [value for kind, value in hunk.lines if kind in {" ", "-"}]
-        index = start + offset
-        if index < 0:
-            return None
-        if index > len(lines):
-            return None
-        if index + len(expected) > len(lines):
-            return None
-        if lines[index : index + len(expected)] != expected:
-            return None
-        lines[index : index + len(expected)] = replacement
-        offset += len(replacement) - len(expected)
-    return _join_lines(lines, final_newline=text.endswith("\n"))
-
-
-def _is_insertion_only_change(diff_file: DiffFile) -> bool:
-    return any(
-        any(kind == "+" for kind, _ in hunk.lines)
-        and not any(kind == "-" for kind, _ in hunk.lines)
-        for hunk in diff_file.hunks
-    )
-
-
-def _join_lines(lines: list[str], *, final_newline: bool = True) -> str:
-    if not lines:
-        return ""
-    text = "\n".join(lines)
-    return f"{text}\n" if final_newline else text
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _changed_to(
@@ -1164,19 +1201,6 @@ def _nested_get(data: Any, path: tuple[str, ...]) -> Any:
             return None
         current = current.get(part)
     return current
-
-
-def _parse_hunk_header(line: str) -> DiffHunk:
-    match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-    if not match:
-        return DiffHunk(old_start=0, old_count=0, new_start=0, new_count=0)
-    old_start, old_count, new_start, new_count = match.groups()
-    return DiffHunk(
-        old_start=int(old_start),
-        old_count=int(old_count or "1"),
-        new_start=int(new_start),
-        new_count=int(new_count or "1"),
-    )
 
 
 def _iter_hook_groups(hooks: Any):
@@ -1213,9 +1237,16 @@ def _server_tool_names(server: dict[str, Any]) -> set[str]:
     enabled = server.get("enabled_tools")
     if isinstance(enabled, list):
         names.update(str(item) for item in enabled if isinstance(item, str))
+    for key in ("allowed_tools", "tool_allowlist", "tools_allowlist"):
+        value = server.get(key)
+        if isinstance(value, list):
+            names.update(str(item) for item in value if isinstance(item, str))
     tools = server.get("tools")
     if isinstance(tools, dict):
-        names.update(str(item) for item in tools)
+        for name, config in tools.items():
+            if isinstance(config, dict) and config.get("enabled") is False:
+                continue
+            names.add(str(name))
     return names
 
 
@@ -1260,6 +1291,7 @@ def _summary_for(decision: str, violations: list[AgentResultViolatedRule]) -> st
 def _next_action_for(
     decision: str,
     violations: list[AgentResultViolatedRule],
+    repair: AgentResultRepair,
 ) -> AgentResultNextAction:
     if decision == "allow":
         return AgentResultNextAction(
@@ -1283,8 +1315,134 @@ def _next_action_for(
             command=None,
             why=first,
         )
+    if repair.safe_to_attempt:
+        first = (
+            repair.instructions[0]
+            if repair.instructions
+            else "Repair the Codex boundary change and rerun Shipgate."
+        )
+        return AgentResultNextAction(
+            actor="coding_agent",
+            kind="repair",
+            command=repair.command,
+            why=first,
+        )
     first = violations[0].title if violations else "Codex boundary blocked"
     return AgentResultNextAction(actor="human", kind="stop", command=None, why=first)
+
+
+def _human_review_for(
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+    repair: AgentResultRepair,
+) -> AgentResultHumanReview:
+    required = decision in {"require_review", "block"} and not repair.safe_to_attempt
+    return AgentResultHumanReview(
+        required=required,
+        why=(violations[0].title if required and violations else None),
+        required_reviewers=_required_reviewers_for(decision, violations) if required else [],
+    )
+
+
+def _repair_for(
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+    agent: str,
+) -> AgentResultRepair:
+    forbidden = (
+        "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+        "Do not lower severity or add a waiver just to pass the gate.",
+        "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+        "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change.",
+    )
+    safe_to_attempt = _agent_safe_repairable(decision, violations)
+    command = (
+        f"shipgate check --agent {agent} --workspace . --format agent-json"
+        if safe_to_attempt
+        else None
+    )
+    instructions = [item.recommendation for item in violations[:5]]
+    if safe_to_attempt and command:
+        instructions.append(f"Rerun: {command}")
+    return AgentResultRepair(
+        actor="coding_agent" if safe_to_attempt or decision in {"allow", "warn"} else "human",
+        safe_to_attempt=safe_to_attempt,
+        instructions=instructions,
+        command=command,
+        forbidden_shortcuts=list(forbidden),
+    )
+
+
+def _agent_safe_repairable(
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+) -> bool:
+    if decision != "block" or not violations:
+        return False
+    return all(item.id in _AGENT_SAFE_REPAIR_RULE_IDS for item in violations)
+
+
+def _policy_result(policy: CodexBoundaryPolicy) -> AgentResultPolicy:
+    return AgentResultPolicy(
+        id=policy.id,
+        version=policy.version,
+        source=policy.source,  # type: ignore[arg-type]
+        snapshot_sha256=policy.snapshot_sha256,
+        path=policy.path,
+        discovery=list(policy.discovery),
+    )
+
+
+def _affected_files_for(
+    violations: list[AgentResultViolatedRule],
+    changed_files: list[str],
+) -> list[AgentResultAffectedFile]:
+    paths = [item.path for item in violations if item.path]
+    if not paths:
+        paths = changed_files
+    return [AgentResultAffectedFile(path=path) for path in sorted(dict.fromkeys(paths))[:20]]
+
+
+def _required_reviewers_for(
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+) -> list[str]:
+    if decision == "allow" or decision == "warn":
+        return []
+    reviewers = {"agent-platform"}
+    if decision == "block" or any(item.risk_level == "critical" for item in violations):
+        reviewers.add("security")
+    return sorted(reviewers)
+
+
+def _agent_repair_instructions(
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+) -> list[str]:
+    if decision in {"allow", "warn"}:
+        return []
+    return [item.recommendation for item in violations[:5]]
+
+
+def _trace_for(
+    policy: CodexBoundaryPolicy,
+    decision: str,
+    violations: list[AgentResultViolatedRule],
+) -> list[AgentResultTraceEvent]:
+    return [
+        AgentResultTraceEvent(
+            step="policy_discovery",
+            summary=(
+                f"Loaded policy {policy.id} from {policy.source}"
+                + (f" at {policy.path}" if policy.path else "")
+                + "."
+            ),
+        ),
+        AgentResultTraceEvent(
+            step="decision",
+            summary=f"Projected {len(violations)} violation(s) to {decision}.",
+        ),
+    ]
 
 
 def _audit_id(
@@ -1352,6 +1510,17 @@ def _dedupe_violations(
 
 
 def _load_packaged_default_policy() -> dict[str, Any] | None:
+    text = _packaged_policy_text()
+    if text is None:
+        return None
+    try:
+        loaded = yaml.safe_load(text) or {}
+        return loaded if isinstance(loaded, dict) else None
+    except yaml.YAMLError:
+        return None
+
+
+def _packaged_policy_text() -> str | None:
     candidate = (
         Path(__file__).resolve().parents[1]
         / "_meta"
@@ -1360,20 +1529,56 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
     )
     try:
         if candidate.is_file():
-            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-            return loaded if isinstance(loaded, dict) else None
-    except (OSError, yaml.YAMLError):
+            return candidate.read_text(encoding="utf-8")
+    except OSError:
         return None
     return None
 
 
-def _safe_workspace_path(workspace: Path, value: str) -> Path | None:
-    candidate = (workspace / value).resolve()
-    try:
-        candidate.relative_to(workspace)
-    except ValueError:
-        return None
-    return candidate
+def _default_policy(
+    *,
+    source: str,
+    path: str | None,
+    discovery: list[str],
+) -> CodexBoundaryPolicy:
+    payload = {
+        "id": "codex-boundary-default",
+        "version": DEFAULT_POLICY_VERSION,
+        "rules": [
+            {
+                "id": rule.id,
+                "check_id": rule.check_id,
+                "title": rule.title,
+                "action": rule.action,
+                "risk_level": rule.risk_level,
+                "recommendation": rule.recommendation,
+            }
+            for rule in DEFAULT_RULES.values()
+        ],
+    }
+    return CodexBoundaryPolicy(
+        id="codex-boundary-default",
+        version=DEFAULT_POLICY_VERSION,
+        rules=dict(DEFAULT_RULES),
+        source=source,
+        path=path,
+        snapshot_sha256=_policy_snapshot_sha256(payload, None),
+        discovery=tuple(discovery),
+    )
+
+
+def _policy_snapshot_sha256(data: dict[str, Any], raw_text: str | None) -> str:
+    if raw_text is not None:
+        payload: object = yaml.safe_load(raw_text) if raw_text.strip() else data
+        if not isinstance(payload, dict):
+            payload = data
+    else:
+        payload = data
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 def _display_path(path: Path, workspace: Path) -> str:
@@ -1381,13 +1586,6 @@ def _display_path(path: Path, workspace: Path) -> str:
         return path.resolve().relative_to(workspace.resolve()).as_posix()
     except ValueError:
         return str(path)
-
-
-def _strip_diff_prefix(value: str) -> str:
-    value = value.strip()
-    if value.startswith("a/") or value.startswith("b/"):
-        return value[2:]
-    return value
 
 
 def _is_allow(value: Any) -> bool:
@@ -1437,15 +1635,75 @@ def _contains_weakening_term(value: str) -> bool:
     return any(term in lowered for term in _WEAKENING_TERMS)
 
 
-def _has_shipgate_gate_invocation(value: str) -> bool:
-    return any(
-        _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line)
-        for line in value.splitlines()
+def _has_shipgate_gate_invocation(value: str, *, workspace: Path | None = None) -> bool:
+    local_action_is_shipgate = (
+        _workspace_declares_shipgate_action(workspace) if workspace is not None else False
     )
+    for line in value.splitlines():
+        if _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line):
+            return True
+        if local_action_is_shipgate and _LOCAL_ACTION_RE.search(line):
+            return True
+    return False
+
+
+def _workspace_declares_shipgate_action(workspace: Path) -> bool:
+    action_path = workspace / "action.yml"
+    if not action_path.is_file():
+        action_path = workspace / "action.yaml"
+    if not action_path.is_file():
+        return False
+    try:
+        payload = yaml.safe_load(action_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("name") or "").strip().lower()
+    return name == "agents shipgate" and _root_action_invokes_shipgate(payload)
+
+
+def _root_action_invokes_shipgate(payload: dict[str, Any]) -> bool:
+    runs = payload.get("runs")
+    if not isinstance(runs, dict):
+        return False
+    steps = runs.get("steps")
+    if not isinstance(steps, list):
+        return False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        run = step.get("run")
+        if isinstance(run, str) and _run_script_invokes_shipgate(run):
+            return True
+        uses = step.get("uses")
+        if isinstance(uses, str) and _SHIPGATE_ACTION_RE.search(f"uses: {uses}"):
+            return True
+    return False
+
+
+def _run_script_invokes_shipgate(value: str) -> bool:
+    return any(_SHIPGATE_CLI_COMMAND_RE.search(line) for line in value.splitlines())
 
 
 def _is_codex_config_path(path: str) -> bool:
     return path == ".codex/config.toml" or path.endswith("/.codex/config.toml")
+
+
+def is_codex_config_path(path: str) -> bool:
+    return _is_codex_config_path(path)
+
+
+def is_mcp_json_path(path: str) -> bool:
+    return path == ".mcp.json" or path.endswith("/.mcp.json")
+
+
+def resolve_changed_file_text(
+    workspace: Path,
+    diff_file: DiffFile,
+    diagnostics: list[AgentResultDiagnostic],
+) -> ResolvedFileText:
+    return _resolve_changed_file_text(workspace, diff_file, diagnostics)
 
 
 def _is_codex_hooks_path(path: str) -> bool:
@@ -1463,6 +1721,12 @@ def _is_shipgate_workflow_path(path: str) -> bool:
         ".github/workflows/agents-shipgate.yaml",
     } or path.endswith("/.github/workflows/agents-shipgate.yml") or path.endswith(
         "/.github/workflows/agents-shipgate.yaml"
+    )
+
+
+def _is_codex_boundary_policy_path(path: str) -> bool:
+    return path == DEFAULT_POLICY_PATH.as_posix() or path.endswith(
+        f"/{DEFAULT_POLICY_PATH.as_posix()}"
     )
 
 

@@ -4,6 +4,10 @@ import json
 import re
 
 from agents_shipgate.ci.agent_result import AgentResult, build_agent_result
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
+from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -30,6 +34,7 @@ def render_pr_comment(
     report: ReadinessReport | None,
     style: str = "capability-review",
     agent_result: AgentResult | None = None,
+    capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> str:
     agent_result = agent_result or build_agent_result(verifier=verifier, report=report)
     if style == "findings":
@@ -42,6 +47,7 @@ def render_pr_comment(
         verifier,
         report=report,
         agent_result=agent_result,
+        capability_lock_diff=capability_lock_diff,
     )
 
 
@@ -50,6 +56,7 @@ def _render_capability_review_comment(
     *,
     report: ReadinessReport | None,
     agent_result: AgentResult,
+    capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> str:
     lines = [STICKY_MARKER, "## Agents Shipgate"]
     lines.extend(
@@ -57,6 +64,7 @@ def _render_capability_review_comment(
             verifier,
             report=report,
             agent_result=agent_result,
+            capability_lock_diff=capability_lock_diff,
         )
     )
     lines.extend(_agent_instruction_block(verifier))
@@ -68,6 +76,7 @@ def _human_summary_lines(
     *,
     report: ReadinessReport | None,
     agent_result: AgentResult,
+    capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> list[str]:
     lines = ["", "### Human summary"]
     lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
@@ -105,6 +114,15 @@ def _human_summary_lines(
         "- Capability delta: "
         f"+{review.added}, {review.modified} modified, -{review.removed}"
     )
+    if capability_lock_diff is not None:
+        summary = capability_lock_diff.summary
+        lines.append(
+            "- Capability lock diff: "
+            f"+{summary.added}, -{summary.removed}, "
+            f"{summary.changed} changed, "
+            f"{summary.reidentified} reidentified, "
+            f"{summary.evidence_changed} evidence-only"
+        )
     lines.append(
         "- Fail policy: "
         f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
@@ -167,6 +185,7 @@ def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
         "capability_lock_json",
         "base_capability_lock_json",
         "capability_lock_diff_json",
+        "capability_lock_diff_markdown",
     ):
         value = verifier.artifacts.get(key)
         if value:
@@ -281,10 +300,6 @@ def _render_findings_comment(
     return _truncate("\n".join(lines), 6000)
 
 
-def _visible_verdict(verifier: VerifierArtifact) -> str:
-    return verifier.merge_verdict
-
-
 def _agent_result_lead(agent_result: AgentResult) -> list[str]:
     lines = [
         "",
@@ -352,6 +367,16 @@ def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
             f"{_table_cell(change.rationale)} |"
         )
     return lines
+
+def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
+    rendered = render_capability_lock_diff_markdown(
+        diff,
+        heading_level=3,
+        max_rows=5,
+    ).rstrip()
+    if not rendered:
+        return []
+    return ["", *rendered.splitlines()]
 
 
 def _trust_root_warning_lines(
@@ -500,6 +525,10 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
             "report_json",
             "report_sarif",
             "packet_json",
+            "capability_lock_json",
+            "base_capability_lock_json",
+            "capability_lock_diff_json",
+            "capability_lock_diff_markdown",
             "verifier_json",
             "agent_result_json",
         ):
@@ -514,6 +543,10 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
         "report_json",
         "report_sarif",
         "packet_json",
+        "capability_lock_json",
+        "base_capability_lock_json",
+        "capability_lock_diff_json",
+        "capability_lock_diff_markdown",
         "verifier_json",
         "agent_result_json",
         "pr_comment",
