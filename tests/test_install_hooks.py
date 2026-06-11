@@ -38,6 +38,16 @@ def test_install_hooks_dry_run_does_not_write(tmp_path: Path) -> None:
     assert payload["script_status"] == "would_write"
     assert payload["hooks"] == [
         {
+            "event": "PreToolUse",
+            "matcher": "Edit|Write|MultiEdit",
+            "purpose": (
+                "trust-root guard: route edits of Shipgate trust roots "
+                "(manifest, baselines, policies, Shipgate CI, hook files, "
+                "managed instruction blocks) to a human permission prompt "
+                "before they happen"
+            ),
+        },
+        {
             "event": "PostToolUse",
             "matcher": "Edit|Write|MultiEdit",
             "purpose": "cheap trigger check after file-editing tools",
@@ -436,3 +446,134 @@ raise SystemExit(2)
         encoding="utf-8",
     )
     return script
+
+
+# --- PreToolUse trust-root guard ---------------------------------------------
+
+
+def _run_guard(tmp_path: Path, file_path: Path) -> subprocess.CompletedProcess:
+    event = {
+        "hook_event_name": "PreToolUse",
+        "cwd": str(tmp_path),
+        "tool_name": "Edit",
+        "tool_input": {"file_path": str(file_path)},
+    }
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    return subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "guard"],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+
+def _install(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+
+
+def test_settings_include_pre_tool_use_guard(tmp_path: Path) -> None:
+    _install(tmp_path)
+    data = json.loads(
+        (tmp_path / SETTINGS_RELATIVE_PATH).read_text(encoding="utf-8")
+    )
+    guard_groups = data["hooks"]["PreToolUse"]
+    assert guard_groups[0]["matcher"] == "Edit|Write|MultiEdit"
+    assert guard_groups[0]["hooks"][0]["args"][1] == "guard"
+
+
+def test_guard_asks_before_manifest_edit(tmp_path: Path) -> None:
+    _install(tmp_path)
+    (tmp_path / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+
+    result = _run_guard(tmp_path, tmp_path / "shipgate.yaml")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    output = payload["hookSpecificOutput"]
+    assert output["hookEventName"] == "PreToolUse"
+    assert output["permissionDecision"] == "ask"
+    assert "trust root" in output["permissionDecisionReason"]
+    assert "release-policy manifest" in output["permissionDecisionReason"]
+
+
+def test_guard_asks_before_shipgate_ci_workflow_edit(tmp_path: Path) -> None:
+    _install(tmp_path)
+    workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
+
+    result = _run_guard(tmp_path, workflow)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert "Shipgate CI workflow" in (
+        payload["hookSpecificOutput"]["permissionDecisionReason"]
+    )
+
+
+def test_guard_asks_before_hook_self_edit(tmp_path: Path) -> None:
+    _install(tmp_path)
+
+    result = _run_guard(tmp_path, tmp_path / HOOK_SCRIPT_RELATIVE_PATH)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+def test_guard_silent_for_ordinary_files(tmp_path: Path) -> None:
+    _install(tmp_path)
+    (tmp_path / "app.py").write_text("print('hi')\n", encoding="utf-8")
+
+    result = _run_guard(tmp_path, tmp_path / "app.py")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_guard_silent_for_claude_md_without_managed_block(tmp_path: Path) -> None:
+    _install(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("# Project notes\n", encoding="utf-8")
+
+    result = _run_guard(tmp_path, tmp_path / "CLAUDE.md")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_guard_asks_for_claude_md_with_managed_block(tmp_path: Path) -> None:
+    _install(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Notes\n\n<!-- agents-shipgate:start v=1 -->\nblock\n"
+        "<!-- agents-shipgate:end -->\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(tmp_path, tmp_path / "CLAUDE.md")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert "managed agent-instruction block" in (
+        payload["hookSpecificOutput"]["permissionDecisionReason"]
+    )
+
+
+def test_guard_silent_for_paths_outside_workspace(tmp_path: Path) -> None:
+    _install(tmp_path)
+
+    result = _run_guard(tmp_path, Path("/etc/hosts"))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""

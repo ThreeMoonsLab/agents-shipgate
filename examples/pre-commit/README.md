@@ -40,7 +40,7 @@ repos:
     hooks:
       - id: agents-shipgate
         name: Agents Shipgate release-readiness gate
-        entry: agents-shipgate scan -c shipgate.yaml --ci-mode advisory
+        entry: agents-shipgate verify --config shipgate.yaml --ci-mode advisory --format text
         language: system
         pass_filenames: false
         files: |
@@ -95,7 +95,7 @@ repos:
     rev: v0.11.0
     hooks:
       - id: agents-shipgate
-        entry: agents-shipgate scan -c shipgate.yaml --ci-mode strict --fail-on critical
+        entry: agents-shipgate verify --config shipgate.yaml --ci-mode strict --fail-on critical --format text
 ```
 
 Pair strict mode with a baseline ([`baseline.md`](../../docs/baseline.md)) so existing accepted findings don't fail every commit.

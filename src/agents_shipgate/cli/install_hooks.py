@@ -171,6 +171,16 @@ def render_or_install_hooks(
         script_status=script_status,
         hooks=[
             {
+                "event": "PreToolUse",
+                "matcher": "Edit|Write|MultiEdit",
+                "purpose": (
+                    "trust-root guard: route edits of Shipgate trust roots "
+                    "(manifest, baselines, policies, Shipgate CI, hook files, "
+                    "managed instruction blocks) to a human permission prompt "
+                    "before they happen"
+                ),
+            },
+            {
                 "event": "PostToolUse",
                 "matcher": "Edit|Write|MultiEdit",
                 "purpose": "cheap trigger check after file-editing tools",
@@ -211,6 +221,19 @@ def _merge_claude_settings(
     hooks = merged.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ConfigError(".claude/settings.json field 'hooks' must be an object")
+    _replace_event_hook(
+        hooks,
+        "PreToolUse",
+        _matcher_group(
+            matcher="Edit|Write|MultiEdit",
+            mode="guard",
+            timeout=10,
+            config=config,
+            base=base,
+            head=head,
+            ci_mode=ci_mode,
+        ),
+    )
     _replace_event_hook(
         hooks,
         "PostToolUse",
@@ -312,9 +335,14 @@ def _is_shipgate_handler(handler: object, event: str) -> bool:
         return False
     script = str(args[0])
     mode = str(args[1])
-    expected_mode = "trigger" if event == "PostToolUse" else "verify"
+    expected_mode = {
+        "PreToolUse": "guard",
+        "PostToolUse": "trigger",
+        "Stop": "verify",
+    }.get(event)
     return (
         script.endswith(".claude/hooks/agents-shipgate.py")
+        and expected_mode is not None
         and mode == expected_mode
     )
 
@@ -402,7 +430,7 @@ UNTRACKED_DIFF_CONTENT_LIMIT_BYTES = 131072
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("trigger", "verify"))
+    parser.add_argument("mode", choices=("guard", "trigger", "verify"))
     parser.add_argument("--config", default="shipgate.yaml")
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head", default="")
@@ -411,6 +439,8 @@ def main() -> int:
 
     payload = _read_payload()
     root = _project_root(payload)
+    if args.mode == "guard":
+        return _guard(payload, root, args)
     if args.mode == "trigger":
         return _trigger(payload, root, args)
     return _verify(payload, root, args)
@@ -435,6 +465,67 @@ def _project_root(payload: dict[str, Any]) -> Path:
 def _cli() -> list[str]:
     raw = os.environ.get("AGENTS_SHIPGATE_CLI", "agents-shipgate").strip()
     return shlex.split(raw) if raw else ["agents-shipgate"]
+
+
+def _guard(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:
+    """PreToolUse trust-root guard.
+
+    Routes edits of Shipgate trust roots to a human permission prompt
+    BEFORE the edit happens. Never denies — the decision is always "ask",
+    so a human stays the authority and ordinary work is never blocked by
+    a hook failure.
+    """
+    tool_input = payload.get("tool_input") or {}
+    raw = tool_input.get("file_path") or tool_input.get("path") or ""
+    if not raw:
+        return 0
+    try:
+        rel = Path(str(raw)).resolve().relative_to(root).as_posix()
+    except (ValueError, OSError):
+        return 0
+    reason = _protected_reason(root, rel, args)
+    if reason is None:
+        return 0
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                    "permissionDecisionReason": (
+                        f"{rel} is an Agents Shipgate trust root ({reason}). "
+                        "Weakening the gate to make verification pass is never "
+                        "an acceptable fix, and SHIP-VERIFY-* checks make this "
+                        "edit release-visible. Confirm with the user before "
+                        "changing it."
+                    ),
+                }
+            }
+        )
+    )
+    return 0
+
+
+def _protected_reason(root: Path, rel: str, args: argparse.Namespace) -> str | None:
+    if rel == Path(args.config).as_posix():
+        return "release-policy manifest"
+    if rel.startswith(".agents-shipgate/"):
+        return "baseline/waiver state"
+    name = rel.rsplit("/", 1)[-1]
+    if rel.startswith(".github/workflows/") and "agents-shipgate" in name:
+        return "Shipgate CI workflow"
+    if rel.startswith("policies/"):
+        return "policy pack"
+    if rel in (".claude/hooks/agents-shipgate.py", ".claude/settings.json"):
+        return "local hook configuration"
+    if name in ("AGENTS.md", "CLAUDE.md"):
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        if "<!-- agents-shipgate:start" in text:
+            return "managed agent-instruction block"
+    return None
 
 
 def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:

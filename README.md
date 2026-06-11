@@ -213,6 +213,33 @@ suppressions, waivers, baselines, or policy weakening. Never remove Shipgate CI
 or weaken agent instructions just to make the verifier pass.
 ```
 
+## Use with Claude Code
+
+Two commands wire the full Claude Code surface:
+
+```bash
+pipx install agents-shipgate
+agents-shipgate init --workspace . --write --claude-code
+```
+
+`init --claude-code` writes the `CLAUDE.md` managed block, the
+auto-discoverable `.claude/skills/agents-shipgate/` skill, an
+`agents-shipgate verify --json` alias in Makefile / package.json scripts when
+present, and the Claude Code hooks (also available standalone via
+`agents-shipgate install-hooks --target claude-code --write`). The hooks run
+a cheap trigger check after `Edit|Write|MultiEdit` and the full verifier at
+`Stop` — so Claude Code re-checks agent capability changes before reporting
+work complete, even on long sessions where instruction files lose attention.
+CI stays authoritative; the hooks are the local feedback loop.
+
+Inside Claude Code, agent mode auto-enables (the harness exports
+`CLAUDECODE=1`), so a zero-flag `agents-shipgate verify` prints the compact
+agent result on stdout: `merge_verdict`, `can_merge_without_human`,
+`suggested_fixes`, and `agent_repair_instructions` in one call.
+
+See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md)
+for the `/shipgate` slash command, skill internals, and manual install paths.
+
 ## Install the Codex plugin
 
 Agents Shipgate now ships a skill-only Codex plugin package at
@@ -446,13 +473,15 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`docs/zero-install.md`](docs/zero-install.md)** — single-file detector, `uvx`, and GitHub Action paths for evaluating Shipgate without a local install.
 - **[`prompts/`](prompts/)** — reusable prompts for common workflows
 - **[`skills/agents-shipgate/`](skills/agents-shipgate/)** + **[`.claude/commands/shipgate.md`](.claude/commands/shipgate.md)** — self-contained Claude Code skill (bundled prompts and CI recipe) and `/shipgate` slash command. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) to install in your own project.
+- **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
+- **`agents-shipgate mcp-serve`** (provisional, `[mcp]` extra) — stdio MCP server exposing `shipgate_verify` / `shipgate_explain` / `shipgate_status` for agents without comfortable shell access. Same engine, same gate. See [`docs/integrations.md`](docs/integrations.md#mcp-server-optional-provisional).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json)** — JSON Schemas for live editor validation (current; emitted reports carry `report_schema_version: "0.25"`). v0.25 adds opt-in capability-linked local trace/provenance evidence (`capability_runtime_evidence`, `findings[].capability_trace_refs`, and mirrored `ReleaseDecisionItem.capability_trace_refs`) while preserving fingerprints, baselines, capability locks, and release gating. v0.24 added capability-native policy evidence (`findings[].capability_refs`, optional `findings[].capability_policy_evidence`, and mirrored `ReleaseDecisionItem.capability_refs`). v0.23 added semantic metadata to `capability_change` members while preserving the existing buckets and release gate. v0.22 added the verifier-cycle top-level blocks `capability_change` (diff-derived capability delta), `protected_surface_changes` (touched trust roots), `effective_policy` (normalized policy snapshot), `human_ack` (declared human-acknowledgement state), and `verifier_summary` (a composition over `release_decision` + the reviewer/agent summaries) — none of which gates independently. v0.21 added the top-level `heuristics_filter` envelope alongside v0.20's `reviewer_summary` block (lens + audit activity counts plus a `first_recommended_surface` pointer, parallel to `agent_summary` for the reviewer side); v0.19 added `Finding.policy_evidence_source` and `ReleaseDecisionItem.{source, policy_evidence_source}` for reviewer-grade dual-source provenance; v0.18 added `privacy_audit`; v0.17 added `policy_audit` and `release_decision.contribution_rules[]`. Read `release_decision.decision` for release gating in new consumers; read `agent_summary.first_recommended_action` for a deterministic next agent step and `reviewer_summary.first_recommended_surface` for the recommended human-review entry point.
 - **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability`; non-gating and separate from `report.json`.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
-Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when `AGENTS_SHIPGATE_AGENT_MODE=1`.
+Every command has a `--json` form. Errors emit a structured `next_action` line on stderr when agent mode is active — set `AGENTS_SHIPGATE_AGENT_MODE=1`, or rely on auto-detection inside a coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`). `AGENTS_SHIPGATE_AGENT_MODE=0` forces it off.
 
 ## Why this exists
 

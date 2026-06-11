@@ -25,6 +25,49 @@ def ensure_git_workspace(workspace: Path) -> Path:
     return Path(root).resolve()
 
 
+DEFAULT_BASE_CANDIDATES = ("origin/main", "origin/master", "main", "master")
+
+
+def commit_sha(workspace: Path, ref: str) -> str | None:
+    result = _run_git(
+        workspace,
+        ["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
+    """Best-effort default base ref for PR-style diff enrichment.
+
+    Tries the remote default branch (``origin/HEAD``) first, then the
+    conventional candidates. A candidate qualifies only when it exists
+    locally and points at a different commit than ``head`` — diffing a
+    branch against itself adds scan cost without diff signal. Never
+    fetches; this only reads refs that already exist in the checkout.
+    """
+
+    head_sha = commit_sha(workspace, head)
+    if head_sha is None:
+        return None
+    candidates: list[str] = []
+    origin_head = _run_git(
+        workspace, ["rev-parse", "--abbrev-ref", "origin/HEAD"], check=False
+    )
+    if origin_head.returncode == 0:
+        name = origin_head.stdout.strip()
+        if name and name != "origin/HEAD":
+            candidates.append(name)
+    candidates.extend(c for c in DEFAULT_BASE_CANDIDATES if c not in candidates)
+    for candidate in candidates:
+        sha = commit_sha(workspace, candidate)
+        if sha is not None and sha != head_sha:
+            return candidate
+    return None
+
+
 def ref_exists(workspace: Path, ref: str) -> bool:
     result = _run_git(
         workspace,
@@ -113,6 +156,8 @@ def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
 
 __all__ = [
     "archive_tree",
+    "commit_sha",
+    "detect_default_base",
     "diff_context",
     "ensure_git_workspace",
     "git_path",

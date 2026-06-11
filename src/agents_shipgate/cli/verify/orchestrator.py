@@ -36,6 +36,7 @@ from .capability_review import build_capability_review
 from .fix_task import build_fix_task
 from .git import (
     archive_tree,
+    detect_default_base,
     diff_context,
     ensure_git_workspace,
     git_path,
@@ -72,6 +73,7 @@ def run_verify(
     no_heuristics: bool,
     verbose: bool,
     pr_comment_style: str = "capability-review",
+    auto_base: bool = False,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
     config_path = _resolve_under_workspace(git_root, config)
@@ -99,6 +101,15 @@ def run_verify(
     head_exists = ref_exists(git_root, head)
     if not head_exists:
         raise ConfigError(f"Head ref does not exist locally: {head}")
+
+    if base is None and auto_base:
+        detected = detect_default_base(git_root, head)
+        if detected is not None:
+            base = detected
+            base_notes.append(
+                f"Auto-detected base {detected!r} for diff context; "
+                "pass --base to override or --no-base to disable."
+            )
 
     base_exists = False
     if base:

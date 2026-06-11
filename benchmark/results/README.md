@@ -55,6 +55,26 @@ The three numbers that drive prioritization decisions:
 
 Per-archetype variance is also informative: a high snippet uplift on `openai-agents-sdk` paired with low uplift on `non-agent-negative-control` is the desired pattern.
 
+## Running the W2 baseline (one click)
+
+The harness pipeline is validated end-to-end by the free mock smoke
+(`python -m harness.adoption smoke`, also wired as the `smoke` job in
+[`adoption-harness.yml`](../../.github/workflows/adoption-harness.yml)).
+The live baseline is a human decision because it spends API budget:
+
+```bash
+# GitHub UI: Actions → adoption-harness → Run workflow
+#   matrix_file: benchmark/matrix.yaml
+#   budget_usd: <approved cap>
+# or locally with an Anthropic API key:
+python -m harness.adoption sync-fixtures
+python -m harness.adoption run --matrix benchmark/matrix.yaml --budget-usd <cap>
+```
+
+Append the produced rows per "How to add a run" below. Until that run lands,
+every claim about agents discovering Shipgate unprompted is untested — treat
+the empty baseline as the repo's highest-priority missing artifact.
+
 ## How to add a run
 
 1. Run the cells per [`../runner.md`](../runner.md).

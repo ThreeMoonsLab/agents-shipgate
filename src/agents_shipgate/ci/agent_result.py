@@ -68,6 +68,8 @@ class AgentResult(BaseModel):
     subject: AgentResultSubject
     decision: AgentResultDecision
     risk_level: AgentResultRiskLevel
+    merge_verdict: str = "unknown"
+    can_merge_without_human: bool = False
     violated_rules: list[AgentResultRule] = Field(default_factory=list)
     affected_files: list[AgentResultFile] = Field(default_factory=list)
     required_reviewers: list[str] = Field(default_factory=list)
@@ -126,6 +128,8 @@ def build_agent_result(
         subject=_subject(verifier, report),
         decision=decision,
         risk_level=risk_level,
+        merge_verdict=verifier.merge_verdict,
+        can_merge_without_human=verifier.can_merge_without_human,
         violated_rules=violated_rules,
         affected_files=affected_files,
         required_reviewers=required_reviewers,

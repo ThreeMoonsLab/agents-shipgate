@@ -26,6 +26,7 @@ from agents_shipgate.cli.feedback import feedback_app
 from agents_shipgate.cli.findings import findings as _findings_command
 from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
+from agents_shipgate.cli.mcp_server import mcp_serve as _mcp_serve_command
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.skill import skill_app
@@ -116,6 +117,14 @@ app.command(
         "--target claude-code."
     ),
 )(_install_hooks_command)
+app.command(
+    "mcp-serve",
+    help=(
+        "Serve shipgate_verify / shipgate_explain / shipgate_status over an "
+        "MCP stdio server (provisional; requires the [mcp] extra). A thin "
+        "wrapper over the same engine — the release gate is unchanged."
+    ),
+)(_mcp_serve_command)
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)

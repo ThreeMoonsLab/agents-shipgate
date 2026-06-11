@@ -65,6 +65,14 @@ into replayable evidence. Active themes, in priority order:
    expand the mechanical-patch catalog — never approval, confirmation, or
    idempotency evidence, which stay manual permanently.
 
+6. **Long-term platform direction (design only).** Org policy-pack
+   distribution with integrity pins, host-capability governance ("ring 2" —
+   gating what the coding agent itself is allowed to do in a repo), and a
+   cross-repo attestation registry are sketched in
+   [docs/engineering/agent-native-governance-platform.md](docs/engineering/agent-native-governance-platform.md).
+   Nothing there is shipped or promised; the note exists so nearer-term work
+   does not foreclose it.
+
 ### Explicit non-goals
 
 - **More framework adapters is not the roadmap.** The moat is the deterministic

@@ -128,51 +128,39 @@ advisory GitHub Action template under `ci-recipes/`.
 ## `CLAUDE.md`
 
 ````md
-## Agents Shipgate
+## Agents Shipgate — merge gate
 
 Agents Shipgate is the deterministic merge gate for AI-generated agent
-capability changes — a local-first, static Tool-Use Readiness review.
+capability changes. This repo uses it to gate what its AI agent can do.
 
-For agent tool-surface or release-policy changes, run:
-
-```bash
-agents-shipgate verify --preview --json
-agents-shipgate verify --workspace . --config shipgate.yaml \
-  --ci-mode advisory --format json
-```
-
-Read `agents-shipgate-reports/verifier.json` and summarize:
-
-- `merge_verdict`
-- `capability_review.top_changes[]`
-- `first_next_action.actor`
-- `fix_task.safe_to_attempt`
-
-Then read `agents-shipgate-reports/report.json` and summarize:
-
-- `release_decision.decision`
-- blocker count
-- review item count
-- top critical/high findings
-- safe patches applied
-- findings requiring human review
-
-Use `apply-patches --confidence high --apply` only for high-confidence safe
-patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
-changes require human review.
-
-Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
-`agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
-verdict. For committed PR/CI verification, pass
-`--base origin/main --head HEAD` after making the base ref available. For local
-uncommitted work, omit `--base` and `--head` so uncommitted edits are scanned.
-`verify` never fetches. Do not claim completion when `merge_verdict` is
-`blocked`, `insufficient_evidence`, or
-`human_review_required` unless the user explicitly accepts human review. Do not
-bypass the verifier by suppressing findings, lowering severity, expanding
-baselines or waivers, removing Shipgate CI, or weakening agent instructions.
-Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
+- After changing MCP servers, tool definitions, OpenAPI specs that describe
+  agent tools, agent prompts, permission scopes, approval/confirmation
+  policies, agent CI workflows, or `shipgate.yaml` — and before creating a PR
+  for any such change — run: `agents-shipgate verify --json`
+  (unsure Shipgate applies? `agents-shipgate verify --preview --json`)
+- Act on the stdout JSON: `merge_verdict`, `can_merge_without_human`, and the
+  repair instructions. Full artifacts land in `agents-shipgate-reports/`;
+  `report.json.release_decision.decision` is the release gate.
+- Zero-flag runs auto-detect the default branch as base (v0.12+) and scan the
+  working tree. For committed PR/CI refs, pass `--base`/`--head` explicitly
+  after making the base ref available (`verify` never fetches).
+- Do not claim completion while `merge_verdict` is `blocked`,
+  `insufficient_evidence`, or `human_review_required` unless the user
+  explicitly accepts human review.
+- Never suppress findings, lower severities, expand baselines or waivers,
+  remove Shipgate CI, or weaken agent instructions to make verify pass;
+  `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
+- Pure docs/test/format changes with no tool or policy impact: skip.
 ````
+
+The short, imperative shape is deliberate: CLAUDE.md is injected into every
+Claude Code session, and compliance drops as the block grows. Keep additions
+out of this block; deeper workflow knowledge belongs in the
+`.claude/skills/agents-shipgate/` skill, which Claude Code loads on demand.
+That includes the autofix boundary: use
+`apply-patches --confidence high --apply` only for high-confidence safe
+patches — approval, confirmation, idempotency, broad-scope, and
+prohibited-action changes require human review.
 
 ## `.cursor/rules/agents-shipgate.mdc`
 
