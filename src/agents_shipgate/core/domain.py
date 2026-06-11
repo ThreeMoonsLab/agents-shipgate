@@ -387,6 +387,13 @@ class Action(BaseModel):
     provider: str
     source_type: str
     source_id: str | None = None
+    source_ref: str | None = None
+    source_location: str | None = None
+    source_path: str | None = None
+    source_start_line: int | None = None
+    source_end_line: int | None = None
+    source_start_column: int | None = None
+    source_pointer: str | None = None
     operation: str
     side_effect: SideEffect
     risk_tags: list[str] = Field(default_factory=list)

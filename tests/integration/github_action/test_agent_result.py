@@ -99,7 +99,7 @@ def test_allow_comment_is_concise_and_has_no_contradictory_decision():
     assert result.decision == "allow"
     assert result.risk_level == "low"
     assert result.required_reviewers == []
-    assert "Decision: `allow`" in comment
+    assert "Agent decision: `allow`" in comment
     assert "Release gate: `passed`" in comment
     assert "Decision: `passed`" not in comment
     assert "Required reviewers:" not in comment

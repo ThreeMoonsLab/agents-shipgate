@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from agents_shipgate.ci.agent_result import AgentResult, build_agent_result
@@ -50,48 +51,170 @@ def _render_capability_review_comment(
     report: ReadinessReport | None,
     agent_result: AgentResult,
 ) -> str:
-    lines = [STICKY_MARKER, f"## Agents Shipgate result: {agent_result.decision}"]
-    lines.extend(_agent_result_lead(agent_result))
+    lines = [STICKY_MARKER, "## Agents Shipgate"]
+    lines.extend(
+        _human_summary_lines(
+            verifier,
+            report=report,
+            agent_result=agent_result,
+        )
+    )
+    lines.extend(_agent_instruction_block(verifier))
+    return _truncate("\n".join(lines), 6000)
+
+
+def _human_summary_lines(
+    verifier: VerifierArtifact,
+    *,
+    report: ReadinessReport | None,
+    agent_result: AgentResult,
+) -> list[str]:
+    lines = ["", "### Human summary"]
+    lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
+    lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
+    lines.append(f"- Agent decision: `{agent_result.decision}`")
+    lines.append(f"- Risk: `{agent_result.risk_level}`")
+    lines.append(f"- Audit ID: `{agent_result.audit_id}`")
+    if agent_result.required_reviewers:
+        reviewers = ", ".join(f"`{reviewer}`" for reviewer in agent_result.required_reviewers)
+        lines.append(f"- Required reviewers: {reviewers}")
+
     headline = _headline(verifier, report)
     if headline:
-        lines.extend(["", f"Headline: {_escape(headline)}"])
+        lines.append(f"- Summary: {_escape(headline)}")
 
     if report is None or report.release_decision is None:
-        lines.append("")
         if verifier.head_status == "skipped":
-            lines.append("No Shipgate scan was required for this diff.")
+            lines.append("- Release gate: `not_applicable`")
+            lines.append("- Reason: No Shipgate scan was required for this diff.")
         else:
-            lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
-        lines.extend(_trigger_and_base_lines(verifier))
-        lines.extend(_artifact_lines(verifier))
-        return _truncate("\n".join(lines), 6000)
+            lines.append("- Release gate: `unknown`")
+            lines.append(
+                f"- Reason: Head scan did not produce a report (exit {verifier.head_exit_code})."
+            )
+        lines.extend(_next_actor_lines(verifier))
+        lines.extend(_trigger_and_base_summary(verifier))
+        lines.extend(_artifact_summary_lines(verifier))
+        return lines
 
     decision = report.release_decision
     review = _capability_review(verifier, report)
-    lines.extend(
-        [
-            "",
-            f"Release gate: `{decision.decision}`",
-            f"Reason: {_escape(decision.reason)}",
-            (
-                "Capability changes: "
-                f"+{review.added}, {review.modified} modified, "
-                f"-{review.removed}"
-            ),
-            (
-                "Fail policy: "
-                f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
-                f"(exit {decision.fail_policy.exit_code})"
-            ),
-        ]
+    lines.append(f"- Release gate: `{decision.decision}`")
+    lines.append(f"- Reason: {_escape(decision.reason)}")
+    lines.append(
+        "- Capability delta: "
+        f"+{review.added}, {review.modified} modified, -{review.removed}"
     )
+    lines.append(
+        "- Fail policy: "
+        f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
+        f"(exit {decision.fail_policy.exit_code})"
+    )
+    lines.extend(_next_actor_lines(verifier))
+    if review.top_changes:
+        lines.append("- Top capability changes:")
+        for change in review.top_changes[:5]:
+            source = _source_suffix(change.source_path, change.source_start_line)
+            lines.append(
+                "  - "
+                f"`{change.subject}`: {_escape(_impact(change))}; "
+                f"{_escape(change.rationale)}{source}"
+            )
+    elif review.notes:
+        lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    if review.trust_root_touched or review.policy_weakened:
+        if review.trust_root_touched:
+            lines.append("- Trust root touched: `true`")
+        if review.policy_weakened:
+            lines.append("- Policy weakened: `true`")
+    lines.extend(_trigger_and_base_summary(verifier))
+    lines.extend(_artifact_summary_lines(verifier))
+    return lines
 
-    lines.extend(_capability_change_table(review))
-    lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
-    lines.extend(_trust_root_warning_lines(review, report))
-    lines.extend(_trigger_and_base_lines(verifier))
-    lines.extend(_artifact_lines(verifier))
-    return _truncate("\n".join(lines), 6000)
+
+def _next_actor_lines(verifier: VerifierArtifact) -> list[str]:
+    action = verifier.first_next_action
+    if action is None:
+        return ["- Next actor: `human`"]
+    lines = [f"- Next actor: `{action.actor}`"]
+    if action.why:
+        lines.append(f"- Next action: {_escape(action.why)}")
+    if action.command:
+        lines.append(f"- Next command: {_code(action.command)}")
+    return lines
+
+
+def _trigger_and_base_summary(verifier: VerifierArtifact) -> list[str]:
+    lines = [f"- Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}"]
+    if verifier.base_status != "not_requested":
+        base = verifier.base_ref or "(none)"
+        lines.append(f"- Base diff: `{base}` -> `{verifier.base_status}`")
+        for note in verifier.base_notes[:2]:
+            lines.append(f"  - {_escape(note)}")
+    return lines
+
+
+def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
+    if not verifier.artifacts:
+        return []
+    lines = ["- Artifacts:"]
+    for key in (
+        "verifier_json",
+        "agent_result_json",
+        "report_json",
+        "report_sarif",
+        "packet_json",
+        "capability_lock_json",
+        "base_capability_lock_json",
+        "capability_lock_diff_json",
+    ):
+        value = verifier.artifacts.get(key)
+        if value:
+            label = key.replace("_", ".")
+            lines.append(f"  - [{label}]({_escape_link(value)})")
+    return lines
+
+
+def _agent_instruction_block(verifier: VerifierArtifact) -> list[str]:
+    payload = {
+        "merge_verdict": verifier.merge_verdict,
+        "can_merge_without_human": verifier.can_merge_without_human,
+        "first_next_action": (
+            verifier.first_next_action.model_dump(mode="json")
+            if verifier.first_next_action is not None
+            else None
+        ),
+        "fix_task": (
+            verifier.fix_task.model_dump(mode="json")
+            if verifier.fix_task is not None
+            else None
+        ),
+        "agent_controller": (
+            verifier.agent_controller.model_dump(mode="json")
+            if verifier.agent_controller is not None
+            else None
+        ),
+        "verification_command": (
+            verifier.fix_task.verification_command
+            if verifier.fix_task is not None
+            else None
+        ),
+    }
+    return [
+        "",
+        "### Agent instruction block",
+        "```json",
+        json.dumps(payload, indent=2, sort_keys=True),
+        "```",
+    ]
+
+
+def _source_suffix(path: str | None, line: int | None) -> str:
+    if not path:
+        return ""
+    if line is not None:
+        return f" ({path}:{line})"
+    return f" ({path})"
 
 
 def _render_findings_comment(

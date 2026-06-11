@@ -12,7 +12,13 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.cli._helpers import _apply_strict_plugins
+from agents_shipgate.cli.capability import build_capability_lock_from_config
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.capability_lock import (
+    diff_capability_locks,
+    render_capability_lock_diff_json,
+    render_capability_lock_json,
+)
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.pr_comment import render_pr_comment
@@ -284,6 +290,17 @@ def run_verify(
             report, head_exit_code, strict_plugins=strict_plugins
         )
         head_status = "succeeded"
+        base_notes.extend(
+            _write_capability_artifacts(
+                git_root=git_root,
+                config_relative=config_relative,
+                head_config_path=head_config_path,
+                base=base if base_exists else None,
+                out_dir=out_dir,
+                plugins_enabled=plugins_enabled,
+                verbose=verbose,
+            )
+        )
     except ConfigError as exc:
         scan_error = exc
         head_exit_code = 2
@@ -855,12 +872,92 @@ def _artifact_paths(
             "report_json": out_dir / "report.json",
             "report_sarif": out_dir / "report.sarif",
             "packet_json": out_dir / "packet.json",
+            "capability_lock_json": out_dir / "capabilities.lock.json",
+            "base_capability_lock_json": out_dir / "base.capabilities.lock.json",
+            "capability_lock_diff_json": out_dir / "capability-lock-diff.json",
             **candidates,
         }
     return {
         key: _display_path(path.resolve(), git_root)
         for key, path in candidates.items()
+        if key in {"verifier_json", "pr_comment", "agent_result_json"} or path.exists()
     }
+
+
+def _write_capability_artifacts(
+    *,
+    git_root: Path,
+    config_relative: Path,
+    head_config_path: Path,
+    base: str | None,
+    out_dir: Path,
+    plugins_enabled: bool | None,
+    verbose: bool,
+) -> list[str]:
+    """Write non-gating capability lock artifacts for a verify run.
+
+    Failures are reported as verifier notes instead of changing the release
+    decision. The report/verifier gate remains the source of truth.
+    """
+    notes: list[str] = []
+    no_plugins = plugins_enabled is False
+    head_lock_path = out_dir / "capabilities.lock.json"
+    base_lock_path = out_dir / "base.capabilities.lock.json"
+    diff_path = out_dir / "capability-lock-diff.json"
+    head_lock = None
+    base_lock = None
+
+    try:
+        head_lock = build_capability_lock_from_config(
+            config=head_config_path,
+            no_plugins=no_plugins,
+            verbose=verbose,
+        )
+        _write_text(head_lock_path, render_capability_lock_json(head_lock))
+    except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
+        notes.append(f"Capability lock export skipped for head: {exc}")
+
+    if base is None:
+        return notes
+
+    with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-cap-base-") as tmp:
+        base_tree_dir = Path(tmp) / "base"
+        try:
+            archive_tree(git_root, base, base_tree_dir)
+            base_config = base_tree_dir / config_relative
+            if not base_config.is_file():
+                notes.append(
+                    "Capability lock export skipped for base: base tree does "
+                    f"not contain {config_relative.as_posix()}."
+                )
+                return notes
+            base_lock = build_capability_lock_from_config(
+                config=base_config,
+                no_plugins=no_plugins,
+                verbose=verbose,
+            )
+            _write_text(base_lock_path, render_capability_lock_json(base_lock))
+        except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
+            notes.append(f"Capability lock export skipped for base: {exc}")
+            return notes
+
+    if head_lock is not None and base_lock is not None:
+        try:
+            diff = diff_capability_locks(
+                base_lock,
+                head_lock,
+                base_path=base_lock_path,
+                head_path=head_lock_path,
+            )
+            _write_text(diff_path, render_capability_lock_diff_json(diff))
+        except Exception as exc:  # noqa: BLE001 - non-gating artifact note.
+            notes.append(f"Capability lock diff skipped: {exc}")
+    return notes
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def _write_artifacts(

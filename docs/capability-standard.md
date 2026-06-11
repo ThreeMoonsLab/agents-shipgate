@@ -35,6 +35,12 @@ Default export paths are unchanged:
 - `agents-shipgate-reports/capabilities.lock.json` for a byte-identical
   generated mirror.
 
+`agents-shipgate verify` also writes PR-standard generated artifacts under
+`agents-shipgate-reports/`: `capabilities.lock.json` for head, and when a base
+ref is available, `base.capabilities.lock.json` plus
+`capability-lock-diff.json`. These are review artifacts only; the release gate
+remains `report.json.release_decision.decision`.
+
 Repeated exports over the same manifest-relative static inputs are byte-stable.
 No wall-clock timestamp is stored.
 

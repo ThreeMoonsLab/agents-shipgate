@@ -12,6 +12,7 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`06-on-tool-source-changes.yml`](06-on-tool-source-changes.yml) | Run only when the tool surface or manifest actually changed. |
 | [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
+| [`09-fail-on-insufficient-evidence.yml`](09-fail-on-insufficient-evidence.yml) | Evidence policy: fail when static evidence is too weak to gate confidently. |
 
 ## Permissions
 
@@ -78,11 +79,21 @@ findings can feed those fields through `findings[].blocks_release`.
 Verifier artifacts: `verifier_json` points at `verifier.json`, and
 `pr_comment_markdown` points at the Markdown body the action posts to PRs.
 The default PR comment style is `capability-review`: it leads with
-`merge_verdict`, then shows `can_merge_without_human`, top capability changes,
-required next steps, trust-root warnings, and artifact links. The underlying
-release gate remains `report.json.release_decision.decision`. For one minor
-release cycle, existing adopters can set `pr_comment_style: findings` to keep
-the v1 findings-oriented comment while updating downstream automation.
+two sections: a human summary with `merge_verdict`, capability delta, next
+actor, and artifact links; then a fenced JSON agent instruction block with
+`first_next_action`, `fix_task`, and `agent_controller`. The underlying release
+gate remains `report.json.release_decision.decision`. For one minor release
+cycle, existing adopters can set `pr_comment_style: findings` to keep the v1
+findings-oriented comment while updating downstream automation.
+
+The Action also emits GitHub Actions job annotations by default for
+source-backed blockers and review items. Disable with `check_annotations:
+'false'`, or tune the cap with `check_annotation_limit`.
+
+`verify` writes static capability artifacts to the workflow artifact when
+available: `capabilities.lock.json`, `base.capabilities.lock.json`, and
+`capability-lock-diff.json`. These are review artifacts only; they do not
+create a second gate.
 
 For PR review diffs, set `diff_base: target`. The action delegates to
 `agents-shipgate verify`, which never fetches. Use `fetch-depth: 0` on
@@ -129,3 +140,12 @@ This blocks obvious release blockers while still allowing
 
 This is the strict authority mode: only PRs with no blocker, no insufficient
 evidence, and no human-review requirement can merge automatically.
+
+```yaml
+- name: Fail insufficient static evidence
+  if: steps.shipgate.outputs.merge_verdict == 'insufficient_evidence'
+  run: exit 1
+```
+
+This blocks only evidence-degraded PRs while leaving `blocked` and
+`human_review_required` to separate policies.
