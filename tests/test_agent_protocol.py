@@ -236,6 +236,29 @@ def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:
     assert payload["must_stop"] is True
 
 
+def test_stale_install_fixture_is_schema_valid_and_routes_to_upgrade() -> None:
+    payload = _load_json(GOLDEN / "stale-install.json")
+
+    _validator().validate(payload)
+    AgentResultV1.model_validate(payload)
+    # Reuses the install action kind (no agent_result_v1 schema churn); only the
+    # command carries the upgrade. Stale binaries must fail closed, never green.
+    assert payload["decision"] == "block"
+    assert payload["first_next_action"]["kind"] == "install"
+    assert payload["first_next_action"]["command"] == "pipx upgrade agents-shipgate"
+    assert payload["completion_allowed"] is False
+    assert payload["must_stop"] is True
+    assert payload["diagnostics"][0]["code"] == "shipgate_stale_install"
+
+
+def test_stale_install_fixture_mirrors_examples_copy() -> None:
+    # The golden and the runnable examples/ copy must stay byte-identical, like
+    # missing-install — agents may read either path.
+    golden = (GOLDEN / "stale-install.json").read_text(encoding="utf-8")
+    example = (EXAMPLES / "expected" / "stale-install.json").read_text(encoding="utf-8")
+    assert golden == example
+
+
 def test_mcp_shipgate_check_is_read_only_static_adapter(
     tmp_path: Path,
     monkeypatch,
