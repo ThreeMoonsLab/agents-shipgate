@@ -30,6 +30,15 @@ python -m pip install -U "agents-shipgate>=0.13"
 After installation, run `agents-shipgate --version` again. Do not continue to
 `detect`, `init`, `scan`, or `verify` until the CLI exists and is `>=0.13.0`.
 
+A missing or stale binary is a `decision="block"` install action in the
+agent-native protocol, not a reason to proceed unverified. Until
+`agents-shipgate --version` confirms `>=0.13.0`, do not report the task
+complete: surface the install/upgrade action and stop. The schema-valid
+`agent_result_v1` object to emit is documented in the Missing Install and Stale
+Install sections of `docs/agents/protocol.md`, with full fixtures at
+`examples/agent-protocol/expected/missing-install.json` and
+`examples/agent-protocol/expected/stale-install.json`.
+
 ## Decide Relevance
 
 Run:

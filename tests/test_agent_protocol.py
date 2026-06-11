@@ -259,6 +259,16 @@ def test_stale_install_fixture_mirrors_examples_copy() -> None:
     assert golden == example
 
 
+def test_protocol_state_machine_documents_install_branch() -> None:
+    # The kind="install" block (missing- and stale-install) is a distinct
+    # state-machine branch; a consumer implementing the protocol must have a
+    # row for it, not just repairable/human blocks (PR #201 review).
+    text = (ROOT / "docs" / "agents" / "protocol.md").read_text(encoding="utf-8")
+    assert '`first_next_action.kind="install"`' in text
+    assert "#missing-install" in text
+    assert "#stale-install" in text
+
+
 def test_mcp_shipgate_check_is_read_only_static_adapter(
     tmp_path: Path,
     monkeypatch,

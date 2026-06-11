@@ -77,12 +77,19 @@ same allowed decision.
 | `allow` | Continue. Completion is allowed. |
 | `warn` | Continue, but surface the warning in the final task summary. |
 | `block` with `first_next_action.actor="coding_agent"` and `repair.safe_to_attempt=true` | Apply only the listed repair, then rerun the exact command in `repair.command` or `first_next_action.command`. |
+| `block` with `first_next_action.kind="install"` | The gate cannot run: the binary is missing or stale. Run `first_next_action.command` (install or upgrade), then rerun `shipgate check`. Do not report completion until a rerun returns `allow` or `warn`. |
 | `block` with `first_next_action.actor="human"` | Stop. Do not continue, suppress, waive, or weaken policy. |
 | `require_review` | Stop and ask for human review. |
 
 `must_stop=true` is an explicit stop boundary. An agent must not claim the task
 complete when `must_stop=true`, except to report that human review or install is
 required.
+
+The `kind="install"` block is distinct from the repair loop below: it does not
+fix a finding, it restores a working gate. `repair.safe_to_attempt` is `false`
+(there is no finding to repair), the action routes to the coding agent, and
+`completion_allowed` is `false`. See [Missing Install](#missing-install) and
+[Stale Install](#stale-install) for the two cases and their fixtures.
 
 ## Repair Loop
 

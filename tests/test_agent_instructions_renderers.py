@@ -84,7 +84,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "589c6b6867b76c80be3cff10374c14f808f99c0e1c488c3b49aead7264d44ec1"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "a554d3b989a65f9a64af6f2c14304e4ad94daa9e11515c21a2997dc1dd892c99"
+        "4d09a79214e1ff31df9fe099157e54599c694f526337355909defbb015f62c95"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
@@ -260,6 +260,12 @@ def test_codex_skill_has_required_surfaces() -> None:
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
     assert "Require `agents-shipgate >=0.13.0`" in recipes
     assert 'python -m pip install -U "agents-shipgate>=0.13"' in recipes
+    # The agent-ingested preflight must point at the canonical fail-closed
+    # install/upgrade objects, not leave the missing/stale-binary path
+    # prose-only (PR #201 review).
+    assert "docs/agents/protocol.md" in recipes
+    assert "missing-install.json" in recipes
+    assert "stale-install.json" in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:
