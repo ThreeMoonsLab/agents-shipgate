@@ -352,8 +352,18 @@ def evaluate_codex_boundary_result(
     policy_path: Path | None = None,
     trigger: dict[str, Any] | None = None,
     release_decision: dict[str, Any] | None = None,
+    capability_surfaces_changed: list[str] | None = None,
 ) -> AgentResultV1:
-    """Return the local Codex agent-result projection for a unified diff."""
+    """Return the local Codex agent-result projection for a unified diff.
+
+    ``capability_surfaces_changed`` lists changed files that the manifest
+    declares as tool sources. The boundary evaluator does not inspect tool
+    surfaces (only ``verify`` computes the capability delta), so when one
+    changed and the boundary result is otherwise a clean ``allow``, the
+    result is escalated to ``warn`` and routed to ``verify`` rather than
+    green-lighting a capability change ``check`` never evaluated. This keeps
+    ``check`` from disagreeing with the ``release_decision.decision`` gate.
+    """
 
     # Keep this local diff projector aligned with
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
@@ -423,6 +433,17 @@ def evaluate_codex_boundary_result(
 
     violations = _dedupe_violations(violations)
     decision = _decision_for(violations, release_decision=release_decision)
+
+    # Coverage gap: check is boundary-only, so a clean ``allow`` over a diff
+    # that touches a manifest-declared tool surface would silently green-light
+    # a capability change that only ``verify`` gates. Escalate to ``warn`` and
+    # route to verify instead. Gated on ``release_decision is None`` because a
+    # provided release decision means the full capability scan already ran.
+    coverage_surfaces = sorted(dict.fromkeys(capability_surfaces_changed or []))
+    coverage_gap = decision == "allow" and release_decision is None and bool(coverage_surfaces)
+    if coverage_gap:
+        decision = "warn"
+
     risk_level = _risk_for(violations)
     repair = _repair_for(decision, violations, agent)
     human_review = _human_review_for(decision, violations, repair)
@@ -434,6 +455,17 @@ def evaluate_codex_boundary_result(
         finding_fingerprints=finding_fingerprints,
         evaluated_files=evaluated_files,
     )
+    if coverage_gap:
+        first_next_action = _coverage_next_action()
+        summary = _coverage_summary(coverage_surfaces)
+        diagnostics = [*diagnostics, _coverage_diagnostic(coverage_surfaces)]
+        trace = [*_trace_for(policy, decision, violations), _coverage_trace(coverage_surfaces)]
+        suggested_fixes = [_VERIFY_COMMAND]
+    else:
+        first_next_action = _next_action_for(decision, violations, repair)
+        summary = _summary_for(decision, violations)
+        trace = _trace_for(policy, decision, violations)
+        suggested_fixes = [item.recommendation for item in violations[:5]]
     return AgentResultV1(
         agent=agent,  # type: ignore[arg-type]
         subject=AgentResultSubject(agent=agent),
@@ -441,22 +473,22 @@ def evaluate_codex_boundary_result(
         risk_level=risk_level,
         audit_id=audit_id,
         policy_version=policy.version,
-        summary=_summary_for(decision, violations),
+        summary=summary,
         changed_files=changed_files,
         completion_allowed=decision in {"allow", "warn"},
         must_stop=decision in {"require_review", "block"} and not repair.safe_to_attempt,
-        first_next_action=_next_action_for(decision, violations, repair),
+        first_next_action=first_next_action,
         human_review=human_review,
         repair=repair,
         policy=_policy_result(policy),
         violated_rules=violations,
         affected_files=_affected_files_for(violations, changed_files),
         required_reviewers=human_review.required_reviewers,
-        explanation=_summary_for(decision, violations),
-        suggested_fixes=[item.recommendation for item in violations[:5]],
+        explanation=summary,
+        suggested_fixes=suggested_fixes,
         agent_repair_instructions=_agent_repair_instructions(decision, violations),
         diagnostics=diagnostics,
-        trace=_trace_for(policy, decision, violations),
+        trace=trace,
         release_decision=release_decision,
         trigger=trigger,
         finding_fingerprints=finding_fingerprints,
@@ -1276,6 +1308,54 @@ def _risk_for(violations: list[AgentResultViolatedRule]) -> AgentResultRiskLevel
         return "none"
     max_item = max(violations, key=lambda item: _RISK_RANK[item.risk_level])
     return max_item.risk_level
+
+
+# Canonical capability gate. check is boundary-only; verify computes the
+# capability delta and owns release_decision.decision. Bare ``verify --json``
+# auto-detects the base (v0.13) and emits the agent_result_v1 surface, so it
+# works for both the local working tree and committed refs.
+_VERIFY_COMMAND = "agents-shipgate verify --json"
+
+
+def _coverage_next_action() -> AgentResultNextAction:
+    return AgentResultNextAction(
+        actor="coding_agent",
+        kind="warn",
+        command=_VERIFY_COMMAND,
+        why=(
+            "shipgate check is boundary-only and did not evaluate the changed tool "
+            "surface; run verify for the capability merge gate before completing."
+        ),
+    )
+
+
+def _coverage_summary(surfaces: list[str]) -> str:
+    return (
+        "No Codex boundary rule fired, but the diff changes a declared tool surface "
+        f"({', '.join(surfaces[:5])}) that only verify gates. Run verify before "
+        "reporting completion."
+    )
+
+
+def _coverage_diagnostic(surfaces: list[str]) -> AgentResultDiagnostic:
+    return AgentResultDiagnostic(
+        level="warning",
+        code="capability_change_requires_verify",
+        message=(
+            "shipgate check is boundary-only; the changed tool surface(s) "
+            f"{', '.join(surfaces[:5])} are gated by verify, not check."
+        ),
+    )
+
+
+def _coverage_trace(surfaces: list[str]) -> AgentResultTraceEvent:
+    return AgentResultTraceEvent(
+        step="coverage",
+        summary=(
+            f"boundary_only: capability gating for {len(surfaces)} changed tool "
+            "surface(s) deferred to verify."
+        ),
+    )
 
 
 def _summary_for(decision: str, violations: list[AgentResultViolatedRule]) -> str:

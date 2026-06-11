@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.codex_boundary import (
     evaluate_codex_boundary_result,
     parse_unified_diff,
@@ -36,7 +37,46 @@ def build_codex_agent_result(
         agent=agent,
         policy_path=policy,
         trigger=trigger,
+        capability_surfaces_changed=_declared_tool_surfaces_changed(
+            workspace=workspace,
+            config_path=config_path,
+            changed_files=changed_files,
+        ),
     )
+
+
+def _declared_tool_surfaces_changed(
+    *,
+    workspace: Path,
+    config_path: Path,
+    changed_files: list[str],
+) -> list[str]:
+    """Return changed files the manifest declares as tool sources.
+
+    These are capability surfaces ``verify`` scans but the boundary evaluator
+    does not, so a clean boundary ``allow`` over one of them must defer to
+    ``verify``. Best-effort: an absent or invalid manifest yields no signal so
+    the boundary check degrades to its prior behavior rather than failing.
+    """
+
+    if not changed_files or not config_path.is_file():
+        return []
+    try:
+        manifest = load_manifest(config_path)
+    except Exception:  # noqa: BLE001 - enrichment must never break the check.
+        return []
+    manifest_dir = config_path.parent
+    declared: set[str] = set()
+    for source in getattr(manifest, "tool_sources", None) or []:
+        path = getattr(source, "path", None)
+        if not isinstance(path, str) or not path:
+            continue
+        try:
+            rel = (manifest_dir / path).resolve().relative_to(workspace).as_posix()
+        except ValueError:
+            continue
+        declared.add(rel)
+    return sorted(declared.intersection(changed_files))
 
 
 def git_diff_text(

@@ -113,6 +113,25 @@ must set `human_review.required=true` and stop the agent.
 `repair.forbidden_shortcuts` is present on every result, including `allow`, so
 agents have the same trust-root boundary even when no finding fires.
 
+## Coverage
+
+`shipgate check` is boundary-scoped: it evaluates host and trust-root surfaces
+(Codex/host config, MCP approvals, the Shipgate CI gate, agent instructions,
+policy, and skills) from the diff. It does **not** compute the tool-use
+capability delta — that is `verify`'s job, and `release_decision.decision`
+remains the one authoritative capability gate.
+
+So that `check` never disagrees with that gate, a clean boundary result over a
+diff that changes a **manifest-declared tool source** (a `tool_sources[].path`
+entry) does not return `allow`. It returns `decision="warn"` with
+`first_next_action.kind="warn"` routing to `verify`, plus a
+`diagnostics[].code="capability_change_requires_verify"` marker and a
+`trace[].step="coverage"` event. Completion is still allowed, but the agent
+must run `verify` for the capability merge gate before reporting done. This
+keeps `check` from green-lighting a capability change it did not evaluate. A
+diff that only touches boundary surfaces or unrelated files (docs, tests)
+still returns `allow`.
+
 ## Human Boundary
 
 The human approval boundary is explicit:
