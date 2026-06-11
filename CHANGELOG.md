@@ -17,6 +17,16 @@
   `examples/github-actions/11-host-grant-drift.yml`. Catches authority changes
   that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
   checks cannot see them.
+- **`check` defers tool-surface changes to `verify` (coverage boundary).**
+  `shipgate check` is boundary-scoped and does not compute the capability
+  delta, so a clean boundary result over a diff that changes a
+  manifest-declared `tool_sources[].path` no longer returns `allow` — it
+  returns `decision="warn"` routing `first_next_action` to `verify`, with a
+  `diagnostics[].code="capability_change_requires_verify"` marker and a
+  `trace[].step="coverage"` event. Completion is still allowed, but `check`
+  no longer green-lights a capability change only `verify` gates, so the local
+  loop cannot disagree with `release_decision.decision`. Docs/test/boundary-only
+  diffs are unaffected (still `allow`); no `agent_result_v1` schema change.
 - **Agent-mode auto-detection.** Agent mode now auto-enables when a known
   coding-agent harness environment is detected (Claude Code exports
   `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`), so structured `next_action`
