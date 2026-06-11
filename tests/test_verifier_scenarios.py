@@ -79,9 +79,7 @@ def _init_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "t@example.com"], cwd=repo, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True)
     return repo
 
@@ -210,9 +208,7 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
         == "agents-shipgate-reports/capability-lock-diff.md"
     )
     reports = repo / "agents-shipgate-reports"
-    diff_payload = json.loads(
-        (reports / "capability-lock-diff.json").read_text(encoding="utf-8")
-    )
+    diff_payload = json.loads((reports / "capability-lock-diff.json").read_text(encoding="utf-8"))
     assert diff_payload["capability_lock_diff_schema_version"] == "0.3"
     assert diff_payload["summary"]["added"] == 1
     assert diff_payload["summary"]["changed"] == 0
@@ -308,7 +304,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
 """
 
 
@@ -337,9 +333,7 @@ def test_scenario_agent_adds_email_tool_is_a_gated_capability(tmp_path: Path) ->
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
     blocker_checks = {b["check_id"] for b in payload["release_decision"]["blockers"]}
-    assert (
-        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in blocker_checks
-    ), blocker_checks
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" in blocker_checks, blocker_checks
     email_adds = [
         c
         for c in payload["capability_review"]["top_changes"]

@@ -5,9 +5,10 @@ Agents Shipgate visible to coding agents working in that target repo, not only
 to agents reading the Agents Shipgate source repo.
 
 > The CLI plants these snippets for you. Run
-> `agents-shipgate init --write --agent-instructions=all` (or pass a subset
-> like `--agent-instructions=agents-md,codex-skill,claude-code-skill,cursor`)
-> to emit them into the target repo. Shared host files use managed
+> `agents-shipgate init --write --ci --agent-instructions=default --json` for the
+> default downstream kit (`AGENTS.md`, Cursor rule, Claude command, local
+> contract, advisory CI), or pass an explicit subset such as
+> `--agent-instructions=agents-md,codex-skill`. Shared host files use managed
 > `<!-- agents-shipgate:start -->` blocks; full-file and skill-bundle targets
 > use safe-update checks. Idempotent — safe to rerun. The raw content below is
 > the canonical reference and the source the renderers in
@@ -48,7 +49,7 @@ Commands:
 ```bash
 shipgate check --agent codex --workspace . --format agent-json
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```

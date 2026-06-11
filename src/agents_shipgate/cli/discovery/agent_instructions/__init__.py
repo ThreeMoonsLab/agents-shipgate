@@ -4,6 +4,7 @@ Public surface used by ``agents-shipgate init --agent-instructions=...``:
 
 - :data:`BLOCK_VERSION` — current renderer-format version.
 - :data:`TARGETS` — ordered tuple of selectable target names.
+- :data:`DEFAULT_TARGETS` — ordered tuple selected by ``default``/``recommended``.
 - :func:`parse_selector` — parse the comma-separated selector value.
 - :func:`apply_agent_instructions` — apply the per-target decision tree
   against a workspace.
@@ -19,6 +20,7 @@ from agents_shipgate.cli.discovery.agent_instructions.apply import (
 )
 from agents_shipgate.cli.discovery.agent_instructions.targets import (
     BLOCK_VERSION,
+    DEFAULT_TARGETS,
     TARGETS,
     InvalidSelector,
     parse_selector,
@@ -26,6 +28,7 @@ from agents_shipgate.cli.discovery.agent_instructions.targets import (
 
 __all__ = [
     "BLOCK_VERSION",
+    "DEFAULT_TARGETS",
     "InvalidSelector",
     "TARGETS",
     "TargetOutcome",

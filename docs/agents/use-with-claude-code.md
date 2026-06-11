@@ -64,6 +64,13 @@ cp /path/to/agents-shipgate/.claude/commands/shipgate.md .claude/commands/shipga
 cp -r /path/to/agents-shipgate/skills/agents-shipgate .claude/skills/agents-shipgate
 ```
 
+Or use the Shipgate renderer for the slash command and optional skill bundle:
+
+```bash
+agents-shipgate init --workspace . --write --agent-instructions=claude-command --json
+agents-shipgate init --workspace . --write --agent-instructions=claude-code-skill --json
+```
+
 The `agents-shipgate init --agent-instructions=claude-code-skill` renderer can
 also use repo-local overrides without rebuilding the package:
 

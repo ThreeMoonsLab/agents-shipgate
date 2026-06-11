@@ -116,7 +116,7 @@ If the repo is not configured yet, install the manifest, advisory CI, and
 agent-facing instructions:
 
 ```bash
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 ```
 
 Prefer to delegate? Paste the
@@ -273,7 +273,7 @@ Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents S
 Run:
 agents-shipgate verify --preview --json
 If Shipgate is relevant, run:
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
@@ -421,7 +421,7 @@ evidence around them:
 
 ```bash
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 # Replace any CHANGE_ME placeholders reported by init.
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json

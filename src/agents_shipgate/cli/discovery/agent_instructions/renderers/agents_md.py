@@ -30,7 +30,7 @@ Commands:
 ```bash
 shipgate check --agent codex --workspace . --format agent-json
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \\
   --ci-mode advisory --format json
 ```

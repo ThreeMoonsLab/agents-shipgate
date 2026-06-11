@@ -100,19 +100,19 @@ block release through ordinary `SHIP-VERIFY-*` findings.
 ```bash
 pipx install agents-shipgate
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
   manifest required, exits 0. It emits `mode: "preview"` and a `first_next_action`
-  with the next recommended action (`none` for irrelevant diffs,
-  `detect`/`init` for relevant unconfigured repos, or `verify` for configured
-  repos). Use it as the first touch on any repo or PR.
-- `init --write --ci --agent-instructions=all` writes `shipgate.yaml`, the
-  advisory CI workflow, and the agent-instruction surfaces (`AGENTS.md`,
-  `CLAUDE.md`, the Cursor rule, the Codex/Claude skills, and the PR template) via
-  idempotent managed blocks.
+  with an exact init command for unconfigured repos or an exact verify command
+  for configured repos. Use it as the first touch on any repo or PR.
+- `init --write --ci --agent-instructions=default --json` writes
+  `shipgate.yaml`, the advisory CI workflow, and the default agent surfaces
+  (`AGENTS.md`, the Cursor rule, the Claude `/shipgate` command, and
+  `.shipgate/agent-contract.json`). Skill bundles stay explicit targets such as
+  `codex-skill`.
 - `verify --base origin/main --head HEAD --json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or

@@ -2,9 +2,10 @@
 
 The selector accepts:
 
-- ``all``  — every registered target.
+- ``default`` / ``recommended`` — the lightweight downstream agent kit.
+- ``all``  — every supported target, including opt-in skill bundles.
 - ``none`` — no targets (rare; mirrors ``--minimal`` as an explicit opt-out).
-- A comma-separated list of target names, e.g. ``agents-md,codex-skill,claude-code-skill,cursor``.
+- A comma-separated list of target names, e.g. ``agents-md,codex-skill,cursor``.
 
 Unknown names raise :class:`InvalidSelector`. The CLI converts that into a
 ``config_error`` agent-mode error JSON line + a ``next_action`` pointing at
@@ -21,16 +22,24 @@ from dataclasses import dataclass
 BLOCK_VERSION: int = 1
 
 # Order is the order targets are applied and printed. AGENTS.md first because
-# it's the agent-facing entry point; the Codex skill is a repo-scoped executable
-# adoption surface; CLAUDE.md mirrors the block for Claude users; Cursor is a
-# separate IDE rule file; PR template is reviewer-facing.
+# it's the agent-facing entry point; Cursor / Claude command / local contract are
+# full-file discovery surfaces. Skill bundles, CLAUDE.md, and the PR template
+# remain explicit opt-ins unless the caller asks for the literal "all" set.
 TARGETS: tuple[str, ...] = (
     "agents-md",
+    "cursor",
+    "claude-command",
+    "local-contract",
     "codex-skill",
     "claude-code-skill",
     "claude-md",
-    "cursor",
     "pr-template",
+)
+DEFAULT_TARGETS: tuple[str, ...] = (
+    "agents-md",
+    "cursor",
+    "claude-command",
+    "local-contract",
 )
 
 
@@ -66,6 +75,16 @@ SPECS: dict[str, TargetSpec] = {
         relative_path=".cursor/rules/agents-shipgate.mdc",
         is_full_file=True,
     ),
+    "claude-command": TargetSpec(
+        name="claude-command",
+        relative_path=".claude/commands/shipgate.md",
+        is_full_file=True,
+    ),
+    "local-contract": TargetSpec(
+        name="local-contract",
+        relative_path=".shipgate/agent-contract.json",
+        is_full_file=True,
+    ),
     "pr-template": TargetSpec(
         name="pr-template",
         relative_path=".github/pull_request_template.md",
@@ -77,14 +96,18 @@ SPECS: dict[str, TargetSpec] = {
 def parse_selector(value: str) -> list[str]:
     """Parse a selector string into an ordered, deduplicated list of target names.
 
-    Empty selector is rejected — the CLI must pass ``all`` or ``none`` explicitly.
+    Empty selector is rejected — the CLI must pass ``default``, ``all``,
+    ``none``, or an explicit comma-separated target list.
     """
     raw = (value or "").strip()
     if not raw:
         raise InvalidSelector(
-            "Empty selector. Pass --agent-instructions=all, --agent-instructions=none, "
+            "Empty selector. Pass --agent-instructions=default, "
+            "--agent-instructions=all, --agent-instructions=none, "
             "or a comma-separated list of: " + ", ".join(TARGETS)
         )
+    if raw in {"default", "recommended"}:
+        return list(DEFAULT_TARGETS)
     if raw == "all":
         return list(TARGETS)
     if raw == "none":
