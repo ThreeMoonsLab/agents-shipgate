@@ -13,7 +13,7 @@ runner = CliRunner()
 def _attestation(verdict: str = "blocked", change_ids: list[str] | None = None) -> dict:
     return {
         "attestation_schema_version": "0.1",
-        "cli_version": "0.11.0",
+        "cli_version": "0.13.0",
         "source_verifier": "agents-shipgate-reports/verifier.json",
         "redacted": True,
         "base_ref": "origin/main",
@@ -149,9 +149,7 @@ def test_ingest_rejects_non_attestation(tmp_path: Path) -> None:
 
 def test_query_human_output_lists_rows(tmp_path: Path) -> None:
     ledger = _ingest(tmp_path, _attestation(), "org/a")
-    result = runner.invoke(
-        app, ["registry", "query", "--registry", str(ledger)]
-    )
+    result = runner.invoke(app, ["registry", "query", "--registry", str(ledger)])
     assert result.exit_code == 0
     assert "verdict=blocked" in result.output
     assert "trust-root" in result.output

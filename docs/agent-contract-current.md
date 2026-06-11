@@ -10,8 +10,14 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v3 also exposes the local agent command spec:
+`commands{}`, `default_paths{}`, `artifacts{}`, `verifier_read_order[]`,
+`merge_verdicts[]`, `release_decisions[]`, and `do_not_auto_assert[]`. Downstream
+repos generated with `init --agent-instructions=default` get the minimal local copy at
+`.shipgate/agent-contract.json`.
+
 - Latest release: `v0.13.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `2`
+- Runtime contract: `3`
 - Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
@@ -144,9 +150,10 @@ command exits 2.
 `agents-shipgate verify --preview --json` is a lightweight relevance check — no
 scan, no manifest required, exits 0. It emits a `verifier.json` with
 `mode: "preview"` and a `first_next_action` carrying the next recommended action:
-`none` for irrelevant diffs, `detect`/`init` for relevant unconfigured repos, or
-`verify` for configured repos. Use it as the first touch before a full scan. To
-evaluate just the run/skip trigger, run
+an exact `init --workspace <workspace> --write --ci --agent-instructions=default --json`
+command for unconfigured repos, or an exact `verify` command for configured
+repos using the supplied workspace/config/base/head/out arguments. Use it as the
+first touch before a full scan. To evaluate just the run/skip trigger, run
 `agents-shipgate trigger --base origin/main --head HEAD --json`.
 
 In `agents-shipgate-reports/verifier.json`, read these additive fields

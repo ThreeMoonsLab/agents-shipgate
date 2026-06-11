@@ -52,13 +52,9 @@ from agents_shipgate.triggers import evaluate, load_triggers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CURRENT_REPORT_SCHEMA_VERSION = str(
-    ReadinessReport.model_fields["report_schema_version"].default
-)
+CURRENT_REPORT_SCHEMA_VERSION = str(ReadinessReport.model_fields["report_schema_version"].default)
 CURRENT_REPORT_SCHEMA = f"report-schema.v{CURRENT_REPORT_SCHEMA_VERSION}.json"
-CURRENT_PACKET_SCHEMA_VERSION = str(
-    EvidencePacket.model_fields["packet_schema_version"].default
-)
+CURRENT_PACKET_SCHEMA_VERSION = str(EvidencePacket.model_fields["packet_schema_version"].default)
 CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
@@ -69,9 +65,7 @@ ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
 LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2|3|4|5)\.json")
 PACKET_ANCHOR_PATTERN = re.compile(r"#release-evidence-packet-v(\d+)")
-SUMMARY_STATUS_PATTERN = re.compile(
-    r"summary\.status\b|summary\.\{[^}]*status[^}]*\}"
-)
+SUMMARY_STATUS_PATTERN = re.compile(r"summary\.status\b|summary\.\{[^}]*status[^}]*\}")
 LEGACY_CONTEXT_WORDS = re.compile(
     r"\b(?:frozen|legacy|compat|compatibility|baseline-blind|preserved|"
     r"older|pre-v|kept for|v0\.7 caller|previously)\b",
@@ -79,21 +73,17 @@ LEGACY_CONTEXT_WORDS = re.compile(
 )
 CURRENT_CONTEXT_WORDS = re.compile(r"\bcurrent\b", re.IGNORECASE)
 CONTEXT_WINDOW = 400  # ~one paragraph; tight enough that the original
-                       # stale `.claude/commands/shipgate.md` (no legacy
-                       # marker for hundreds of chars) would still fail.
+# stale `.claude/commands/shipgate.md` (no legacy
+# marker for hundreds of chars) would still fail.
 
-ACTION_PIN_PATTERN = re.compile(
-    r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)"
-)
+ACTION_PIN_PATTERN = re.compile(r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)")
 PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
 # Zero-install runner pin recommended by the agent-facing install
 # snippets: ``uvx agents-shipgate@X.Y.Z``. The ``@v`` GitHub Action form
 # is NOT matched (a digit must follow ``@``), nor is the ``==`` pip form,
 # so this guards the uvx literal specifically.
 UVX_PIN_PATTERN = re.compile(r"agents-shipgate@(\d+\.\d+\.\d+)")
-SHIPGATE_VERSION_INPUT_PATTERN = re.compile(
-    r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"
-)
+SHIPGATE_VERSION_INPUT_PATTERN = re.compile(r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]")
 # Surfaces that name the *latest released* version inline (not as an
 # Action / pip / shipgate_version pin) and must move with the package
 # version on every bump. Each entry is a (path, regex) pair where the
@@ -108,9 +98,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "docs/distribution.md",
-        re.compile(
-            r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"
-        ),
+        re.compile(r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"),
     ),
     (
         "docs/faq.md",
@@ -126,24 +114,20 @@ VERSION_LITERAL_TARGETS = (
 # below mirror the "Do not use" list in AGENTS.md §Naming (canonical).
 FORBIDDEN_NAME_PATTERN = re.compile(
     r"(?<![A-Za-z])("
-    r"Agent\s+(?:Shipcheck|Shipgate)"      # singular display: "Agent Shipgate"
-    r"|Agents-Shipgate"                     # display kebab
-    r"|agents\s+shipgate"                   # display lowercase
+    r"Agent\s+(?:Shipcheck|Shipgate)"  # singular display: "Agent Shipgate"
+    r"|Agents-Shipgate"  # display kebab
+    r"|agents\s+shipgate"  # display lowercase
     r")(?![A-Za-z])"
 )
 # `agent_shipgate` (singular underscore) is always wrong; the correct
 # Python module is `agents_shipgate` (plural). Pinned separately
 # because Python contexts otherwise need `agents_shipgate` to pass.
-SINGULAR_UNDERSCORE_PATTERN = re.compile(
-    r"(?<![A-Za-z_])agent_shipgate(?![A-Za-z_])"
-)
+SINGULAR_UNDERSCORE_PATTERN = re.compile(r"(?<![A-Za-z_])agent_shipgate(?![A-Za-z_])")
 DO_NOT_USE_CONTEXT_PATTERN = re.compile(
     r"do\s*\*{0,2}\s*not\s*\*{0,2}\s*use|avoid these names|forbidden",
     re.IGNORECASE,
 )
-POSITIONING_PHRASE = (
-    "The deterministic merge gate for AI-generated agent capability changes"
-)
+POSITIONING_PHRASE = "The deterministic merge gate for AI-generated agent capability changes"
 POSITIONING_SCAN_DOCSTRING = (
     "the deterministic merge gate for AI-generated agent capability changes"
 )
@@ -252,12 +236,12 @@ def _read(relpath: str) -> str:
 
 
 def _has_legacy_context(text: str, start: int, end: int) -> bool:
-    snippet = text[max(0, start - CONTEXT_WINDOW): end + CONTEXT_WINDOW]
+    snippet = text[max(0, start - CONTEXT_WINDOW) : end + CONTEXT_WINDOW]
     return bool(LEGACY_CONTEXT_WORDS.search(snippet))
 
 
 def _has_current_context(text: str, start: int, end: int) -> bool:
-    snippet = text[max(0, start - CONTEXT_WINDOW): end + CONTEXT_WINDOW]
+    snippet = text[max(0, start - CONTEXT_WINDOW) : end + CONTEXT_WINDOW]
     return bool(CURRENT_CONTEXT_WORDS.search(snippet))
 
 
@@ -360,15 +344,15 @@ def test_well_known_metadata_lists_packet_outputs():
         "gating_signal: 'release_decision.decision' so coding agents "
         "don't fall back to summary.status."
     )
+    assert data.get("contract_version") == "3"
+    assert data.get("artifacts", {}).get("local_contract") == (".shipgate/agent-contract.json")
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (
-        f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; "
-        f"got {report_url!r}."
+        f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; got {report_url!r}."
     )
     packet_url = schemas.get("packet", "")
     assert CURRENT_PACKET_SCHEMA in packet_url, (
-        f".well-known schemas.packet must point to {CURRENT_PACKET_SCHEMA}; "
-        f"got {packet_url!r}."
+        f".well-known schemas.packet must point to {CURRENT_PACKET_SCHEMA}; got {packet_url!r}."
     )
     feedback_url = schemas.get("feedback", "")
     assert "feedback-schema.v0.1.json" in feedback_url, (
@@ -391,17 +375,14 @@ def test_well_known_metadata_lists_packet_outputs():
         f"capability lock diff schema; got {capability_diff_url!r}."
     )
     attestation_url = schemas.get("attestation", "")
-    assert f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json" in (
-        attestation_url
-    ), (
+    assert f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json" in (attestation_url), (
         ".well-known schemas.attestation must point to the current "
         f"attestation schema; got {attestation_url!r}."
     )
     benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
     assert (
         "governance-benchmark-catalog-schema."
-        f"v{GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION}.json"
-        in benchmark_catalog_url
+        f"v{GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION}.json" in benchmark_catalog_url
     ), (
         ".well-known schemas.governance_benchmark_catalog must point to the "
         f"current catalog schema; got {benchmark_catalog_url!r}."
@@ -409,8 +390,7 @@ def test_well_known_metadata_lists_packet_outputs():
     benchmark_result_url = schemas.get("governance_benchmark_result", "")
     assert (
         "governance-benchmark-result-schema."
-        f"v{GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION}.json"
-        in benchmark_result_url
+        f"v{GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION}.json" in benchmark_result_url
     ), (
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
@@ -433,8 +413,7 @@ def test_agent_contract_current_doc_is_canonical():
     )
     assert __version__ == contract["cli_version"]
     assert f"Latest release: `v{contract['cli_version']}`" in text, (
-        "docs/agent-contract-current.md must agree with the runtime "
-        "contract's cli_version."
+        "docs/agent-contract-current.md must agree with the runtime contract's cli_version."
     )
     assert CURRENT_REPORT_SCHEMA in text, (
         "docs/agent-contract-current.md must reference the current "
@@ -451,6 +430,10 @@ def test_agent_contract_current_doc_is_canonical():
     assert "manual_review_signals[]" in text, (
         "docs/agent-contract-current.md must mention the local contract's "
         "manual_review_signals[] field."
+    )
+    assert "commands" in text and "verifier_read_order" in text, (
+        "docs/agent-contract-current.md must mention the runtime contract's "
+        "agent-operational command/read-order fields."
     )
     assert "findings[].provenance_kind" in MANUAL_REVIEW_SIGNALS
     assert "agents-shipgate findings" in text, (
@@ -537,27 +520,17 @@ def test_constants_match_contract_doc():
     bumping the contract doc *and* this test's constants — both
     must move together."""
     text = _read("docs/agent-contract-current.md")
-    report_match = re.search(
-        r"Current report schema:\s*`(\d+\.\d+)`", text
-    )
-    packet_match = re.search(
-        r"Current packet schema:\s*`(\d+\.\d+)`", text
-    )
-    release_match = re.search(
-        r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text
-    )
+    report_match = re.search(r"Current report schema:\s*`(\d+\.\d+)`", text)
+    packet_match = re.search(r"Current packet schema:\s*`(\d+\.\d+)`", text)
+    release_match = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text)
     assert report_match, (
         "docs/agent-contract-current.md must declare 'Current report "
         "schema: `X.Y`' so the test constants can be cross-checked."
     )
     assert packet_match, (
-        "docs/agent-contract-current.md must declare 'Current packet "
-        "schema: `X.Y`'."
+        "docs/agent-contract-current.md must declare 'Current packet schema: `X.Y`'."
     )
-    assert release_match, (
-        "docs/agent-contract-current.md must declare 'Latest release: "
-        "`vX.Y.Z`'."
-    )
+    assert release_match, "docs/agent-contract-current.md must declare 'Latest release: `vX.Y.Z`'."
     assert report_match.group(1) == CURRENT_REPORT_SCHEMA_VERSION, (
         f"contract doc says report schema is "
         f"{report_match.group(1)!r}; test constant says "
@@ -612,12 +585,8 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     # llms.txt — both the "Latest public release" line and the
     # GitHub Action line must echo the package version.
     llms_text = _read("llms.txt")
-    llms_release = re.search(
-        r"Latest public release:\s*v(\d+\.\d+\.\d+)", llms_text
-    )
-    assert llms_release, (
-        "llms.txt must declare 'Latest public release: vX.Y.Z'."
-    )
+    llms_release = re.search(r"Latest public release:\s*v(\d+\.\d+\.\d+)", llms_text)
+    assert llms_release, "llms.txt must declare 'Latest public release: vX.Y.Z'."
     assert llms_release.group(1) == expected, (
         f"llms.txt 'Latest public release' is "
         f"v{llms_release.group(1)}; pyproject.toml says v{expected}."
@@ -628,18 +597,14 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
         "Action pin so coding agents know the canonical version."
     )
     assert llms_action.group(1) == expected, (
-        f"llms.txt Action pin is v{llms_action.group(1)}; "
-        f"pyproject.toml says v{expected}."
+        f"llms.txt Action pin is v{llms_action.group(1)}; pyproject.toml says v{expected}."
     )
 
     # docs/agent-contract-current.md
     contract_text = _read("docs/agent-contract-current.md")
-    contract_release = re.search(
-        r"Latest release:\s*`v(\d+\.\d+\.\d+)`", contract_text
-    )
+    contract_release = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", contract_text)
     assert contract_release and contract_release.group(1) == expected, (
-        f"docs/agent-contract-current.md 'Latest release' must be "
-        f"`v{expected}`."
+        f"docs/agent-contract-current.md 'Latest release' must be `v{expected}`."
     )
 
 
@@ -659,9 +624,7 @@ def test_action_pins_match_pyproject_version(relpath):
     that point at a tag that doesn't exist (e.g., @v0.10.0 before the
     bump) or that lag behind the bump."""
     expected = _load_pyproject_version()
-    for line_number, line, found in _file_lines_with_pin(
-        relpath, ACTION_PIN_PATTERN
-    ):
+    for line_number, line, found in _file_lines_with_pin(relpath, ACTION_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins "
             f"ThreeMoonsLab/agents-shipgate@v{found}; pyproject.toml "
@@ -676,9 +639,7 @@ def test_pip_pins_match_pyproject_version(relpath):
     must equal the package version. Same drift guard as the Action
     pin test, for pip-based CI examples."""
     expected = _load_pyproject_version()
-    for line_number, line, found in _file_lines_with_pin(
-        relpath, PIP_PIN_PATTERN
-    ):
+    for line_number, line, found in _file_lines_with_pin(relpath, PIP_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins agents-shipgate=={found}; "
             f"pyproject.toml says {expected}. Update the pin to "
@@ -698,9 +659,7 @@ def test_uvx_pins_match_pyproject_version(relpath):
     covered by ``PIP_PIN_PATTERN`` and the ``@v`` Action form by
     ``ACTION_PIN_PATTERN``."""
     expected = _load_pyproject_version()
-    for line_number, line, found in _file_lines_with_pin(
-        relpath, UVX_PIN_PATTERN
-    ):
+    for line_number, line, found in _file_lines_with_pin(relpath, UVX_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins uvx agents-shipgate@{found}; "
             f"pyproject.toml says {expected}. Update the pin to "
@@ -716,9 +675,7 @@ def test_shipgate_version_inputs_match_pyproject_version(relpath):
     matrix where the Action pin is updated but the CLI install
     version inside it is left behind."""
     expected = _load_pyproject_version()
-    for line_number, line, found in _file_lines_with_pin(
-        relpath, SHIPGATE_VERSION_INPUT_PATTERN
-    ):
+    for line_number, line, found in _file_lines_with_pin(relpath, SHIPGATE_VERSION_INPUT_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} sets shipgate_version: "
             f"'{found}'; pyproject.toml says {expected}.\n  line: "
@@ -888,9 +845,7 @@ def test_errors_json_schema_version_is_pinned():
         assert isinstance(entry.get("exit_code"), int), (
             f"errors.json entry {entry['id']!r} missing integer exit_code."
         )
-        assert entry.get("description"), (
-            f"errors.json entry {entry['id']!r} missing description."
-        )
+        assert entry.get("description"), f"errors.json entry {entry['id']!r} missing description."
 
 
 def test_errors_json_next_action_kinds_match_diagnostic_contract():
@@ -976,9 +931,7 @@ def test_agents_md_trigger_table_rows_are_covered_by_catalog():
     rows_by_action: dict[str, set[str]] = {}
     for rule in triggers["rules"]:
         rows_by_action.setdefault(rule["action"], set()).add(rule["agents_md_row"])
-    run_rows = rows_by_action.get("run_shipgate", set()) | rows_by_action.get(
-        "force_run", set()
-    )
+    run_rows = rows_by_action.get("run_shipgate", set()) | rows_by_action.get("force_run", set())
     skip_rows = rows_by_action.get("skip_shipgate", set())
     has_dry_run_rule = bool(rows_by_action.get("dry_run"))
 
@@ -1012,31 +965,26 @@ def test_triggers_evaluator_smoke():
     `run_shipgate`."""
     docs_only = evaluate(paths=["README.md", "docs/index.md"])
     assert docs_only["run_shipgate"] is False, (
-        "Docs-only PR must not trigger Shipgate; "
-        f"got {docs_only!r}."
+        f"Docs-only PR must not trigger Shipgate; got {docs_only!r}."
     )
     mcp_change = evaluate(paths=["tools/my_mcp.json"])
     assert mcp_change["run_shipgate"] is True, (
-        "MCP export change must trigger Shipgate; "
-        f"got {mcp_change!r}."
+        f"MCP export change must trigger Shipgate; got {mcp_change!r}."
     )
     codex_plugin_change = evaluate(paths=["plugins/browser/.codex-plugin/plugin.json"])
     assert codex_plugin_change["run_shipgate"] is True, (
-        "Codex plugin manifest change must trigger Shipgate; "
-        f"got {codex_plugin_change!r}."
+        f"Codex plugin manifest change must trigger Shipgate; got {codex_plugin_change!r}."
     )
     codex_config_change = evaluate(paths=[".codex/config.toml"])
     assert codex_config_change["run_shipgate"] is True, (
-        "Codex repo config change must trigger Shipgate; "
-        f"got {codex_config_change!r}."
+        f"Codex repo config change must trigger Shipgate; got {codex_config_change!r}."
     )
     decorator = evaluate(
         paths=["agent.py"],
         diff_text="+@function_tool\n+def search(): ...",
     )
     assert decorator["run_shipgate"] is True, (
-        "@function_tool decorator addition must trigger Shipgate; "
-        f"got {decorator!r}."
+        f"@function_tool decorator addition must trigger Shipgate; got {decorator!r}."
     )
 
 
@@ -1050,8 +998,7 @@ def test_triggers_skip_beats_run_on_docs_only_with_decorator_in_prose():
         diff_text="+ Use @tool to register handlers (see ThreeMoonsLab/agents-shipgate)",
     )
     assert result["run_shipgate"] is False, (
-        "Docs-only PR with prose-mentioned @tool must NOT trigger "
-        f"Shipgate; got {result!r}."
+        f"Docs-only PR with prose-mentioned @tool must NOT trigger Shipgate; got {result!r}."
     )
     matched_actions = {m["action"] for m in result["matched_rules"]}
     assert "skip_shipgate" in matched_actions, (
@@ -1088,9 +1035,7 @@ def test_triggers_test_only_diff_with_decorator_skips(paths):
     only matches `**/*.md` and tests slip through."""
     result = evaluate(
         paths=paths,
-        diff_text=(
-            "+@function_tool\n+def stub(): pass  # used in fixtures"
-        ),
+        diff_text=("+@function_tool\n+def stub(): pass  # used in fixtures"),
     )
     assert result["run_shipgate"] is False, (
         f"Test-only paths {paths!r} with @function_tool in diff must "
@@ -1112,8 +1057,7 @@ def test_triggers_code_plus_test_does_not_skip():
         diff_text="+@function_tool\n+def search(): ...",
     )
     assert result["run_shipgate"] is True, (
-        "Code+test mix with @function_tool must trigger Shipgate; "
-        f"got {result!r}."
+        f"Code+test mix with @function_tool must trigger Shipgate; got {result!r}."
     )
     matched_ids = {m["id"] for m in result["matched_rules"]}
     assert "TRIGGER-DOCS-ONLY-NEGATIVE" not in matched_ids, (
@@ -1129,34 +1073,43 @@ def test_every_file_matches_predicate_accepts_list():
     from agents_shipgate.triggers import _eval_predicate
 
     # Single glob (string form)
-    assert _eval_predicate(
-        {"every_file_matches": "**/*.md"},
-        paths=["README.md", "docs/x.md"],
-        diff_text="",
-        manifest_present=False,
-        detect_result=None,
-        user_requested=False,
-    ) is True
+    assert (
+        _eval_predicate(
+            {"every_file_matches": "**/*.md"},
+            paths=["README.md", "docs/x.md"],
+            diff_text="",
+            manifest_present=False,
+            detect_result=None,
+            user_requested=False,
+        )
+        is True
+    )
 
     # List form: every path matches at least one glob in the list
-    assert _eval_predicate(
-        {"every_file_matches": ["**/*.md", "tests/**"]},
-        paths=["README.md", "tests/test_foo.py"],
-        diff_text="",
-        manifest_present=False,
-        detect_result=None,
-        user_requested=False,
-    ) is True
+    assert (
+        _eval_predicate(
+            {"every_file_matches": ["**/*.md", "tests/**"]},
+            paths=["README.md", "tests/test_foo.py"],
+            diff_text="",
+            manifest_present=False,
+            detect_result=None,
+            user_requested=False,
+        )
+        is True
+    )
 
     # List form: a path matching no glob in the list returns False
-    assert _eval_predicate(
-        {"every_file_matches": ["**/*.md", "tests/**"]},
-        paths=["README.md", "src/agent.py"],
-        diff_text="",
-        manifest_present=False,
-        detect_result=None,
-        user_requested=False,
-    ) is False
+    assert (
+        _eval_predicate(
+            {"every_file_matches": ["**/*.md", "tests/**"]},
+            paths=["README.md", "src/agent.py"],
+            diff_text="",
+            manifest_present=False,
+            detect_result=None,
+            user_requested=False,
+        )
+        is False
+    )
 
 
 def test_triggers_force_run_beats_skip_when_manifest_present():
@@ -1209,10 +1162,20 @@ def _init_git_repo(tmp_path: Path) -> None:
         check=True,
     )
     subprocess.run(
-        ["git", "-C", str(tmp_path),
-         "-c", "user.email=test@example.com",
-         "-c", "user.name=test",
-         "commit", "-q", "--allow-empty", "-m", "init"],
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=test",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
         check=True,
     )
 
@@ -1229,15 +1192,11 @@ def test_git_diff_bare_includes_staged_changes(tmp_path, monkeypatch):
 
     _init_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "agent.py").write_text(
-        "@function_tool\ndef foo(): pass\n", encoding="utf-8"
-    )
+    (tmp_path / "agent.py").write_text("@function_tool\ndef foo(): pass\n", encoding="utf-8")
     subprocess.run(["git", "add", "agent.py"], check=True)
 
     paths, diff_text = _git_diff_context(None)
-    assert "agent.py" in paths, (
-        f"Staged file missing from --git-diff paths: {paths!r}"
-    )
+    assert "agent.py" in paths, f"Staged file missing from --git-diff paths: {paths!r}"
     assert "@function_tool" in diff_text, (
         f"Staged content missing from --git-diff diff_text: {diff_text!r}"
     )
@@ -1255,9 +1214,7 @@ def test_git_diff_bare_includes_untracked_paths(tmp_path, monkeypatch):
     (tmp_path / "new_mcp.json").write_text('{"tools":[]}', encoding="utf-8")
 
     paths, diff_text = _git_diff_context(None)
-    assert "new_mcp.json" in paths, (
-        f"Untracked file missing from --git-diff paths: {paths!r}"
-    )
+    assert "new_mcp.json" in paths, f"Untracked file missing from --git-diff paths: {paths!r}"
     assert "new_mcp.json" not in diff_text, (
         "Untracked file content must NOT appear in diff_text "
         f"(by design — see prompt's documented limitation); got "
@@ -1275,9 +1232,7 @@ def test_triggers_existing_manifest_rule_uses_force_run():
         (r for r in triggers["rules"] if r["id"] == "TRIGGER-EXISTING-MANIFEST-PRESENT"),
         None,
     )
-    assert rule is not None, (
-        "TRIGGER-EXISTING-MANIFEST-PRESENT must remain in the catalog."
-    )
+    assert rule is not None, "TRIGGER-EXISTING-MANIFEST-PRESENT must remain in the catalog."
     assert rule["action"] == "force_run", (
         "TRIGGER-EXISTING-MANIFEST-PRESENT must use action='force_run' "
         "so it overrides skip_shipgate. The semantics rely on this "
@@ -1338,12 +1293,8 @@ def test_well_known_links_to_agent_discovery_onramps():
     }
     for key, suffix in expected_onramps.items():
         url = onramps.get(key, "")
-        assert url.startswith("https://"), (
-            f"agent_onramps.{key} must be an absolute HTTPS URL."
-        )
-        assert url.endswith(suffix), (
-            f"agent_onramps.{key} must end with {suffix}; got {url!r}."
-        )
+        assert url.startswith("https://"), f"agent_onramps.{key} must be an absolute HTTPS URL."
+        assert url.endswith(suffix), f"agent_onramps.{key} must end with {suffix}; got {url!r}."
 
 
 def test_well_known_seo_geo_positioning_fields_are_pinned():
@@ -1371,9 +1322,7 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert POSITIONING_PHRASE in positioning.get("answer", "")
     assert "Three Moons Lab" in positioning.get("answer", "")
     assert "deterministic merge verdict" in positioning.get("answer", "")
-    assert "Codex, Claude Code, Cursor" in positioning.get(
-        "primary_use_case", ""
-    )
+    assert "Codex, Claude Code, Cursor" in positioning.get("primary_use_case", "")
     assert positioning.get("not_for") == [
         "llm_evals",
         "runtime_guardrails",
@@ -1399,6 +1348,9 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
 
     commands = data.get("commands", {})
     assert commands.get("preview") == "agents-shipgate verify --preview --json"
+    assert commands.get("install_ai_coding_workflow") == (
+        "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
+    )
     assert "feedback export" in commands.get("feedback_export", "")
     assert data.get("fixture_run") == "agents-shipgate fixture run ai_generated_refund_pr"
     assert data.get("static_scan_fixture_run") == (
@@ -1482,11 +1434,7 @@ _PROMPT_MIRROR_EXCLUDE = {"README.md"}
 
 
 def _prompt_basenames() -> list[str]:
-    return sorted(
-        p.name
-        for p in _PROMPT_DIR.glob("*.md")
-        if p.name not in _PROMPT_MIRROR_EXCLUDE
-    )
+    return sorted(p.name for p in _PROMPT_DIR.glob("*.md") if p.name not in _PROMPT_MIRROR_EXCLUDE)
 
 
 @pytest.mark.parametrize("basename", _prompt_basenames())
@@ -1522,9 +1470,7 @@ def test_decide_shipgate_relevance_prompt_exists():
     )
 
 
-@pytest.mark.parametrize(
-    "relpath", PUBLIC_SURFACES + ("docs/ai-search-summary.md",)
-)
+@pytest.mark.parametrize("relpath", PUBLIC_SURFACES + ("docs/ai-search-summary.md",))
 def test_forbidden_display_names_only_in_do_not_use_lists(relpath):
     """`Agent Shipcheck` and `Agent Shipgate` (singular) are forbidden
     public/display forms. The only legitimate occurrences are inside
@@ -1557,16 +1503,14 @@ def test_primary_surfaces_use_mvp_wedge_positioning(relpath):
     MVP wedge, not the broader agent-lifecycle roadmap."""
     text = _normalize_ws(_read(relpath)).lower()
     assert POSITIONING_PHRASE.lower() in text, (
-        f"{relpath} must use the current MVP positioning phrase "
-        f"{POSITIONING_PHRASE!r}."
+        f"{relpath} must use the current MVP positioning phrase {POSITIONING_PHRASE!r}."
     )
 
 
 def test_scan_help_uses_tool_use_readiness_positioning():
     text = _normalize_ws(_read("src/agents_shipgate/cli/_register_scan.py"))
     assert POSITIONING_SCAN_DOCSTRING.lower() in text.lower(), (
-        "scan command docstring must use the canonical merge-gate "
-        "positioning phrase."
+        "scan command docstring must use the canonical merge-gate positioning phrase."
     )
 
 
@@ -1799,13 +1743,9 @@ def test_pre_commit_docs_do_not_reference_missing_trigger_subcommand():
 # Build longest-first so "Anthropic Messages API" beats "Anthropic"
 # when both appear in the same token.
 _ALIAS_TO_ENUM: dict[str, str] = {
-    alias: enum_id
-    for enum_id, aliases in SUPPORTED_INPUTS.items()
-    for alias in aliases
+    alias: enum_id for enum_id, aliases in SUPPORTED_INPUTS.items() for alias in aliases
 }
-_ALIASES_LONGEST_FIRST: list[str] = sorted(
-    _ALIAS_TO_ENUM, key=len, reverse=True
-)
+_ALIASES_LONGEST_FIRST: list[str] = sorted(_ALIAS_TO_ENUM, key=len, reverse=True)
 
 # Internal-only adapters that intentionally never appear in user-facing
 # input lists. Adding to this set requires a comment justifying why
@@ -1881,9 +1821,7 @@ def _agents_md_inputs_bullet(text: str) -> tuple[set[str], list[str]]:
 
 
 def _readme_inputs_table(text: str) -> tuple[set[str], list[str]]:
-    rows = re.findall(
-        r"^\|\s*([^|]+?)\s*\|\s*Supported\s*\|", text, flags=re.M
-    )
+    rows = re.findall(r"^\|\s*([^|]+?)\s*\|\s*Supported\s*\|", text, flags=re.M)
     return _resolve_tokens(rows)
 
 
@@ -1902,9 +1840,7 @@ def _action_yml_description(text: str) -> tuple[set[str], list[str]]:
 
 
 def _faq_inputs_block(text: str) -> tuple[set[str], list[str]]:
-    block = _slice_section(
-        text, "## What inputs does it support?", "\n## "
-    )
+    block = _slice_section(text, "## What inputs does it support?", "\n## ")
     tokens = re.findall(r"^- (.+)$", block, flags=re.M)
     return _resolve_tokens(tokens)
 
@@ -1937,9 +1873,7 @@ def _faq_tool_surface_paragraph(text: str) -> tuple[set[str], list[str]]:
     enumerates the same input set in prose. Pin it so it can't drift
     away from the canonical `## What inputs does it support?` bullet
     list lower down the same page."""
-    block = _slice_section(
-        text, "## What is an AI agent tool surface?", "\n## "
-    )
+    block = _slice_section(text, "## What is an AI agent tool surface?", "\n## ")
     return _resolve_freeform(block)
 
 
@@ -2028,9 +1962,7 @@ def test_supported_inputs_match_adapter_class_vars_bidirectionally():
     for path in adapter_dir.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
-        adapter_ids.update(
-            pattern.findall(path.read_text(encoding="utf-8"))
-        )
+        adapter_ids.update(pattern.findall(path.read_text(encoding="utf-8")))
     user_facing = adapter_ids - INTERNAL_ADAPTERS
     assert user_facing == set(SUPPORTED_INPUTS), (
         f"SUPPORTED_INPUTS vs adapter ClassVars disagree.\n"
@@ -2084,8 +2016,7 @@ def test_trust_claims_carry_meta_cli_qualifier(relpath):
     text = _read(relpath)
     for match in TRUST_CLAIM_PATTERN.finditer(text):
         window = text[
-            max(0, match.start() - TRUST_QUALIFIER_WINDOW)
-            : match.end() + TRUST_QUALIFIER_WINDOW
+            max(0, match.start() - TRUST_QUALIFIER_WINDOW) : match.end() + TRUST_QUALIFIER_WINDOW
         ]
         assert TRUST_QUALIFIER_PATTERN.search(window), (
             f"{relpath}:{text.count(chr(10), 0, match.start()) + 1} "
@@ -2095,9 +2026,7 @@ def test_trust_claims_carry_meta_cli_qualifier(relpath):
         )
 
 
-_META_CLI_SECTION_PATTERN = re.compile(
-    r"Meta-CLI\s+surfaces\s+\(allowlisted,\s+audited\)"
-)
+_META_CLI_SECTION_PATTERN = re.compile(r"Meta-CLI\s+surfaces\s+\(allowlisted,\s+audited\)")
 
 
 def test_stability_md_pins_canonical_meta_cli_section_exactly_once():
@@ -2113,7 +2042,7 @@ def test_stability_md_pins_canonical_meta_cli_section_exactly_once():
         f"STABILITY.md must declare 'Meta-CLI surfaces (allowlisted, "
         f"audited)' exactly once; found {len(matches)}."
     )
-    section = text[matches[0].start(): matches[0].start() + 2500]
+    section = text[matches[0].start() : matches[0].start() + 2500]
     assert "ALLOWED_EXCEPTIONS" in section, (
         "Meta-CLI section must reference "
         "tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS so the "
@@ -2141,7 +2070,7 @@ def test_action_yml_status_output_marked_legacy():
         text,
     )
     assert m is not None, "outputs.status block not found in action.yml"
-    block = text[max(0, m.start() - 200): m.end()]
+    block = text[max(0, m.start() - 200) : m.end()]
     assert re.search(
         r"legacy|v0\.7\s+caller|baseline-blind|prefer.*release_decision",
         block,

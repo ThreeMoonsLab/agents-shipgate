@@ -27,6 +27,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
     GitignoreOutcomeStatus,
     ensure_reports_gitignore,
 )
+from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -221,18 +222,21 @@ def register(app: typer.Typer) -> None:
             "--agent-instructions",
             help=(
                 "Render or write agent-instruction snippets for the target repo. "
-                "Pass --agent-instructions=all for every target, "
-                "--agent-instructions=agents-md,cursor for a subset, or "
-                "--agent-instructions=none to opt out. "
+                "Pass --agent-instructions=default for the recommended downstream "
+                "kit (AGENTS.md, Cursor rule, Claude command, and local contract), "
+                "--agent-instructions=all for every supported target, "
+                "--agent-instructions=agents-md,codex-skill for an explicit "
+                "subset, or --agent-instructions=none to opt out. "
                 "Without --write, snippets are printed to stdout (or returned in "
                 "--json). With --write, snippets are written to AGENTS.md, "
                 ".agents/skills/agents-shipgate/, "
                 ".claude/skills/agents-shipgate/, CLAUDE.md, "
-                ".cursor/rules/agents-shipgate.mdc, and the PR template "
-                "via managed `<!-- agents-shipgate:start -->` markers (idempotent "
-                "where host files are shared, full-file/skill-bundle safe-update "
-                "checks elsewhere). Strict CI and baselines remain opt-in human "
-                "decisions; this flag only emits advisory guidance."
+                ".claude/commands/shipgate.md, .cursor/rules/agents-shipgate.mdc, "
+                f"{LOCAL_CONTRACT_RELATIVE_PATH}, and the PR template via managed "
+                "`<!-- agents-shipgate:start -->` markers (idempotent where host "
+                "files are shared, full-file/skill-bundle safe-update checks "
+                "elsewhere). Strict CI and baselines remain opt-in human "
+                "decisions; generated CI stays advisory by default."
             ),
         ),
         agent_instructions_kit: Path | None = typer.Option(
@@ -269,18 +273,18 @@ def register(app: typer.Typer) -> None:
                     "config_error",
                     message=str(exc),
                     next_action=(
-                        "Pass --agent-instructions=all, --agent-instructions=none, "
-                        "or a comma-separated subset."
+                        "Pass --agent-instructions=default, --agent-instructions=all, "
+                        "--agent-instructions=none, or a comma-separated subset."
                     ),
                     next_actions=[
                         NextAction(
                             kind="command",
-                            command="agents-shipgate init --agent-instructions=all",
+                            command="agents-shipgate init --agent-instructions=default",
                             why=str(exc),
                             expects=(
-                                "Snippets render for every supported target "
-                                "(AGENTS.md, Codex skill, Claude Code skill, "
-                                "CLAUDE.md, Cursor rule, PR template)."
+                                "Snippets render for the recommended downstream "
+                                "agent kit (AGENTS.md, Cursor rule, Claude "
+                                "command, and local contract)."
                             ),
                         ).model_dump(mode="json")
                     ],
@@ -359,9 +363,7 @@ def register(app: typer.Typer) -> None:
             next_action_create = (
                 "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
             )
-            next_action_dry = (
-                "Inspect the template, then re-run with --write to commit it."
-            )
+            next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
         kit_config = None
         if agent_instructions_kit is not None or requested_targets is not None:
@@ -414,7 +416,8 @@ def register(app: typer.Typer) -> None:
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
-        if ci:
+        workflow_requested = ci
+        if workflow_requested:
             result = write_ci_workflow(workspace_resolved)
             workflow_outcome = {
                 "status": result.status,
@@ -438,6 +441,12 @@ def register(app: typer.Typer) -> None:
             agent_instructions_outcome = ai_result.to_json()
             agent_instructions_exit = ai_result.exit_code
             agent_instructions_targets = list(ai_result.targets)
+            local_contract_target = next(
+                (t for t in agent_instructions_targets if t.name == "local-contract"),
+                None,
+            )
+        else:
+            local_contract_target = None
 
         # Gitignore action — runs unconditionally on --write so the reports
         # directory created by the first `scan` is never silently committed.
@@ -448,9 +457,7 @@ def register(app: typer.Typer) -> None:
         # Shipgate before this CLI version was released get the line on their
         # next `init --write`.
         gitignore_outcome = (
-            ensure_reports_gitignore(workspace_resolved, write=write)
-            if write
-            else None
+            ensure_reports_gitignore(workspace_resolved, write=write) if write else None
         )
 
         # Claude Code extras — hooks plus a conventional verify alias.
@@ -459,9 +466,7 @@ def register(app: typer.Typer) -> None:
         # above carry the contract).
         claude_code_outcome: dict[str, object] | None = None
         if claude_code:
-            claude_code_outcome = _apply_claude_code_extras(
-                workspace_resolved, write=write
-            )
+            claude_code_outcome = _apply_claude_code_extras(workspace_resolved, write=write)
 
         # Idempotency reconciliation: when --agent-instructions selects at least
         # one real target AND the manifest already exists, treat the manifest
@@ -517,6 +522,8 @@ def register(app: typer.Typer) -> None:
                 payload["workflow"] = workflow_outcome
             if agent_instructions_outcome is not None:
                 payload["agent_instructions"] = agent_instructions_outcome
+            if local_contract_target is not None:
+                payload["local_contract"] = local_contract_target.to_json()
             if gitignore_outcome is not None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:
@@ -548,9 +555,7 @@ def register(app: typer.Typer) -> None:
                     typer.echo(manifest_message, err=True)
             if workflow_outcome is not None:
                 stream = (
-                    sys.stderr
-                    if workflow_outcome["status"].startswith("skipped")
-                    else sys.stdout
+                    sys.stderr if workflow_outcome["status"].startswith("skipped") else sys.stdout
                 )
                 print(workflow_outcome["message"], file=stream)
             if write and agent_instructions_targets:

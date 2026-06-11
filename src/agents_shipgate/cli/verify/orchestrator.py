@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -241,9 +242,7 @@ def run_verify(
     if diff_from is not None:
         base_status = "diff_from_provided"
         base_report = _resolve_under_workspace(git_root, diff_from)
-        base_notes.append(
-            f"Using explicit diff reference: {_display_path(base_report, git_root)}"
-        )
+        base_notes.append(f"Using explicit diff reference: {_display_path(base_report, git_root)}")
     elif base and base_exists:
         base_status, base_tree, base_report, cache_notes = _prepare_base_report(
             git_root=git_root,
@@ -419,9 +418,12 @@ def _prepare_base_report(
         no_heuristics=no_heuristics,
     )
     if cache_report.exists():
-        return "cache_hit", base_tree, cache_report, [
-            f"Reused cached base report for tree {base_tree}."
-        ]
+        return (
+            "cache_hit",
+            base_tree,
+            cache_report,
+            [f"Reused cached base report for tree {base_tree}."],
+        )
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
         tmp_root = Path(tmp)
@@ -430,15 +432,21 @@ def _prepare_base_report(
         try:
             archive_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-            return "archive_failed", base_tree, None, [
-                f"Could not materialize base tree {base!r}: {exc}"
-            ]
+            return (
+                "archive_failed",
+                base_tree,
+                None,
+                [f"Could not materialize base tree {base!r}: {exc}"],
+            )
 
         base_config = base_tree_dir / config_relative
         if not base_config.is_file():
-            return "missing_manifest", base_tree, None, [
-                f"Base tree does not contain {config_relative.as_posix()}."
-            ]
+            return (
+                "missing_manifest",
+                base_tree,
+                None,
+                [f"Base tree does not contain {config_relative.as_posix()}."],
+            )
 
         try:
             with _without_github_step_summary():
@@ -468,18 +476,27 @@ def _prepare_base_report(
                     no_heuristics=no_heuristics,
                 )
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-            return "scan_failed", base_tree, None, [
-                f"Base scan failed without changing the head gate: {exc}"
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                [f"Base scan failed without changing the head gate: {exc}"],
+            )
         if base_exit not in {0, 20}:
-            return "scan_failed", base_tree, None, [
-                f"Base scan exited {base_exit}; diff enrichment disabled."
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                [f"Base scan exited {base_exit}; diff enrichment disabled."],
+            )
         source_report = base_out / "report.json"
         if not source_report.is_file():
-            return "scan_failed", base_tree, None, [
-                "Base scan did not produce report.json; diff enrichment disabled."
-            ]
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                ["Base scan did not produce report.json; diff enrichment disabled."],
+            )
         _copy_report_to_cache(source_report, cache_report)
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
         notes.append(f"Cached base report for tree {base_tree}.")
@@ -502,13 +519,9 @@ def _cache_report_path(
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
         "baseline": (
-            _display_path(baseline_path.resolve(), git_root)
-            if baseline_path is not None
-            else None
+            _display_path(baseline_path.resolve(), git_root) if baseline_path is not None else None
         ),
-        "policy_packs": [
-            _display_path(path.resolve(), git_root) for path in policy_packs
-        ],
+        "policy_packs": [_display_path(path.resolve(), git_root) for path in policy_packs],
         "plugins_enabled": plugins_enabled,
         "no_heuristics": no_heuristics,
     }
@@ -650,9 +663,7 @@ def _human_review(
     reason = release_decision.reason if release_decision is not None else None
     return VerifierHumanReview(
         required=True,
-        why=note
-        or reason
-        or "A human must review this agent-capability change before merge.",
+        why=note or reason or "A human must review this agent-capability change before merge.",
     )
 
 
@@ -676,18 +687,14 @@ def _first_next_action(
         # Defensive self-approval path (e.g. a 'mergeable' verdict that still
         # carries a self-approval note): a human must review — never emit the
         # "safe to merge" action.
-        return VerifierNextAction(
-            actor="human", kind="review", command=None, why=self_approval
-        )
+        return VerifierNextAction(actor="human", kind="review", command=None, why=self_approval)
     # The fix_task is the single repair contract; the headline next-step must
     # not contradict it. Borrow the agent summary's concrete action (e.g. an
     # apply-patches command) only when its implied actor agrees with the
     # fix_task routing — otherwise derive the pointer from the fix_task so that
     # actor, command, and why all come from one source.
     actor = fix_task.actor if fix_task is not None else "human"
-    recommended = (
-        agent_summary.first_recommended_action if agent_summary is not None else None
-    )
+    recommended = agent_summary.first_recommended_action if agent_summary is not None else None
     if recommended is not None:
         # The PR comment infers a recommendation's actor the same way: a
         # runnable command implies the coding agent, an info note a human.
@@ -857,9 +864,7 @@ def _build_verifier(
         head_exit_code=head_exit_code,
         release_decision=release_decision,
         agent_summary=(
-            agent_summary_model.model_dump(mode="json")
-            if agent_summary_model is not None
-            else None
+            agent_summary_model.model_dump(mode="json") if agent_summary_model is not None else None
         ),
         reviewer_summary=(
             report.reviewer_summary.model_dump(mode="json")
@@ -917,13 +922,8 @@ def _artifact_paths(
         candidates["capability_lock"] = out_dir / "capabilities.lock.json"
     if include_capability_lock_diff:
         candidates["capability_lock_diff_json"] = out_dir / "capability-lock-diff.json"
-        candidates["capability_lock_diff_markdown"] = (
-            out_dir / "capability-lock-diff.md"
-        )
-    return {
-        key: _display_path(path.resolve(), git_root)
-        for key, path in candidates.items()
-    }
+        candidates["capability_lock_diff_markdown"] = out_dir / "capability-lock-diff.md"
+    return {key: _display_path(path.resolve(), git_root) for key, path in candidates.items()}
 
 
 def _write_artifacts(
@@ -970,9 +970,7 @@ def _write_capability_review_artifacts(
     lock_path = out_dir / "capabilities.lock.json"
     lock_path.write_text(render_capability_lock_json(head_lock), encoding="utf-8")
     if not base:
-        base_notes.append(
-            "Capability lock diff unavailable: no --base ref was provided."
-        )
+        base_notes.append("Capability lock diff unavailable: no --base ref was provided.")
         return None
     base_lock = _load_base_capability_lock(
         git_root=git_root,
@@ -1021,9 +1019,7 @@ def _load_base_capability_lock(
             source=f"{base}:{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}",
         )
     except InputParseError as exc:
-        base_notes.append(
-            f"Capability lock diff unavailable: base lock is invalid: {exc}"
-        )
+        base_notes.append(f"Capability lock diff unavailable: base lock is invalid: {exc}")
         return None
 
 
@@ -1055,6 +1051,51 @@ def _display_path(path: Path, root: Path) -> str:
         return path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
+
+
+def _shell_join(parts: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _preview_init_command(workspace: Path) -> str:
+    return _shell_join(
+        [
+            "agents-shipgate",
+            "init",
+            "--workspace",
+            str(workspace),
+            "--write",
+            "--ci",
+            "--agent-instructions=default",
+            "--json",
+        ]
+    )
+
+
+def _preview_verify_command(
+    *,
+    workspace: Path,
+    config: Path,
+    base: str | None,
+    head: str | None,
+    out: Path | None,
+) -> str:
+    parts = [
+        "agents-shipgate",
+        "verify",
+        "--workspace",
+        str(workspace),
+        "--config",
+        str(config),
+    ]
+    if base is not None:
+        parts.extend(["--base", base])
+    if head is not None:
+        parts.extend(["--head", head])
+    if out is not None:
+        parts.extend(["--out", str(out)])
+    parts.extend(["--ci-mode", "advisory", "--json"])
+    return _shell_join(parts)
 
 
 @contextlib.contextmanager
@@ -1113,7 +1154,21 @@ def run_preview(
         user_requested=True,
     )
 
-    if diff_unavailable:
+    # Trigger previews may recommend detect/init as a generic recovery path.
+    # Verify preview deliberately returns the exact one-shot init command that
+    # installs the local contract, default agent kit, and advisory CI workflow
+    # for unconfigured workspaces so cold-start agents do not need to infer the
+    # next command from README prose.
+    init_command = _preview_init_command(workspace)
+    verify_command = _preview_verify_command(
+        workspace=workspace,
+        config=config,
+        base=base,
+        head=head,
+        out=out,
+    )
+
+    if diff_unavailable and manifest_present:
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="fetch_base",
@@ -1128,52 +1183,43 @@ def run_preview(
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
-            command="agents-shipgate verify --base origin/main --head HEAD --json",
+            command=verify_command,
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
-        headline = (
-            "Shipgate is configured; run verify on the PR to get a merge verdict."
-        )
+        headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
-        trigger_action = trigger.get("next_action") or {}
         next_action = VerifierNextAction(
             actor="coding_agent",
-            kind=trigger_action.get("kind") or "command",
-            command=trigger_action.get("command")
-            or "agents-shipgate detect --workspace . --json",
-            why=trigger_action.get("why")
-            or "This change looks agent-related; detect tool surfaces first.",
+            kind="command",
+            command=init_command,
+            why=(
+                "This unconfigured workspace looks agent-related; initialize "
+                "the local Shipgate contract and advisory agent workflow."
+            ),
         )
-        headline = (
-            "Shipgate is relevant to this diff; detect the workspace before "
-            "initializing the gate."
-        )
+        headline = "Shipgate is relevant to this diff; initialize the local agent workflow."
     elif not (base or head):
         next_action = VerifierNextAction(
             actor="coding_agent",
             kind="command",
-            command=(
-                "agents-shipgate init --workspace . --write --ci "
-                "--agent-instructions=all"
-            ),
+            command=init_command,
             why=(
                 "No PR diff was supplied and no shipgate.yaml was found; "
                 "initialize Shipgate if this workspace contains an agent."
             ),
         )
-        headline = (
-            "Shipgate is not set up here yet; initialize it to gate "
-            "agent-capability PRs."
-        )
+        headline = "Shipgate is not set up here yet; initialize it to gate agent-capability PRs."
     else:
-        trigger_action = trigger.get("next_action") or {}
         next_action = VerifierNextAction(
             actor="coding_agent",
-            kind=trigger_action.get("kind") or "none",
-            command=trigger_action.get("command"),
-            why=trigger_action.get("why") or "No Shipgate-relevant changes detected.",
+            kind="command",
+            command=init_command,
+            why=(
+                "No shipgate.yaml was found. Initialize the local Shipgate "
+                "contract if this workspace contains an agent."
+            ),
         )
-        headline = "No Shipgate-relevant agent-capability changes detected in this diff."
+        headline = "Shipgate is not configured in this workspace."
 
     verifier = VerifierArtifact(
         workspace=str(root),

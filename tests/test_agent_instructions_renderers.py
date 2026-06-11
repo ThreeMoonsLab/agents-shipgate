@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -18,10 +19,12 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_code_skill_bundle_text,
     render_claude_code_skill_files,
+    render_claude_command_file,
     render_claude_md,
     render_codex_skill_bundle_text,
     render_codex_skill_files,
     render_cursor_file,
+    render_local_contract_file,
     render_pr_template,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
@@ -33,8 +36,10 @@ ALL_RENDERERS = {
     "agents-md": render_agents_md,
     "codex-skill": render_codex_skill_bundle_text,
     "claude-code-skill": render_claude_code_skill_bundle_text,
+    "claude-command": render_claude_command_file,
     "claude-md": render_claude_md,
     "cursor": render_cursor_file,
+    "local-contract": render_local_contract_file,
     "pr-template": render_pr_template,
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -125,17 +130,32 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
 
 def test_committed_cursor_rule_matches_renderer() -> None:
     """The repo-level Cursor rule and the init renderer must not drift."""
-    committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(
-        encoding="utf-8"
-    )
+    committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(encoding="utf-8")
     assert committed == render_cursor_file()
+
+
+def test_committed_claude_command_matches_renderer() -> None:
+    """The repo-level Claude slash command and init renderer must not drift."""
+    committed = (REPO_ROOT / ".claude/commands/shipgate.md").read_text(encoding="utf-8")
+    assert committed == render_claude_command_file()
+
+
+def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
+    payload = json.loads(render_local_contract_file())
+    assert payload["schema_version"] == "1"
+    assert payload["agents_shipgate_version"]
+    assert payload["contract_version"] == "3"
+    assert payload["commands"]["install_agent_workflow"].endswith(
+        "--ci --agent-instructions=default --json"
+    )
+    assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
+    assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
+    assert payload["gating_signal"] == "release_decision.decision"
 
 
 def test_target_repo_cursor_snippet_matches_renderer() -> None:
     """The copyable docs snippet must match the generated Cursor file."""
-    text = (REPO_ROOT / "docs/target-repo-agent-snippets.md").read_text(
-        encoding="utf-8"
-    )
+    text = (REPO_ROOT / "docs/target-repo-agent-snippets.md").read_text(encoding="utf-8")
     section = text.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[1]
     start = section.index("```md\n") + len("```md\n")
     end = section.index("\n```", start)
@@ -152,8 +172,7 @@ def test_skill_renderers_do_not_embed_long_content_constants() -> None:
     """Skill bundle prose lives in adoption-kit files, not Python constants."""
 
     renderer_paths = (
-        REPO_ROOT
-        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
+        REPO_ROOT / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
         REPO_ROOT
         / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/claude_code_skill.py",
     )
@@ -314,6 +333,6 @@ def test_advisory_default_appears_in_agent_facing_targets() -> None:
     """The agent-facing targets (AGENTS.md, CLAUDE.md, Cursor rule) should
     communicate advisory-by-default. The PR template intentionally omits the
     CI-pointer paragraph — it's a reviewer checklist, not CI documentation."""
-    for name in ("agents-md", "claude-md", "cursor"):
+    for name in ("agents-md", "claude-md", "cursor", "claude-command"):
         rendered = ALL_RENDERERS[name]()
         assert "advisory" in rendered.lower(), name

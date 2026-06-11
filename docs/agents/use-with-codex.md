@@ -125,10 +125,10 @@ agents-shipgate --version
 agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill
 ```
 
-To install every supported agent surface at once:
+To install the default downstream discovery kit without the Codex skill:
 
 ```bash
-agents-shipgate init --workspace . --write --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 ```
 
 The `codex-skill` target writes `.agents/skills/agents-shipgate/`. It is

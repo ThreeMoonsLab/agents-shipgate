@@ -75,7 +75,7 @@
   "commands": {
     "agent_check": "shipgate check --agent codex --workspace . --format agent-json",
     "preview": "agents-shipgate verify --preview --json",
-    "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=all",
+    "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json",
     "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json",
     "trigger": "agents-shipgate trigger --base origin/main --head HEAD --json",
     "capability_export": "agents-shipgate capability export -c shipgate.yaml",
@@ -91,13 +91,14 @@
   "contract": "agents-shipgate contract --json",
   "agent_protocol": "docs/agents/protocol.md",
   "agent_result_schema_version": "agent_result_v1",
-  "contract_version": "2",
+  "contract_version": "3",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_config", "codex_plugin", "n8n"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "agent_result_json", "verifier_json", "pr_comment_md", "capability_lock_json", "capability_lock_diff_json", "capability_lock_diff_md", "feedback_json", "attestation_json", "scenario_json", "governance_benchmark_result_json"],
   "artifacts": {
     "verifier": "agents-shipgate-reports/verifier.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
+    "local_contract": ".shipgate/agent-contract.json",
     "capability_lock": ".agents-shipgate/capabilities.lock.json",
     "capability_lock_report_copy": "agents-shipgate-reports/capabilities.lock.json",
     "capability_lock_diff": "agents-shipgate-reports/capability-lock-diff.json",
@@ -183,17 +184,17 @@
     "codex": {
       "agents_md": "AGENTS.md",
       "skill_path": ".agents/skills/agents-shipgate/",
-      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=agents-md,codex-skill"
+      "install": "agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-skill --json"
     },
     "claude_code": {
       "claude_md": "CLAUDE.md",
       "skill_path": ".claude/skills/agents-shipgate/",
       "slash_command": ".claude/commands/shipgate.md",
-      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=claude-md,claude-code-skill"
+      "install": "agents-shipgate init --workspace . --write --agent-instructions=claude-command,claude-code-skill --json"
     },
     "cursor": {
       "rules_path": ".cursor/rules/agents-shipgate.mdc",
-      "install": "agents-shipgate init --workspace . --write --ci --agent-instructions=cursor"
+      "install": "agents-shipgate init --workspace . --write --agent-instructions=cursor --json"
     }
   },
   "exit_codes": {

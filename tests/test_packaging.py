@@ -39,10 +39,17 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
         names = set(archive.namelist())
     assert "agents_shipgate/_adoption_kits/codex-skill/SKILL.md" in names
     assert "agents_shipgate/_adoption_kits/claude-code-skill/SKILL.md" in names
-    assert (
-        "agents_shipgate/_adoption_kits/codex-skill/.agents-shipgate-kit-metadata.json"
-        in names
-    )
+    assert "agents_shipgate/_adoption_kits/codex-skill/.agents-shipgate-kit-metadata.json" in names
+    assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
+
+
+def test_wheel_claude_command_is_byte_identical_to_repo_file(
+    built_wheel: Path,
+) -> None:
+    source = (REPO_ROOT / ".claude/commands/shipgate.md").read_bytes()
+    with zipfile.ZipFile(built_wheel) as archive:
+        packaged = archive.read("agents_shipgate/_meta/claude-command/shipgate.md")
+    assert packaged == source
 
 
 def test_wheel_ships_check_metadata_yamls_byte_identical(
@@ -77,10 +84,7 @@ def test_wheel_ships_check_metadata_yamls_byte_identical(
     packaged: dict[str, bytes] = {}
     with zipfile.ZipFile(built_wheel) as archive:
         for name in archive.namelist():
-            if (
-                name.startswith("agents_shipgate/_meta/checks/")
-                and name.endswith(".yaml")
-            ):
+            if name.startswith("agents_shipgate/_meta/checks/") and name.endswith(".yaml"):
                 packaged[Path(name).name] = archive.read(name)
 
     missing = sorted(set(expected) - set(packaged))
@@ -124,15 +128,10 @@ def test_wheel_check_metadata_yamls_load_via_loader(
     extract_dir.mkdir()
     with zipfile.ZipFile(built_wheel) as archive:
         for name in archive.namelist():
-            if (
-                name.startswith("agents_shipgate/_meta/checks/")
-                and name.endswith(".yaml")
-            ):
+            if name.startswith("agents_shipgate/_meta/checks/") and name.endswith(".yaml"):
                 (extract_dir / Path(name).name).write_bytes(archive.read(name))
 
-    monkeypatch.setattr(
-        _metadata_loader, "_resolve_checks_dir", lambda: extract_dir
-    )
+    monkeypatch.setattr(_metadata_loader, "_resolve_checks_dir", lambda: extract_dir)
     packaged_catalog = _metadata_loader.load_check_metadata()
 
     source_ids = {c.id for c in CHECK_METADATA}

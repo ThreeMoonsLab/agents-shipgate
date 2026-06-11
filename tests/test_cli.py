@@ -19,10 +19,17 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
+    ARTIFACTS,
+    COMMANDS,
     CONTRACT_VERSION,
+    DEFAULT_PATHS,
+    DO_NOT_AUTO_ASSERT,
     EXTERNAL_INTEGRATION_SURFACES,
     GATING_SIGNAL,
     MANUAL_REVIEW_SIGNALS,
+    MERGE_VERDICTS,
+    RELEASE_DECISIONS,
+    VERIFIER_READ_ORDER,
 )
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
@@ -148,9 +155,7 @@ def test_cli_missing_config_prints_next_action_hint(tmp_path, monkeypatch):
     assert "next: agents-shipgate detect" in result.output
 
 
-def test_cli_change_me_placeholder_error_routes_to_manifest_edit(
-    tmp_path, monkeypatch
-):
+def test_cli_change_me_placeholder_error_routes_to_manifest_edit(tmp_path, monkeypatch):
     monkeypatch.delenv("AGENTS_SHIPGATE_AGENT_MODE", raising=False)
     config = tmp_path / "shipgate.yaml"
     config.write_text(
@@ -187,11 +192,7 @@ def test_cli_agent_mode_suppresses_prose_hint(tmp_path, monkeypatch):
     assert result.exit_code == 2
     # Agent mode keeps the docs/errors.json single-JSON-line contract:
     # the prose hint lines stay human-mode only.
-    assert not [
-        line
-        for line in result.output.splitlines()
-        if line.startswith("next: ")
-    ]
+    assert not [line for line in result.output.splitlines() if line.startswith("next: ")]
 
 
 def test_cli_list_checks_outputs_catalog():
@@ -230,28 +231,36 @@ def test_cli_contract_json_outputs_runtime_contract():
         "external_integration_surfaces",
         "gating_signal",
         "manual_review_signals",
+        "commands",
+        "default_paths",
+        "artifacts",
+        "verifier_read_order",
+        "merge_verdicts",
+        "release_decisions",
+        "do_not_auto_assert",
     ]
     assert payload == {
         "contract_version": CONTRACT_VERSION,
         "cli_version": __version__,
-        "report_schema_version": str(
-            ReadinessReport.model_fields["report_schema_version"].default
-        ),
-        "packet_schema_version": str(
-            EvidencePacket.model_fields["packet_schema_version"].default
-        ),
+        "report_schema_version": str(ReadinessReport.model_fields["report_schema_version"].default),
+        "packet_schema_version": str(EvidencePacket.model_fields["packet_schema_version"].default),
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         "capability_standard_version": CAPABILITY_STANDARD_VERSION,
         "governance_benchmark_catalog_schema_version": (
             GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
         ),
-        "governance_benchmark_result_schema_version": (
-            GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION
-        ),
+        "governance_benchmark_result_schema_version": (GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION),
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),
         "gating_signal": GATING_SIGNAL,
         "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
+        "commands": dict(COMMANDS),
+        "default_paths": dict(DEFAULT_PATHS),
+        "artifacts": dict(ARTIFACTS),
+        "verifier_read_order": list(VERIFIER_READ_ORDER),
+        "merge_verdicts": list(MERGE_VERDICTS),
+        "release_decisions": list(RELEASE_DECISIONS),
+        "do_not_auto_assert": list(DO_NOT_AUTO_ASSERT),
     }
 
 
@@ -272,14 +281,8 @@ def test_cli_contract_text_outputs_key_values():
     assert result.exit_code == 0, result.output
     assert CONTRACT_VERSION in result.output
     assert __version__ in result.output
-    assert (
-        str(ReadinessReport.model_fields["report_schema_version"].default)
-        in result.output
-    )
-    assert (
-        str(EvidencePacket.model_fields["packet_schema_version"].default)
-        in result.output
-    )
+    assert str(ReadinessReport.model_fields["report_schema_version"].default) in result.output
+    assert str(EvidencePacket.model_fields["packet_schema_version"].default) in result.output
     assert GATING_SIGNAL in result.output
 
 
@@ -293,8 +296,7 @@ def _assert_field_path_resolves(
         is_array = raw_segment.endswith("[]")
         field_name = raw_segment.removesuffix("[]")
         assert field_name in model.model_fields, (
-            f"{signal!r} references missing field {field_name!r} on "
-            f"{model.__name__}"
+            f"{signal!r} references missing field {field_name!r} on {model.__name__}"
         )
         if index == len(segments) - 1:
             return
@@ -313,8 +315,7 @@ def _list_item_model(
 ) -> type[BaseModel]:
     annotation = _unwrap_optional(annotation)
     assert get_origin(annotation) is list, (
-        f"{signal!r} marks {field_name!r} as an array field, but it is "
-        f"{annotation!r}"
+        f"{signal!r} marks {field_name!r} as an array field, but it is {annotation!r}"
     )
     args = get_args(annotation)
     assert args, f"{signal!r} array field {field_name!r} has no item type"
@@ -370,10 +371,7 @@ def test_cli_tool_surface_summary_detects_no_changes():
     from agents_shipgate.cli._helpers import _tool_surface_diff_has_changes
 
     assert _tool_surface_diff_has_changes(ToolSurfaceDiffSummary()) is False
-    assert (
-        _tool_surface_diff_has_changes(ToolSurfaceDiffSummary(tools_added=1))
-        is True
-    )
+    assert _tool_surface_diff_has_changes(ToolSurfaceDiffSummary(tools_added=1)) is True
 
 
 def test_cli_scan_no_plugins_forces_plugins_off(monkeypatch, tmp_path):
@@ -467,9 +465,7 @@ def test_cli_init_write_json_reports_placeholders(tmp_path):
 
 
 def test_cli_explain_json_returns_full_metadata():
-    result = runner.invoke(
-        app, ["explain", "SHIP-POLICY-APPROVAL-MISSING", "--json"]
-    )
+    result = runner.invoke(app, ["explain", "SHIP-POLICY-APPROVAL-MISSING", "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -510,9 +506,10 @@ def test_cli_findings_json_filters_by_provenance_kind(tmp_path):
     assert "suppressed_omitted" in payload["summary"]
     assert "suppressed_excluded" not in payload["summary"]
     assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] > 0
-    assert {
-        finding["provenance_kind"] for finding in payload["findings"]
-    } <= {"keyword_heuristic", "regex_heuristic"}
+    assert {finding["provenance_kind"] for finding in payload["findings"]} <= {
+        "keyword_heuristic",
+        "regex_heuristic",
+    }
     for finding in payload["findings"]:
         assert {
             "id",
@@ -595,9 +592,7 @@ def test_cli_findings_pre_v15_report_agent_mode_error(tmp_path, monkeypatch):
 
     assert result.exit_code == 3
     assert ">= 0.15" in result.output
-    json_lines = [
-        line for line in (result.output or "").splitlines() if line.startswith("{")
-    ]
+    json_lines = [line for line in (result.output or "").splitlines() if line.startswith("{")]
     assert json_lines
     payload = json.loads(json_lines[-1])
     assert payload["error"] == "input_parse_error"
@@ -615,9 +610,7 @@ def test_cli_agent_mode_emits_structured_error_on_missing_config(tmp_path, monke
 
     assert result.exit_code == 2
     # Find the JSON line on stderr/stdout (typer.testing combines them).
-    json_lines = [
-        line for line in (result.output or "").splitlines() if line.startswith("{")
-    ]
+    json_lines = [line for line in (result.output or "").splitlines() if line.startswith("{")]
     assert json_lines, f"no structured-error JSON line in output: {result.output!r}"
     payload = json.loads(json_lines[-1])
     assert payload["error"] == "config_error"
@@ -679,14 +672,11 @@ def test_cli_scan_workspace_writes_separate_report_dirs(tmp_path):
     # v0.8: per-manifest workspace summary leads with the baseline-aware
     # release_decision.decision, NOT the legacy baseline-blind summary.status.
     # Regression for PR #38 reviewer feedback.
-    decision_lines = [
-        line for line in result.output.splitlines() if "shipgate.yaml:" in line
-    ]
+    decision_lines = [line for line in result.output.splitlines() if "shipgate.yaml:" in line]
     assert decision_lines, "expected per-manifest summary lines in workspace output"
     for line in decision_lines:
         assert any(
-            f": {decision} " in line
-            for decision in ("blocked", "review_required", "passed")
+            f": {decision} " in line for decision in ("blocked", "review_required", "passed")
         ), f"workspace summary line should lead with decision: {line!r}"
         assert "blockers=" in line
 
@@ -868,13 +858,9 @@ def _stderr_json_lines(output: str) -> list[dict]:
     ]
 
 
-def test_agent_mode_scan_missing_config_emits_next_actions(
-    tmp_path, monkeypatch
-):
+def test_agent_mode_scan_missing_config_emits_next_actions(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
-    result = runner.invoke(
-        app, ["scan", "--config", str(tmp_path / "missing.yaml")]
-    )
+    result = runner.invoke(app, ["scan", "--config", str(tmp_path / "missing.yaml")])
 
     assert result.exit_code == 2
     payloads = _stderr_json_lines(result.output)
@@ -893,19 +879,14 @@ def test_agent_mode_doctor_missing_config_matches_scan(tmp_path, monkeypatch):
     """Cross-command consistency: scan and doctor surface the same diagnostic
     for missing manifest."""
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
-    scan_result = runner.invoke(
-        app, ["scan", "--config", str(tmp_path / "missing.yaml")]
-    )
-    doctor_result = runner.invoke(
-        app, ["doctor", "--config", str(tmp_path / "missing.yaml")]
-    )
+    scan_result = runner.invoke(app, ["scan", "--config", str(tmp_path / "missing.yaml")])
+    doctor_result = runner.invoke(app, ["doctor", "--config", str(tmp_path / "missing.yaml")])
 
     scan_payload = _stderr_json_lines(scan_result.output)[-1]
     doctor_payload = _stderr_json_lines(doctor_result.output)[-1]
     # Same rank-1 next_action whether the agent reached for scan or doctor.
     assert (
-        scan_payload["next_actions"][0]["command"]
-        == doctor_payload["next_actions"][0]["command"]
+        scan_payload["next_actions"][0]["command"] == doctor_payload["next_actions"][0]["command"]
     )
 
 
@@ -913,16 +894,12 @@ def test_detect_emits_negative_control_diagnostic_for_empty_workspace(
     tmp_path,
 ):
     # Empty workspace — no python, no pyproject, no prompts/tools.
-    result = runner.invoke(
-        app, ["detect", "--workspace", str(tmp_path), "--json"]
-    )
+    result = runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
     diagnostics = payload.get("diagnostics", [])
-    assert any(
-        d["id"] == "SHIP-DIAG-NO-AGENT-SURFACE" for d in diagnostics
-    )
+    assert any(d["id"] == "SHIP-DIAG-NO-AGENT-SURFACE" for d in diagnostics)
     assert payload["next_actions"]
     rank_one = payload["next_actions"][0]
     assert rank_one["kind"] == "stop"
@@ -934,9 +911,7 @@ def test_detect_emits_negative_control_diagnostic_for_empty_workspace(
 def test_detect_plain_json_carries_diagnostics_without_agent_mode(tmp_path):
     """Diagnostics surface in --json output even when AGENTS_SHIPGATE_AGENT_MODE
     is unset. The env var only gates structured-error stderr emission."""
-    result = runner.invoke(
-        app, ["detect", "--workspace", str(tmp_path), "--json"]
-    )
+    result = runner.invoke(app, ["detect", "--workspace", str(tmp_path), "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -1107,17 +1082,11 @@ tool_sources:
     assert len(unresolved) == 1
     assert unresolved[0]["id"] == "escaped"
     assert unresolved[0]["reason"] == "outside_manifest_dir"
-    diag = next(
-        d
-        for d in payload["diagnostics"]
-        if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE"
-    )
+    diag = next(d for d in payload["diagnostics"] if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE")
     assert "outside" in diag["next_actions"][0]["why"].lower()
 
 
-def test_invalid_manifest_dispatches_to_invalid_diagnostic(
-    tmp_path, monkeypatch
-):
+def test_invalid_manifest_dispatches_to_invalid_diagnostic(tmp_path, monkeypatch):
     """P1 regression: ConfigError where the file exists but is invalid must
     surface SHIP-DIAG-INVALID-MANIFEST with an `edit` rank-1 action — NOT
     SHIP-DIAG-MISSING-MANIFEST with a detect/init command. Otherwise the
@@ -1127,8 +1096,7 @@ def test_invalid_manifest_dispatches_to_invalid_diagnostic(
     # Valid YAML structure but schema-invalid (missing required project, etc.)
     config.write_text("not: a valid manifest\n", encoding="utf-8")
 
-    for command in (["scan", "--config", str(config)],
-                     ["doctor", "--config", str(config)]):
+    for command in (["scan", "--config", str(config)], ["doctor", "--config", str(config)]):
         result = runner.invoke(app, command)
         assert result.exit_code == 2, result.output
         payloads = _stderr_json_lines(result.output)
@@ -1140,14 +1108,10 @@ def test_invalid_manifest_dispatches_to_invalid_diagnostic(
         assert str(config) in rank_one["path"]
         # And the next_action string must NOT advertise a detect command —
         # that would route the agent away from the actual fix.
-        assert not payloads[-1]["next_action"].startswith(
-            "agents-shipgate detect"
-        )
+        assert not payloads[-1]["next_action"].startswith("agents-shipgate detect")
 
 
-def test_invalid_yaml_manifest_dispatches_to_invalid_diagnostic(
-    tmp_path, monkeypatch
-):
+def test_invalid_yaml_manifest_dispatches_to_invalid_diagnostic(tmp_path, monkeypatch):
     """Companion to the schema-invalid case: an unparseable YAML file is
     also "exists but invalid" — same dispatch."""
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
@@ -1163,9 +1127,7 @@ def test_invalid_yaml_manifest_dispatches_to_invalid_diagnostic(
     assert str(config) in rank_one["path"]
 
 
-def test_missing_manifest_command_quotes_workspace_with_spaces(
-    tmp_path, monkeypatch
-):
+def test_missing_manifest_command_quotes_workspace_with_spaces(tmp_path, monkeypatch):
     """P2 regression: dynamic `command` strings must POSIX-shell-quote
     paths so a coding-agent shell runner doesn't word-split a workspace
     containing spaces."""
@@ -1214,9 +1176,7 @@ def test_doctor_workspace_dispatches_invalid_manifest(tmp_path, monkeypatch):
         "expected SHIP-DIAG-INVALID-MANIFEST edit action"
     )
     assert str(config) in rank_one["path"]
-    assert not payloads[-1]["next_action"].startswith(
-        "agents-shipgate detect"
-    )
+    assert not payloads[-1]["next_action"].startswith("agents-shipgate detect")
 
 
 def test_scan_glob_dispatches_invalid_manifest(tmp_path, monkeypatch):
@@ -1237,18 +1197,14 @@ def test_scan_glob_dispatches_invalid_manifest(tmp_path, monkeypatch):
     assert str(config) in rank_one["path"]
 
 
-def test_glob_with_no_matches_yields_workspace_cwd_not_glob_chars(
-    tmp_path, monkeypatch
-):
+def test_glob_with_no_matches_yields_workspace_cwd_not_glob_chars(tmp_path, monkeypatch):
     """P1 regression (round 3): a glob with no matches must produce a
     missing-manifest hint targeting cwd, not a workspace argument
     containing literal `*` characters."""
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     monkeypatch.chdir(tmp_path)
 
-    result = runner.invoke(
-        app, ["scan", "--config", "no_such_dir/*/shipgate.yaml"]
-    )
+    result = runner.invoke(app, ["scan", "--config", "no_such_dir/*/shipgate.yaml"])
 
     assert result.exit_code == 2
     payloads = _stderr_json_lines(result.output)
@@ -1263,31 +1219,23 @@ def test_glob_with_no_matches_yields_workspace_cwd_not_glob_chars(
     assert "?" not in workspace_arg
 
 
-def test_artifact_only_command_quotes_workspace_with_spaces(
-    tmp_path, monkeypatch
-):
+def test_artifact_only_command_quotes_workspace_with_spaces(tmp_path, monkeypatch):
     """P2 regression (round 3): SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY's rank-1
     command must shell-quote the workspace path."""
     spaced = tmp_path / "space dir" / "artifact only"
     spaced.mkdir(parents=True)
     # Plant an MCP file matching MCP_PATTERNS so the artifact-only
     # diagnostic fires.
-    (spaced / "mcp-tools.json").write_text(
-        '{"tools": [{"name": "x"}]}', encoding="utf-8"
-    )
+    (spaced / "mcp-tools.json").write_text('{"tools": [{"name": "x"}]}', encoding="utf-8")
 
-    result = runner.invoke(
-        app, ["detect", "--workspace", str(spaced), "--json"]
-    )
+    result = runner.invoke(app, ["detect", "--workspace", str(spaced), "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
     diag_ids = [d["id"] for d in payload["diagnostics"]]
     assert "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY" in diag_ids
     artifact_only = next(
-        d
-        for d in payload["diagnostics"]
-        if d["id"] == "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY"
+        d for d in payload["diagnostics"] if d["id"] == "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY"
     )
     command = artifact_only["next_actions"][0]["command"]
     import shlex as _shlex
@@ -1298,9 +1246,7 @@ def test_artifact_only_command_quotes_workspace_with_spaces(
     assert workspace_arg == str(spaced)
 
 
-def test_scan_bad_flag_value_does_not_dispatch_to_invalid_manifest(
-    tmp_path, monkeypatch
-):
+def test_scan_bad_flag_value_does_not_dispatch_to_invalid_manifest(tmp_path, monkeypatch):
     """P1 regression (round 4): a bad CLI flag value (e.g. --fail-on banana)
     raises ConfigError before the manifest is touched. The error must NOT
     surface SHIP-DIAG-INVALID-MANIFEST claiming the loader rejected the
@@ -1328,9 +1274,7 @@ def test_scan_bad_flag_value_does_not_dispatch_to_invalid_manifest(
     assert rank_one["kind"] != "edit", (
         f"flag-value error dispatched to {rank_one!r}; the manifest is fine"
     )
-    assert "samples/clean_read_only_agent" not in str(
-        rank_one.get("path") or ""
-    )
+    assert "samples/clean_read_only_agent" not in str(rank_one.get("path") or "")
 
 
 @pytest.mark.parametrize(
@@ -1422,14 +1366,8 @@ def test_doctor_edit_action_paths_include_manifest_directory(tmp_path):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)[0]
-    diag = next(
-        d
-        for d in payload["diagnostics"]
-        if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE"
-    )
+    diag = next(d for d in payload["diagnostics"] if d["id"] == "SHIP-DIAG-MISSING-SOURCE-FILE")
     edit_path = diag["next_actions"][0]["path"]
     # Edit target carries the directory the user pointed doctor at.
     assert str(config) in edit_path
-    assert edit_path != "shipgate.yaml" and not edit_path.startswith(
-        "shipgate.yaml:"
-    )
+    assert edit_path != "shipgate.yaml" and not edit_path.startswith("shipgate.yaml:")

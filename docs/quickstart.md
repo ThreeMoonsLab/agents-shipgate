@@ -16,7 +16,7 @@ If the repo needs Shipgate and is not configured yet, install the manifest,
 advisory CI, and agent-facing instructions:
 
 ```bash
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 ```
 
 Then run the verifier. For local pre-commit work, omit `--base` and `--head` so

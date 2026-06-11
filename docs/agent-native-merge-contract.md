@@ -38,9 +38,8 @@ protected* — never a new way to decide.
   capability change.
 - **Implements it:** [`triggers.json`](triggers.json) (machine-readable mirror
   of the AGENTS.md trigger table) and `agents-shipgate verify --preview`.
-- **Agent reads:** `run_shipgate` / `first_next_action` (`none` for irrelevant
-  diffs, `detect`/`init` for relevant unconfigured repos, `verify` for
-  configured ones).
+- **Agent reads:** `run_shipgate` / `first_next_action` (exact `init` command
+  for unconfigured repos, exact `verify` command for configured ones).
 - **Prevents:** silently skipping an MCP/OpenAPI/SDK surface change; running on
   prose.
 

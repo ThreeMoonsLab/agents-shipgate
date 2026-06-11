@@ -98,6 +98,16 @@ Stable JSON fields:
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
+- `commands{}` — minimal stable commands for preview, default local agent
+  workflow install, local verify, PR verify, and contract introspection.
+- `default_paths{}` — default manifest, report directory, and local contract
+  paths used by generated downstream agent instructions.
+- `artifacts{}` — stable report artifact paths an agent should inspect first.
+- `verifier_read_order[]` — ordered field path list for `verifier.json`.
+- `merge_verdicts[]` — stable verifier verdict vocabulary.
+- `release_decisions[]` — stable release-gate decision vocabulary.
+- `do_not_auto_assert[]` — authority/evidence categories an agent must not
+  synthesize to make a gate pass.
 
 Package versions and schema versions are intentionally separate contract
 counters. `agents-shipgate` may bump `report_schema_version`,

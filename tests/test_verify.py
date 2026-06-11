@@ -153,9 +153,7 @@ def test_verify_explicit_head_scans_ref_archive_not_dirty_worktree(
         calls.append(kwargs)
         scan_root = Path(kwargs["config_path"]).parent
         assert scan_root != repo
-        assert "delete_files" not in (scan_root / "tools.json").read_text(
-            encoding="utf-8"
-        )
+        assert "delete_files" not in (scan_root / "tools.json").read_text(encoding="utf-8")
         report = _report(decision="passed", exit_code=0)
         out_dir = Path(kwargs["output_dir"])
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -339,9 +337,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         fix_task=VerifierFixTask(
             actor="human",
             safe_to_attempt=False,
-            instructions=[
-                "A human owner must confirm approval and idempotency evidence."
-            ],
+            instructions=["A human owner must confirm approval and idempotency evidence."],
             forbidden_shortcuts=[],
             verification_command="agents-shipgate verify --base origin/main --head HEAD --json",
         ),
@@ -368,9 +364,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "Actor: Human (human authority required" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
     assert "### Trust-root warnings" in comment
-    assert comment.index("### Required before merge") < comment.index(
-        "### Trust-root warnings"
-    )
+    assert comment.index("### Required before merge") < comment.index("### Trust-root warnings")
     assert "`shipgate.yaml` (manifest): human review is required." in comment
     assert "Do not suppress findings, lower severity, or edit evidence" in comment
     assert "### Artifacts" in comment
@@ -665,9 +659,7 @@ def test_verify_config_error_prints_next_action_hint(
     def fake_run_scan(**_kwargs: Any):
         raise ConfigError("bad config")
 
-    monkeypatch.setattr(
-        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
-    )
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan)
 
     result = runner.invoke(
         app,
@@ -689,9 +681,7 @@ def test_verify_agent_mode_emits_structured_config_error(
     def fake_run_scan(**_kwargs: Any):
         raise ConfigError("bad config")
 
-    monkeypatch.setattr(
-        "agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan
-    )
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan)
 
     result = runner.invoke(
         app,
@@ -699,9 +689,7 @@ def test_verify_agent_mode_emits_structured_config_error(
     )
 
     assert result.exit_code == 2
-    json_lines = [
-        line for line in result.output.splitlines() if line.startswith("{")
-    ]
+    json_lines = [line for line in result.output.splitlines() if line.startswith("{")]
     assert json_lines
     payload = json.loads(json_lines[-1])
     assert payload["error"] == "config_error"
@@ -716,9 +704,7 @@ def test_verify_flag_error_emits_structured_config_error(
     result = runner.invoke(app, ["verify", "--format", "bogus"])
 
     assert result.exit_code == 2
-    json_lines = [
-        line for line in result.output.splitlines() if line.startswith("{")
-    ]
+    json_lines = [line for line in result.output.splitlines() if line.startswith("{")]
     assert json_lines
     payload = json.loads(json_lines[-1])
     assert payload["error"] == "config_error"
@@ -802,9 +788,7 @@ def test_verify_capability_review_artifact_failure_does_not_gate(
     assert payload["head_exit_code"] == 0
     assert payload["merge_verdict"] == "mergeable"
     assert "capability_lock" not in payload["artifacts"]
-    assert payload["base_notes"] == [
-        "Capability review artifacts unavailable: artifact boom"
-    ]
+    assert payload["base_notes"] == ["Capability review artifacts unavailable: artifact boom"]
 
 
 def test_verify_base_materialization_does_not_create_git_worktree(
@@ -916,11 +900,13 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
     assert payload["trigger"]["should_run"] is False
-    assert payload["first_next_action"]["kind"] == "none"
-    assert payload["first_next_action"]["command"] is None
+    assert payload["first_next_action"]["kind"] == "command"
+    assert payload["first_next_action"]["command"] == (
+        f"agents-shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+    )
 
 
-def test_verify_preview_missing_base_reports_uncertainty(tmp_path: Path) -> None:
+def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _commit_all(repo, "base")
@@ -946,6 +932,75 @@ def test_verify_preview_missing_base_reports_uncertainty(tmp_path: Path) -> None
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
+    assert payload["first_next_action"]["kind"] == "command"
+    assert payload["first_next_action"]["command"] == (
+        f"agents-shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+    )
+    assert payload["base_notes"]
+
+
+def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+    out = repo / "custom-reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--out",
+            str(out),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
+    assert payload["first_next_action"]["command"] == (
+        f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
+        f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
+    )
+
+
+def test_verify_preview_configured_repo_missing_base_fetches_base(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["mode"] == "preview"
     assert payload["first_next_action"]["kind"] == "fetch_base"
     assert "could not inspect" in payload["first_next_action"]["why"]
     assert payload["base_notes"]
@@ -954,9 +1009,7 @@ def test_verify_preview_missing_base_reports_uncertainty(tmp_path: Path) -> None
 def test_verify_json_flag_is_shortcut_for_format_json(tmp_path: Path) -> None:
     workspace = tmp_path / "fresh"
     workspace.mkdir()
-    result = runner.invoke(
-        app, ["verify", "--workspace", str(workspace), "--preview", "--json"]
-    )
+    result = runner.invoke(app, ["verify", "--workspace", str(workspace), "--preview", "--json"])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)

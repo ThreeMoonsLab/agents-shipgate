@@ -85,7 +85,7 @@ and `HEAD` available before the final verify command.
 pipx install agents-shipgate
 pipx upgrade agents-shipgate
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 agents-shipgate feedback export \
@@ -135,7 +135,7 @@ Use the v0.13.0 verifier-first path:
    verify with agents-shipgate --version.
 2. Run:
    agents-shipgate verify --preview --json
-   agents-shipgate init --workspace . --write --ci --agent-instructions=all
+   agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 3. Replace every CHANGE_ME value in shipgate.yaml using the agent's system
    prompt, README, main agent module, or owner-provided context.
 4. Open or update the PR, make origin/main and HEAD available, then run:
@@ -158,9 +158,9 @@ idempotency, broad-scope, prohibited-action, waiver, baseline, suppression, or
 runtime-trace evidence.
 ```
 
-If the partner wants the smallest Codex-only install, use
-`--agent-instructions=agents-md,codex-skill` instead of `all`. For Claude Code,
-use `--agent-instructions=agents-md,claude-md,claude-code-skill`.
+If the partner wants the Codex skill bundle, use
+`--agent-instructions=agents-md,codex-skill`. For Claude Code skill bundles,
+use `--agent-instructions=agents-md,claude-command,claude-code-skill`.
 
 ## First Call Agenda
 

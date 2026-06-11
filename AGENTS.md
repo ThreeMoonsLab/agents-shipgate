@@ -145,15 +145,18 @@ agents-shipgate bootstrap --json
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
-  `--agent-instructions=all` (or a comma-separated subset of
-  `agents-md,codex-skill,claude-code-skill,claude-md,cursor,pr-template`)
-  renders agent-facing snippets to stdout; combined with `--write` it commits
-  them to the target repo via managed `<!-- agents-shipgate:start -->` markers
-  (idempotent for managed-block hosts; full-file and skill-bundle targets use
-  safe-update checks). The `codex-skill` and `claude-code-skill` targets write
-  multi-file skill bundles under `.agents/skills/agents-shipgate/` and
-  `.claude/skills/agents-shipgate/` respectively. Strict CI and baselines
-  remain opt-in human decisions; the flag emits advisory guidance only.
+  `--agent-instructions=default` renders the recommended downstream kit
+  (`AGENTS.md`, `.cursor/rules/agents-shipgate.mdc`,
+  `.claude/commands/shipgate.md`, and `.shipgate/agent-contract.json`).
+  Use `--ci` to write advisory CI. `--agent-instructions=all` means every
+  supported target. A comma-separated subset can name any target:
+  `agents-md,cursor,claude-command,local-contract,codex-skill,claude-code-skill,claude-md,pr-template`.
+  Combined with `--write`, managed-block hosts are idempotently updated and
+  full-file / skill-bundle targets use safe-update checks. The `codex-skill` and
+  `claude-code-skill` targets remain explicit opt-ins and write multi-file skill
+  bundles under `.agents/skills/agents-shipgate/` and
+  `.claude/skills/agents-shipgate/` respectively. Strict CI and baselines remain
+  opt-in human decisions; generated CI stays advisory by default.
 - **`scan --suggest-patches`** — attaches Patch objects to every active
   finding. `Finding.patches` is absent without the flag.
 - **`apply-patches`** — file-grouped, dry-run by default. Containment-
@@ -551,7 +554,7 @@ whether coding agents discover and use Shipgate without being prompted by name.
 Per-agent install guides for dropping Shipgate into your own agent project:
 
 - [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md) — install the `/shipgate` slash command and `agents-shipgate` auto-discoverable skill. Source surfaces ship at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) and [`skills/agents-shipgate/`](skills/agents-shipgate/) (named `agents-shipgate` to avoid colliding with the slash command — Claude Code lets a same-named skill preempt a command). The skill bundles the recipes in [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and a starter advisory CI workflow at [`skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml`](skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml); when you change anything in [`prompts/`](prompts/) or `examples/github-actions/01-advisory-pr-comment.yml`, sync the bundled copy.
-- [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md) — install the canonical `AGENTS.md` snippet plus repo-scoped Codex skill. Source surfaces ship at [`.agents/skills/agents-shipgate/`](.agents/skills/agents-shipgate/) and are generated into downstream repos with `agents-shipgate init --write --agent-instructions=agents-md,codex-skill` (or `all`). The skill is Codex-optimized: concise `SKILL.md`, on-demand references, and an advisory CI template.
+- [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md) — install the canonical `AGENTS.md` snippet plus repo-scoped Codex skill. Source surfaces ship at [`.agents/skills/agents-shipgate/`](.agents/skills/agents-shipgate/) and are generated into downstream repos with `agents-shipgate init --write --agent-instructions=agents-md,codex-skill`. The default `all` kit does not install skill bundles. The skill is Codex-optimized: concise `SKILL.md`, on-demand references, and an advisory CI template.
 - [`docs/agents/use-with-cursor.md`](docs/agents/use-with-cursor.md) — drop the canonical `.cursor/rules/agents-shipgate.mdc` auto-attach rule (from [`docs/target-repo-agent-snippets.md`](docs/target-repo-agent-snippets.md)) into your repo. The rule fires whenever a chat touches `shipgate.yaml`, an MCP/OpenAPI spec, a tool JSON, or a `.py` file.
 
 ---
