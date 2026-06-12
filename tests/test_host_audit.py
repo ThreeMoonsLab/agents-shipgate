@@ -449,8 +449,9 @@ def test_drift_sees_hook_command_change_under_existing_event(tmp_path: Path) -> 
 
 
 def test_drift_ignores_env_value_rotation(tmp_path: Path) -> None:
-    # Secret rotation is not an authority change: env/header VALUES are
-    # redacted before config hashing; the key set is still tracked.
+    # Secret rotation is not an authority change: values under
+    # secret-looking env/header keys are redacted before config hashing;
+    # the key set is still tracked.
     _seed_workspace(tmp_path)
     _save_baseline(tmp_path)
     mcp_path = tmp_path / ".mcp.json"
@@ -459,6 +460,47 @@ def test_drift_ignores_env_value_rotation(tmp_path: Path) -> None:
     mcp_path.write_text(json.dumps(data), encoding="utf-8")
 
     assert _drift_json(tmp_path)["has_drift"] is False
+
+
+def test_drift_sees_grant_shaping_env_value_change(tmp_path: Path) -> None:
+    # Env values are often grant-shaping config, not only credentials:
+    # flipping READ_ONLY must be drift even though the key set is unchanged.
+    # Only secret-LOOKING keys (token/secret/password/api_key/...) have
+    # their values redacted from the config hash.
+    _seed_workspace(tmp_path)
+    mcp_path = tmp_path / ".mcp.json"
+    data = json.loads(mcp_path.read_text(encoding="utf-8"))
+    data["mcpServers"]["github"]["env"]["READ_ONLY"] = "true"
+    mcp_path.write_text(json.dumps(data), encoding="utf-8")
+    _save_baseline(tmp_path)
+
+    data["mcpServers"]["github"]["env"]["READ_ONLY"] = "false"
+    mcp_path.write_text(json.dumps(data), encoding="utf-8")
+
+    payload = _drift_json(tmp_path)
+    assert payload["has_drift"] is True
+    assert "mcp_server_changed: claude-code (project):github" in payload[
+        "expansion_signals"
+    ]
+
+
+def test_drift_header_semantics_rotation_quiet_new_key_fires(tmp_path: Path) -> None:
+    _seed_workspace(tmp_path)
+    mcp_path = tmp_path / ".mcp.json"
+    data = json.loads(mcp_path.read_text(encoding="utf-8"))
+    data["mcpServers"]["remote"]["headers"] = {"Authorization": "Bearer one"}
+    mcp_path.write_text(json.dumps(data), encoding="utf-8")
+    _save_baseline(tmp_path)
+
+    # Rotating the Authorization value is not drift...
+    data["mcpServers"]["remote"]["headers"]["Authorization"] = "Bearer two"
+    mcp_path.write_text(json.dumps(data), encoding="utf-8")
+    assert _drift_json(tmp_path)["has_drift"] is False
+
+    # ...but adding a non-secret header key is.
+    data["mcpServers"]["remote"]["headers"]["X-Scope"] = "admin"
+    mcp_path.write_text(json.dumps(data), encoding="utf-8")
+    assert _drift_json(tmp_path)["has_drift"] is True
 
 
 def test_drift_baseline_stored_hash_mismatch_exits_2(tmp_path: Path) -> None:

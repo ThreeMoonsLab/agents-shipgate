@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ from agents_shipgate.core.host_boundary import (
     _transport_hint,
     _trigger_names,
 )
+from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
 
 MCP_FILES: tuple[tuple[str, str], ...] = (
     (".mcp.json", "claude-code (project)"),
@@ -308,18 +310,44 @@ def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Dict keys whose VALUES carry secrets (tokens, API keys) rather than
-# authority shape. Values under these keys are redacted before config
-# hashing so secret rotation is not drift; the key set itself still is.
-_SECRET_VALUE_KEYS = frozenset({"env", "headers"})
+# Dict keys whose values MAY carry credentials (tokens, API keys). Inside
+# these containers a per-key heuristic decides what to redact before config
+# hashing: secret-looking keys (GITHUB_TOKEN, Authorization, …) have their
+# values redacted so rotation is not drift, while grant-shaping values
+# (READ_ONLY, ALLOWED_PATHS, toolset selectors, …) stay in the hash so
+# flipping them IS drift. Misclassification fails safe: a secret under a
+# non-secret-looking key causes drift noise on rotation (a human looks),
+# never a blind spot — and raw values are never stored either way, only
+# the final sha256.
+_CREDENTIAL_CONTAINER_KEYS = frozenset({"env", "headers"})
+
+# Key-name vocabulary shared with the report redaction layer
+# (core/privacy.SENSITIVE_VALUE_KEYS), matched as substrings of the
+# normalized key so conventional names like GITHUB_TOKEN, OPENAI_API_KEY,
+# AWS_SECRET_ACCESS_KEY, and Proxy-Authorization all classify as secret.
+_SECRET_KEY_MARKERS = frozenset(SENSITIVE_VALUE_KEYS) | {"cookie", "passphrase"}
+
+
+def _is_secret_key(key: object) -> bool:
+    if not isinstance(key, str):
+        return False
+    normalized = re.sub(r"[^a-z0-9_]+", "", key.lower())
+    return any(marker in normalized for marker in _SECRET_KEY_MARKERS)
 
 
 def _redact_secret_values(value: Any) -> Any:
     if isinstance(value, dict):
         return {
             key: (
-                {inner_key: "<redacted>" for inner_key in sorted(inner)}
-                if key in _SECRET_VALUE_KEYS and isinstance(inner, dict)
+                {
+                    inner_key: (
+                        "<redacted>"
+                        if _is_secret_key(inner_key)
+                        else _redact_secret_values(inner_value)
+                    )
+                    for inner_key, inner_value in inner.items()
+                }
+                if key in _CREDENTIAL_CONTAINER_KEYS and isinstance(inner, dict)
                 else _redact_secret_values(inner)
             )
             for key, inner in value.items()
@@ -333,9 +361,10 @@ def redacted_config_sha256(config: Any) -> str:
     """Content hash of a host-config fragment with secret values redacted.
 
     The hash makes any grant-shaping edit (args, commands, matchers, URL,
-    header/env *keys*) visible to drift without ever storing the raw
-    config — and without making env/header *value* rotation count as
-    drift."""
+    env/header *keys*, and non-secret env/header *values* like
+    ``READ_ONLY=false``) visible to drift without ever storing the raw
+    config — and without making credential rotation under secret-looking
+    keys count as drift."""
 
     redacted = _redact_secret_values(config)
     return hashlib.sha256(

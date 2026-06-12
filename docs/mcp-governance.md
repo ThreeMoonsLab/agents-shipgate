@@ -123,10 +123,17 @@ policy change. The stored `inventory_sha256` is verified on every
 (exit 2) instead of silently reporting no drift.
 
 MCP server and hook entries carry a `config_sha256` over their full
-configuration with secret-bearing `env`/`headers` *values* redacted
-before hashing. Editing what an existing server or hook can do (args,
-commands, matchers, URL, env/header *keys*) is drift; rotating a token
-value is not.
+configuration. Inside `env`/`headers`, only values under
+**secret-looking keys** (matched against the shared sensitive-key
+vocabulary: token, secret, password, api_key, authorization, …) are
+redacted before hashing — env values are often grant-shaping config,
+not just credentials. So editing what an existing server or hook can do
+(args, commands, matchers, URL, env/header keys, or a non-secret value
+like `READ_ONLY=false`) is drift; rotating `GITHUB_TOKEN` or an
+`Authorization` header is not. Misclassification fails safe: a secret
+under an unconventional key name causes drift noise on rotation, never
+a blind spot — and raw values are never stored either way, only the
+hash.
 
 The drift report lists added/removed/changed entries per category and
 names **expansion signals** — the drift shapes that broaden coding-agent

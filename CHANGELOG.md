@@ -13,11 +13,14 @@
   the authority-broadening shapes (new or **changed** server, wildcard allow
   added, `deny` or `ask` rule **removed**, hook added or **changed**, workflow
   write scope or `pull_request_target` gained). MCP server and hook entries
-  carry a `config_sha256` over their full configuration with secret `env` /
-  `headers` values redacted before hashing, so editing what an existing server
-  or hook can do is drift while token rotation is not; the baseline's stored
-  `inventory_sha256` is verified at load time and hand-edited or malformed
-  baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
+  carry a `config_sha256` over their full configuration; inside
+  `env`/`headers` only values under secret-looking keys (shared sensitive-key
+  vocabulary: token, secret, password, api_key, authorization, …) are redacted
+  before hashing, so editing what an existing server or hook can do — args,
+  commands, matchers, URL, key sets, or a grant-shaping value like
+  `READ_ONLY=false` — is drift while credential rotation is not; the
+  baseline's stored `inventory_sha256` is verified at load time and
+  hand-edited or malformed baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
   exits 20 for scheduled CI gates — recipe at
   `examples/github-actions/11-host-grant-drift.yml`. Catches authority changes
   that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
