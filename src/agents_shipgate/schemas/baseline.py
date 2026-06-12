@@ -8,12 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts, ToolSurfaceFacts
 
-BASELINE_SCHEMA_VERSION = "0.5"
-# v0.5 self-describing entry provenance. Older versions (0.2/0.3/0.4)
-# load with `BaselineFinding.provenance = None`; the integrity check
-# then flags them as `SHIP-BASELINE-ENTRY-STALE` (kind="legacy_no_provenance")
-# in warn/strict modes. Re-saving with `baseline save` upgrades the
-# file to 0.5 and stamps provenance on every entry.
+BASELINE_SCHEMA_VERSION = "0.6"
+# v0.6 adds optional `provenance.owner` — the human who accepted the
+# debt — settable via `baseline save --owner/--reason/--expires`
+# (v0.5 documented reviewer-set `reason`/`expires` but offered no CLI
+# path, and hand-editing the file breaks the integrity hash).
+# v0.5 added self-describing entry provenance. Older versions
+# (0.2/0.3/0.4) load with `BaselineFinding.provenance = None`; the
+# integrity check then flags them as `SHIP-BASELINE-ENTRY-STALE`
+# (kind="legacy_no_provenance") in warn/strict modes. Re-saving with
+# `baseline save` upgrades the file to the current version and stamps
+# provenance on every entry.
 
 
 class BaselineProvenance(BaseModel):
@@ -23,10 +28,11 @@ class BaselineProvenance(BaseModel):
     in the baseline. Existing fingerprints keep their original provenance
     on re-save; only newly-added ones get a fresh `recorded_at` / `run_id`.
 
-    `expires` is optional and reviewer-controlled: when set, the
-    integrity check emits `SHIP-BASELINE-ENTRY-EXPIRED` past that date.
-    `reason` is free-form; reviewers should set it when the entry was
-    deliberately accepted (not just snapshotted).
+    `owner`, `reason`, and `expires` are reviewer-controlled exception
+    metadata, set via `baseline save --owner/--reason/--expires` — never
+    inferred (declared human authority cannot be synthesized, matching
+    the `human_ack` contract). When `expires` is set, the integrity check
+    emits `SHIP-BASELINE-ENTRY-EXPIRED` past that date.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -34,6 +40,7 @@ class BaselineProvenance(BaseModel):
     scanner_version: str
     run_id: str
     recorded_at: str
+    owner: str | None = None
     reason: str | None = None
     expires: date | None = None
 
@@ -55,7 +62,7 @@ class BaselineFinding(BaseModel):
 class BaselineFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.2", "0.3", "0.4", "0.5"] = BASELINE_SCHEMA_VERSION
+    schema_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6"] = BASELINE_SCHEMA_VERSION
     project: dict[str, object] = Field(default_factory=dict)
     agent: dict[str, object] = Field(default_factory=dict)
     created_at: str

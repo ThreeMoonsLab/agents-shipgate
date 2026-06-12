@@ -2,6 +2,22 @@
 
 ## 0.13.0 - Unreleased
 
+- **Accepted-debt exception workflow (baseline schema 0.6).** `baseline save`
+  gains `--owner`, `--reason`, and `--expires` so the approval metadata the
+  v0.5 provenance contract documented as "reviewer-set" is finally settable
+  without hand-editing the file (which trips the integrity hash). Metadata is
+  stamped on newly-accepted entries; `--apply-to-existing` fills the fields
+  into existing entries that lack them — never overwriting a previously-set
+  value and preserving each entry's original `recorded_at`/`run_id` history.
+  Approval is declared, never inferred, matching the `human_ack` contract.
+  New `baseline status` reports accepted-debt aging (owner, age, expiry,
+  expiring-soon/expired/unowned summary; `--as-of` pins the date for
+  reproducible CI output) and turns into an org governance gate with
+  `--require-owner` / `--require-expiry` / `--max-age-days N` — exit 20 on
+  violations, advisory exit 0 without gate flags. Expired entries violate
+  `--require-expiry`, and entries without provenance fail every active gate
+  (unknown history is ungoverned debt, not exempt debt). Legacy 0.2–0.5
+  baselines still load; re-saving upgrades them to 0.6.
 - **Host-grant drift detection.** `audit --host --save-baseline` records the
   current coding-agent host grants (MCP servers, Claude Code permission rules
   and hooks, workflow scopes, Codex config presence) as the acknowledged state

@@ -39,21 +39,31 @@ def baseline_from_report(
     scanner_version: str | None = None,
     prior_baseline: BaselineFile | None = None,
     now: str | None = None,
+    owner: str | None = None,
+    reason: str | None = None,
+    expires: date | None = None,
+    apply_to_existing: bool = False,
 ) -> BaselineFile:
-    """Build a v0.5 baseline file from a scan report.
+    """Build a baseline file from a scan report.
 
     Provenance handling:
 
     - When ``prior_baseline`` is provided and an entry's fingerprint
       already appears there with a populated ``provenance``, the prior
-      provenance is preserved verbatim — only newly-added fingerprints
-      get a fresh provenance stamp. This keeps re-saves idempotent for
-      the audit log and lets reviewer-set ``reason`` / ``expires`` survive
-      subsequent saves.
+      provenance is preserved — only newly-added fingerprints get a
+      fresh provenance stamp. This keeps re-saves idempotent for the
+      audit log and lets reviewer-set ``owner`` / ``reason`` /
+      ``expires`` survive subsequent saves.
     - When the prior entry has no provenance (loaded from a 0.2/0.3/0.4
       baseline), the entry is upgraded with a fresh provenance stamp.
       This is the migration path: re-saving a legacy baseline stamps
       provenance on every entry as of the next scan.
+
+    Exception metadata (v0.6): ``owner`` / ``reason`` / ``expires`` are
+    stamped on newly-added entries. With ``apply_to_existing=True`` they
+    are also FILLED IN on prior entries that lack them — a previously
+    set value is never overwritten and ``recorded_at`` / ``run_id`` are
+    preserved, so acknowledging legacy debt does not rewrite its history.
 
     ``scanner_version`` and ``now`` are injectable for deterministic
     testing. In production they default to the package version and UTC
@@ -73,11 +83,22 @@ def baseline_from_report(
         prior_entry = prior_by_fp.get(fingerprint)
         if prior_entry is not None and prior_entry.provenance is not None:
             provenance = prior_entry.provenance
+            if apply_to_existing:
+                provenance = provenance.model_copy(
+                    update={
+                        "owner": provenance.owner or owner,
+                        "reason": provenance.reason or reason,
+                        "expires": provenance.expires or expires,
+                    }
+                )
         else:
             provenance = BaselineProvenance(
                 scanner_version=scanner_version,
                 run_id=report.run_id,
                 recorded_at=recorded_at,
+                owner=owner,
+                reason=reason,
+                expires=expires,
             )
         findings.append(
             BaselineFinding(
@@ -106,8 +127,12 @@ def write_baseline(
     *,
     scanner_version: str | None = None,
     audit_log_path: Path | None = None,
+    owner: str | None = None,
+    reason: str | None = None,
+    expires: date | None = None,
+    apply_to_existing: bool = False,
 ) -> BaselineFile:
-    """Write a v0.5 baseline + append a row to the audit log.
+    """Write a baseline + append a row to the audit log.
 
     The audit log defaults to ``<path.parent>/baseline-audit.log``. Pass
     ``audit_log_path`` explicitly to override (tests use a tmp path).
@@ -118,6 +143,9 @@ def write_baseline(
     that change nothing still produce an audit row with empty
     ``added_fingerprints`` / ``removed_fingerprints`` — that is the
     intended ledger semantics.
+
+    ``owner`` / ``reason`` / ``expires`` / ``apply_to_existing`` carry the
+    reviewer's exception metadata; see :func:`baseline_from_report`.
     """
     scanner_version = scanner_version or _SCANNER_VERSION
     prior_baseline = _try_load_baseline(path)
@@ -125,6 +153,10 @@ def write_baseline(
         report,
         scanner_version=scanner_version,
         prior_baseline=prior_baseline,
+        owner=owner,
+        reason=reason,
+        expires=expires,
+        apply_to_existing=apply_to_existing,
     )
     baseline = _preserve_created_at_when_content_matches(baseline, prior_baseline)
     hash_before: str | None = None
@@ -180,6 +212,122 @@ def load_baseline(path: Path) -> BaselineFile:
         return BaselineFile.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError, ValueError) as exc:
         raise InputParseError(f"Invalid baseline file {path}: {exc}") from exc
+
+
+# --- Debt status (exception-workflow reporting and gating) ----------------
+
+DEBT_STATUS_SCHEMA_VERSION = "0.1"
+
+
+def _recorded_date(provenance: BaselineProvenance | None) -> date | None:
+    if provenance is None or not provenance.recorded_at:
+        return None
+    try:
+        return date.fromisoformat(provenance.recorded_at[:10])
+    except ValueError:
+        return None
+
+
+def baseline_status_payload(
+    baseline: BaselineFile,
+    *,
+    as_of: date,
+    expiring_within_days: int = 30,
+) -> dict[str, object]:
+    """Deterministic accepted-debt aging report for a baseline file.
+
+    ``as_of`` is injected (CLI defaults to today UTC, ``--as-of`` pins it)
+    so the payload is reproducible. Entries without provenance (legacy
+    0.2–0.4 files never re-saved) report ``age_days=None`` and count as
+    unowned / no-expiry: unknown history is ungoverned debt, not exempt
+    debt.
+    """
+
+    entries: list[dict[str, object]] = []
+    for finding in sorted(baseline.findings, key=lambda item: item.fingerprint):
+        provenance = finding.provenance
+        recorded = _recorded_date(provenance)
+        expires = provenance.expires if provenance is not None else None
+        owner = provenance.owner if provenance is not None else None
+        reason = provenance.reason if provenance is not None else None
+        age_days = (as_of - recorded).days if recorded is not None else None
+        days_until_expiry = (expires - as_of).days if expires is not None else None
+        entries.append(
+            {
+                "fingerprint": finding.fingerprint,
+                "check_id": finding.check_id,
+                "severity": finding.severity,
+                "title": finding.title,
+                "tool_name": finding.tool_name,
+                "owner": owner,
+                "reason": reason,
+                "recorded_at": (
+                    provenance.recorded_at if provenance is not None else None
+                ),
+                "age_days": age_days,
+                "expires": expires.isoformat() if expires is not None else None,
+                "days_until_expiry": days_until_expiry,
+                "expired": days_until_expiry is not None and days_until_expiry < 0,
+                "unowned": owner is None,
+                "no_expiry": expires is None,
+            }
+        )
+    ages = [entry["age_days"] for entry in entries if entry["age_days"] is not None]
+    summary = {
+        "total": len(entries),
+        "owned": sum(1 for entry in entries if not entry["unowned"]),
+        "unowned": sum(1 for entry in entries if entry["unowned"]),
+        "with_expiry": sum(1 for entry in entries if not entry["no_expiry"]),
+        "no_expiry": sum(1 for entry in entries if entry["no_expiry"]),
+        "expired": sum(1 for entry in entries if entry["expired"]),
+        "expiring_within_days": sum(
+            1
+            for entry in entries
+            if entry["days_until_expiry"] is not None
+            and 0 <= entry["days_until_expiry"] <= expiring_within_days  # type: ignore[operator]
+        ),
+        "no_provenance": sum(1 for entry in entries if entry["age_days"] is None),
+        "oldest_age_days": max(ages) if ages else None,
+    }
+    return {
+        "debt_status_schema_version": DEBT_STATUS_SCHEMA_VERSION,
+        "baseline_schema_version": baseline.schema_version,
+        "as_of": as_of.isoformat(),
+        "expiring_within_days": expiring_within_days,
+        "summary": summary,
+        "entries": entries,
+    }
+
+
+def baseline_status_violations(
+    payload: dict[str, object],
+    *,
+    require_owner: bool = False,
+    require_expiry: bool = False,
+    max_age_days: int | None = None,
+) -> list[dict[str, str]]:
+    """Evaluate org governance requirements against a status payload.
+
+    Entries without provenance fail every active requirement (fail
+    closed: unknown history cannot satisfy a governance bar). Expired
+    entries violate ``require_expiry`` — an expired exception is no
+    longer a valid exception.
+    """
+
+    violations: list[dict[str, str]] = []
+    for entry in payload["entries"]:  # type: ignore[union-attr]
+        fingerprint = str(entry["fingerprint"])
+        if require_owner and entry["unowned"]:
+            violations.append({"fingerprint": fingerprint, "kind": "unowned"})
+        if require_expiry and entry["no_expiry"]:
+            violations.append({"fingerprint": fingerprint, "kind": "no_expiry"})
+        if require_expiry and entry["expired"]:
+            violations.append({"fingerprint": fingerprint, "kind": "expired"})
+        if max_age_days is not None:
+            age = entry["age_days"]
+            if age is None or age > max_age_days:  # type: ignore[operator]
+                violations.append({"fingerprint": fingerprint, "kind": "age_exceeded"})
+    return violations
 
 
 def apply_baseline(

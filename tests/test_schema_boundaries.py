@@ -234,7 +234,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         ],
     )
     assert baseline.model_dump(mode="json") == {
-        "schema_version": "0.5",
+        "schema_version": "0.6",
         "project": {},
         "agent": {},
         "created_at": "2026-01-01T00:00:00Z",
