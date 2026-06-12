@@ -86,6 +86,12 @@ def test_non_trust_root_files_are_not_flagged():
         (".codex-plugin/plugin.json", "codex_plugin"),
         ("plugins/browser/.app.json", "tool_surface_decl"),
         ("servers/search/.mcp.json", "tool_surface_decl"),
+        (".cursor/mcp.json", "tool_surface_decl"),
+        ("apps/web/.cursor/mcp.json", "tool_surface_decl"),
+        (".vscode/mcp.json", "tool_surface_decl"),
+        ("apps/web/.vscode/mcp.json", "tool_surface_decl"),
+        (".claude/settings.json", "agent_instructions"),
+        (".claude/settings.local.json", "agent_instructions"),
         ("packages/refund/SKILL.md", "tool_surface_decl"),
     ],
 )

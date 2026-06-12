@@ -177,6 +177,16 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
     outputs = extract_outputs(output_dir)
 
     assert outputs["agent_result_json"] == output_dir / "agent-result.json"
+    assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
+    assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
+    assert (
+        outputs["base_capability_lock_json"]
+        == output_dir / "base.capabilities.lock.json"
+    )
+    assert (
+        outputs["capability_lock_diff_json"]
+        == output_dir / "capability-lock-diff.json"
+    )
     assert outputs["agent_decision"] == "require_review"
     assert outputs["risk_level"] == "high"
     assert outputs["audit_id"] == "sg_audit_abc"
@@ -189,6 +199,7 @@ def test_decision_policy_exit_code_is_opt_in() -> None:
     assert decision_policy_exit_code("block", "block") == 20
     assert decision_policy_exit_code("require_review", "block") == 0
     assert decision_policy_exit_code("require_review", "block, require_review") == 20
+    assert decision_policy_exit_code("", "block") == 21
 
 
 def _write_json(path: Path, payload: dict) -> None:

@@ -62,6 +62,12 @@ rules:
     action: block
     risk_level: critical
     recommendation: Restore the Shipgate workflow or get human approval to remove it.
+  - id: CODEX-POLICY-WEAKENED
+    check_id: SHIP-CODEX-BOUNDARY-POLICY-WEAKENED
+    title: Codex boundary policy was weakened
+    action: block
+    risk_level: critical
+    recommendation: Restore the stricter policy or get human approval before weakening the local boundary gate.
   - id: CODEX-HOOK-COMMAND-CHANGED
     check_id: SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED
     title: Codex executable hook changed

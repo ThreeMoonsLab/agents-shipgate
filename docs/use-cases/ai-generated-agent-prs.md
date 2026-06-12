@@ -89,7 +89,7 @@ readiness issue, its patch removes a blocker by editing `shipgate.yaml`.
 
 Touching a release-gate trust root requires at least human review. The attempt to
 weaken the gate becomes a visible, release-relevant signal rather than a silent
-pass. `v0.11.0` includes both path-level trust-root detection and semantic
+pass. `v0.12.0` includes both path-level trust-root detection and semantic
 weakening checks over the normalized effective policy: `ci.mode` downgrades,
 loosened `fail_on`, suppression/waiver/baseline expansion, CI gate removal,
 agent-instruction edits, and trigger catalog drift route to human review or
@@ -100,19 +100,19 @@ block release through ordinary `SHIP-VERIFY-*` findings.
 ```bash
 pipx install agents-shipgate
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=all
+agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
   manifest required, exits 0. It emits `mode: "preview"` and a `first_next_action`
-  with the next recommended action (`none` for irrelevant diffs,
-  `detect`/`init` for relevant unconfigured repos, or `verify` for configured
-  repos). Use it as the first touch on any repo or PR.
-- `init --write --ci --agent-instructions=all` writes `shipgate.yaml`, the
-  advisory CI workflow, and the agent-instruction surfaces (`AGENTS.md`,
-  `CLAUDE.md`, the Cursor rule, the Codex/Claude skills, and the PR template) via
-  idempotent managed blocks.
+  with an exact init command for unconfigured repos or an exact verify command
+  for configured repos. Use it as the first touch on any repo or PR.
+- `init --write --ci --agent-instructions=default --json` writes
+  `shipgate.yaml`, the advisory CI workflow, and the default agent surfaces
+  (`AGENTS.md`, the Cursor rule, the Claude `/shipgate` command, and
+  `.shipgate/agent-contract.json`). Skill bundles stay explicit targets such as
+  `codex-skill`.
 - `verify --base origin/main --head HEAD --json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or
@@ -149,13 +149,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.13.0'
       - name: Gate on the merge verdict
         run: |
           echo "merge_verdict=${{ steps.shipgate.outputs.merge_verdict }}"

@@ -1,0 +1,31 @@
+# Fail only when Agents Shipgate cannot gather enough static evidence to gate.
+# Use this when the team wants missing/low-confidence tool evidence to block
+# automation, while still routing ordinary human-review verdicts separately.
+name: Agents Shipgate (fail insufficient evidence)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: shipgate
+        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '0.13.0'
+      - name: Fail insufficient static evidence
+        if: steps.shipgate.outputs.merge_verdict == 'insufficient_evidence'
+        run: exit 1

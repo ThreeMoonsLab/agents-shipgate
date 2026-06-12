@@ -232,10 +232,17 @@ def _source_to_location(
         "physicalLocation": physical_location,
         "logicalLocations": [{"name": logical_name or "<unknown>"}],
     }
+    properties = {
+        "shipgateSourceSelector": _source_selector(source, artifact_uri),
+        "shipgateSourceType": source.type,
+    }
     # Empty string is a valid RFC 6901 root-document pointer (singleton
     # YAML object case), so check ``is not None`` rather than truthiness.
     if source.pointer is not None:
-        location["properties"] = {"shipgatePointer": source.pointer}
+        properties["shipgatePointer"] = source.pointer
+    if source.ref:
+        properties["shipgateSourceRef"] = source.ref
+    location["properties"] = properties
     return location
 
 
@@ -246,6 +253,16 @@ def _split_location(value: str) -> tuple[str, int | None]:
     if path and maybe_line.isdigit():
         return path, int(maybe_line)
     return value, None
+
+
+def _source_selector(source: Any, artifact_uri: str) -> str:
+    if source.pointer is not None:
+        return f"{artifact_uri}#{source.pointer}"
+    if source.location:
+        return source.location
+    if source.ref:
+        return source.ref
+    return artifact_uri
 
 
 def _summarize_evidence(value: Any) -> Any:

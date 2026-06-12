@@ -1,5 +1,13 @@
 # Use Agents Shipgate with Cursor
 
+This page is the compatibility guide for Cursor rules. For the normative agent
+protocol, use [cursor.md](cursor.md) and [protocol.md](protocol.md). The
+canonical Cursor control command is:
+
+```bash
+shipgate check --agent cursor --workspace . --format agent-json
+```
+
 Cursor's discoverability surface is the auto-attach project rule: a Markdown file under `.cursor/rules/*.mdc` with frontmatter that lists which globs cause it to attach to a chat. The canonical Shipgate rule already exists as a copy-paste snippet — drop it in and Cursor will load it whenever a chat touches `shipgate.yaml`, an OpenAPI/MCP spec, a tools JSON, or any `.py` file.
 
 | Surface | What it does | Source path in this repo |

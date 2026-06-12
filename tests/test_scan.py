@@ -1261,3 +1261,69 @@ checks:
         f"policy-pack warning (index {pp_idx}) in report.source_warnings. "
         f"Full list: {warnings}"
     )
+
+
+# --- v0.26 suggested-inventory artifact -------------------------------------
+
+LANGCHAIN_SAMPLE = Path("samples/simple_langchain_agent/shipgate.yaml")
+
+
+def test_scan_writes_suggested_inventory_for_low_confidence_tools(tmp_path):
+    report, _ = run_scan(
+        config_path=LANGCHAIN_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert report.release_decision is not None
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    assert any(gap.kind == "low_confidence_tool" for gap in gaps)
+
+    skeleton_path = tmp_path / "suggested-inventory.json"
+    assert skeleton_path.exists()
+    skeleton = json.loads(skeleton_path.read_text(encoding="utf-8"))
+    assert "note" in skeleton
+    names = [entry["name"] for entry in skeleton["tools"]]
+    assert names == sorted(names)
+    low_confidence_subjects = {
+        gap.subject for gap in gaps if gap.kind == "low_confidence_tool"
+    }
+    assert set(names) == low_confidence_subjects
+    # Every entry has at least a name and a non-empty description.
+    for entry in skeleton["tools"]:
+        assert entry["name"]
+        assert entry["description"]
+
+
+def test_suggested_inventory_loads_as_mcp_inventory(tmp_path):
+    """The skeleton must round-trip through the same loader every
+    ``tool_inventories`` manifest key uses."""
+    from agents_shipgate.inputs.mcp import load_mcp_tools
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    run_scan(
+        config_path=LANGCHAIN_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    loaded = load_mcp_tools(
+        ToolSourceConfig(
+            id="suggested", type="mcp", path="suggested-inventory.json"
+        ),
+        tmp_path,
+    )
+    assert loaded.tools, "skeleton should load as a non-empty inventory"
+
+
+def test_scan_writes_no_suggested_inventory_when_confidence_is_high(tmp_path):
+    run_scan(
+        config_path=OPENAI_API_SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert not (tmp_path / "suggested-inventory.json").exists()

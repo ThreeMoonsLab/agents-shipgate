@@ -425,6 +425,13 @@
     },
     "EvidenceCoverageDecision": {
       "properties": {
+        "evidence_gaps": {
+          "items": {
+            "$ref": "#/$defs/EvidenceGap"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
         "human_review_recommended": {
           "title": "Human Review Recommended",
           "type": "boolean"
@@ -449,6 +456,115 @@
         "low_confidence_tool_count"
       ],
       "title": "EvidenceCoverageDecision",
+      "type": "object"
+    },
+    "EvidenceGap": {
+      "description": "v0.26: one structured row per measurable evidence gap.\n\n``insufficient_evidence`` previously diagnosed without prescribing;\neach gap names the degraded subject and the specific next action\nthat raises extraction confidence. Purely explanatory \u2014 gating\nstill uses only the counts (the gap list is a projection of them).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "low_confidence_tool",
+            "source_warning"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "next_action": {
+          "$ref": "#/$defs/EvidenceGapAction"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "why",
+        "next_action"
+      ],
+      "title": "EvidenceGap",
+      "type": "object"
+    },
+    "EvidenceGapAction": {
+      "description": "One concrete, mechanically-executable step that closes a gap.\n\nMirrors the agent-mode ``next_actions[]`` error shape\n(``kind``/``command``/``path``/``why``/``expects``) so agents reuse\none routing vocabulary across error recovery and evidence repair.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "expects": {
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "declare_tool_inventory",
+            "provide_source",
+            "review_warning"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "why",
+        "expects"
+      ],
+      "title": "EvidenceGapAction",
       "type": "object"
     },
     "EvidenceMatrixRow": {

@@ -1,7 +1,230 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 - Unreleased
 
+- **Host-grant drift detection.** `audit --host --save-baseline` records the
+  current coding-agent host grants (MCP servers, Claude Code permission rules
+  and hooks, workflow scopes, Codex config presence) as the acknowledged state
+  in `.agents-shipgate/host-grants.json` (content-only and byte-idempotent —
+  no timestamps or machine paths; the directory is already a verify trust-root
+  surface, so PR edits to the snapshot stay release-visible). `audit --host
+  --drift` deterministically diffs current grants against that baseline with
+  per-category added/removed/changed buckets plus `expansion_signals` naming
+  the authority-broadening shapes (new or **changed** server, wildcard allow
+  added, `deny` or `ask` rule **removed**, hook added or **changed**, workflow
+  write scope or `pull_request_target` gained). MCP server and hook entries
+  carry a `config_sha256` over their full configuration; inside
+  `env`/`headers` only values under secret-looking keys (shared sensitive-key
+  vocabulary: token, secret, password, api_key, authorization, …) are redacted
+  before hashing, so editing what an existing server or hook can do — args,
+  commands, matchers, URL, key sets, or a grant-shaping value like
+  `READ_ONLY=false` — is drift while credential rotation is not; the
+  baseline's stored `inventory_sha256` is verified at load time and
+  hand-edited or malformed baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
+  exits 20 for scheduled CI gates — recipe at
+  `examples/github-actions/12-host-grant-drift.yml`. Catches authority changes
+  that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
+  checks cannot see them.
+- **`check` defers tool-surface changes to `verify` (coverage boundary).**
+  `shipgate check` is boundary-scoped and does not compute the capability
+  delta, so a clean boundary result over a diff that changes a
+  manifest-declared `tool_sources[].path` no longer returns `allow` — it
+  returns `decision="warn"` routing `first_next_action` to `verify`, with a
+  `diagnostics[].code="capability_change_requires_verify"` marker and a
+  `trace[].step="coverage"` event. Completion is still allowed, but `check`
+  no longer green-lights a capability change only `verify` gates, so the local
+  loop cannot disagree with `release_decision.decision`. Docs/test/boundary-only
+  diffs are unaffected (still `allow`); no `agent_result_v1` schema change.
+- **Agent-mode auto-detection.** Agent mode now auto-enables when a known
+  coding-agent harness environment is detected (Claude Code exports
+  `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`), so structured `next_action`
+  errors no longer require remembering `AGENTS_SHIPGATE_AGENT_MODE=1`. An
+  explicit `AGENTS_SHIPGATE_AGENT_MODE=0` still forces it off.
+- **Compact agent stdout for `verify`.** `verify --format agent` (new) prints
+  the compact `agent_result_v1` payload (the same artifact written to
+  `agents-shipgate-reports/agent-result.json`) on stdout, so one `verify`
+  call closes the agent loop without a second file read. Bare `verify --json`
+  resolves to this agent surface for verify runs (and to the full verifier
+  JSON for `--preview`, whose relevance answer lives in the `trigger`
+  block); `verify --format json` is unchanged. Inside a detected
+  coding-agent environment, zero-flag `verify` defaults to the agent format.
+- **Base auto-detection for `verify`.** When `--base` is omitted, verify
+  auto-detects the default branch (`origin/HEAD`, `origin/main`,
+  `origin/master`, `main`, `master`) and uses it for diff context — but only
+  when the detected ref points at a different commit than the head, so a
+  clean checkout of the default branch keeps today's working-tree behavior.
+  The detection never fetches. `--no-base` disables it; an explicit `--base`
+  always wins. The auto-detected ref is recorded in `base_notes`.
+- **`init --claude-code` one-shot setup.** A single flag wires the full
+  Claude Code surface: the `CLAUDE.md` managed block, the
+  `.claude/skills/agents-shipgate/` skill bundle, the Claude Code hooks, and
+  an `agents-shipgate verify --json` alias appended to Makefile /
+  `package.json` scripts when those files exist. Idempotent, dry-run without
+  `--write`, and reported under the additive `claude_code` key in
+  `init --json` output.
+- **Pre-commit hooks now run the verifier.** The `agents-shipgate` and
+  `agents-shipgate-strict` pre-commit hook entries switch from unconditional
+  `scan` to the trigger-gated `verify` flow (the `files:` regex pre-gate is
+  unchanged), so local commits get the same merge-verdict surface as CI and
+  diff-only trigger rules are evaluated once the hook fires.
+- **`fix_task.patches[]`.** When `verify --suggest-patches` routes the repair
+  to the coding agent, the fix task now carries the machine-applicable
+  suggested patches (`{finding_id, check_id, patch}` with the discriminated
+  set/append/remove-pointer payloads) so the agent gets concrete edits, not
+  just prose instructions. Manual patches stay excluded and the field is
+  additive — repair aid, never a gate input.
+- **`fix_task` names low-confidence sources on `insufficient_evidence`.** The
+  verify fix task for an `insufficient_evidence` verdict no longer dead-ends
+  at the threshold sentence: it names each low-confidence source (count,
+  source type, ref) with the explicit-inventory remedy and quotes up to
+  three source warnings. Complements the report-layer
+  `evidence_coverage.evidence_gaps[]` (schema v0.26); the route stays human
+  because declaring an inventory asserts authority a coding agent must not
+  invent. Deeper adapter-level config-bound toolkit detection is designed in
+  `docs/engineering/config-bound-capability-detection.md`.
+- **Claude Code adoption surfaces reworked.** The README gains a
+  "Use with Claude Code" section, `docs/agents/use-with-claude-code.md` opens
+  with the recommended one-command `init --claude-code` setup, and the
+  `agents-shipgate` skill description triggers on change artifacts (MCP
+  servers/tools, tool decorators, permission scopes, approval policies, agent
+  CI) instead of product-name phrases only.
+- **Cold-start dead ends now print an executable next action.** Human-mode
+  CLI error paths surface the same ranked recovery step that agent mode
+  emits as JSON: `scan`/`doctor`/`verify` config errors print a
+  `next: …` / `why: …` hint (e.g. `next: agents-shipgate detect …` on a
+  missing manifest), and the `init --write` → `scan` CHANGE_ME placeholder
+  failure routes to the manifest edit instead of the generic missing-file
+  advice — in both human and agent mode. `verify` also gains agent-mode
+  structured errors (`AGENTS_SHIPGATE_AGENT_MODE=1`) and scan-parity
+  flag-error vs run-error handling, so flag mistakes are never answered
+  with manifest diagnostics. Hints are suppressed in agent mode to keep
+  the `docs/errors.json` single-JSON-line contract. Driven by the
+  2026-06-10 cold-start funnel test
+  (`marketing/cold-start-funnel-test-2026-06-10.md`).
+
+- Add the GTM plan of record (`marketing/gtm-strategy.md`), launch kit,
+  design-partner outreach kit, and launch blog draft; README shows the
+  verifier PR-comment verdict ("What your PR sees") and links the
+  coding-agent install path from the quickstart.
+
+- **Agent-native protocol.** `shipgate check --agent
+  {codex,claude-code,cursor} --workspace . --format agent-json` is now the
+  canonical one-command agent path. It returns the stable
+  `agent_result_v1` contract with explicit completion, stop, repair,
+  human-review, policy-provenance, source-artifact, and exit-code fields.
+- **`agent_result_v1` policy provenance is required in 0.13.0 producers.**
+  The schema name stays `agent_result_v1`; all in-tree producers now emit the
+  required `policy` object plus `policy_snapshot_sha256`. Consumers validating
+  older v0.12.0 objects should treat this as the 0.13.0 schema publication
+  point and update together with the package version.
+- **MCP server mode narrowed to `shipgate.check`.** The optional
+  `[mcp]` server is now a read-only static adapter that accepts caller-provided
+  diff text and returns exact `agent_result_v1`. The v0.12.0 preview tools
+  (`shipgate_preview`, `shipgate_verify`, `shipgate_explain_finding`) were
+  never listed in `STABILITY.md`; they are removed in favor of the single
+  agent protocol command/tool.
+- Policy weakening detection now compares parsed before/after policy YAML
+  from reconstructed file content when available, so quoted scalars, inline
+  comments, and hunks that omit the rule id still block.
+- `shipgate check --head <ref>` or `--base <ref>` alone now fails closed with
+  a structured CLI error. Provide both refs, or omit both to check local
+  uncommitted changes.
+
+## 0.12.0 - 2026-06-09
+
+- **Actionable `insufficient_evidence` (report schema v0.26).**
+  `release_decision.evidence_coverage.evidence_gaps[]` now lists one
+  structured remediation row per low-confidence tool / source warning
+  (`{kind, subject, source_type, source_ref, why, next_action}`), and scan
+  writes an advisory `suggested-inventory.json` skeleton next to
+  `report.json` whenever low-confidence tools exist — in the same
+  MCP-export shape every `tool_inventories` manifest key loads. Pure
+  projection of the existing coverage counts; thresholds, decisions, and
+  fingerprints are unchanged.
+- **Local capability-release ledger (`registry` v0.1).**
+  `agents-shipgate registry ingest --attestation <file>` appends a
+  normalized, content-addressed row to a JSONL ledger (idempotent);
+  `registry query` filters by repo / verdict / capability id /
+  trust-root flag. The v0 substrate for the cross-repo attestation
+  registry; design boundary for any hosted aggregation documented in
+  `docs/hosted-plane-design.md`, and the v1.0 report consolidation
+  proposal in `docs/report-v1-consolidation-rc.md`.
+- **Host capability governance v0 (`SHIP-HOST-BOUNDARY-*`).** New
+  diff-aware, suppression-immune check family covering coding-agent host
+  grants: MCP server additions/changes in `.mcp.json` /
+  `.cursor/mcp.json` / `.vscode/mcp.json`, Claude Code
+  `permissions.allow` expansion (wildcard-shaped rules like `Bash(*)`
+  **block**; scoped expansions route to human review), `permissions.deny`
+  removal, hook changes, GitHub workflow permission expansion
+  (`write-all` blocks; read→write routes to review), and new
+  `pull_request_target` triggers. Policy mirror at
+  `policies/host-boundary.shipgate.yaml`; concepts and reviewer guidance
+  in `docs/mcp-governance.md`. Trust-root classification now also covers
+  `.claude/settings.json` / `.claude/settings.local.json` /
+  `.cursor/mcp.json` / `.vscode/mcp.json`.
+- **`audit --host` zero-config inventory.** One read-only command that
+  answers "what is my coding agent currently allowed to do in this
+  repo?" — MCP servers (env *keys* only, never values), permission rules
+  with wildcard flags, hooks, and workflow write scopes /
+  `pull_request_target` — as one page of Markdown or `--json`. Works
+  without `shipgate.yaml`.
+- **Policy packs v0.2: conditional composition + org distribution.**
+  `match` gains `all_of` / `any_of` / `none_of` combinators (flat fields
+  stay implicitly ANDed — fully backward compatible) and parameter
+  predicates gain declared-bound comparisons (`maximum_above`,
+  `minimum_below`), so rules like "financial action with amount unbounded
+  or above 1000 must declare approval" are now declarative.
+  `checks.policy_packs` entries accept an optional `sha256` content pin
+  that fails the scan closed when a shared/org pack is tampered with.
+  Schema frozen at `docs/policy-pack-schema.v0.2.json`.
+- **MCP server mode (optional `[mcp]` extra).** `agents-shipgate
+  mcp-serve` exposes `shipgate_preview`, `shipgate_verify`, and
+  `shipgate_explain_finding` over stdio so shell-less agents can query
+  the verifier in-loop. Pure projection layer: no network, no mutating
+  tools, no second gate (`docs/mcp-server.md`).
+- **PreToolUse boundary hook for Claude Code.** `install-hooks --target
+  claude-code` now also registers a `PreToolUse` hook: editing a
+  protected trust-root surface routes the tool call to the human
+  (`permissionDecision: "ask"`, or `deny` via
+  `AGENTS_SHIPGATE_PRETOOLUSE_DECISION`) with an explanation — the
+  authority boundary surfaces in-session, before the edit, instead of at
+  PR time. The protected-surface list is rendered at install time from
+  the verify check's `TRUST_ROOT_SURFACES`, so hook and gate cannot
+  drift.
+- **Native GitHub Check Run support.** New Action inputs `check_run` /
+  `check_run_name` publish the merge verdict as a Check Run
+  (`mergeable` → success, `blocked` → failure, human-routed verdicts →
+  neutral) with up to 50 line-level annotations from `report.sarif`
+  (`scripts/github_check_run.py`; requires `checks: write`). New recipes:
+  `examples/github-actions/09-risk-labels-and-reviewers.yml` (risk labels
+  + trust-root reviewer routing from existing outputs) and
+  `10-check-run-annotations.yml`.
+- **`agent_weakens_gate` fixture.** One-command trust-root demo
+  (`agents-shipgate fixture run agent_weakens_gate`): the head commit
+  deletes the repo's Shipgate CI workflow — the cheapest reward-hack —
+  and the verifier returns `merge_verdict: blocked` with
+  `can_merge_without_human: false` via the suppression-immune
+  `SHIP-VERIFY-CI-GATE-REMOVED` / `SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED`
+  checks.
+- **Privacy hardening.** The redaction passthrough for already-redacted
+  values now honors only marker kinds Shipgate itself emits, so scanned
+  values formatted like `[REDACTED:...]` can no longer smuggle payloads
+  past forced sensitive-key redaction. Added symlink-escape regression
+  tests for input loading and `apply-patches` containment.
+- Add a GitHub/verify `agent-result.json` artifact that uses the existing
+  `agent_result_v1` schema instead of introducing a second agent-result
+  contract. The Action exposes `agent_decision`, `risk_level`, `audit_id`,
+  `required_reviewers`, and `policy_snapshot_sha256`, and the opt-in
+  `fail_on_decisions` input now fails closed when configured but no compact
+  agent decision is available.
+- Phase 7 makes capability diff the default verifier review primitive when a
+  reviewed base lock is committed: `verify` emits head capability locks plus
+  semantic diff JSON/Markdown review artifacts when available, and attestation
+  output moves from schema `0.1` to `0.2` to bind capability lock/diff hashes.
+- SARIF results now prefer stable policy rule IDs when a finding carries one,
+  while preserving the built-in Shipgate `check_id` in properties. Existing
+  GitHub code-scanning alerts keyed by the previous rule ID may close/reopen
+  on the first upgrade run.
 - Add the repo's advisory self-dogfood Shipgate workflow, product-hardening
   gap-closure docs, Agent Workflow Evidence schemas, and the AgentPR Governance
   case catalog / acceptance spec.

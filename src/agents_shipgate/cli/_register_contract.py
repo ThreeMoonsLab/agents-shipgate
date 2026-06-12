@@ -22,19 +22,12 @@ def register(app: typer.Typer) -> None:
         typer.echo(f"CLI version: {payload.cli_version}")
         typer.echo(f"Report schema version: {payload.report_schema_version}")
         typer.echo(f"Packet schema version: {payload.packet_schema_version}")
+        typer.echo(f"Capability lock schema version: {payload.capability_lock_schema_version}")
         typer.echo(
-            "Capability lock schema version: "
-            f"{payload.capability_lock_schema_version}"
-        )
-        typer.echo(
-            "Capability lock diff schema version: "
-            f"{payload.capability_lock_diff_schema_version}"
+            f"Capability lock diff schema version: {payload.capability_lock_diff_schema_version}"
         )
         typer.echo(f"Preflight schema version: {payload.preflight_schema_version}")
-        typer.echo(
-            "Capability standard version: "
-            f"{payload.capability_standard_version}"
-        )
+        typer.echo(f"Capability standard version: {payload.capability_standard_version}")
         typer.echo(
             "Governance benchmark catalog schema version: "
             f"{payload.governance_benchmark_catalog_schema_version}"
@@ -50,3 +43,12 @@ def register(app: typer.Typer) -> None:
         typer.echo("Manual review signals:")
         for signal in payload.manual_review_signals:
             typer.echo(f"  {signal}")
+        typer.echo("Commands:")
+        for name, command in payload.commands.items():
+            typer.echo(f"  {name}: {command}")
+        typer.echo("Artifacts:")
+        for name, path in payload.artifacts.items():
+            typer.echo(f"  {name}: {path}")
+        typer.echo("Verifier read order:")
+        for field in payload.verifier_read_order:
+            typer.echo(f"  {field}")

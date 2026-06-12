@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.cli.agent_result import agent_result_json_payload, build_codex_agent_result
 from agents_shipgate.cli.capability import build_capability_lock_from_config
 from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.core.capability_lock import (
@@ -14,8 +15,35 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_json,
 )
 from agents_shipgate.core.codex_boundary import parse_unified_diff
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.preflight import build_preflight_result
 from agents_shipgate.schemas.preflight import CapabilityRequestV1
+
+
+def shipgate_check(
+    *,
+    agent: str = "codex",
+    workspace: str = ".",
+    diff_text: str,
+    config: str = "shipgate.yaml",
+    policy: str | None = None,
+) -> dict[str, Any]:
+    """Read-only MCP tool implementation for ``shipgate.check``.
+
+    This function intentionally accepts diff text from the caller and does not
+    shell out to git, write reports, apply patches, call tools, or touch the
+    network. It is an adapter over the same local static evaluator used by
+    ``shipgate check --format agent-json``.
+    """
+
+    result = build_codex_agent_result(
+        agent=agent,
+        workspace=Path(workspace),
+        diff_text=diff_text,
+        config=Path(config),
+        policy=Path(policy) if policy else None,
+    )
+    return agent_result_json_payload(result)
 
 
 def shipgate_preflight(
@@ -27,11 +55,16 @@ def shipgate_preflight(
     capability_request: dict[str, Any] | None = None,
     base_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Read-only MCP handler for the preflight contract."""
+    """Read-only MCP tool implementation for ``shipgate.preflight``."""
 
     changed = list(changed_files or [])
     if diff_text:
-        changed = sorted({*changed, *(item.path for item in parse_unified_diff(diff_text) if item.path)})
+        changed = sorted(
+            {
+                *changed,
+                *(item.path for item in parse_unified_diff(diff_text) if item.path),
+            }
+        )
     request = (
         CapabilityRequestV1.model_validate(capability_request)
         if capability_request is not None
@@ -54,7 +87,7 @@ def shipgate_explain(
     report_path: str | None = None,
     no_plugins: bool = False,
 ) -> dict[str, Any]:
-    """Read-only MCP handler for static check or contextual finding explanation."""
+    """Read-only MCP tool implementation for deterministic explanations."""
 
     if fingerprint:
         if not report_path:
@@ -81,7 +114,7 @@ def shipgate_capabilities(
     no_plugins: bool = False,
     verbose: bool = False,
 ) -> dict[str, Any]:
-    """Read-only MCP handler for capability lock export or lock diff."""
+    """Read-only MCP tool implementation for capability lock export or diff."""
 
     if base_lock or head_lock:
         if not (base_lock and head_lock):
@@ -102,26 +135,44 @@ def shipgate_capabilities(
     return json.loads(render_capability_lock_json(lock))
 
 
-def run_mcp_server() -> None:
-    """Start the optional read-only MCP server.
-
-    The import is intentionally lazy so the core CLI does not depend on MCP
-    packages unless this explicit command is used.
-    """
-
+def create_server():
     try:
         from mcp.server.fastmcp import FastMCP
-    except ImportError as exc:  # pragma: no cover - depends on optional package.
-        raise RuntimeError(
-            "MCP server support requires the optional `mcp` package. Install "
-            "an environment that provides `mcp.server.fastmcp` before running "
-            "`shipgate mcp-serve`."
+    except ImportError as exc:  # pragma: no cover - exercised only without extra.
+        raise ConfigError(
+            "The MCP server requires the optional [mcp] extra. Install it "
+            'with: pip install "agents-shipgate[mcp]"'
         ) from exc
 
-    mcp = FastMCP("agents-shipgate")
+    server = FastMCP(
+        "agents-shipgate",
+        instructions=(
+            "Read-only static adapter for Agents Shipgate. Exposes only "
+            "deterministic projection tools: shipgate.check, "
+            "shipgate.preflight, shipgate.explain, and shipgate.capabilities. "
+            "The server never starts implicitly, shells out to git, writes "
+            "artifacts, calls tools, or accesses the network."
+        ),
+    )
 
-    @mcp.tool(name="shipgate.preflight")
-    def _preflight_tool(
+    @server.tool(name="shipgate.check")
+    def _shipgate_check(
+        agent: str = "codex",
+        workspace: str = ".",
+        diff_text: str = "",
+        config: str = "shipgate.yaml",
+        policy: str | None = None,
+    ) -> dict[str, Any]:
+        return shipgate_check(
+            agent=agent,
+            workspace=workspace,
+            diff_text=diff_text,
+            config=config,
+            policy=policy,
+        )
+
+    @server.tool(name="shipgate.preflight")
+    def _shipgate_preflight(
         workspace: str = ".",
         config: str = "shipgate.yaml",
         changed_files: list[str] | None = None,
@@ -138,8 +189,8 @@ def run_mcp_server() -> None:
             base_preflight=base_preflight,
         )
 
-    @mcp.tool(name="shipgate.explain")
-    def _explain_tool(
+    @server.tool(name="shipgate.explain")
+    def _shipgate_explain(
         check_id: str | None = None,
         fingerprint: str | None = None,
         report_path: str | None = None,
@@ -152,8 +203,8 @@ def run_mcp_server() -> None:
             no_plugins=no_plugins,
         )
 
-    @mcp.tool(name="shipgate.capabilities")
-    def _capabilities_tool(
+    @server.tool(name="shipgate.capabilities")
+    def _shipgate_capabilities(
         config: str = "shipgate.yaml",
         base_lock: str | None = None,
         head_lock: str | None = None,
@@ -166,12 +217,27 @@ def run_mcp_server() -> None:
             no_plugins=no_plugins,
         )
 
-    mcp.run()
+    return server
+
+
+build_server = create_server
+
+
+def serve_stdio() -> None:
+    create_server().run(transport="stdio")
+
+
+def main() -> None:
+    serve_stdio()
 
 
 __all__ = [
-    "run_mcp_server",
+    "build_server",
+    "create_server",
+    "main",
+    "serve_stdio",
     "shipgate_capabilities",
+    "shipgate_check",
     "shipgate_explain",
     "shipgate_preflight",
 ]

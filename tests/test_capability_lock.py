@@ -17,6 +17,9 @@ from agents_shipgate.core.capability_lock import (
 )
 from agents_shipgate.core.domain import Agent, AuthInfo, Tool, ToolParameter, ToolRiskHint
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.report.capability_lock_diff_markdown import (
+    render_capability_lock_diff_markdown,
+)
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
@@ -313,6 +316,14 @@ def test_malformed_lockfile_raises_input_parse_error(tmp_path: Path) -> None:
         load_capability_lock(path)
 
 
+def test_unreadable_lock_path_raises_input_parse_error(tmp_path: Path) -> None:
+    path = tmp_path / "lock-dir.json"
+    path.mkdir()
+
+    with pytest.raises(InputParseError, match="Invalid capability lock file"):
+        load_capability_lock(path)
+
+
 def test_capability_lock_and_diff_validate_against_schema() -> None:
     base = _lock([_tool("alpha.read", scopes=["alpha:read"])])
     head = _lock([_tool("beta.read", scopes=["beta:read"])])
@@ -322,6 +333,48 @@ def test_capability_lock_and_diff_validate_against_schema() -> None:
     jsonschema.validate(json.loads(render_capability_lock_diff_json(diff)), DIFF_SCHEMA)
     assert diff.capability_lock_diff_schema_version == "0.3"
     assert diff.experimental is False
+
+
+def test_capability_lock_diff_markdown_is_stable_and_semantic() -> None:
+    base = _lock(
+        [_tool("refunds.create", scopes=["payments:write"], hints=[("write", "high")])]
+    )
+    head = _lock(
+        [
+            _tool(
+                "refunds.create",
+                scopes=["payments:write", "payments:admin"],
+                hints=[("write", "high")],
+            )
+        ]
+    )
+
+    diff = diff_capability_locks(base, head)
+    first = render_capability_lock_diff_markdown(diff)
+    second = render_capability_lock_diff_markdown(diff)
+
+    assert first == second
+    assert "## Capability Diff" in first
+    assert "Summary: +0, -0, 0 changed, 1 reidentified" in first
+    assert "| refunds.create | support_api | refunds.create |" in first
+    assert "| broadened | identity_hash, authority_hash |" in first
+    assert "payments:admin" in first
+
+
+def test_capability_lock_diff_markdown_marks_evidence_only() -> None:
+    base = _lock([_tool("cases.search", scopes=["cases:read"], source_start_line=10)])
+    head = _lock([_tool("cases.search", scopes=["cases:read"], source_start_line=20)])
+
+    markdown = render_capability_lock_diff_markdown(
+        diff_capability_locks(base, head)
+    )
+
+    assert "### Evidence-Only" in markdown
+    assert "Provenance-only changes; static capability semantics did not drift." in markdown
+    assert (
+        "| cases.search | support_api | cases.search | cases:read | evidence_only |"
+        in markdown
+    )
 
 
 def test_capability_standard_examples_validate() -> None:

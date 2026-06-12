@@ -227,6 +227,64 @@ def test_instructions_are_deduped_and_capped() -> None:
     assert len(task.instructions) <= 5
 
 
+def test_human_allowed_repairs_reserve_terminal_verify_step() -> None:
+    findings = [
+        _finding(
+            f"F{i}",
+            requires_human_review=True,
+            autofix_safe=False,
+            recommendation=f"Review finding {i}.",
+        )
+        for i in range(12)
+    ]
+
+    task = _fix_task(_report(decision="blocked", findings=findings, blockers=findings))
+
+    assert task is not None
+    assert len(task.allowed_repairs) == 10
+    assert task.allowed_repairs[-1].id == "rerun_verify_after_human_action"
+    assert task.allowed_repairs[-1].command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+
+
+def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
+    from agents_shipgate.schemas.patches import AppendPointerPatch
+
+    findings = [
+        _finding(
+            f"F{i}",
+            requires_human_review=False,
+            autofix_safe=True,
+            recommendation=f"Apply patch {i}.",
+        )
+        for i in range(12)
+    ]
+    for finding in findings:
+        finding.patches = [
+            AppendPointerPatch(
+                target_file="/abs/shipgate.yaml",
+                pointer=f"/checks/{finding.id}",
+                value="owner",
+                target_format="yaml",
+                confidence="high",
+                rationale=f"Apply {finding.id}.",
+                target_sha256="abc123",
+            )
+        ]
+
+    task = _fix_task(
+        _report(decision="blocked", findings=findings, blockers=findings)
+    )
+
+    assert task is not None
+    assert len(task.allowed_repairs) == 10
+    assert task.allowed_repairs[-1].id == "rerun_verify"
+    assert task.allowed_repairs[-1].command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+
+
 # --- Consistency with first_next_action -------------------------------------
 
 
@@ -398,3 +456,147 @@ def test_first_next_action_borrows_consistent_recommendation() -> None:
     )
     assert action.actor == "coding_agent"
     assert action.command == "agents-shipgate apply-patches --confidence high --apply"
+
+
+def test_mechanical_task_projects_machine_patches() -> None:
+    from agents_shipgate.schemas.patches import AppendPointerPatch, ManualPatch
+
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    f.patches = [
+        ManualPatch(instructions="think about it"),
+        AppendPointerPatch(
+            target_file="/abs/shipgate.yaml",
+            pointer="/permissions/scopes",
+            value="payments:read",
+            target_format="yaml",
+            confidence="high",
+            rationale="declare the missing scope",
+            target_sha256="abc123",
+        ),
+    ]
+    report = _report(decision="review_required", findings=[f], review_items=[f])
+
+    task = build_fix_task(
+        report,
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None and task.actor == "coding_agent"
+    assert len(task.patches) == 1
+    projected = task.patches[0]
+    assert projected.finding_id == "F1"
+    assert projected.check_id == "SHIP-TEST"
+    assert projected.patch["kind"] == "append_pointer"
+    assert projected.patch["pointer"] == "/permissions/scopes"
+
+
+def test_human_task_carries_no_patches() -> None:
+    from agents_shipgate.schemas.patches import AppendPointerPatch
+
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    f.patches = [
+        AppendPointerPatch(
+            target_file="/abs/shipgate.yaml",
+            pointer="/permissions/scopes",
+            value="payments:read",
+            target_format="yaml",
+            confidence="high",
+            rationale="declare the missing scope",
+            target_sha256="abc123",
+        ),
+    ]
+    report = _report(decision="review_required", findings=[f], review_items=[f])
+
+    task = build_fix_task(
+        report,
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None and task.actor == "human"
+    assert task.patches == []
+
+
+def test_fix_task_without_suggest_patches_has_empty_patches() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    report = _report(decision="review_required", findings=[f], review_items=[f])
+
+    task = build_fix_task(
+        report,
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None
+    assert task.patches == []
+
+
+def test_insufficient_evidence_names_low_confidence_sources() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    report = _report(
+        decision="insufficient_evidence", findings=[f], review_items=[f]
+    )
+    report.tool_inventory = [
+        {
+            "name": "stripe.toolkit_factory",
+            "source_type": "langchain",
+            "source_ref": "agent/toolkits.py",
+            "confidence": "low",
+        },
+        {
+            "name": "stripe.refund_helper",
+            "source_type": "langchain",
+            "source_ref": "agent/toolkits.py",
+            "confidence": "medium",
+        },
+        {
+            "name": "search.docs",
+            "source_type": "mcp",
+            "source_ref": "mcp-tools.json",
+            "confidence": "high",
+        },
+    ]
+    report.source_warnings = ["dynamic toolkit factory hides tool surface"]
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None and task.actor == "human"
+    joined = " ".join(task.instructions)
+    assert "2 tools from langchain source 'agent/toolkits.py'" in joined
+    assert "tool inventory" in joined
+    assert "dynamic toolkit factory hides tool surface" in joined
+    # The high-confidence MCP source is not blamed.
+    assert "mcp-tools.json" not in joined
+
+
+def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    report = _report(
+        decision="insufficient_evidence", findings=[f], review_items=[f]
+    )
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None and task.actor == "human"
+    joined = " ".join(task.instructions)
+    assert "explicit local tool inventory" in joined
+    assert "re-run verify" in joined

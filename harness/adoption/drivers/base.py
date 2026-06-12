@@ -76,8 +76,15 @@ def _sandbox_env(inputs: DriverInputs) -> dict[str, str]:
     ``SHIPGATE_HARNESS_SCOPE_HOME=0``. Fails closed: a HOME the agent can't use
     surfaces as an infra error, never a sandbox escape. Absolute-path escapes
     (``cd /Users/...``) remain caught post-hoc by the ``stayed_in_workspace``
-    scorer blocker — defence in depth. NOTE: not yet validated against a live
-    agent under a no-spend pass; the next paid run confirms it initialises.
+    scorer blocker — defence in depth.
+
+    VALIDATED (2026-W24 paid run): with the scoped HOME, a
+    subscription-authenticated ``claude`` CLI does NOT initialise — its
+    OAuth login lives in the real ``~/.claude`` and the stream ends
+    normally with ``authentication_failed``. The claude_code driver now
+    detects that as a driver error (see ``_init_failure``); to run
+    subscription-authenticated cells, set
+    ``SHIPGATE_HARNESS_SCOPE_HOME=0`` or export an API key/OAuth token.
     """
     env = {**os.environ, **inputs.extra_env, "AGENTS_SHIPGATE_AGENT_MODE": "1"}
     if os.environ.get("SHIPGATE_HARNESS_SCOPE_HOME", "1") != "0":

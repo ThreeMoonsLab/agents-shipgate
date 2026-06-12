@@ -21,19 +21,37 @@ they do not create a second verdict.
 ```bash
 agents-shipgate capability export -c shipgate.yaml
 agents-shipgate capability export -c shipgate.yaml \
-  --out agents-shipgate-reports/head.capabilities.lock.json \
+  --out agents-shipgate-reports/capabilities.lock.json \
   --no-report-copy
 agents-shipgate capability diff \
   --base .agents-shipgate/capabilities.lock.json \
-  --head agents-shipgate-reports/head.capabilities.lock.json \
+  --head agents-shipgate-reports/capabilities.lock.json \
   --out agents-shipgate-reports/capability-lock-diff.json --json
 ```
+
+In PR workflows, `agents-shipgate verify` emits the review copy directly:
+
+- `agents-shipgate-reports/capabilities.lock.json` after a successful head
+  scan.
+- `agents-shipgate-reports/capability-lock-diff.json` and
+  `agents-shipgate-reports/capability-lock-diff.md` when `--base` is provided
+  and the base scan can be materialized.
+- If the base scan-derived lock is unavailable, verify falls back to the
+  reviewed base lock at `.agents-shipgate/capabilities.lock.json`; if both are
+  unavailable, it records a note and keeps the report-derived
+  `capability_review.top_changes[]` PR surface.
 
 Default export paths are unchanged:
 
 - `.agents-shipgate/capabilities.lock.json` for the reviewed committed lock.
 - `agents-shipgate-reports/capabilities.lock.json` for a byte-identical
   generated mirror.
+
+`agents-shipgate verify` also writes PR-standard generated artifacts under
+`agents-shipgate-reports/`: `capabilities.lock.json` for head, and when a base
+ref is available, `base.capabilities.lock.json` plus
+`capability-lock-diff.json`. These are review artifacts only; the release gate
+remains `report.json.release_decision.decision`.
 
 Repeated exports over the same manifest-relative static inputs are byte-stable.
 No wall-clock timestamp is stored.

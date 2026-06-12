@@ -1280,6 +1280,18 @@
         "path": {
           "title": "Path",
           "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
         }
       },
       "required": [

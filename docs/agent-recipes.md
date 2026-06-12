@@ -45,7 +45,8 @@ accepts human review.
 
 Use this when a repo doesn't yet have `shipgate.yaml` and the user wants a
 scan-oriented first pass. The verifier-first path is
-`verify --preview --json` → `init --write --ci --agent-instructions=all` →
+`verify --preview --json` →
+`init --write --ci --agent-instructions=default --json` →
 `verify --base origin/main --head HEAD`. The helper below remains useful when a
 coding agent should also apply high-confidence manifest cleanup in the same
 turn. Ongoing PR work should use Recipe 0.

@@ -69,8 +69,7 @@ def test_list_checks_json_carries_remediation_metadata_for_every_check():
     for entry in catalog:
         for key in REQUIRED_CATALOG_KEYS:
             assert key in entry, (
-                f"{entry['id']} missing remediation key {key!r} in "
-                "list-checks --json"
+                f"{entry['id']} missing remediation key {key!r} in list-checks --json"
             )
             assert entry[key] is not None, (
                 f"{entry['id']}.{key} is None in list-checks --json — "
@@ -83,9 +82,7 @@ def test_explain_json_carries_remediation_metadata():
     agents use when they want full context on one finding ID. It must
     surface the same remediation fields as the catalog."""
     runner = CliRunner()
-    result = runner.invoke(
-        app, ["explain", "SHIP-MANIFEST-STALE-SUPPRESSION", "--json"]
-    )
+    result = runner.invoke(app, ["explain", "SHIP-MANIFEST-STALE-SUPPRESSION", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     for key in REQUIRED_CATALOG_KEYS:
@@ -210,9 +207,7 @@ def test_stale_finding_with_unique_match_is_per_finding_autofix_safe(tmp_path):
         suggest_patches=True,
     )
     payload = json.loads(
-        (workspace / "agents-shipgate-reports" / "report.json").read_text(
-            encoding="utf-8"
-        )
+        (workspace / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
     )
     stale = [
         f
@@ -238,15 +233,14 @@ def test_stale_finding_with_unique_match_is_per_finding_autofix_safe(tmp_path):
     )
 
 
-# --- v0.10 release version sanity check ------------------------------------
+# --- release version sanity check ------------------------------------------
 
 
-def test_package_version_is_v010():
-    """Final-polish guard: catches the case where the schema bumped to
-    v0.10 but the package version was left behind. Both move together."""
+def test_package_version_is_current_release():
+    """Guard against bumping schemas while leaving package metadata behind."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.11.0", (
+    assert agents_shipgate.__version__ == "0.13.0", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.11.0 for the v0.11 release"
+        "expected 0.13.0 for the current release"
     )

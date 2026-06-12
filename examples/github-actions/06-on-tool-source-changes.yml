@@ -30,8 +30,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
         with:
           ci_mode: advisory
+          diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.11.0'
+          shipgate_version: '0.13.0'

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -18,10 +19,12 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_agents_md,
     render_claude_code_skill_bundle_text,
     render_claude_code_skill_files,
+    render_claude_command_file,
     render_claude_md,
     render_codex_skill_bundle_text,
     render_codex_skill_files,
     render_cursor_file,
+    render_local_contract_file,
     render_pr_template,
 )
 from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
@@ -33,20 +36,25 @@ ALL_RENDERERS = {
     "agents-md": render_agents_md,
     "codex-skill": render_codex_skill_bundle_text,
     "claude-code-skill": render_claude_code_skill_bundle_text,
+    "claude-command": render_claude_command_file,
     "claude-md": render_claude_md,
     "cursor": render_cursor_file,
+    "local-contract": render_local_contract_file,
     "pr-template": render_pr_template,
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "34d553e37c8836aafd50d71fca30e010647fdce096c7b8dd3878a2531ed2d8b4"
+        "398e88622bf73b524f91405ffc5dbccde651c6a9cb7c2df035ab01d39a964e4f"
+    ),
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
+        "4cd59ab4d3d598526209006fc3be3a217f6efd282e3b5359333610bad0372a56"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "ea3c37cfbbd42c40d164abfe21d468a3a5550d5384125f94a53c947dea6b4b2a"
+        "2a6c5dea9919f031f64a5b8ee0c657d3cc6913c05da3a4ebaa8eb9e2f0728dc0"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
+        "60a1c924eff80205783bd1d6642c0878f3a1508ec8bd88845de917a8f18d1bac"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -58,7 +66,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "3e5c320b57c57ce91d5dcdf2b584d71c229cb5b046bda944b68dc2056693ec6a"
+        "44f2291c157ffb32eaecbf518071bef2a1ce59611ea05d7ade20614a2e379dfa"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -69,25 +77,22 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
         "1d59c30ea72b1e7ba12ae0f650cf75462f62f1a8b532ab44f88c78e2242a8d17"
     ),
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
-    ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "2a5dbfba22080c4733f0ab3289a7289360bf8a9e219844e402e7c1b80c446f5f"
-    ),
-    ".agents/skills/agents-shipgate/references/recipes.md": (
-        "cefd7b8b44d682fb2120b2c6f4d8ea30cf2f8233c50225a9116bfe04c7ec513e"
-    ),
-    ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
-    ),
-    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da"
+        "388e4997b09196791ff4c71aab3e83c7462a5b61e66a5cee13e76aa3cad0d89f"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
+    ),
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
+        "589c6b6867b76c80be3cff10374c14f808f99c0e1c488c3b49aead7264d44ec1"
+    ),
+    ".agents/skills/agents-shipgate/references/recipes.md": (
+        "6bf8b3a409df3cd6f94e070555d62eedf8ba3690b4cfdceae2d7a7482b90e91b"
+    ),
+    ".agents/skills/agents-shipgate/references/report-reading.md": (
+        "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
     ),
 }
 
@@ -104,7 +109,6 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
     assert out.startswith("---\n")
     assert "alwaysApply: false" in out
     assert "globs:" in out
-    assert "agents-shipgate preflight" in out
     # Path-based trigger globs. Diff-only Python decorator triggers are
     # intentionally not represented by a broad "**/*.py" Cursor glob.
     for token in (
@@ -126,17 +130,32 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
 
 def test_committed_cursor_rule_matches_renderer() -> None:
     """The repo-level Cursor rule and the init renderer must not drift."""
-    committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(
-        encoding="utf-8"
-    )
+    committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(encoding="utf-8")
     assert committed == render_cursor_file()
+
+
+def test_committed_claude_command_matches_renderer() -> None:
+    """The repo-level Claude slash command and init renderer must not drift."""
+    committed = (REPO_ROOT / ".claude/commands/shipgate.md").read_text(encoding="utf-8")
+    assert committed == render_claude_command_file()
+
+
+def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
+    payload = json.loads(render_local_contract_file())
+    assert payload["schema_version"] == "1"
+    assert payload["agents_shipgate_version"]
+    assert payload["contract_version"] == "3"
+    assert payload["commands"]["install_agent_workflow"].endswith(
+        "--ci --agent-instructions=default --json"
+    )
+    assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
+    assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
+    assert payload["gating_signal"] == "release_decision.decision"
 
 
 def test_target_repo_cursor_snippet_matches_renderer() -> None:
     """The copyable docs snippet must match the generated Cursor file."""
-    text = (REPO_ROOT / "docs/target-repo-agent-snippets.md").read_text(
-        encoding="utf-8"
-    )
+    text = (REPO_ROOT / "docs/target-repo-agent-snippets.md").read_text(encoding="utf-8")
     section = text.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[1]
     start = section.index("```md\n") + len("```md\n")
     end = section.index("\n```", start)
@@ -153,8 +172,7 @@ def test_skill_renderers_do_not_embed_long_content_constants() -> None:
     """Skill bundle prose lives in adoption-kit files, not Python constants."""
 
     renderer_paths = (
-        REPO_ROOT
-        / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
+        REPO_ROOT / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/codex_skill.py",
         REPO_ROOT
         / "src/agents_shipgate/cli/discovery/agent_instructions/renderers/claude_code_skill.py",
     )
@@ -239,7 +257,6 @@ def test_claude_code_skill_has_required_surfaces() -> None:
     assert ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml" in files
     skill = files[".claude/skills/agents-shipgate/SKILL.md"]
     assert "release_decision.decision" in skill
-    assert "agents-shipgate preflight" in skill
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not claim a finding is fixed" in skill
     assert "agents-shipgate verify" in skill
@@ -254,16 +271,20 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert ".agents/skills/agents-shipgate/agents/openai.yaml" in files
     skill = files[".agents/skills/agents-shipgate/SKILL.md"]
     assert "release_decision.decision" in skill
-    assert "agents-shipgate preflight" in skill
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not auto-assert approval" in skill
     assert "agents-shipgate verify" in skill
     assert "agents-shipgate --version" in skill
     assert "pipx upgrade agents-shipgate" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "Require `agents-shipgate >=0.11.0`" in recipes
-    assert 'python -m pip install -U "agents-shipgate>=0.11"' in recipes
-    assert "Protected Surface Preflight" in recipes
+    assert "Require `agents-shipgate >=0.13.0`" in recipes
+    assert 'python -m pip install -U "agents-shipgate>=0.13"' in recipes
+    # The agent-ingested preflight must point at the canonical fail-closed
+    # install/upgrade objects, not leave the missing/stale-binary path
+    # prose-only (PR #201 review).
+    assert "docs/agents/protocol.md" in recipes
+    assert "missing-install.json" in recipes
+    assert "stale-install.json" in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:
@@ -278,7 +299,6 @@ def test_agents_md_includes_report_json_contract() -> None:
     assert "merge_verdict" in out
     assert "agents-shipgate-reports/report.json" in out
     assert "release_decision.decision" in out
-    assert "agents-shipgate preflight" in out
 
 
 def test_claude_md_is_self_contained_no_dangling_link() -> None:
@@ -289,7 +309,6 @@ def test_claude_md_is_self_contained_no_dangling_link() -> None:
     assert "agents-shipgate verify --preview" in out
     assert "merge_verdict" in out
     assert "release_decision.decision" in out
-    assert "agents-shipgate preflight" in out
     # Cross-link to AGENTS.md is intentionally omitted.
     assert "AGENTS.md" not in out
 
@@ -320,6 +339,6 @@ def test_advisory_default_appears_in_agent_facing_targets() -> None:
     """The agent-facing targets (AGENTS.md, CLAUDE.md, Cursor rule) should
     communicate advisory-by-default. The PR template intentionally omits the
     CI-pointer paragraph — it's a reviewer checklist, not CI documentation."""
-    for name in ("agents-md", "claude-md", "cursor"):
+    for name in ("agents-md", "claude-md", "cursor", "claude-command"):
         rendered = ALL_RENDERERS[name]()
         assert "advisory" in rendered.lower(), name

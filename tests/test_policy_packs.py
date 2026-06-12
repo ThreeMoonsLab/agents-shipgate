@@ -513,3 +513,293 @@ tool_sources:
     type: openapi
     path: openapi.yaml
 """
+
+
+# --- v0.2: combinators, numeric predicates, sha256 pin ----------------------
+
+
+def _write_bounded_openapi(tmp_path, maximum: int | None = 5000):
+    bound = f"\n                  maximum: {maximum}" if maximum is not None else ""
+    (tmp_path / "openapi.yaml").write_text(
+        f"""
+openapi: 3.1.0
+info:
+  title: Refund API
+  version: "1.0"
+paths:
+  /refunds:
+    post:
+      operationId: create_refund
+      summary: Create a customer refund.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number{bound}
+                payment_id:
+                  type: string
+              required: [amount, payment_id]
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+
+
+_V2_PACK = """
+name: Org Approval Policy v2
+version: "2.0"
+rules:
+  - id: ORG-LARGE-FINANCIAL-NEEDS-APPROVAL
+    title: Large or unbounded financial action requires declared approval
+    category: org_policy
+    severity: critical
+    block: true
+    confidence: high
+    recommendation: Declare an approval policy or bound the amount below 1000.
+    match:
+      all_of:
+        - risk_tags: [financial_action]
+        - missing_approval_policy: true
+        - any_of:
+            - parameters:
+                - name: amount
+                  maximum_above: 1000
+            - parameters:
+                - name: amount
+                  missing_maximum: true
+"""
+
+
+def _run_v2_scan(tmp_path):
+    (tmp_path / "org-pack-v2.yaml").write_text(_V2_PACK, encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+checks:
+  policy_packs:
+    - path: org-pack-v2.yaml
+""",
+        encoding="utf-8",
+    )
+    return run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+
+def test_v2_combinator_fires_on_large_bounded_amount(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=5000)
+    report, _ = _run_v2_scan(tmp_path)
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-LARGE-FINANCIAL-NEEDS-APPROVAL"
+    )
+    assert finding.blocks_release is True
+    # The any_of branch is nested inside the all_of evidence, mirroring
+    # the rule structure.
+    matched = finding.evidence["all_of"][2]["any_of"]
+    assert matched["index"] == 0
+    assert matched["matched"]["parameters"][0]["maximum"] == 5000
+
+
+def test_v2_combinator_fires_on_unbounded_amount(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=None)
+    report, _ = _run_v2_scan(tmp_path)
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-LARGE-FINANCIAL-NEEDS-APPROVAL"
+    )
+    assert finding.evidence["all_of"][2]["any_of"]["index"] == 1
+
+
+def test_v2_combinator_does_not_fire_on_small_bounded_amount(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=500)
+    report, _ = _run_v2_scan(tmp_path)
+    assert not [
+        item
+        for item in report.findings
+        if item.check_id == "ORG-LARGE-FINANCIAL-NEEDS-APPROVAL"
+    ]
+
+
+def test_v2_combinator_does_not_fire_when_approval_declared(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=5000)
+    (tmp_path / "org-pack-v2.yaml").write_text(_V2_PACK, encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+policies:
+  require_approval_for_tools:
+    - tool: create_refund
+      reason: refunds move money
+checks:
+  policy_packs:
+    - path: org-pack-v2.yaml
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert not [
+        item
+        for item in report.findings
+        if item.check_id == "ORG-LARGE-FINANCIAL-NEEDS-APPROVAL"
+    ]
+
+
+def test_v2_none_of_excludes_matching_subjects(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=5000)
+    (tmp_path / "org-pack-v2.yaml").write_text(
+        """
+name: None-of Policy
+rules:
+  - id: ORG-NON-FINANCIAL-ONLY
+    title: Fires only for non-financial tools
+    severity: medium
+    recommendation: n/a
+    match:
+      none_of:
+        - risk_tags: [financial_action]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+checks:
+  policy_packs:
+    - path: org-pack-v2.yaml
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    # create_refund is financial → excluded by none_of.
+    assert not [
+        item
+        for item in report.findings
+        if item.check_id == "ORG-NON-FINANCIAL-ONLY"
+    ]
+
+
+def test_v1_flat_pack_still_loads_unchanged(tmp_path):
+    """Backward compatibility: a v0.1-shaped pack with only flat fields."""
+    _write_openapi(tmp_path)
+    (tmp_path / "org-pack.yaml").write_text(
+        """
+name: Flat v1 Pack
+rules:
+  - id: ORG-FLAT-RULE
+    title: Flat rule
+    severity: high
+    recommendation: n/a
+    match:
+      risk_tags: [financial_action]
+      missing_owner: true
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert [item for item in report.findings if item.check_id == "ORG-FLAT-RULE"]
+
+
+def test_sha256_pin_accepts_matching_pack(tmp_path):
+    import hashlib
+
+    _write_openapi(tmp_path)
+    pack_text = """
+name: Pinned Pack
+rules:
+  - id: ORG-PINNED-RULE
+    title: Pinned rule
+    severity: high
+    recommendation: n/a
+    match:
+      risk_tags: [financial_action]
+"""
+    (tmp_path / "org-pack.yaml").write_text(pack_text, encoding="utf-8")
+    digest = hashlib.sha256(
+        (tmp_path / "org-pack.yaml").read_bytes()
+    ).hexdigest()
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + f"""
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+      sha256: {digest}
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert [item for item in report.findings if item.check_id == "ORG-PINNED-RULE"]
+
+
+def test_sha256_pin_rejects_tampered_pack(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "org-pack.yaml").write_text(
+        """
+name: Tampered Pack
+rules:
+  - id: ORG-PINNED-RULE
+    title: Pinned rule
+    severity: high
+    recommendation: n/a
+    match:
+      risk_tags: [financial_action]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="does not match its pinned sha256"):
+        run_scan(
+            config_path=tmp_path / "shipgate.yaml",
+            output_dir=tmp_path / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+        )

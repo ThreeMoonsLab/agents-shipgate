@@ -41,9 +41,11 @@ def trigger_action(trigger: dict[str, Any]) -> str:
 
 def decision_policy_exit_code(agent_decision: str, fail_on_decisions: str) -> int:
     """Exit 20 when the compact agent decision matches the opt-in policy."""
+    if not fail_on_decisions.strip():
+        return 0
     normalized = _normalize_decision_token(agent_decision)
     if not normalized:
-        return 0
+        return 21
     for raw in fail_on_decisions.split(","):
         if _normalize_decision_token(raw) == normalized:
             return 20
@@ -57,6 +59,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     verifier_json = output_dir / "verifier.json"
     pr_comment_markdown = output_dir / "pr-comment.md"
     agent_result_json = output_dir / "agent-result.json"
+    check_annotations_json = output_dir / "check-annotations.json"
+    capability_lock_json = output_dir / "capabilities.lock.json"
+    base_capability_lock_json = output_dir / "base.capabilities.lock.json"
+    capability_lock_diff_json = output_dir / "capability-lock-diff.json"
 
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
@@ -105,6 +111,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "verifier_json": verifier_json,
         "pr_comment_markdown": pr_comment_markdown,
         "agent_result_json": agent_result_json,
+        "check_annotations_json": check_annotations_json,
+        "capability_lock_json": capability_lock_json,
+        "base_capability_lock_json": base_capability_lock_json,
+        "capability_lock_diff_json": capability_lock_diff_json,
         "decision": release_decision.get("decision", ""),
         "blocker_count": len(release_decision.get("blockers") or []),
         "review_item_count": len(release_decision.get("review_items") or []),

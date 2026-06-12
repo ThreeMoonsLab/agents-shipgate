@@ -3,8 +3,9 @@ description: >-
   The deterministic merge gate for AI-generated agent capability changes.
   Verifies PRs that change MCP, OpenAPI, OpenAI Agents SDK, Anthropic,
   Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, and n8n
-  artifacts. Writes verifier.json, report.json, pr-comment.md, and SARIF
-  before your agent-capability change lands. Local-first and
+  artifacts. Writes verifier.json, report.json, pr-comment.md, capability
+  lock/diff review artifacts, and SARIF before your agent-capability change
+  lands. Local-first and
   static-by-default. Audited exceptions are pinned per call site in
   tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS. Apache-2.0.
 author: ThreeMoonsLab
@@ -74,6 +75,14 @@ inputs:
     required: false
     default: "true"
     description: Upload reports as a workflow artifact.
+  check_annotations:
+    required: false
+    default: "true"
+    description: Emit GitHub Actions job annotations for source-backed blockers and review items.
+  check_annotation_limit:
+    required: false
+    default: "50"
+    description: Maximum number of GitHub Actions annotations to emit.
   pr_comment:
     required: false
     default: "false"
@@ -82,6 +91,19 @@ inputs:
     required: false
     default: capability-review
     description: "PR comment renderer. Supported values: capability-review (default) or findings for the legacy v1 findings comment."
+  check_run:
+    required: false
+    default: "false"
+    description: >-
+      Create/update a GitHub Check Run named by check_run_name with the
+      merge verdict as the check conclusion (mergeable=success,
+      blocked=failure, otherwise neutral) and up to 50 line-level
+      annotations from report.sarif. Requires `checks: write` permission
+      on the workflow.
+  check_run_name:
+    required: false
+    default: "Agents Shipgate"
+    description: Name of the check run created when check_run is true.
   github_token:
     required: false
     default: ""
@@ -139,6 +161,18 @@ outputs:
   agent_result_json:
     description: Path to agent-result.json.
     value: ${{ steps.report_outputs.outputs.agent_result_json }}
+  check_annotations_json:
+    description: Path to generated GitHub Actions annotation payload.
+    value: ${{ steps.report_outputs.outputs.check_annotations_json }}
+  capability_lock_json:
+    description: Path to generated head capability lock JSON.
+    value: ${{ steps.report_outputs.outputs.capability_lock_json }}
+  base_capability_lock_json:
+    description: Path to generated base capability lock JSON when base diff is available.
+    value: ${{ steps.report_outputs.outputs.base_capability_lock_json }}
+  capability_lock_diff_json:
+    description: Path to generated capability lock diff JSON when base and head locks are available.
+    value: ${{ steps.report_outputs.outputs.capability_lock_diff_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -327,6 +361,15 @@ runs:
       run: |
         python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
 
+    - name: Emit Agents Shipgate annotations
+      if: ${{ always() && inputs.check_annotations == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}
+      run: |
+        python "${GITHUB_ACTION_PATH}/scripts/github_action_annotations.py"
+
     - name: Upload Agents Shipgate report
       if: ${{ always() && inputs.upload_artifact == 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -379,8 +422,53 @@ runs:
             });
           }
 
+    - name: Build Agents Shipgate check-run payload
+      if: ${{ always() && inputs.check_run == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CHECK_RUN_NAME: ${{ inputs.check_run_name }}
+      run: |
+        python "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
+
+    - name: Create Agents Shipgate check run
+      if: ${{ always() && inputs.check_run == 'true' }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      with:
+        github-token: ${{ inputs.github_token || github.token }}
+        script: |
+          const fs = require("fs");
+          const path = require("path");
+          const outputDir = process.env.OUTPUT_DIR || "agents-shipgate-reports";
+          const payloadPath = path.join(outputDir, "check-run-payload.json");
+          if (!fs.existsSync(payloadPath)) {
+            core.warning(`Agents Shipgate check-run payload not found at ${payloadPath}`);
+            return;
+          }
+          const payload = JSON.parse(fs.readFileSync(payloadPath, "utf8"));
+          // Attach to the PR head SHA, not the synthetic merge commit, so the
+          // check shows up on the PR's checks tab and branch protection.
+          const headSha = context.payload.pull_request
+            ? context.payload.pull_request.head.sha
+            : context.sha;
+          try {
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: headSha,
+              status: "completed",
+              ...payload,
+            });
+          } catch (error) {
+            // Forks and minimal tokens lack `checks: write`; degrade to a
+            // warning rather than failing the gate step.
+            core.warning(`Agents Shipgate check-run creation failed: ${error.message}`);
+          }
+
     - name: Apply Agents Shipgate decision policy
-      if: ${{ always() && inputs.fail_on_decisions != '' && steps.report_outputs.outputs.agent_decision != '' }}
+      if: ${{ always() && inputs.fail_on_decisions != '' }}
       shell: bash
       env:
         FAIL_ON_DECISIONS: ${{ inputs.fail_on_decisions }}
@@ -399,12 +487,19 @@ runs:
             os.environ.get("FAIL_ON_DECISIONS", ""),
         )
         if code:
-            print(
-                "Agents Shipgate agent decision "
-                f"{os.environ.get('AGENT_DECISION', '')!r} matched "
-                "fail_on_decisions.",
-                file=sys.stderr,
-            )
+            decision = os.environ.get("AGENT_DECISION", "")
+            if decision:
+                print(
+                    "Agents Shipgate agent decision "
+                    f"{decision!r} matched fail_on_decisions.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "Agents Shipgate fail_on_decisions was configured, but "
+                    "agent-result.json did not expose an agent decision.",
+                    file=sys.stderr,
+                )
         raise SystemExit(code)
         PY
 

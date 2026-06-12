@@ -15,10 +15,11 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | Command | Stable flags |
 |---|---|
 | `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
-| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format`, `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
+| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--no-base` (v0.13+), `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format` (`text`, `json`, and `agent` since v0.13), `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
-| `agents-shipgate init` | `--workspace`, `--write`, `--json` |
+| `shipgate check` | `--agent`, `--workspace`, `--format`, `--diff`, `--base`, `--head`, `--config`, `--policy` |
+| `agents-shipgate init` | `--workspace`, `--write`, `--json`, `--claude-code` (v0.13+) |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
 | `agents-shipgate preflight` | `--workspace`, `--config`, `-c`, `--changed-files`, `--diff`, `--capability-request`, `--base-preflight`, `--json` |
@@ -47,6 +48,17 @@ feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
 payload as provisional during the v0.11 design-partner cycle; the schema file is
 published so consumers can validate it, and any incompatible change must bump
 `feedback_schema_version`.
+
+### Agent-Native Protocol
+
+`shipgate check --format agent-json` emits `agent_result_v1`, the stable
+coding-agent control schema documented in
+[`docs/agents/protocol.md`](docs/agents/protocol.md) and generated at
+[`docs/agent-result-schema.v1.json`](docs/agent-result-schema.v1.json).
+Agents should act on `decision`, `completion_allowed`, `must_stop`,
+`first_next_action`, `repair`, and `human_review`. Human approval, policy
+waivers, baselines, severity downgrades, suppressions, and trace evidence are
+not agent-repairable authority gaps.
 
 ### Exit codes
 
@@ -89,6 +101,16 @@ Stable JSON fields:
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
+- `commands{}` — minimal stable commands for preview, default local agent
+  workflow install, local verify, PR verify, and contract introspection.
+- `default_paths{}` — default manifest, report directory, and local contract
+  paths used by generated downstream agent instructions.
+- `artifacts{}` — stable report artifact paths an agent should inspect first.
+- `verifier_read_order[]` — ordered field path list for `verifier.json`.
+- `merge_verdicts[]` — stable verifier verdict vocabulary.
+- `release_decisions[]` — stable release-gate decision vocabulary.
+- `do_not_auto_assert[]` — authority/evidence categories an agent must not
+  synthesize to make a gate pass.
 
 Package versions and schema versions are intentionally separate contract
 counters. `agents-shipgate` may bump `report_schema_version`,
@@ -427,9 +449,10 @@ tests on every CI run, not by convention:
     only. **Plus** one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled trigger catalog.
   - **`cli/verify/git.py`** — one shared `subprocess.run` helper invokes
-    local `git rev-parse`, `git diff`, `git ls-files`, and `git archive`
-    for verify base/head and working-tree orchestration. It never fetches,
-    uses fixed argv, captures output, and never executes user code.
+    local `git rev-parse`, `git diff`, `git ls-files`, `git show`, and
+    `git archive` for verify base/head and working-tree orchestration. It
+    never fetches, uses fixed argv, captures output, and never executes user
+    code.
   - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
     `git init`, `git config`, `git add`, `git commit`, and `git update-ref`
     against a temporary bundled fixture copy so
@@ -543,7 +566,7 @@ the entry was added:
   "severity": "high",
   "title": "…",
   "provenance": {
-    "scanner_version": "0.11.0",
+    "scanner_version": "0.13.0",
     "run_id": "agents_shipgate_…",
     "recorded_at": "2026-05-15T14:23:00Z",
     "reason": null,
@@ -810,12 +833,14 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.1.json`](docs/attestation-schema.v0.1.json). It
-records the verdict, the capability delta, the declared `human_ack` state, a
-policy-snapshot hash, and content hashes of the verify artifacts. It carries no
-wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
-so re-deriving from the same inputs is byte-identical. It does not gate;
-`release_decision.decision` remains the only gate. Current v0.1 fields:
+[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json). It
+records the verdict, the report-derived capability delta, the declared
+`human_ack` state, a policy-snapshot hash, content hashes of the verify
+artifacts, and capability lock/diff hash bindings when verify emitted those
+artifacts. It carries no wall-clock timestamp — it is content-addressed by git
+SHAs and artifact hashes, so re-deriving from the same inputs is byte-identical.
+It does not gate; `release_decision.decision` remains the only gate. Current
+v0.2 fields:
 
 - `attestation_schema_version`
 - `cli_version`
@@ -824,6 +849,8 @@ so re-deriving from the same inputs is byte-identical. It does not gate;
 - `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
 - `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
+- `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `capability_count`)
+- `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
 - `human_ack` (`required`, `satisfied`, `outstanding`)
 - `policy_snapshot_sha256`
 - `artifact_sha256`
@@ -865,6 +892,18 @@ reference at
 [`docs/capability-lock-schema.v0.1.json`](docs/capability-lock-schema.v0.1.json).
 The public standard is documented in
 [`docs/capability-standard.md`](docs/capability-standard.md).
+
+`agents-shipgate verify` also writes the head static lock to
+`agents-shipgate-reports/capabilities.lock.json` after a successful head scan.
+When `--base` is provided and the base scan can be materialized, verify writes
+`agents-shipgate-reports/base.capabilities.lock.json`,
+`agents-shipgate-reports/capability-lock-diff.json`, and
+`agents-shipgate-reports/capability-lock-diff.md`, and the PR comment includes a
+compact semantic capability diff summary. If the base scan-derived lock is
+unavailable, verify falls back to the reviewed committed lock at
+`.agents-shipgate/capabilities.lock.json`; if both are unavailable, it records a
+note and falls back to the existing `capability_review.top_changes[]` projection
+without changing the release gate.
 
 ### Workflow-evidence capture
 

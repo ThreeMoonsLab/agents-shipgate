@@ -63,6 +63,7 @@ _RISK_TAG_MAP = {
     "customer_data": "customer_data",
     "secret_access": "secret_access",
     "irreversible": "irreversible",
+    "unknown_side_effect": "unknown_side_effect",
 }
 _CRITICAL_RISK_TAGS = {
     "financial_write",
@@ -379,6 +380,13 @@ def build_action(
         provider=provider,
         source_type=tool.source_type,
         source_id=tool.source_id,
+        source_ref=tool.source_ref,
+        source_location=tool.source_location,
+        source_path=tool.source_path,
+        source_start_line=tool.source_start_line,
+        source_end_line=tool.source_end_line,
+        source_start_column=tool.source_start_column,
+        source_pointer=tool.source_pointer,
         operation=operation,
         side_effect=side_effect,
         risk_tags=risk_tag_values,
@@ -457,6 +465,13 @@ def action_to_fact(action: Action) -> ActionFact:
         provider=action.provider,
         source_type=action.source_type,
         source_id=action.source_id,
+        source_ref=action.source_ref,
+        source_location=action.source_location,
+        source_path=action.source_path,
+        source_start_line=action.source_start_line,
+        source_end_line=action.source_end_line,
+        source_start_column=action.source_start_column,
+        source_pointer=action.source_pointer,
         operation=action.operation,
         effect=action.effect,
         risk_tags=action.risk_tags,
@@ -773,6 +788,8 @@ def _infer_effect(tool: Tool, tags: list[str]) -> str:
         return "identity_access"
     if "privileged_data" in tag_set:
         return "privileged_data_access"
+    if "unknown_side_effect" in tag_set:
+        return "write"
     if "writes_data" in tag_set:
         return "write"
     method = str(tool.annotations.get("httpMethod") or "").upper()
@@ -934,6 +951,8 @@ def _change(
         after=after,
         added=added or [],
         removed=removed or [],
+        source_path=action.source_path,
+        source_start_line=action.source_start_line,
     )
 
 
@@ -1261,7 +1280,16 @@ def _finding(
         evidence=evidence,
         confidence="high",
         provenance_kind="static_declaration",
-        source=SourceReference(type="action_surface", ref=action.action_id),
+        source=SourceReference(
+            type=action.source_type or "action_surface",
+            ref=action.source_ref or action.action_id,
+            location=action.source_location,
+            path=action.source_path,
+            start_line=action.source_start_line,
+            end_line=action.source_end_line,
+            start_column=action.source_start_column,
+            pointer=action.source_pointer,
+        ),
         recommendation=recommendation,
         blocks_release=blocks_release,
     )

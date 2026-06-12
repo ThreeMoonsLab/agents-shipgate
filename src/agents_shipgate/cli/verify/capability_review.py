@@ -47,7 +47,15 @@ def build_capability_review(
 
     capability_change = _capability_change_block(report)
     members = _capability_members(capability_change)
-    changes = [_member_change(member) for member in members]
+    source_by_finding_id = {
+        finding.id: finding.source
+        for finding in report.findings
+        if finding.id and finding.source is not None
+    }
+    changes = [
+        _member_change(member, source_by_finding_id=source_by_finding_id)
+        for member in members
+    ]
     top_changes = sorted(
         changes,
         key=lambda change: (
@@ -93,8 +101,13 @@ def _capability_members(
     ]
 
 
-def _member_change(member: CapabilityChangeMember) -> VerifierCapabilityChange:
+def _member_change(
+    member: CapabilityChangeMember,
+    *,
+    source_by_finding_id: dict[str, object],
+) -> VerifierCapabilityChange:
     direction = member.direction
+    source = _member_source(member, source_by_finding_id)
     return VerifierCapabilityChange(
         id=member.id,
         change_type=f"{member.subject_kind}_{direction}",
@@ -103,6 +116,10 @@ def _member_change(member: CapabilityChangeMember) -> VerifierCapabilityChange:
         subject=_member_subject(member),
         impact=member.release_impact,
         rationale=member.rationale or _default_rationale(member),
+        source_path=getattr(source, "path", None) if source is not None else None,
+        source_start_line=(
+            getattr(source, "start_line", None) if source is not None else None
+        ),
         related_finding_ids=list(member.related_finding_ids),
     )
 
@@ -119,6 +136,17 @@ def _member_subject(member: CapabilityChangeMember) -> str:
 
 def _default_rationale(member: CapabilityChangeMember) -> str:
     return f"{member.subject_kind} {member.direction}"
+
+
+def _member_source(
+    member: CapabilityChangeMember,
+    source_by_finding_id: dict[str, object],
+) -> object | None:
+    for finding_id in member.related_finding_ids:
+        source = source_by_finding_id.get(finding_id)
+        if source is not None and getattr(source, "path", None):
+            return source
+    return None
 
 
 def _direction_from_change_type(change_type: str) -> str:

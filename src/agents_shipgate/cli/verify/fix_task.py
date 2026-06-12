@@ -20,9 +20,45 @@ from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
     VerifierFixTask,
+    VerifierFixTaskPatch,
+    VerifierRepair,
 )
 
 _MAX_INSTRUCTIONS = 5
+_MAX_REPAIRS = 10
+
+_FORBIDDEN_REPAIR_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "suppress_finding",
+        "manifest_suppression",
+        "checks.ignore",
+        "Do not suppress Shipgate findings to make the verifier pass.",
+    ),
+    (
+        "lower_severity",
+        "severity_override",
+        "checks.severity_overrides",
+        "Do not lower severity or add a waiver just to pass the gate.",
+    ),
+    (
+        "expand_baseline_or_waiver",
+        "baseline_or_waiver",
+        ".agents-shipgate or shipgate.yaml",
+        "Do not expand baselines or waivers to hide a new PR finding.",
+    ),
+    (
+        "weaken_release_gate",
+        "trust_root_change",
+        "Shipgate CI, policy, or agent instructions",
+        "Do not weaken the release policy, CI gate, or agent instructions.",
+    ),
+    (
+        "invent_authority_evidence",
+        "authority_evidence",
+        "approval, idempotency, audit, or human_ack evidence",
+        "Do not invent or assume authority evidence that is not present in code or reviewed records.",
+    ),
+)
 
 
 def build_fix_task(
@@ -57,6 +93,16 @@ def build_fix_task(
                 "human must investigate why the scan did not complete and "
                 "re-run before merge."
             ],
+            allowed_repairs=[
+                VerifierRepair(
+                    id="investigate_scan_incomplete",
+                    actor="human",
+                    kind="investigate",
+                    target="agents-shipgate-reports",
+                    reason="The verifier did not produce a release decision.",
+                )
+            ],
+            forbidden_repairs=_forbidden_repairs(),
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
             verification_command=verification_command,
         )
@@ -83,14 +129,29 @@ def build_fix_task(
             actor="coding_agent",
             safe_to_attempt=True,
             instructions=_mechanical_instructions(gating),
+            allowed_repairs=_mechanical_repairs(
+                gating,
+                verification_command=verification_command,
+            ),
+            forbidden_repairs=_forbidden_repairs(gating),
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
             verification_command=verification_command,
+            patches=_machine_patches(gating),
         )
 
     return VerifierFixTask(
         actor="human",
         safe_to_attempt=False,
-        instructions=_human_instructions(report, capability_review, gating),
+        instructions=_human_instructions(
+            report, capability_review, gating, merge_verdict=merge_verdict
+        ),
+        allowed_repairs=_human_repairs(
+            report,
+            capability_review,
+            gating,
+            verification_command=verification_command,
+        ),
+        forbidden_repairs=_forbidden_repairs(gating),
         forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
         verification_command=verification_command,
     )
@@ -118,10 +179,14 @@ def _human_instructions(
     report: ReadinessReport,
     capability_review: VerifierCapabilityReview,
     gating: list[Finding],
+    *,
+    merge_verdict: MergeVerdict = "human_review_required",
 ) -> list[str]:
     decision = report.release_decision
     assert decision is not None
     out: list[str] = [decision.reason]
+    if merge_verdict == "insufficient_evidence":
+        out.extend(_insufficient_evidence_remedies(report))
     if capability_review.policy_weakened:
         out.append(
             "A human must approve the release-policy change in this PR; the "
@@ -138,8 +203,215 @@ def _human_instructions(
     return _dedupe_cap(out)
 
 
+def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
+    """Concrete remedies for the ``insufficient_evidence`` dead-end.
+
+    The verdict means static evidence is too weak to gate — typically a
+    dynamic or config/factory-bound toolkit whose authority the adapters
+    cannot enumerate, or unreadable sources. The remedy is always the same
+    shape — make the hidden authority statically enumerable — so name the
+    exact sources instead of restating the threshold. Adding or editing an
+    inventory asserts what the agent can do, which is why this path stays
+    human-routed: a human reviews the declared inventory, the agent must
+    not invent one.
+    """
+    out: list[str] = []
+    by_source: dict[tuple[str, str], int] = {}
+    for tool in report.tool_inventory:
+        if str(tool.get("confidence") or "") == "high":
+            continue
+        key = (
+            str(tool.get("source_type") or "unknown"),
+            str(tool.get("source_ref") or tool.get("source_path") or "unknown"),
+        )
+        by_source[key] = by_source.get(key, 0) + 1
+    for (source_type, source_ref), count in sorted(by_source.items()):
+        noun = "tool" if count == 1 else "tools"
+        out.append(
+            f"{count} {noun} from {source_type} source {source_ref!r} extracted "
+            "with low confidence: declare an explicit local tool inventory for "
+            "that source in shipgate.yaml (tool_inventories), or replace the "
+            "dynamic/config-bound toolkit with statically enumerable tool "
+            "definitions, then re-run verify."
+        )
+    for warning in report.source_warnings[:3]:
+        out.append(f"Resolve source warning: {warning}")
+    if not out:
+        out.append(
+            "Provide clearer static sources — an MCP export, OpenAPI spec, or "
+            "explicit local tool inventory — so the scan can enumerate the "
+            "tool surface, then re-run verify."
+        )
+    return out
+
+
 def _mechanical_instructions(gating: list[Finding]) -> list[str]:
     return _dedupe_cap([finding.recommendation for finding in gating if finding.recommendation])
+
+
+def _mechanical_repairs(
+    gating: list[Finding],
+    *,
+    verification_command: str,
+) -> list[VerifierRepair]:
+    repairs: list[VerifierRepair] = []
+    for finding in gating:
+        for index, patch in enumerate(finding.patches or [], start=1):
+            if getattr(patch, "kind", None) == "manual":
+                continue
+            if getattr(patch, "confidence", None) != "high":
+                continue
+            target = _patch_target(patch)
+            repairs.append(
+                VerifierRepair(
+                    id=_repair_id("apply_patch", finding, index),
+                    actor="coding_agent",
+                    kind="apply_high_confidence_patch",
+                    target=target,
+                    finding_id=finding.id,
+                    check_id=finding.check_id,
+                    command=(
+                        "agents-shipgate apply-patches --from "
+                        "agents-shipgate-reports/report.json "
+                        "--confidence high --apply"
+                    ),
+                    reason=getattr(patch, "rationale", None)
+                    or finding.recommendation,
+                )
+            )
+    if repairs:
+        return _with_terminal_repair(
+            repairs,
+            VerifierRepair(
+                id="rerun_verify",
+                actor="coding_agent",
+                kind="verify",
+                command=verification_command,
+                reason="Re-run the verifier after applying allowed mechanical repairs.",
+            ),
+        )
+    return []
+
+
+def _human_repairs(
+    report: ReadinessReport,
+    capability_review: VerifierCapabilityReview,
+    gating: list[Finding],
+    *,
+    verification_command: str,
+) -> list[VerifierRepair]:
+    decision = report.release_decision
+    assert decision is not None
+    repairs: list[VerifierRepair] = []
+    if capability_review.policy_weakened:
+        repairs.append(
+            VerifierRepair(
+                id="review_policy_weakening",
+                actor="human",
+                kind="review_policy_change",
+                target="shipgate.yaml",
+                reason="A human must approve release-policy weakening before merge.",
+            )
+        )
+    if capability_review.trust_root_touched:
+        repairs.append(
+            VerifierRepair(
+                id="review_trust_root",
+                actor="human",
+                kind="review_trust_root_change",
+                target="manifest, CI gate, agent instructions, or trigger catalog",
+                reason="A human must review the touched release trust root before merge.",
+            )
+        )
+    for finding in gating:
+        repairs.append(
+            VerifierRepair(
+                id=_repair_id("human_review", finding, len(repairs) + 1),
+                actor="human",
+                kind="review_or_provide_evidence",
+                target=finding.tool_name or finding.agent_id or finding.check_id,
+                finding_id=finding.id,
+                check_id=finding.check_id,
+                reason=finding.recommendation or decision.reason,
+            )
+        )
+    return _with_terminal_repair(
+        repairs,
+        VerifierRepair(
+            id="rerun_verify_after_human_action",
+            actor="human",
+            kind="verify",
+            command=verification_command,
+            reason="Re-run the verifier after the human decision or evidence update.",
+        ),
+    )
+
+
+def _with_terminal_repair(
+    repairs: list[VerifierRepair],
+    terminal: VerifierRepair,
+) -> list[VerifierRepair]:
+    if len(repairs) >= _MAX_REPAIRS:
+        return [*repairs[: _MAX_REPAIRS - 1], terminal]
+    return [*repairs, terminal]
+
+
+def _forbidden_repairs(gating: list[Finding] | None = None) -> list[VerifierRepair]:
+    first = next(iter(gating or []), None)
+    return [
+        VerifierRepair(
+            id=repair_id,
+            actor="coding_agent",
+            kind=kind,
+            target=target,
+            finding_id=first.id if first is not None else None,
+            check_id=first.check_id if first is not None else None,
+            reason=reason,
+        )
+        for repair_id, kind, target, reason in _FORBIDDEN_REPAIR_SPECS
+    ]
+
+
+def _repair_id(prefix: str, finding: Finding, index: int) -> str:
+    anchor = finding.id or finding.fingerprint or finding.check_id
+    safe = "".join(char if char.isalnum() else "_" for char in anchor).strip("_")
+    return f"{prefix}_{safe or 'finding'}_{index}"
+
+
+def _patch_target(patch: object) -> str | None:
+    target_file = getattr(patch, "target_file", None)
+    pointer = getattr(patch, "pointer", None)
+    if target_file and pointer is not None:
+        return f"{target_file}#{pointer}"
+    return target_file
+
+
+_MAX_PATCHES = 10
+
+
+def _machine_patches(gating: list[Finding]) -> list[VerifierFixTaskPatch]:
+    """Project the machine-applicable suggested patches of gating findings.
+
+    Present only when the head scan ran with ``--suggest-patches``
+    (``Finding.patches`` is absent otherwise). ``manual`` patches are
+    skipped — their guidance is already carried by ``instructions`` and
+    they are intentionally never auto-applied.
+    """
+    out: list[VerifierFixTaskPatch] = []
+    for finding in gating:
+        for patch in finding.patches or []:
+            if getattr(patch, "kind", "manual") == "manual":
+                continue
+            out.append(
+                VerifierFixTaskPatch(
+                    finding_id=finding.id or None,
+                    check_id=finding.check_id,
+                    patch=patch.model_dump(mode="json"),
+                )
+            )
+            if len(out) >= _MAX_PATCHES:
+                return out
+    return out
 
 
 def _dedupe_cap(items: list[str]) -> list[str]:

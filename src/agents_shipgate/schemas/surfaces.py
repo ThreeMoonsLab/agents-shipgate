@@ -301,6 +301,16 @@ class ActionFact(BaseModel):
     provider: str
     source_type: str
     source_id: str | None = None
+    # Reviewer-grade provenance for policy findings derived from action facts.
+    # These fields are intentionally excluded from ActionSurfaceHashes so moving
+    # a tool within a file does not change action identity or baseline matching.
+    source_ref: str | None = None
+    source_location: str | None = None
+    source_path: str | None = None
+    source_start_line: int | None = None
+    source_end_line: int | None = None
+    source_start_column: int | None = None
+    source_pointer: str | None = None
     operation: str
     effect: ActionEffect
     risk_tags: list[str] = Field(default_factory=list)

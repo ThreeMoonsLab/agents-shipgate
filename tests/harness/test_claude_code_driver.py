@@ -131,3 +131,29 @@ def test_tool_result_text_extracts_string_and_list() -> None:
         == "a\nb"
     )
     assert _tool_result_text(None) == ""
+
+
+def test_init_failure_detected_from_auth_error_event():
+    """Regression: a 'Not logged in' run ends the SDK stream normally, so
+    without explicit detection the cell scores as a real-but-idle run
+    (the first 2026-W24 paid run produced 31 such vacuous rows). Any
+    init-failure event must surface as a driver error."""
+    from harness.adoption.drivers.claude_code import _init_failure
+
+    class _Event:
+        error = "authentication_failed"
+
+    message = _Event()
+    detail = _init_failure(message)
+    assert detail is not None
+    assert "authentication_failed" in detail
+    assert "SHIPGATE_HARNESS_SCOPE_HOME" in detail
+
+    assert _init_failure({"error": "invalid_api_key"}) is not None
+    assert _init_failure({"error": None}) is None
+    assert _init_failure({"content": [{"text": "hello"}]}) is None
+
+    class _Normal:
+        pass
+
+    assert _init_failure(_Normal()) is None

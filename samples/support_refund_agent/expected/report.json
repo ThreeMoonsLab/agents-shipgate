@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.25",
+  "report_schema_version": "0.26",
   "run_id": "agents_shipgate_ebb71d7248235cc3",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -552,7 +552,37 @@
       "level": "mixed",
       "human_review_recommended": true,
       "source_warning_count": 1,
-      "low_confidence_tool_count": 1
+      "low_confidence_tool_count": 1,
+      "evidence_gaps": [
+        {
+          "kind": "low_confidence_tool",
+          "subject": "send_email_preview",
+          "source_type": "sdk_function",
+          "source_ref": "agents/refund_agent.py:5",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "provide_source",
+            "command": null,
+            "path": null,
+            "why": "sdk_function extraction could not fully enumerate this tool surface.",
+            "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan."
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "MCP source declares wildcard tool exposure",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan."
+          }
+        }
+      ]
     },
     "baseline_delta": {
       "enabled": false,
@@ -3229,8 +3259,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.md",
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
