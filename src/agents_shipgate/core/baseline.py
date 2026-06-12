@@ -33,6 +33,22 @@ from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import BaselineSummary, Finding, ReadinessReport
 
 
+def _filled_text(existing: str | None, replacement: str | None) -> str | None:
+    """Fill-only merge for reviewer-set text metadata.
+
+    An existing value counts only when it has non-whitespace content —
+    the same blank-as-missing rule ``baseline_status_payload`` applies —
+    so the recommended ``--apply-to-existing`` repair can fix a
+    blank/whitespace owner that would otherwise keep failing
+    ``--require-owner``. A real (non-blank) existing value is never
+    overwritten.
+    """
+
+    if existing is not None and existing.strip():
+        return existing
+    return replacement
+
+
 def baseline_from_report(
     report: ReadinessReport,
     *,
@@ -86,8 +102,8 @@ def baseline_from_report(
             if apply_to_existing:
                 provenance = provenance.model_copy(
                     update={
-                        "owner": provenance.owner or owner,
-                        "reason": provenance.reason or reason,
+                        "owner": _filled_text(provenance.owner, owner),
+                        "reason": _filled_text(provenance.reason, reason),
                         "expires": provenance.expires or expires,
                     }
                 )

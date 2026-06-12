@@ -333,23 +333,49 @@ def test_blank_owner_is_unowned_and_fails_require_owner(tmp_path: Path) -> None:
 
 
 def test_apply_to_existing_fills_blank_owner(tmp_path: Path) -> None:
-    # Blank metadata counts as missing for the fill-only pass too, so a
-    # later acknowledged save can repair it.
+    # Blank metadata counts as missing for the fill-only pass too — same
+    # rule as `baseline status` — so the recommended repair path actually
+    # clears --require-owner. Whitespace-only is the trap: it is truthy,
+    # so a bare `or` keeps it while status treats it as unowned.
+    report = _stub_report(("SHIP-X", "tool_a"))
+    for hollow in ("", "   "):
+        first = baseline_from_report(
+            report, scanner_version="1.0.0", now="2026-01-01T00:00:00Z"
+        )
+        first.findings[0].provenance.owner = hollow
+
+        second = baseline_from_report(
+            report,
+            scanner_version="1.0.1",
+            prior_baseline=first,
+            now="2026-06-01T00:00:00Z",
+            owner="alice",
+            apply_to_existing=True,
+        )
+        assert second.findings[0].provenance.owner == "alice", repr(hollow)
+
+        payload = baseline_status_payload(second, as_of=date(2026, 6, 12))
+        assert baseline_status_violations(payload, require_owner=True) == []
+
+
+def test_apply_to_existing_keeps_padded_real_owner(tmp_path: Path) -> None:
+    # A real value with incidental padding is content, not a hollow
+    # approval — fill-only must not overwrite it.
     report = _stub_report(("SHIP-X", "tool_a"))
     first = baseline_from_report(
         report, scanner_version="1.0.0", now="2026-01-01T00:00:00Z"
     )
-    first.findings[0].provenance.owner = ""
+    first.findings[0].provenance.owner = "  alice  "
 
     second = baseline_from_report(
         report,
         scanner_version="1.0.1",
         prior_baseline=first,
         now="2026-06-01T00:00:00Z",
-        owner="alice",
+        owner="bob",
         apply_to_existing=True,
     )
-    assert second.findings[0].provenance.owner == "alice"
+    assert second.findings[0].provenance.owner == "  alice  "
 
 
 def test_cli_save_blank_owner_or_reason_exits_2(tmp_path: Path) -> None:
