@@ -117,6 +117,27 @@ class VerifierHumanReview(BaseModel):
     why: str | None = None
 
 
+class VerifierRepair(BaseModel):
+    """One deterministic repair affordance or prohibition.
+
+    The verifier owns the actor and safety boundary. These rows are not model
+    suggestions: they are a structured projection of remediation metadata and
+    trust-root rules so coding agents can distinguish mechanical fixes from
+    human-only authority decisions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    actor: Literal["coding_agent", "human"]
+    kind: str
+    target: str | None = None
+    finding_id: str | None = None
+    check_id: str | None = None
+    command: str | None = None
+    reason: str
+
+
 class VerifierFixTaskPatch(BaseModel):
     """A machine-applicable patch projected into the fix task.
 
@@ -155,6 +176,8 @@ class VerifierFixTask(BaseModel):
     actor: Literal["coding_agent", "human"]
     safe_to_attempt: bool
     instructions: list[str] = Field(default_factory=list)
+    allowed_repairs: list[VerifierRepair] = Field(default_factory=list)
+    forbidden_repairs: list[VerifierRepair] = Field(default_factory=list)
     forbidden_shortcuts: list[str] = Field(default_factory=list)
     verification_command: str | None = None
     patches: list[VerifierFixTaskPatch] = Field(default_factory=list)
@@ -403,6 +426,7 @@ __all__ = [
     "VerifierHeadStatus",
     "VerifierHumanReview",
     "VerifierNextAction",
+    "VerifierRepair",
     "applicability_for",
     "map_merge_verdict",
     "merge_verdict_for",

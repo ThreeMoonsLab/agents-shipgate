@@ -8,6 +8,16 @@ from agents_shipgate.core.findings.summaries import tool_inventory
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
+_ACTION_FACT_PROVENANCE_EXCLUDE = {
+    "source_ref": True,
+    "source_location": True,
+    "source_path": True,
+    "source_start_line": True,
+    "source_end_line": True,
+    "source_start_column": True,
+    "source_pointer": True,
+}
+
 
 def _run_id(
     manifest,
@@ -95,13 +105,24 @@ def _run_id(
         "codex_plugin_surface": (
             codex_plugin_surface.model_dump(mode="json") if codex_plugin_surface else None
         ),
-        "action_surface_facts": (
-            action_surface_facts.model_dump(mode="json")
-            if action_surface_facts is not None
-            else None
-        ),
+        "action_surface_facts": _action_surface_facts_for_run_id(action_surface_facts),
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
     return f"agents_shipgate_{digest}"
+
+
+def _action_surface_facts_for_run_id(
+    action_surface_facts: ActionSurfaceFacts | None,
+) -> dict[str, object] | None:
+    if action_surface_facts is None:
+        return None
+    return action_surface_facts.model_dump(
+        mode="json",
+        exclude={
+            "actions": {
+                "__all__": _ACTION_FACT_PROVENANCE_EXCLUDE,
+            }
+        },
+    )

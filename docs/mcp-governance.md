@@ -146,4 +146,4 @@ the gate fires on *any* drift rather than trying to classify
 After reviewing a legitimate drift, re-acknowledge with
 `--save-baseline` again. Do not re-save to silence drift nobody
 reviewed. A scheduled CI recipe is at
-[`examples/github-actions/11-host-grant-drift.yml`](../examples/github-actions/11-host-grant-drift.yml).
+[`examples/github-actions/12-host-grant-drift.yml`](../examples/github-actions/12-host-grant-drift.yml).

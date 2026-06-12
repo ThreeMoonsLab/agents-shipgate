@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify.capability_review import build_capability_review
+from agents_shipgate.cli.verify.fix_task import build_fix_task
 from agents_shipgate.cli.verify.git import read_file_at_ref
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
@@ -29,6 +30,7 @@ from agents_shipgate.schemas.capability_change import (
     VerifierCapabilityDeltaSummary,
     VerifierSummary,
 )
+from agents_shipgate.schemas.patches import RemovePointerPatch
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -36,6 +38,7 @@ from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
     ReleaseDecision,
+    ReleaseDecisionItem,
     ReportSummary,
     ToolSurfaceSummary,
 )
@@ -44,7 +47,12 @@ from agents_shipgate.schemas.surfaces import (
     ActionSurfaceDiff,
     ActionSurfaceDiffSummary,
 )
-from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierFixTask
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierCapabilityReview,
+    VerifierFixTask,
+    VerifierRepair,
+)
 
 runner = CliRunner()
 
@@ -350,25 +358,78 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate result: block" in comment
-    assert "Decision: `block`" in comment
+    assert "## Agents Shipgate" in comment
+    assert comment.count("### ") == 2
+    assert "### Human summary" in comment
+    assert "### Agent instruction block" in comment
+    assert "- Merge verdict: `blocked`" in comment
+    assert "- Agent decision: `block`" in comment
     assert "Risk: `" in comment
     assert "Audit ID: `sg_audit_" in comment
-    assert "Headline: This PR adds a refund action without approval evidence" in comment
-    assert "Release gate: `blocked`" in comment
-    assert "Reason: test decision" in comment
-    assert "Capability changes: +1, 0 modified, -0" in comment
-    assert "### Capability changes" in comment
-    assert "| blocks release | action added | `stripe.create_refund` |" in comment
-    assert "### Required before merge" in comment
-    assert "Actor: Human (human authority required" in comment
+    assert "Summary: This PR adds a refund action without approval evidence" in comment
+    assert "- Release gate: `blocked`" in comment
+    assert "- Reason: test decision" in comment
+    assert "- Capability delta: +1, 0 modified, -0" in comment
+    assert "`stripe.create_refund`: blocks release" in comment
+    assert "- Next actor: `human`" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
-    assert "### Trust-root warnings" in comment
-    assert comment.index("### Required before merge") < comment.index("### Trust-root warnings")
-    assert "`shipgate.yaml` (manifest): human review is required." in comment
-    assert "Do not suppress findings, lower severity, or edit evidence" in comment
-    assert "### Artifacts" in comment
+    assert "- Trust root touched: `true`" in comment
     assert "[packet.json](agents-shipgate-reports/packet.json)" in comment
+    assert '"merge_verdict": "blocked"' in comment
+    assert '"fix_task": {' in comment
+    assert '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"' in comment
+
+
+def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted() -> None:
+    report = _report(decision="blocked", exit_code=20)
+    bulky_repairs = [
+        VerifierRepair(
+            id=f"repair_{index}",
+            actor="human",
+            kind="review_or_provide_evidence",
+            target=f"tool_{index}",
+            finding_id=f"F-{index}",
+            check_id="SHIP-TEST",
+            command=None,
+            reason="Review the source-backed evidence. " * 20,
+        )
+        for index in range(30)
+    ]
+    verifier = VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        head_status="succeeded",
+        release_decision={"decision": "blocked"},
+        decision="blocked",
+        merge_verdict="blocked",
+        capability_review=build_capability_review(report),
+        fix_task=VerifierFixTask(
+            actor="human",
+            safe_to_attempt=False,
+            instructions=["Human review required."],
+            allowed_repairs=bulky_repairs,
+            forbidden_repairs=bulky_repairs,
+            forbidden_shortcuts=[],
+            verification_command="agents-shipgate verify --base origin/main --head HEAD --json",
+        ),
+        artifacts={
+            "report_json": "agents-shipgate-reports/report.json",
+            "verifier_json": "agents-shipgate-reports/verifier.json",
+        },
+    )
+
+    comment = render_pr_comment(verifier, report=report)
+    payload = json.loads(comment.split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+
+    assert len(comment) <= 6000
+    assert comment.count("### ") == 2
+    assert payload["merge_verdict"] == "blocked"
+    assert payload["fix_task"]["omitted"] is True
+    assert payload["fix_task"]["artifact"] == "agents-shipgate-reports/verifier.json"
+    assert payload["verification_command"] == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
 
 
 def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
@@ -387,11 +448,12 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate result: require_review" in comment
-    assert "Decision: `require_review`" in comment
-    assert "Release gate: `review_required`" in comment
-    assert "Decision: `review_required`" not in comment
-    assert "Reason: test decision" in comment
+    assert "## Agents Shipgate" in comment
+    assert "- Merge verdict: `human_review_required`" in comment
+    assert "- Agent decision: `require_review`" in comment
+    assert "- Release gate: `review_required`" in comment
+    assert "- Agent decision: `review_required`" not in comment
+    assert "- Reason: test decision" in comment
 
 
 def test_capability_review_pr_comment_does_not_double_blank_without_headline() -> None:
@@ -427,10 +489,101 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
 
     comment = render_pr_comment(verifier, report=None)
 
-    assert "## Agents Shipgate result: require_review" in comment
-    assert "Decision: `require_review`" in comment
+    assert "## Agents Shipgate" in comment
+    assert "- Merge verdict: `unknown`" in comment
+    assert "- Agent decision: `require_review`" in comment
     assert "## Agents Shipgate: mergeable" not in comment
     assert "Head scan did not produce a report" in comment
+
+
+def test_fix_task_structures_allowed_and_forbidden_repairs() -> None:
+    report = _report(decision="blocked", exit_code=20)
+    finding = Finding(
+        id="F-stale",
+        fingerprint="fp_stale",
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        title="Stale suppression",
+        severity="high",
+        category="manifest",
+        evidence={},
+        recommendation="Remove stale suppression.",
+        autofix_safe=True,
+        requires_human_review=False,
+        patches=[
+            RemovePointerPatch(
+                target_file="/repo/shipgate.yaml",
+                pointer="/checks/ignore/0",
+                target_format="yaml",
+                confidence="high",
+                rationale="Remove stale suppression.",
+                target_sha256="0" * 64,
+            )
+        ],
+    )
+    report.findings = [finding]
+    report.release_decision.blockers = [
+        ReleaseDecisionItem(
+            id="F-stale",
+            fingerprint="fp_stale",
+            check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+            severity="high",
+            title="Stale suppression",
+        )
+    ]
+
+    task = build_fix_task(
+        report,
+        merge_verdict="blocked",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None
+    assert task.actor == "coding_agent"
+    assert task.allowed_repairs
+    assert task.allowed_repairs[0].kind == "apply_high_confidence_patch"
+    assert task.allowed_repairs[0].command.startswith("agents-shipgate apply-patches")
+    assert any(repair.id == "invent_authority_evidence" for repair in task.forbidden_repairs)
+
+
+def test_fix_task_human_authority_gap_has_no_agent_allowed_repairs() -> None:
+    report = _report(decision="blocked", exit_code=20)
+    finding = Finding(
+        id="F-approval",
+        fingerprint="fp_approval",
+        check_id="SHIP-POLICY-APPROVAL-MISSING",
+        title="Approval missing",
+        severity="critical",
+        category="policy",
+        evidence={},
+        recommendation="A human must declare approval evidence.",
+        autofix_safe=False,
+        requires_human_review=True,
+    )
+    report.findings = [finding]
+    report.release_decision.blockers = [
+        ReleaseDecisionItem(
+            id="F-approval",
+            fingerprint="fp_approval",
+            check_id="SHIP-POLICY-APPROVAL-MISSING",
+            severity="critical",
+            title="Approval missing",
+        )
+    ]
+
+    task = build_fix_task(
+        report,
+        merge_verdict="blocked",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+    assert task is not None
+    assert task.actor == "human"
+    assert all(repair.actor == "human" for repair in task.allowed_repairs)
+    assert any(repair.id == "invent_authority_evidence" for repair in task.forbidden_repairs)
 
 
 def test_verify_missing_base_ref_is_unknown_not_head_only(

@@ -22,7 +22,7 @@
   baseline's stored `inventory_sha256` is verified at load time and
   hand-edited or malformed baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
   exits 20 for scheduled CI gates — recipe at
-  `examples/github-actions/11-host-grant-drift.yml`. Catches authority changes
+  `examples/github-actions/12-host-grant-drift.yml`. Catches authority changes
   that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
   checks cannot see them.
 - **`check` defers tool-surface changes to `verify` (coverage boundary).**

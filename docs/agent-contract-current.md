@@ -132,8 +132,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 `verify` writes `verifier.json` and `pr-comment.md` alongside the head scan
 artifacts. After a successful head scan it also writes the head static
 capability lock to `agents-shipgate-reports/capabilities.lock.json`. When
-`--base` is provided and the base tree contains the reviewed committed lock at
-`.agents-shipgate/capabilities.lock.json`, verify writes
+`--base` is provided and the base scan can be materialized, verify writes
+`agents-shipgate-reports/base.capabilities.lock.json`,
 `agents-shipgate-reports/capability-lock-diff.json` and
 `agents-shipgate-reports/capability-lock-diff.md`. The packet artifact is
 intentionally `packet.json` only; use `scan` for manifest-driven packet
@@ -181,13 +181,17 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 - `human_review` — `{required: bool, why: str|null}`.
 - `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
   The `actor` separates mechanical coding-agent work from human-only decisions.
-- `fix_task` — `{actor, safe_to_attempt, instructions[], forbidden_shortcuts[],
-  verification_command, patches[]}` or `null`. This is the deterministic repair
-  boundary: `actor: coding_agent` with `safe_to_attempt: true` means the agent
-  may attempt the listed mechanical fix and rerun `verification_command`;
-  `actor: human` means the agent must not invent approval, idempotency, policy,
-  waiver, baseline, or trust-root evidence to make the gate pass. `patches[]`
-  (v0.13+) carries `{finding_id, check_id, patch}` rows with the
+- `fix_task` — `{actor, safe_to_attempt, instructions[], allowed_repairs[],
+  forbidden_repairs[], forbidden_shortcuts[], verification_command, patches[]}` or `null`.
+  This is the deterministic repair boundary: `actor: coding_agent` with
+  `safe_to_attempt: true` means the agent may attempt only the listed mechanical
+  `allowed_repairs[]` and rerun `verification_command`; `actor: human` means the
+  agent must not invent approval, idempotency, policy, waiver, baseline, or
+  trust-root evidence to make the gate pass. `forbidden_repairs[]` explicitly
+  lists reward-hacking moves such as suppressing findings, lowering severity,
+  expanding baselines/waivers, weakening CI or policy, adding human ack, or
+  inventing approval/idempotency evidence. `patches[]` (v0.13+) carries
+  `{finding_id, check_id, patch}` rows with the
   machine-applicable suggested patches for the gating findings — populated
   only when verify ran with `--suggest-patches` and the task routes to the
   coding agent; repair aids, never gate inputs.
@@ -213,14 +217,16 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
   `{trust_root_touched, policy_weakened, capability_changes_added,
   capability_changes_removed, capability_changes_modified, top_changes[]}`.
   `top_changes[]` carries the highest-signal capability deltas with
-  `{id, title, impact, rationale, related_finding_ids}`. `impact` mirrors the
+  `{id, change_type, change_bucket, subject_kind, subject, impact, rationale,
+  source_path, source_start_line, related_finding_ids}`. `impact` mirrors the
   gate (`blocks_release`, `review_required`, `insufficient_evidence`, or
   informational values) and never introduces a finding-independent blocker.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
 
 `verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
 `head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an
-`artifacts` map. When present, `artifacts.capability_lock`,
+`artifacts` map. When present, `artifacts.capability_lock_json`,
+`artifacts.base_capability_lock_json`,
 `artifacts.capability_lock_diff_json`, and
 `artifacts.capability_lock_diff_markdown` are review artifacts only; they do not
 change the gate. The matching GitHub Action outputs are `merge_verdict`,
@@ -231,12 +237,25 @@ change the gate. The matching GitHub Action outputs are `merge_verdict`,
 authoritative contract.
 
 The default Action PR comment style for the verifier-cycle minor is
-`capability-review`: verdict/decision first, then the semantic capability-lock
-diff when a base lock is available; otherwise the top
-`capability_review.top_changes[]` projection, followed by trust-root warnings,
-required next steps, and artifact links. Existing adopters that need the v1
+`capability-review`: exactly two reviewer sections, a human summary and a
+fenced JSON agent instruction block. The human summary leads with
+`merge_verdict`, `can_merge_without_human`, capability delta, next actor, and
+artifact links, including the semantic capability-lock diff summary when a base
+lock is available. The agent block carries `first_next_action`, `fix_task`, and
+`agent_controller` for coding-agent routing. Existing adopters that need the v1
 findings-oriented comment during migration can set `pr_comment_style: findings`
 for one minor release cycle.
+
+The GitHub Action emits source-backed GitHub Actions job annotations by default
+for active blockers and review items. `check_annotations: "false"` disables the
+projection; `check_annotation_limit` caps the number emitted. The helper also
+writes `agents-shipgate-reports/check-annotations.json` for audit/debug.
+
+`verify` writes non-gating capability artifacts when static extraction succeeds:
+`agents-shipgate-reports/capabilities.lock.json` for head, and when a base ref
+is available, `base.capabilities.lock.json` plus `capability-lock-diff.json`.
+These artifacts are review/integration surfaces only and cannot introduce a
+second verdict.
 
 ## Read this for coding-agent control
 

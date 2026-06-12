@@ -227,6 +227,64 @@ def test_instructions_are_deduped_and_capped() -> None:
     assert len(task.instructions) <= 5
 
 
+def test_human_allowed_repairs_reserve_terminal_verify_step() -> None:
+    findings = [
+        _finding(
+            f"F{i}",
+            requires_human_review=True,
+            autofix_safe=False,
+            recommendation=f"Review finding {i}.",
+        )
+        for i in range(12)
+    ]
+
+    task = _fix_task(_report(decision="blocked", findings=findings, blockers=findings))
+
+    assert task is not None
+    assert len(task.allowed_repairs) == 10
+    assert task.allowed_repairs[-1].id == "rerun_verify_after_human_action"
+    assert task.allowed_repairs[-1].command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+
+
+def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
+    from agents_shipgate.schemas.patches import AppendPointerPatch
+
+    findings = [
+        _finding(
+            f"F{i}",
+            requires_human_review=False,
+            autofix_safe=True,
+            recommendation=f"Apply patch {i}.",
+        )
+        for i in range(12)
+    ]
+    for finding in findings:
+        finding.patches = [
+            AppendPointerPatch(
+                target_file="/abs/shipgate.yaml",
+                pointer=f"/checks/{finding.id}",
+                value="owner",
+                target_format="yaml",
+                confidence="high",
+                rationale=f"Apply {finding.id}.",
+                target_sha256="abc123",
+            )
+        ]
+
+    task = _fix_task(
+        _report(decision="blocked", findings=findings, blockers=findings)
+    )
+
+    assert task is not None
+    assert len(task.allowed_repairs) == 10
+    assert task.allowed_repairs[-1].id == "rerun_verify"
+    assert task.allowed_repairs[-1].command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+
+
 # --- Consistency with first_next_action -------------------------------------
 
 

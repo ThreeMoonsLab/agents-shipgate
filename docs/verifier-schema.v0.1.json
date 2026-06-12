@@ -217,6 +217,20 @@
           "title": "Actor",
           "type": "string"
         },
+        "allowed_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Allowed Repairs",
+          "type": "array"
+        },
+        "forbidden_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Forbidden Repairs",
+          "type": "array"
+        },
         "forbidden_shortcuts": {
           "items": {
             "type": "string"
@@ -354,6 +368,88 @@
         }
       },
       "title": "VerifierNextAction",
+      "type": "object"
+    },
+    "VerifierRepair": {
+      "additionalProperties": false,
+      "description": "One deterministic repair affordance or prohibition.\n\nThe verifier owns the actor and safety boundary. These rows are not model\nsuggestions: they are a structured projection of remediation metadata and\ntrust-root rules so coding agents can distinguish mechanical fixes from\nhuman-only authority decisions.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "actor",
+        "kind",
+        "reason"
+      ],
+      "title": "VerifierRepair",
       "type": "object"
     }
   },

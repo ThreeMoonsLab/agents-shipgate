@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from agents_shipgate.ci.agent_result import AgentResult, build_agent_result
@@ -25,6 +26,7 @@ _IMPACT_LABELS = {
     "informational": "informational",
     "none": "none",
 }
+_COMMENT_MAX_CHARS = 6000
 
 
 def render_pr_comment(
@@ -57,51 +59,249 @@ def _render_capability_review_comment(
     agent_result: AgentResult,
     capability_lock_diff: CapabilityLockDiffV1 | None,
 ) -> str:
-    lines = [STICKY_MARKER, f"## Agents Shipgate result: {agent_result.decision}"]
-    lines.extend(_agent_result_lead(agent_result))
+    prose_lines = [
+        STICKY_MARKER,
+        "## Agents Shipgate",
+        *_human_summary_lines(
+            verifier,
+            report=report,
+            agent_result=agent_result,
+            capability_lock_diff=capability_lock_diff,
+        ),
+    ]
+    agent_block = _agent_instruction_block(verifier)
+    comment = "\n".join([*prose_lines, *agent_block])
+    if len(comment) <= _COMMENT_MAX_CHARS:
+        return comment
+
+    compact_agent_block = _agent_instruction_block(verifier, compact=True)
+    return _join_with_preserved_agent_block(
+        prose_lines,
+        compact_agent_block,
+        limit=_COMMENT_MAX_CHARS,
+    )
+
+
+def _human_summary_lines(
+    verifier: VerifierArtifact,
+    *,
+    report: ReadinessReport | None,
+    agent_result: AgentResult,
+    capability_lock_diff: CapabilityLockDiffV1 | None,
+) -> list[str]:
+    lines = ["", "### Human summary"]
+    lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
+    lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
+    lines.append(f"- Agent decision: `{agent_result.decision}`")
+    lines.append(f"- Risk: `{agent_result.risk_level}`")
+    lines.append(f"- Audit ID: `{agent_result.audit_id}`")
+    if agent_result.required_reviewers:
+        reviewers = ", ".join(f"`{reviewer}`" for reviewer in agent_result.required_reviewers)
+        lines.append(f"- Required reviewers: {reviewers}")
+
     headline = _headline(verifier, report)
     if headline:
-        lines.extend(["", f"Headline: {_escape(headline)}"])
+        lines.append(f"- Summary: {_escape(headline)}")
 
     if report is None or report.release_decision is None:
-        lines.append("")
         if verifier.head_status == "skipped":
-            lines.append("No Shipgate scan was required for this diff.")
+            lines.append("- Release gate: `not_applicable`")
+            lines.append("- Reason: No Shipgate scan was required for this diff.")
         else:
-            lines.append(f"Head scan did not produce a report (exit {verifier.head_exit_code}).")
-        lines.extend(_trigger_and_base_lines(verifier))
-        lines.extend(_artifact_lines(verifier))
-        return _truncate("\n".join(lines), 6000)
+            lines.append("- Release gate: `unknown`")
+            lines.append(
+                f"- Reason: Head scan did not produce a report (exit {verifier.head_exit_code})."
+            )
+        lines.extend(_next_actor_lines(verifier))
+        lines.extend(_trigger_and_base_summary(verifier))
+        lines.extend(_artifact_summary_lines(verifier))
+        return lines
 
     decision = report.release_decision
     review = _capability_review(verifier, report)
-    lines.extend(
-        [
-            "",
-            f"Release gate: `{decision.decision}`",
-            f"Reason: {_escape(decision.reason)}",
-            (
-                "Capability changes: "
-                f"+{review.added}, {review.modified} modified, "
-                f"-{review.removed}"
-            ),
-            (
-                "Fail policy: "
-                f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
-                f"(exit {decision.fail_policy.exit_code})"
-            ),
-        ]
+    lines.append(f"- Release gate: `{decision.decision}`")
+    lines.append(f"- Reason: {_escape(decision.reason)}")
+    lines.append(
+        "- Capability delta: "
+        f"+{review.added}, {review.modified} modified, -{review.removed}"
     )
-
     if capability_lock_diff is not None:
-        lines.extend(_capability_lock_diff_lines(capability_lock_diff))
+        summary = capability_lock_diff.summary
+        lines.append(
+            "- Capability lock diff: "
+            f"+{summary.added}, -{summary.removed}, "
+            f"{summary.changed} changed, "
+            f"{summary.reidentified} reidentified, "
+            f"{summary.evidence_changed} evidence-only"
+        )
+    lines.append(
+        "- Fail policy: "
+        f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
+        f"(exit {decision.fail_policy.exit_code})"
+    )
+    lines.extend(_next_actor_lines(verifier))
+    if review.top_changes:
+        lines.append("- Top capability changes:")
+        for change in review.top_changes[:5]:
+            source = _source_suffix(change.source_path, change.source_start_line)
+            lines.append(
+                "  - "
+                f"`{change.subject}`: {_escape(_impact(change))}; "
+                f"{_escape(change.rationale)}{source}"
+            )
+    elif review.notes:
+        lines.append(f"- Capability delta note: {_escape(review.notes[0])}")
+    if review.trust_root_touched or review.policy_weakened:
+        if review.trust_root_touched:
+            lines.append("- Trust root touched: `true`")
+        if review.policy_weakened:
+            lines.append("- Policy weakened: `true`")
+    lines.extend(_trigger_and_base_summary(verifier))
+    lines.extend(_artifact_summary_lines(verifier))
+    return lines
+
+
+def _next_actor_lines(verifier: VerifierArtifact) -> list[str]:
+    action = verifier.first_next_action
+    if action is None:
+        return ["- Next actor: `human`"]
+    lines = [f"- Next actor: `{action.actor}`"]
+    if action.why:
+        lines.append(f"- Next action: {_escape(action.why)}")
+    if action.command:
+        lines.append(f"- Next command: {_code(action.command)}")
+    return lines
+
+
+def _trigger_and_base_summary(verifier: VerifierArtifact) -> list[str]:
+    lines = [f"- Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}"]
+    if verifier.base_status != "not_requested":
+        base = verifier.base_ref or "(none)"
+        lines.append(f"- Base diff: `{base}` -> `{verifier.base_status}`")
+        for note in verifier.base_notes[:2]:
+            lines.append(f"  - {_escape(note)}")
+    return lines
+
+
+def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
+    if not verifier.artifacts:
+        return []
+    lines = ["- Artifacts:"]
+    for key in (
+        "verifier_json",
+        "agent_result_json",
+        "report_json",
+        "report_sarif",
+        "packet_json",
+        "capability_lock_json",
+        "base_capability_lock_json",
+        "capability_lock_diff_json",
+        "capability_lock_diff_markdown",
+    ):
+        value = verifier.artifacts.get(key)
+        if value:
+            label = key.replace("_", ".")
+            lines.append(f"  - [{label}]({_escape_link(value)})")
+    return lines
+
+
+def _agent_instruction_block(
+    verifier: VerifierArtifact,
+    *,
+    compact: bool = False,
+) -> list[str]:
+    payload = _agent_instruction_payload(verifier, compact=compact)
+    return [
+        "",
+        "### Agent instruction block",
+        "```json",
+        json.dumps(payload, indent=2, sort_keys=True),
+        "```",
+    ]
+
+
+def _agent_instruction_payload(
+    verifier: VerifierArtifact,
+    *,
+    compact: bool,
+) -> dict[str, object]:
+    verifier_json = verifier.artifacts.get("verifier_json")
+    fix_task = (
+        verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
+    )
+    agent_controller = (
+        verifier.agent_controller.model_dump(mode="json")
+        if verifier.agent_controller is not None
+        else None
+    )
+    if compact:
+        if fix_task is not None:
+            fix_task = _artifact_pointer(
+                verifier_json,
+                "fix_task omitted from PR comment size budget; read verifier.json.fix_task.",
+            )
+        if agent_controller is not None:
+            agent_controller = _artifact_pointer(
+                verifier_json,
+                "agent_controller omitted from PR comment size budget; read verifier.json.agent_controller.",
+            )
+    payload = {
+        "merge_verdict": verifier.merge_verdict,
+        "can_merge_without_human": verifier.can_merge_without_human,
+        "first_next_action": (
+            verifier.first_next_action.model_dump(mode="json")
+            if verifier.first_next_action is not None
+            else None
+        ),
+        "fix_task": fix_task,
+        "agent_controller": agent_controller,
+        "verification_command": (
+            verifier.fix_task.verification_command
+            if verifier.fix_task is not None
+            else None
+        ),
+    }
+    return payload
+
+
+def _artifact_pointer(artifact: str | None, reason: str) -> dict[str, object]:
+    return {
+        "omitted": True,
+        "reason": reason,
+        "artifact": artifact,
+    }
+
+
+def _join_with_preserved_agent_block(
+    prose_lines: list[str],
+    agent_block: list[str],
+    *,
+    limit: int,
+) -> str:
+    block = "\n".join(agent_block)
+    prose = "\n".join(prose_lines)
+    budget = limit - len(block) - 1
+    if budget > 0:
+        prose = _truncate(prose, budget).rstrip()
     else:
-        lines.extend(_capability_change_table(review))
-    lines.extend(_required_before_merge_lines(report, review, verifier.fix_task))
-    lines.extend(_trust_root_warning_lines(review, report))
-    lines.extend(_trigger_and_base_lines(verifier))
-    lines.extend(_artifact_lines(verifier))
-    return _truncate("\n".join(lines), 6000)
+        prose = "\n".join(
+            [
+                STICKY_MARKER,
+                "## Agents Shipgate",
+                "",
+                "### Human summary",
+                "- Summary: PR comment prose omitted; read verifier.json for the full review.",
+            ]
+        )
+    return f"{prose}\n{block}"
+
+
+def _source_suffix(path: str | None, line: int | None) -> str:
+    if not path:
+        return ""
+    if line is not None:
+        return f" ({path}:{line})"
+    return f" ({path})"
 
 
 def _render_findings_comment(
@@ -235,7 +435,6 @@ def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
             f"{_table_cell(change.rationale)} |"
         )
     return lines
-
 
 def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
     rendered = render_capability_lock_diff_markdown(
@@ -394,7 +593,8 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
             "report_json",
             "report_sarif",
             "packet_json",
-            "capability_lock",
+            "capability_lock_json",
+            "base_capability_lock_json",
             "capability_lock_diff_json",
             "capability_lock_diff_markdown",
             "verifier_json",
@@ -411,7 +611,8 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
         "report_json",
         "report_sarif",
         "packet_json",
-        "capability_lock",
+        "capability_lock_json",
+        "base_capability_lock_json",
         "capability_lock_diff_json",
         "capability_lock_diff_markdown",
         "verifier_json",
@@ -443,7 +644,11 @@ def _escape_link(value: object) -> str:
 
 
 def _truncate(value: str, limit: int) -> str:
-    return value if len(value) <= limit else value[: limit - 1] + "..."
+    if len(value) <= limit:
+        return value
+    if limit <= 3:
+        return "." * max(limit, 0)
+    return value[: limit - 3] + "..."
 
 
 __all__ = ["STICKY_MARKER", "render_pr_comment"]
