@@ -1,7 +1,7 @@
 # MCP Server Mode
 
-`agents-shipgate mcp-serve` exposes the agent-native `shipgate.check` tool as
-a local MCP server for agents that cannot or should not shell out to the CLI.
+`agents-shipgate mcp-serve` exposes read-only static Shipgate tools as a local
+MCP server for agents that cannot or should not shell out to the CLI.
 
 ## Install and run
 
@@ -28,22 +28,20 @@ Claude Code registration (`.mcp.json`):
 | Tool | Input | Output |
 |---|---|---|
 | `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `agent_result_v1` |
+| `shipgate.preflight` | `{workspace?, config?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV1` |
+| `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
+| `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |
 
-Compatibility note: v0.12.0 briefly exposed preview-oriented tool names
-(`shipgate_preview`, `shipgate_verify`, and `shipgate_explain_finding`).
-Those names were not part of `STABILITY.md`; v0.13.0 intentionally narrows the
-optional MCP surface to the single `shipgate.check` adapter so it matches the
-agent-native CLI protocol.
-
-The MCP tool is the same protocol surface documented in
-[`agents/protocol.md`](agents/protocol.md). It accepts caller-provided unified
-diff text and returns `allow`, `warn`, `block`, or `require_review` plus the
-structured next action, repair boundary, human-review boundary, policy
-provenance, and audit id.
+`shipgate.check` is the same protocol surface documented in
+[`agents/protocol.md`](agents/protocol.md). `shipgate.preflight` is proactive
+routing only: it can tell an agent to stop before editing protected surfaces or
+to gather evidence for a proposed high-risk capability, but it is not a second
+release verdict. The release gate remains
+`report.json.release_decision.decision`.
 
 ## Trust model
 
 The MCP server is a read-only static adapter. It does not shell out to git, run
 `verify`, run `scan`, apply patches, write artifacts, call tools, execute an
-agent, or access the network. It exposes no privileged runtime gate and no
-mutating tools.
+agent, connect to external MCP servers, or access the network. It exposes no
+privileged runtime gate and no mutating tools.

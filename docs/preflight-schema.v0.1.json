@@ -1,0 +1,445 @@
+{
+  "$defs": {
+    "PreflightDriftSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "base_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Hash"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "head_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Hash"
+        },
+        "modified": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Modified",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "title": "PreflightDriftSummary",
+      "type": "object"
+    },
+    "PreflightNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "enum": [
+            "continue",
+            "review",
+            "gather_evidence"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "why"
+      ],
+      "title": "PreflightNextAction",
+      "type": "object"
+    },
+    "PreflightProtectedSurface": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "human_review_required": {
+          "default": true,
+          "title": "Human Review Required",
+          "type": "boolean"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "present": {
+          "default": false,
+          "title": "Present",
+          "type": "boolean"
+        },
+        "present_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Present Paths",
+          "type": "array"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "pattern",
+        "scope_type",
+        "description"
+      ],
+      "title": "PreflightProtectedSurface",
+      "type": "object"
+    },
+    "PreflightProtectedSurfaceTouch": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "requires_human_review": {
+          "default": true,
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "pattern",
+        "scope_type"
+      ],
+      "title": "PreflightProtectedSurfaceTouch",
+      "type": "object"
+    },
+    "PreflightRequiredEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "satisfied": {
+          "title": "Satisfied",
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "field",
+        "satisfied",
+        "severity",
+        "reason",
+        "recommendation"
+      ],
+      "title": "PreflightRequiredEvidence",
+      "type": "object"
+    },
+    "TrustRootGraphV1": {
+      "additionalProperties": false,
+      "properties": {
+        "graph_hash": {
+          "title": "Graph Hash",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/TrustRootNodeV1"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph_hash"
+      ],
+      "title": "TrustRootGraphV1",
+      "type": "object"
+    },
+    "TrustRootNodeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "file_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "File Hashes",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "present_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Present Paths",
+          "type": "array"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "pattern",
+        "scope_type"
+      ],
+      "title": "TrustRootNodeV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for shipgate preflight --json. Generated from agents_shipgate.schemas.preflight.PreflightResultV1. It is a proactive routing/projection surface, not a release gate; release_decision.decision remains the only gate.",
+  "properties": {
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "config": {
+      "title": "Config",
+      "type": "string"
+    },
+    "first_next_action": {
+      "$ref": "#/$defs/PreflightNextAction"
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "forbidden_file_edits": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden File Edits",
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "policy_drift": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreflightDriftSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "policy_snapshot_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Snapshot Hash"
+    },
+    "preflight_schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Preflight Schema Version",
+      "type": "string"
+    },
+    "protected_surface_touches": {
+      "items": {
+        "$ref": "#/$defs/PreflightProtectedSurfaceTouch"
+      },
+      "title": "Protected Surface Touches",
+      "type": "array"
+    },
+    "protected_surfaces": {
+      "items": {
+        "$ref": "#/$defs/PreflightProtectedSurface"
+      },
+      "title": "Protected Surfaces",
+      "type": "array"
+    },
+    "required_evidence": {
+      "items": {
+        "$ref": "#/$defs/PreflightRequiredEvidence"
+      },
+      "title": "Required Evidence",
+      "type": "array"
+    },
+    "requires_human_review": {
+      "default": false,
+      "title": "Requires Human Review",
+      "type": "boolean"
+    },
+    "trust_root_graph": {
+      "$ref": "#/$defs/TrustRootGraphV1"
+    },
+    "trust_root_graph_diff": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreflightDriftSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "trust_root_graph_hash": {
+      "title": "Trust Root Graph Hash",
+      "type": "string"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace",
+    "config",
+    "trust_root_graph_hash",
+    "trust_root_graph",
+    "first_next_action"
+  ],
+  "title": "Agents Shipgate Preflight Result v0.1",
+  "type": "object"
+}

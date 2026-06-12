@@ -21,6 +21,9 @@ Writes / verifies:
 - docs/agent-result-schema.v1.json
                                 (from agents_shipgate.schemas.agent_result_v1.
                                  AgentResultV1)
+- docs/preflight-schema.v0.1.json
+                                (from agents_shipgate.schemas.preflight.
+                                 PreflightResultV1)
 - docs/capability-lock-schema.v0.2.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1242,6 +1245,32 @@ def build_agent_result_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_preflight_schema() -> tuple[Path, str]:
+    """Generate docs/preflight-schema.v0.1.json from PreflightResultV1."""
+
+    from agents_shipgate.schemas.preflight import (
+        PREFLIGHT_SCHEMA_VERSION,
+        PreflightResultV1,
+    )
+
+    schema = PreflightResultV1.model_json_schema()
+    minor = PREFLIGHT_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/preflight-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Preflight Result v{minor}"
+    schema["description"] = (
+        "JSON Schema for shipgate preflight --json. Generated from "
+        "agents_shipgate.schemas.preflight.PreflightResultV1. It is a "
+        "proactive routing/projection surface, not a release gate; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"preflight-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 def build_capability_lock_schema() -> tuple[Path, str]:
     """Generate the stable capability-lock schema."""
 
@@ -1404,6 +1433,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
     ("agent_result", build_agent_result_schema),
+    ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
     ("attestation", build_attestation_schema),

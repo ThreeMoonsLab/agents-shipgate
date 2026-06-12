@@ -230,14 +230,15 @@ stage('Agents Shipgate') {
 }
 ```
 
-## MCP server (optional, provisional)
+## MCP server (optional)
 
 For coding agents without comfortable shell access (Cursor, restricted
-harnesses), Agents Shipgate can serve three tools over an MCP stdio server.
-It is a thin wrapper over the same engine the CLI uses — `shipgate_verify`
-returns the same compact agent result as `agents-shipgate verify --json`,
-and the release gate stays `report.json.release_decision.decision`. Claude
-Code users should prefer the CLI + hooks surface.
+harnesses), Agents Shipgate can serve read-only static tools over an MCP stdio
+server. It is a thin wrapper over the same deterministic projections the CLI
+uses: `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and
+`shipgate.capabilities`. The release gate stays
+`report.json.release_decision.decision`. Claude Code users should prefer the
+CLI + hooks surface.
 
 ```bash
 pip install 'agents-shipgate[mcp]'
@@ -255,11 +256,12 @@ pip install 'agents-shipgate[mcp]'
 }
 ```
 
-Tools: `shipgate_verify` (run the merge gate; optional `base`/`head`,
-auto-detected otherwise), `shipgate_explain` (check id or `fp_…`
-fingerprint), `shipgate_status` (last verdict from the existing artifacts,
-no rescan). The surface is provisional — names and argument shapes may
-change in a minor release until promoted into STABILITY.md.
+Tools: `shipgate.check` (caller-provided diff to `agent_result_v1`),
+`shipgate.preflight` (protected surfaces, required evidence, and policy/trust
+root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
+`shipgate.capabilities` (capability lock export or diff). The server is
+read-only: it does not run agents, call tools, write artifacts, connect to
+external MCP servers, or broker general MCP permissions.
 
 ## Pre-commit hook (local)
 

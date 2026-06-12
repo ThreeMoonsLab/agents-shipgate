@@ -77,8 +77,8 @@ pdf = [
 ]
 mcp = [
   # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
-  # server exposing only read-only shipgate.check, which returns agent_result_v1
-  # from caller-provided diff text.
+  # server exposing read-only Shipgate projection tools; it does not broker
+  # general MCP permissions or start implicitly.
   "mcp>=1.2,<2",
 ]
 dev = [

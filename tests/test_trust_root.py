@@ -81,6 +81,8 @@ def test_non_trust_root_files_are_not_flagged():
         (".cursor/rules/agents-shipgate.mdc", "agent_instructions"),
         (".agents/skills/agents-shipgate/reference.md", "agent_instructions"),
         (".codex/config.toml", "agent_instructions"),
+        (".codex/hooks.json", "agent_instructions"),
+        (".codex/hooks/preflight.sh", "agent_instructions"),
         (".codex-plugin/plugin.json", "codex_plugin"),
         ("plugins/browser/.app.json", "tool_surface_decl"),
         ("servers/search/.mcp.json", "tool_surface_decl"),

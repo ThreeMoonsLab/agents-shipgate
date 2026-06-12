@@ -79,8 +79,12 @@ prompts, permissions, policies, CI gates, or `shipgate.yaml`, Cursor should run
 it before treating the change as finished:
 
 ```bash
+agents-shipgate preflight --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
+
+If preflight returns `requires_human_review: true`, Cursor must stop for a human
+before editing the protected surface or asserting missing high-risk evidence.
 
 Read `agents-shipgate-reports/verifier.json` and **lead with `merge_verdict`**
 (`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /

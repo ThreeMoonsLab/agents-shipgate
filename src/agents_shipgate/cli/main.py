@@ -28,6 +28,7 @@ from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.host_audit import audit as _audit_command
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
 from agents_shipgate.cli.mcp import mcp_app
+from agents_shipgate.cli.preflight import preflight as _preflight_command
 from agents_shipgate.cli.registry import registry_app
 from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
@@ -54,6 +55,13 @@ app.command(
     "check",
     help="Run the agent-native boundary check and emit agent_result_v1 JSON.",
 )(_check_command)
+app.command(
+    "preflight",
+    help=(
+        "Run proactive static preflight: protected surfaces, forbidden edits, "
+        "and high-risk capability evidence requirements."
+    ),
+)(_preflight_command)
 app.command(
     "apply-patches",
     help=(
@@ -136,12 +144,11 @@ app.command(
 
 @app.command("mcp-serve")
 def _mcp_serve_command() -> None:
-    """Serve the read-only agent-native check as a local MCP server over stdio.
+    """Serve the optional read-only MCP server over stdio.
 
     Requires the optional [mcp] extra: pip install "agents-shipgate[mcp]".
-    Exposes only shipgate.check. The tool accepts caller-provided diff text
-    and returns agent_result_v1 without git, scan/verify, artifact writes, or
-    network access.
+    Exposes static projection tools only; it never starts implicitly and does
+    not connect to external MCP servers.
     """
     from agents_shipgate.core.errors import ConfigError as _ConfigError
     from agents_shipgate.mcp_server import serve_stdio

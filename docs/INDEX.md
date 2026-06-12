@@ -10,7 +10,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-v1-consolidation-rc.md`](report-v1-consolidation-rc.md) — proposal to regroup the report's top level by reader and freeze v1.0 (no behavior change yet)
 - [`hosted-plane-design.md`](hosted-plane-design.md) — design boundary for a future optional hosted product over local attestations/registry rows; the gate stays local
 - [`mcp-governance.md`](mcp-governance.md) — the two MCP surfaces (agent tool exports vs coding-agent host grants) and the `SHIP-HOST-BOUNDARY-*` checks
-- [`mcp-server.md`](mcp-server.md) — optional local MCP server mode (`mcp-serve`): read-only `shipgate.check` returning `agent_result_v1`
+- [`mcp-server.md`](mcp-server.md) — optional local MCP server mode (`mcp-serve`): read-only `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents

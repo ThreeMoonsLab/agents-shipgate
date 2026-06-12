@@ -39,6 +39,30 @@ Install sections of `docs/agents/protocol.md`, with full fixtures at
 `examples/agent-protocol/expected/missing-install.json` and
 `examples/agent-protocol/expected/stale-install.json`.
 
+## Protected Surface Preflight
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
+
+```bash
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
+```
+
+If you already have a path list or local diff, ask preflight about it before
+editing:
+
+```bash
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . \
+  --changed-files changed.txt --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . \
+  --diff pr.diff --json
+```
+
+If `requires_human_review` is true or `first_next_action.actor` is `human`,
+stop and route the change to a human. Preflight is a routing surface only;
+`release_decision.decision` remains the gate.
+
 ## Decide Relevance
 
 Run:
@@ -82,6 +106,7 @@ release surfaces.
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
   --workspace . --base origin/main --head HEAD --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json

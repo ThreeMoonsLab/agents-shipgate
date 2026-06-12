@@ -236,10 +236,13 @@ for `shipgate check` on the active diff.
 ## Optional MCP Tool
 
 The optional extra `agents-shipgate[mcp]` exposes a read-only MCP server with
-one tool:
+static projection tools:
 
 ```text
 shipgate.check
+shipgate.preflight
+shipgate.explain
+shipgate.capabilities
 ```
 
 Input:
@@ -254,14 +257,15 @@ Input:
 }
 ```
 
-Output is exactly `agent_result_v1`.
+`shipgate.check` output is exactly `agent_result_v1`.
 
-Compatibility note: v0.12.0 exposed preview-oriented MCP tool names
-(`shipgate_preview`, `shipgate_verify`, and `shipgate_explain_finding`) before
-the MCP surface was listed in `STABILITY.md`. v0.13.0 narrows that optional
-server to `shipgate.check` so MCP and CLI agents share one command and one JSON
-schema.
+`shipgate.preflight` returns `PreflightResultV1` for protected-surface routing
+and high-risk capability evidence requests. `shipgate.explain` returns
+deterministic check/finding explanation JSON. `shipgate.capabilities` returns
+capability lock or capability lock diff JSON. These are projections only; the
+release gate remains `report.json.release_decision.decision`.
 
 The MCP server is a static adapter only. It exposes no scan, verify,
-apply-patches, shell, git, network, or write-capable tools, and must not be
-treated as a privileged runtime gate.
+apply-patches, shell, git, network, external MCP connection, or write-capable
+tools, and must not be treated as a privileged runtime gate or a general MCP
+permission broker.

@@ -186,6 +186,7 @@ Open Codex in the project and run these checks:
    Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
+   `agents-shipgate preflight --json` before protected-surface edits, then
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
    or report the exact `agents-shipgate trigger` skip verdict.
 
@@ -202,8 +203,12 @@ permissions, policies, CI gates, or `shipgate.yaml`, Codex should run the
 verifier before claiming the work is done:
 
 ```bash
+agents-shipgate preflight --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
+
+If preflight returns `requires_human_review: true`, Codex must stop for a human
+before editing the protected surface or asserting missing high-risk evidence.
 
 Then read `agents-shipgate-reports/verifier.json` and **lead with
 `merge_verdict`** (`mergeable` / `human_review_required` /
