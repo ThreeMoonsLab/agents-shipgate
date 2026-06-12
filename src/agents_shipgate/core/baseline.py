@@ -248,8 +248,11 @@ def baseline_status_payload(
         provenance = finding.provenance
         recorded = _recorded_date(provenance)
         expires = provenance.expires if provenance is not None else None
-        owner = provenance.owner if provenance is not None else None
-        reason = provenance.reason if provenance is not None else None
+        # Blank/whitespace metadata is treated as missing: the CLI rejects
+        # it at save time, but files can be produced by other means and a
+        # blank owner must never satisfy --require-owner.
+        owner = (provenance.owner or "").strip() or None if provenance else None
+        reason = (provenance.reason or "").strip() or None if provenance else None
         age_days = (as_of - recorded).days if recorded is not None else None
         days_until_expiry = (expires - as_of).days if expires is not None else None
         entries.append(

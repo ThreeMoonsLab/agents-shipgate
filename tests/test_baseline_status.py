@@ -304,6 +304,64 @@ def test_cli_status_missing_baseline_exits_3(tmp_path: Path) -> None:
     assert result.exit_code == 3
 
 
+def test_blank_owner_is_unowned_and_fails_require_owner(tmp_path: Path) -> None:
+    # A blank/whitespace owner must never satisfy --require-owner (PR #205
+    # review). The CLI rejects blank flags at save time; this covers files
+    # produced by any other means.
+    baseline = _baseline(
+        _entry("fp_empty", _provenance(owner="")),
+        _entry("fp_spaces", _provenance(owner="   ")),
+    )
+    payload = baseline_status_payload(baseline, as_of=date(2026, 6, 12))
+    assert all(entry["unowned"] for entry in payload["entries"])
+    assert all(entry["owner"] is None for entry in payload["entries"])
+
+    path = _write_baseline_file(tmp_path, baseline)
+    result = runner.invoke(
+        app,
+        [
+            "baseline",
+            "status",
+            "--baseline",
+            str(path),
+            "--as-of",
+            "2026-06-12",
+            "--require-owner",
+        ],
+    )
+    assert result.exit_code == 20
+
+
+def test_apply_to_existing_fills_blank_owner(tmp_path: Path) -> None:
+    # Blank metadata counts as missing for the fill-only pass too, so a
+    # later acknowledged save can repair it.
+    report = _stub_report(("SHIP-X", "tool_a"))
+    first = baseline_from_report(
+        report, scanner_version="1.0.0", now="2026-01-01T00:00:00Z"
+    )
+    first.findings[0].provenance.owner = ""
+
+    second = baseline_from_report(
+        report,
+        scanner_version="1.0.1",
+        prior_baseline=first,
+        now="2026-06-01T00:00:00Z",
+        owner="alice",
+        apply_to_existing=True,
+    )
+    assert second.findings[0].provenance.owner == "alice"
+
+
+def test_cli_save_blank_owner_or_reason_exits_2(tmp_path: Path) -> None:
+    for flag, value in (("--owner", ""), ("--owner", "   "), ("--reason", " ")):
+        result = runner.invoke(
+            app,
+            ["baseline", "save", "-c", str(tmp_path / "shipgate.yaml"), flag, value],
+        )
+        assert result.exit_code == 2, (flag, value, result.output)
+        assert "cannot be blank" in result.output
+
+
 def test_cli_save_invalid_expires_exits_2(tmp_path: Path) -> None:
     result = runner.invoke(
         app,

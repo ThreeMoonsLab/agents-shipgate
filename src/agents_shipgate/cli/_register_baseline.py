@@ -71,6 +71,19 @@ def register(app: typer.Typer) -> None:
         verbose: bool = typer.Option(False, "--verbose", help="Enable debug logs."),
     ) -> None:
         """Save active unsuppressed findings as the current accepted baseline."""
+        # Blank approval metadata is rejected, not normalized away silently:
+        # declared human authority cannot be blank (human_ack contract), and
+        # a blank owner must never satisfy `status --require-owner`.
+        for flag_name, value in (("--owner", owner), ("--reason", reason)):
+            if value is not None and not value.strip():
+                typer.echo(
+                    f"{flag_name} cannot be blank — declared human authority "
+                    "requires a non-empty value.",
+                    err=True,
+                )
+                raise typer.Exit(2)
+        owner = owner.strip() if owner is not None else None
+        reason = reason.strip() if reason is not None else None
         expires_date: date | None = None
         if expires is not None:
             try:

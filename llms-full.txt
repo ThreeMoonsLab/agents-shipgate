@@ -356,8 +356,15 @@ checks:
 ### Task 4 · Save a baseline before enabling strict CI
 
 ```bash
-agents-shipgate baseline save -c shipgate.yaml --out .agents-shipgate/baseline.json
+agents-shipgate baseline save -c shipgate.yaml --out .agents-shipgate/baseline.json \
+  --owner <human> --reason "<why accepted>" --expires <YYYY-MM-DD>
 ```
+
+`--owner`/`--reason`/`--expires` (v0.13+) record who accepted the debt, why,
+and the review-by date on newly-accepted entries. They are human-declared
+values: an agent must ask the user, never invent them, and blank values are
+rejected. `--apply-to-existing` fills the fields into existing entries that
+lack them without overwriting previously-set values.
 
 Then in CI:
 
@@ -368,6 +375,11 @@ agents-shipgate scan -c shipgate.yaml \
 ```
 
 Strict mode fails CI only on **new** findings (those not in the baseline).
+`agents-shipgate baseline status --json` reports accepted-debt aging
+(owner, age, expiry); with `--require-owner` / `--require-expiry` /
+`--max-age-days N` it exits `20` on violations (advisory exit `0` without
+gate flags) — parse `violations[]` from the JSON, then route to a human:
+acknowledging debt is a human decision.
 
 ### Task 5 · Explain a check or a specific finding
 
@@ -493,7 +505,8 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate trigger` | `--workspace`, `--changed-files`, `--diff`, `--base`, `--head`, `--manifest-present`/`--no-manifest-present`, `--user-requested`, `--list-rules`, `--json` |
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
-| `agents-shipgate baseline save` | `-c`, `--out` |
+| `agents-shipgate baseline save` | `-c`, `--out`, `--owner`, `--reason`, `--expires`, `--apply-to-existing` |
+| `agents-shipgate baseline status` | `--baseline`, `--as-of`, `--require-owner`, `--require-expiry`, `--max-age-days`, `--json` (gate flags exit `20` on violations) |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
 

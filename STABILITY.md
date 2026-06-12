@@ -30,8 +30,9 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate capability export` | `--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`, `--json`, `--no-plugins`, `--verbose` |
 | `agents-shipgate capability diff` | `--base`, `--head`, `--out`, `--json` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
-| `agents-shipgate baseline save` | `-c`, `--config`, `--out` |
+| `agents-shipgate baseline save` | `-c`, `--config`, `--out`, `--owner` (v0.13+), `--reason` (v0.13+), `--expires` (v0.13+), `--apply-to-existing` (v0.13+) |
 | `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |
+| `agents-shipgate baseline status` (v0.13+) | `--baseline`, `--as-of`, `--require-owner`, `--require-expiry`, `--max-age-days`, `--json` — advisory exit `0` with no gate flags; any gate flag exits `20` on violations |
 | `agents-shipgate fixture list` | `--json` |
 | `agents-shipgate fixture run` | `<name>`, `--ci-mode`, `--out` |
 | `agents-shipgate fixture copy` | `<name>`, `--to` |
@@ -67,7 +68,7 @@ not agent-repairable authority gaps.
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `6` | Baseline integrity failure (v0.11+) — `agents-shipgate baseline verify --strict` detected `SHIP-BASELINE-INTEGRITY-MISMATCH`. Only the standalone `baseline verify` command emits this code; `scan` continues to use `20` for gate failure regardless of integrity-mode. |
-| `20` | Strict-mode gate failure (≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`) |
+| `20` | Gate failure. Strict-mode scan/verify: ≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`. Also emitted by opt-in governance gate flags (v0.13+): `baseline status --require-owner`/`--require-expiry`/`--max-age-days` on violations, and `audit --host --drift --fail-on-drift` on host-grant drift. Without those flags the commands are advisory and exit `0`. |
 
 ### Runtime contract JSON
 
