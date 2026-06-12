@@ -75,6 +75,9 @@ app.command(
 )(_apply_patches_command)
 app.command(
     "evidence-packet",
+    # Hidden from --help (niche re-render utility), still fully invokable —
+    # see the visibility policy note above the sub-app block below.
+    hidden=True,
     help=(
         "Re-render a Release Evidence Packet from an existing packet.json "
         "into md, html, and/or pdf."
@@ -168,13 +171,19 @@ _register_explain.register(app)
 _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
+# Visibility policy (WS-D): `--help` shows the core loop — detect / check /
+# verify / init / scan / audit and their direct companions. Niche or
+# maintainer-facing surfaces (`hidden=True` here and on `evidence-packet`
+# above) stay fully invokable and documented — hiding is presentation only,
+# not deprecation, so STABILITY.md is unaffected. `fixture` stays visible
+# because the README's 60-second demo leads with `fixture run`.
 app.add_typer(fixture_app, name="fixture")
-app.add_typer(feedback_app, name="feedback")
-app.add_typer(scenario_app, name="scenario")
-app.add_typer(skill_app, name="skill")
+app.add_typer(feedback_app, name="feedback", hidden=True)
+app.add_typer(scenario_app, name="scenario", hidden=True)
+app.add_typer(skill_app, name="skill", hidden=True)
 app.add_typer(capability_app, name="capability")
 app.add_typer(mcp_app, name="mcp")
-app.add_typer(registry_app, name="registry")
+app.add_typer(registry_app, name="registry", hidden=True)
 logger = logging.getLogger(__name__)
 
 
