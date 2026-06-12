@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import typer
 
@@ -40,7 +41,9 @@ from agents_shipgate.core.logging import configure_logging
 app = typer.Typer(
     name="agents-shipgate",
     help="The deterministic merge gate for AI-generated agent capability changes.",
-    no_args_is_help=True,
+    # Bare `shipgate` runs a zero-config first look (see the root callback),
+    # not a help dump — so off, not True.
+    no_args_is_help=False,
     invoke_without_command=True,
 )
 app.command(
@@ -176,8 +179,9 @@ logger = logging.getLogger(__name__)
 
 
 @app.callback()
-def _version(
-    version: bool = typer.Option(False, "--version", help="Show version and exit.")
+def _root(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "--version", help="Show version and exit."),
 ) -> None:
     # Logging state is per-invocation, not per-process: reset to the
     # default (WARNING, plain formatter) before every command so a
@@ -189,4 +193,13 @@ def _version(
     configure_logging(force=True)
     if version:
         typer.echo(f"Agents Shipgate {__version__}")
+        raise typer.Exit(0)
+    # Bare `shipgate` (no subcommand) runs a zero-config, read-only first
+    # look instead of dumping --help, so a fresh repo gets a verdict and a
+    # next step without a manifest. Named subcommands and `--help` are
+    # unaffected: this branch only fires when no subcommand was matched.
+    if ctx.invoked_subcommand is None:
+        from agents_shipgate.cli.first_look import run_first_look
+
+        run_first_look(Path("."))
         raise typer.Exit(0)
