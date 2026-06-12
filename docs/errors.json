@@ -12,7 +12,7 @@
     "3": "input parse error (input_parse_error)",
     "4": "other agents-shipgate error (other_error, internal_error)",
     "5": "apply-patches containment violation (covered by other_error in agent mode)",
-    "20": "strict-mode gate failure"
+    "20": "gate failure: strict-mode scan/verify, or an opt-in governance gate flag (baseline status --require-owner/--require-expiry/--max-age-days on violations; audit --host --drift --fail-on-drift on host-grant drift). Without those flags the commands are advisory and exit 0."
   },
   "errors": [
     {

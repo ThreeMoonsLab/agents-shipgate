@@ -147,7 +147,7 @@ def test_baseline_from_report_stamps_provenance_on_new_entries():
     baseline = baseline_from_report(
         report, scanner_version="9.9.9", now="2026-01-01T00:00:00Z"
     )
-    assert baseline.schema_version == "0.5"
+    assert baseline.schema_version == "0.6"
     assert all(entry.provenance is not None for entry in baseline.findings)
     p = baseline.findings[0].provenance
     assert p.scanner_version == "9.9.9"

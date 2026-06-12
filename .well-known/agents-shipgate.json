@@ -209,7 +209,7 @@
     "3": "input_parse_error",
     "4": "other_error",
     "6": "baseline_integrity_failure",
-    "20": "strict_gate_failure"
+    "20": "gate_failure (strict-mode scan/verify; or opt-in governance gates: baseline status --require-owner/--require-expiry/--max-age-days, audit --host --drift --fail-on-drift)"
   },
   "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",
   "plugin_opt_in_env_var": "AGENTS_SHIPGATE_ENABLE_PLUGINS"
