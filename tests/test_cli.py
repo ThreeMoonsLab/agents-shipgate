@@ -370,6 +370,45 @@ def test_cli_scan_help_hides_deferred_flags():
     assert "--policy-pack" in public_options
 
 
+# WS-D visibility policy: --help shows the core loop; niche/maintainer
+# surfaces are hidden but stay fully invokable (presentation, not
+# deprecation — STABILITY.md is unaffected).
+HIDDEN_TOP_LEVEL_COMMANDS = {
+    "evidence-packet",
+    "feedback",
+    "registry",
+    "scenario",
+    "skill",
+}
+VISIBLE_CORE_COMMANDS = {
+    "detect",
+    "check",
+    "verify",
+    "init",
+    "scan",
+    "audit",
+    "doctor",
+    "self-check",
+    "fixture",  # the README 60-second demo leads with `fixture run`
+}
+
+
+def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
+    root = get_command(app)
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+
+    for name in HIDDEN_TOP_LEVEL_COMMANDS:
+        assert root.commands[name].hidden, f"{name} should be hidden from --help"
+        assert f" {name} " not in result.output
+        # Hidden, not removed: the command still resolves and answers --help.
+        invoked = runner.invoke(app, [name, "--help"])
+        assert invoked.exit_code == 0, f"{name} must remain invokable: {invoked.output}"
+
+    for name in VISIBLE_CORE_COMMANDS:
+        assert not root.commands[name].hidden, f"{name} must stay visible"
+
+
 def test_cli_tool_surface_summary_detects_no_changes():
     from agents_shipgate.cli._helpers import _tool_surface_diff_has_changes
 
