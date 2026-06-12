@@ -2,6 +2,29 @@
 
 ## 0.13.0 - Unreleased
 
+- **Host-grant drift detection.** `audit --host --save-baseline` records the
+  current coding-agent host grants (MCP servers, Claude Code permission rules
+  and hooks, workflow scopes, Codex config presence) as the acknowledged state
+  in `.agents-shipgate/host-grants.json` (content-only and byte-idempotent —
+  no timestamps or machine paths; the directory is already a verify trust-root
+  surface, so PR edits to the snapshot stay release-visible). `audit --host
+  --drift` deterministically diffs current grants against that baseline with
+  per-category added/removed/changed buckets plus `expansion_signals` naming
+  the authority-broadening shapes (new or **changed** server, wildcard allow
+  added, `deny` or `ask` rule **removed**, hook added or **changed**, workflow
+  write scope or `pull_request_target` gained). MCP server and hook entries
+  carry a `config_sha256` over their full configuration; inside
+  `env`/`headers` only values under secret-looking keys (shared sensitive-key
+  vocabulary: token, secret, password, api_key, authorization, …) are redacted
+  before hashing, so editing what an existing server or hook can do — args,
+  commands, matchers, URL, key sets, or a grant-shaping value like
+  `READ_ONLY=false` — is drift while credential rotation is not; the
+  baseline's stored `inventory_sha256` is verified at load time and
+  hand-edited or malformed baselines fail closed with exit 2. Advisory by default; `--fail-on-drift`
+  exits 20 for scheduled CI gates — recipe at
+  `examples/github-actions/12-host-grant-drift.yml`. Catches authority changes
+  that land outside PR review, where the diff-time `SHIP-HOST-BOUNDARY-*`
+  checks cannot see them.
 - **`check` defers tool-surface changes to `verify` (coverage boundary).**
   `shipgate check` is boundary-scoped and does not compute the capability
   delta, so a clean boundary result over a diff that changes a
