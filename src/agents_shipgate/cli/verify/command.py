@@ -14,10 +14,12 @@ from agents_shipgate.cli._helpers import (
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
+from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
 
+from .git import staged_paths_under
 from .orchestrator import run_preview, run_verify
 
 logger = logging.getLogger(__name__)
@@ -284,6 +286,8 @@ def verify(
         typer.echo(f"Internal error: {exc}", err=True)
         raise typer.Exit(4) from exc
 
+    _warn_if_reports_staged(workspace, out)
+
     if stdout_format == "agent":
         agent_result = build_agent_result(verifier=verifier, report=_report)
         typer.echo(
@@ -302,6 +306,36 @@ def verify(
         typer.echo(f"Base status: {verifier.base_status}")
         typer.echo(f"Exit code: {exit_code}")
     raise typer.Exit(exit_code)
+
+
+def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
+    """Advisory nudge when generated reports are staged for commit.
+
+    Agents that run verify and then ``git add .`` stage the generated
+    reports directory — a blocker in 7/31 W24 adoption cells. ``init``
+    gitignores it; this warns when an existing checkout has it staged.
+    Written to stderr only: never affects the verdict, exit code, or the
+    stdout JSON contract. Silent outside a git checkout.
+    """
+
+    if out is None:
+        target = REPORTS_DIR_NAME
+    else:
+        try:
+            target = out.resolve().relative_to(workspace.resolve()).as_posix()
+        except ValueError:
+            target = out.name
+    staged = staged_paths_under(workspace, target)
+    if not staged:
+        return
+    shown = ", ".join(staged[:3]) + (" …" if len(staged) > 3 else "")
+    typer.echo(
+        f"warning: {len(staged)} generated Agents Shipgate report file(s) staged "
+        f"for commit ({shown}). These are build artifacts — unstage them with "
+        f"`git restore --staged {target}/` (agents-shipgate init gitignores this "
+        f"directory).",
+        err=True,
+    )
 
 
 def _resolve_verify_format(
