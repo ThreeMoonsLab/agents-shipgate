@@ -70,6 +70,17 @@ def enumerate_merged_prs(repo: str, *, limit: int = 50) -> list[Candidate]:
 def ensure_clone(repo: str, workdir: Path) -> Path:
     destination = workdir / repo.replace("/", "__")
     if (destination / ".git").exists():
+        # A cached clone must be refreshed: `gh pr list` returns the LATEST
+        # merged PRs, whose merge commits a stale clone does not have —
+        # without this fetch, weekly reruns silently drop the newest PRs
+        # from the corpus and bias the metrics.
+        subprocess.run(
+            ["git", "-C", str(destination), "fetch", "--quiet", "--no-tags", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=_NETWORK_TIMEOUT,
+            check=True,
+        )
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(

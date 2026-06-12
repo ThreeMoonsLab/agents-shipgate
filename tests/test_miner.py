@@ -110,7 +110,7 @@ def test_bad_sha_yields_error_row_not_exception(tmp_path: Path) -> None:
     row = evaluate_pr(repo_path=repo, base_sha="deadbeef", head_sha="deadbeef")
 
     assert row.status == "error"
-    assert "git_diff_failed" in row.notes
+    assert "unresolvable_base_sha" in row.notes
 
 
 def test_csv_roundtrip_matches_schema(tmp_path: Path) -> None:
@@ -123,6 +123,37 @@ def test_csv_roundtrip_matches_schema(tmp_path: Path) -> None:
         parsed = list(reader)
     assert parsed[0]["repo"] == "r"
     assert parsed[0]["head_blockers"] == ""  # None serializes to blank, not "None".
+    # LF-only: CRLF rows fail `git diff --check` on every committed line.
+    assert b"\r" not in out.read_bytes()
+
+
+def test_evaluate_resolves_revision_expressions_to_shas(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("v1\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    (repo / "README.md").write_text("v2\n", encoding="utf-8")
+    head = _commit_all(repo, "docs")
+
+    row = evaluate_pr(repo_path=repo, base_sha="HEAD^1", head_sha="HEAD")
+
+    # The committed row contract says these columns are commit ids.
+    assert row.head_sha == head
+    assert row.base_sha != "HEAD^1"
+    assert len(row.base_sha) == 40
+
+
+def test_unresolved_candidate_becomes_error_row() -> None:
+    from benchmark.miner.__main__ import unresolved_candidate_row
+    from benchmark.miner.candidates import Candidate
+
+    candidate = Candidate(
+        repo="o/r", pr_number=9, pr_url="u", title="t",
+        merged_at="2026-06-12", merge_sha="a" * 40,
+    )
+    row = unresolved_candidate_row(candidate)
+    assert row.status == "error"
+    assert row.notes == "merge_commit_not_in_clone"
+    assert row.pr_number == 9
 
 
 def test_summarize_reports_ie_rate() -> None:

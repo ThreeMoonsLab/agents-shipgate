@@ -63,7 +63,11 @@ CSV_COLUMNS: tuple[str, ...] = tuple(
 def write_csv(rows: list[MinedRow], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(CSV_COLUMNS))
+        # LF-only: the csv module's default dialect writes CRLF, which makes
+        # every committed row fail `git diff --check` as trailing whitespace.
+        writer = csv.DictWriter(
+            handle, fieldnames=list(CSV_COLUMNS), lineterminator="\n"
+        )
         writer.writeheader()
         for row in rows:
             payload = row.to_json()

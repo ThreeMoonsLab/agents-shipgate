@@ -107,6 +107,16 @@ def evaluate_pr(
 
 
 def _evaluate(row: MinedRow, *, repo_path: Path, force_run: bool) -> MinedRow:
+    # The row contract says base_sha/head_sha are commit ids. Callers may
+    # pass revision expressions (HEAD, <sha>^1); resolve them up front so
+    # downstream corpus tooling can treat the columns as SHAs.
+    for attr in ("base_sha", "head_sha"):
+        resolved = _rev_parse(repo_path, getattr(row, attr))
+        if resolved is None:
+            row.status = STATUS_ERROR
+            row.notes = _append_note(row.notes, f"unresolvable_{attr}")
+            return row
+        setattr(row, attr, resolved)
     names = _git(repo_path, ["diff", "--name-only", row.base_sha, row.head_sha])
     body = _git(repo_path, ["diff", row.base_sha, row.head_sha])
     if names.returncode != 0 or body.returncode != 0:
@@ -376,6 +386,14 @@ def _worktree_remove(repo_path: Path, destination: Path) -> None:
     if not destination.exists():
         return
     _git(repo_path, ["worktree", "remove", "--force", str(destination)])
+
+
+def _rev_parse(repo_path: Path, rev: str) -> str | None:
+    result = _git(repo_path, ["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
+    sha = result.stdout.strip()
+    if result.returncode != 0 or not sha:
+        return None
+    return sha
 
 
 def _common_directory(changed: list[str]) -> str:

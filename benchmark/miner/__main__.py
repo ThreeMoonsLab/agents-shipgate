@@ -19,12 +19,39 @@ import sys
 from pathlib import Path
 
 from benchmark.miner.candidates import (
+    Candidate,
     ensure_clone,
     enumerate_merged_prs,
     resolve_base,
 )
 from benchmark.miner.evaluate import evaluate_pr
-from benchmark.miner.rows import MinedRow, summarize, write_csv, write_jsonl
+from benchmark.miner.rows import (
+    STATUS_ERROR,
+    MinedRow,
+    summarize,
+    write_csv,
+    write_jsonl,
+)
+
+
+def unresolved_candidate_row(candidate: Candidate) -> MinedRow:
+    """Explicit error row for a candidate whose merge commit isn't local.
+
+    Silently dropping these would bias row counts and the IE/trigger
+    metrics on reruns with a cached clone; the corpus must show the gap.
+    """
+
+    return MinedRow(
+        repo=candidate.repo,
+        pr_number=candidate.pr_number,
+        pr_url=candidate.pr_url,
+        title=candidate.title,
+        merged_at=candidate.merged_at,
+        base_sha="",
+        head_sha=candidate.merge_sha,
+        status=STATUS_ERROR,
+        notes="merge_commit_not_in_clone",
+    )
 
 
 def _cmd_mine(args: argparse.Namespace) -> int:
@@ -37,6 +64,13 @@ def _cmd_mine(args: argparse.Namespace) -> int:
         clone = ensure_clone(repo, workdir)
         for candidate in candidates:
             if not resolve_base(clone, candidate):
+                row = unresolved_candidate_row(candidate)
+                rows.append(row)
+                print(
+                    f"[miner] {candidate.repo}#{candidate.pr_number}: {row.status} "
+                    f"({row.notes})",
+                    flush=True,
+                )
                 continue
             row = evaluate_pr(
                 repo_path=clone,
