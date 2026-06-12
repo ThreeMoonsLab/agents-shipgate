@@ -135,6 +135,49 @@ def test_verify_warns_when_reports_directory_is_staged(tmp_path: Path) -> None:
     assert "git restore --staged" in result.output
 
 
+def test_verify_warns_on_staged_reports_from_subdirectory_workspace(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    # Reports staged at the GIT ROOT, where verify writes them...
+    reports = repo / "agents-shipgate-reports"
+    reports.mkdir()
+    (reports / "report.json").write_text("{}\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True
+    )
+
+    # ...but verify is invoked with a subdirectory --workspace. The nudge must
+    # still resolve to the git root rather than probing only the subdirectory.
+    subdir = repo / "service"
+    subdir.mkdir()
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(subdir),
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "warning:" in result.output
+    assert "agents-shipgate-reports/" in result.output
+
+
 def test_verify_no_staged_reports_warning_and_stdout_json_is_clean(
     tmp_path: Path,
 ) -> None:

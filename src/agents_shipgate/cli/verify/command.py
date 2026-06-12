@@ -19,7 +19,7 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputP
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
 
-from .git import staged_paths_under
+from .git import ensure_git_workspace, staged_paths_under
 from .orchestrator import run_preview, run_verify
 
 logger = logging.getLogger(__name__)
@@ -318,14 +318,21 @@ def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
     stdout JSON contract. Silent outside a git checkout.
     """
 
+    # verify resolves the reports dir relative to the GIT ROOT (run_verify),
+    # so probe the root, not --workspace: a subdirectory --workspace would
+    # otherwise miss root-level staged reports.
+    try:
+        root = ensure_git_workspace(workspace)
+    except ConfigError:
+        return
     if out is None:
         target = REPORTS_DIR_NAME
     else:
         try:
-            target = out.resolve().relative_to(workspace.resolve()).as_posix()
+            target = out.resolve().relative_to(root).as_posix()
         except ValueError:
             target = out.name
-    staged = staged_paths_under(workspace, target)
+    staged = staged_paths_under(root, target)
     if not staged:
         return
     shown = ", ".join(staged[:3]) + (" …" if len(staged) > 3 else "")
