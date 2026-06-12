@@ -65,7 +65,11 @@ Before adding one, the PR description must answer, in a sentence or two:
    calls, or network access in the default path.
 
 If the answer to (1) is unclear, the default is **don't** — open an issue
-instead. Deleting or consolidating surface never needs this justification.
+instead. Deleting or consolidating surface never needs this new-surface
+justification — but removing or renaming surface that already shipped in a
+tagged release (a check ID, a stable JSON field, a CLI flag) still follows the
+compatibility and deprecation rules in [`STABILITY.md`](STABILITY.md): a shipped
+check ID is deprecated for at least one minor cycle, never hard-removed.
 
 ## Schema Changes
 
