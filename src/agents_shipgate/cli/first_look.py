@@ -48,15 +48,29 @@ def run_first_look(workspace: Path) -> None:
 
 
 def _working_tree_line(workspace: Path) -> str:
-    """Boundary verdict for the local uncommitted diff, or a clean/skip note."""
+    """Boundary verdict for the local uncommitted diff, or a clean/skip note.
 
-    from agents_shipgate.cli.agent_result import build_codex_agent_result, git_diff_text
+    Uses the same ``git diff HEAD`` body that ``shipgate check`` evaluates, but
+    also keeps the changed-path list so an untracked-only working tree (common
+    on first adoption, when new tool files have not been ``git add``-ed) is not
+    misreported as clean — their content is intentionally absent from the diff
+    body, so they surface as "stage and run check" rather than a verdict.
+    """
+
+    from agents_shipgate.cli.agent_result import build_codex_agent_result
+    from agents_shipgate.cli.verify.git import working_tree_context
 
     try:
-        diff_text = git_diff_text(workspace=workspace, base=None, head=None)
-    except (OSError, RuntimeError):
+        changed_paths, diff_text = working_tree_context(workspace)
+    except Exception:  # noqa: BLE001 - not a git checkout / no HEAD to diff.
         return "not a git checkout — skipped"
     if not diff_text.strip():
+        if changed_paths:
+            count = len(changed_paths)
+            return (
+                f"{count} untracked file{'s' if count != 1 else ''} not yet "
+                "checkable — stage them and run `shipgate check`"
+            )
         return "clean — no uncommitted changes to check"
     try:
         result = build_codex_agent_result(

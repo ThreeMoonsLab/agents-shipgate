@@ -74,6 +74,27 @@ def test_first_look_reports_host_grants(
     assert "MCP server" in result.output
 
 
+def test_first_look_reports_untracked_files_as_not_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("hi\n", encoding="utf-8")
+    _commit(repo)
+    # A new tool file the agent created but never `git add`-ed. Its content is
+    # absent from the diff body, but it is uncommitted work — not "clean".
+    (repo / "new_tool.py").write_text("# new tool\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    working_tree_line = next(
+        line for line in result.output.splitlines() if "working tree:" in line
+    )
+    assert "untracked" in working_tree_line
+    assert "clean" not in working_tree_line
+
+
 def test_bare_invocation_outside_git_does_not_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
