@@ -18,6 +18,24 @@ The release gate is one decision engine: `report.json.release_decision.decision`
 Every agent-facing field in `verifier.json` is a deterministic projection of it;
 nothing gates independently.
 
+## Lead wedge (focus)
+
+Two real surfaces share one engine: **(A)** tool-surface readiness for teams that
+declare an agent's capabilities in-repo, and **(B)** boundary governance over what
+a *coding agent* changes in any repo — host config, MCP permission grants, CI
+gates, and agent instructions. **B is the lead wedge.** Its inputs are the
+declarative host files Shipgate already reads with high fidelity, it delivers a
+first verdict with no manifest, and its audience is every team running Claude
+Code, Codex, or Cursor — not only teams building tool-using agents. A stays the
+depth story: the capability-delta engine that makes the verdict precise.
+
+What this locks: lead positioning, the zero-config first-run experience, and the
+proof effort all target B. The next unit of work is **proof and activation on
+that wedge** — a labeled verdict-accuracy benchmark and default-on, hard-to-skip
+checks — **not** more host surface. New surface of any kind is governed by the
+[non-goals](#explicit-non-goals) below and the surface-discipline gate in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
+
 ## Direction
 
 The engine pivoted to the verifier in `v0.12.0`. The next leg is to make the
@@ -65,13 +83,16 @@ into replayable evidence. Active themes, in priority order:
    expand the mechanical-patch catalog — never approval, confirmation, or
    idempotency evidence, which stay manual permanently.
 
-6. **Long-term platform direction (design only).** Org policy-pack
-   distribution with integrity pins, host-capability governance ("ring 2" —
-   gating what the coding agent itself is allowed to do in a repo), and a
-   cross-repo attestation registry are sketched in
-   [docs/engineering/agent-native-governance-platform.md](docs/engineering/agent-native-governance-platform.md).
-   Nothing there is shipped or promised; the note exists so nearer-term work
-   does not foreclose it.
+6. **Host-capability governance (first cut shipped).** Gating what the coding
+   agent itself is allowed to do in a repo ("ring 2"): `audit --host` with
+   host-grant drift detection, plus MCP-permission and host-boundary checks, are
+   live. This is the **lead wedge** (see [Lead wedge (focus)](#lead-wedge-focus));
+   the near-term work on it is proof and activation, not more host surface. Org
+   policy-pack distribution with integrity pins and a cross-repo attestation
+   registry remain **design only** —
+   [docs/engineering/agent-native-governance-platform.md](docs/engineering/agent-native-governance-platform.md)
+   sketches them so nearer-term work does not foreclose it; nothing there is
+   shipped or promised.
 
 ### Explicit non-goals
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.13.0 - Unreleased
+## 0.13.0 - 2026-06-12
 
 - **Host-grant drift detection.** `audit --host --save-baseline` records the
   current coding-agent host grants (MCP servers, Claude Code permission rules

@@ -39,6 +39,34 @@ agents-shipgate list-checks
 - false-positive reduction tests;
 - report/schema compatibility tests.
 
+## Surface discipline
+
+Read this before adding a new public surface. This project has shipped surface
+area faster than it has proven the surface it already has — the review in
+[`docs/shipgate-strategic-engineering-review.md`](docs/shipgate-strategic-engineering-review.md)
+names this directly. Until the verdict-accuracy benchmark and default-on
+activation land, the bar for new surface is deliberately high.
+
+A **new surface** is any of: a new CLI command or sub-app; a new
+`report_schema_version` or other versioned schema; a new top-level report or
+`verifier.json` summary block; a new agent-discovery surface; or a new framework
+adapter.
+
+Before adding one, the PR description must answer, in a sentence or two:
+
+1. **Which headline metric does this move?** Blocked-recall, noise rate,
+   activation rate, or time-to-first-verdict. "Completeness" and "consistency"
+   are not metrics.
+2. **Can an existing surface carry it?** Prefer extending the one decision
+   engine (`release_decision.decision`) and its projections over adding a
+   parallel one.
+3. **Does it respect the [roadmap non-goals](ROADMAP.md#explicit-non-goals)?**
+   No second verdict; more adapters is not the roadmap; no agent execution, LLM
+   calls, or network access in the default path.
+
+If the answer to (1) is unclear, the default is **don't** — open an issue
+instead. Deleting or consolidating surface never needs this justification.
+
 ## Schema Changes
 
 The JSON Schemas under `docs/` (`manifest-v0.1.json`, `checks.json`,

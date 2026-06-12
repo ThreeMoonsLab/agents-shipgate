@@ -24,3 +24,7 @@ A `/shipgate` slash command is registered at [`.claude/commands/shipgate.md`](.c
 ## Skills
 
 When invoking the CLI from a skill, set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors include a structured `next_action` JSON line on stderr.
+
+## Surface discipline
+
+Before adding any new public surface — a CLI command or sub-app, a schema version, a report/`verifier.json` summary block, an agent-discovery surface, or a framework adapter — follow the gate in [`CONTRIBUTING.md` § Surface discipline](CONTRIBUTING.md#surface-discipline): name the headline metric it moves, prefer extending the one decision engine over adding a parallel one, and respect the [roadmap non-goals](ROADMAP.md#explicit-non-goals). When it is unclear which metric a new surface moves, default to not adding it and open an issue instead. Deleting or consolidating surface needs no justification.
