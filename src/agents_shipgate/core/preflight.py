@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,40 @@ _HIGH_RISK_TAGS = frozenset(
         "sensitive_data_access",
         "secret_access",
         "external_write",
+    }
+)
+_SEVERITY_RANK = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+_TRUST_ROOT_WALK_SKIP_DIRS = frozenset(
+    {
+        ".cache",
+        ".direnv",
+        ".git",
+        ".hg",
+        ".mypy_cache",
+        ".next",
+        ".nox",
+        ".pnpm-store",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".svn",
+        ".tox",
+        ".turbo",
+        ".venv",
+        "__pycache__",
+        "agents-shipgate-reports",
+        "build",
+        "dist",
+        "env",
+        "node_modules",
+        "site-packages",
+        "target",
+        "venv",
     }
 )
 
@@ -208,9 +243,10 @@ def build_preflight_result(
 
 def build_trust_root_graph(workspace: Path) -> TrustRootGraphV1:
     root = workspace.resolve()
+    candidate_paths = _walk_trust_root_files(root)
     nodes: list[TrustRootNodeV1] = []
     for spec in sorted(protected_surface_specs(), key=lambda item: (item.kind, item.pattern)):
-        present_paths = _present_paths(root, spec.pattern)
+        present_paths = _present_paths(candidate_paths, spec.pattern)
         nodes.append(
             TrustRootNodeV1(
                 id=_node_id(spec.kind, spec.pattern),
@@ -343,7 +379,10 @@ def required_evidence_for_capability_request(
                 ),
             ]
         )
-    return sorted(out, key=lambda item: (item.severity, item.id))
+    return sorted(
+        out,
+        key=lambda item: (_SEVERITY_RANK.get(item.severity, 99), item.id),
+    )
 
 
 def effective_policy_hash_for_config(config_path: Path) -> str | None:
@@ -376,21 +415,39 @@ def _normalize_changed_files(paths: list[str]) -> list[str]:
     return sorted({path.replace("\\", "/").strip() for path in paths if path.strip()})
 
 
-def _present_paths(root: Path, pattern: str) -> list[str]:
-    try:
-        matches = root.glob(pattern)
-    except ValueError:
-        return []
+def _walk_trust_root_files(root: Path) -> tuple[str, ...]:
+    """Return workspace files considered for trust-root graph presence.
+
+    The trust-root graph must use the same glob semantics as touch
+    classification. ``Path.glob("**")`` has Python-version-dependent trailing
+    globstar behavior, so walk files once and classify with ``glob_match``.
+    """
+
     out: list[str] = []
-    for path in matches:
-        if path.is_dir():
-            continue
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:
-            continue
-        out.append(rel)
-    return sorted(set(out))
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname not in _TRUST_ROOT_WALK_SKIP_DIRS
+        ]
+        dirnames.sort()
+        root_path = Path(dirpath)
+        for filename in sorted(filenames):
+            path = root_path / filename
+            try:
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(root).as_posix()
+            except OSError:
+                continue
+            except ValueError:
+                continue
+            out.append(rel)
+    return tuple(out)
+
+
+def _present_paths(candidate_paths: tuple[str, ...], pattern: str) -> list[str]:
+    return [path for path in candidate_paths if glob_match(pattern, path)]
 
 
 def _file_sha256(path: Path) -> str:

@@ -52,6 +52,12 @@ tool_sources:
     return root
 
 
+def _write(root: Path, path: str, text: str = "x\n") -> None:
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
 def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
 
@@ -127,6 +133,20 @@ def test_capability_request_review_requires_evidence_for_financial_write() -> No
     assert any(item.severity == "critical" for item in evidence)
 
 
+def test_capability_request_required_evidence_sorts_by_severity() -> None:
+    request = CapabilityRequestV1(
+        tool_name="deploy_service",
+        effect="production_operation",
+        risk_tags=["production_operation"],
+    )
+
+    evidence = required_evidence_for_capability_request(request)
+
+    severities = [item.severity for item in evidence]
+    assert severities[0] == "critical"
+    assert severities[-1] == "medium"
+
+
 def test_read_only_capability_request_has_no_required_evidence() -> None:
     request = CapabilityRequestV1(tool_name="lookup_case", effect="read")
 
@@ -144,6 +164,36 @@ def test_policy_and_trust_root_hashes_are_deterministic(tmp_path: Path) -> None:
     assert build_trust_root_graph(root).graph_hash == first.trust_root_graph_hash
 
 
+@pytest.mark.parametrize(
+    "pattern,path",
+    [
+        ("**/.agents-shipgate/**", ".agents-shipgate/baseline.json"),
+        ("**/policies/**", "policies/refund.yaml"),
+        ("**/prompts/**", "prompts/refund.md"),
+        ("**/.claude/**", ".claude/settings.json"),
+        ("**/.cursor/rules/**", ".cursor/rules/agents-shipgate.mdc"),
+        ("**/.agents/skills/**", ".agents/skills/agents-shipgate/SKILL.md"),
+        ("**/.codex/**", ".codex/config.toml"),
+        ("**/.codex/hooks/**", ".codex/hooks/preflight.sh"),
+        ("**/.codex-plugin/**", ".codex-plugin/plugin.json"),
+    ],
+)
+def test_trust_root_graph_records_recursive_pattern_files(
+    tmp_path: Path,
+    pattern: str,
+    path: str,
+) -> None:
+    root = _workspace(tmp_path)
+    if not (root / path).exists():
+        _write(root, path)
+
+    graph = build_trust_root_graph(root)
+
+    node = next(node for node in graph.nodes if node.pattern == pattern)
+    assert path in node.present_paths
+    assert node.file_hashes[path].startswith("sha256:")
+
+
 def test_base_preflight_reports_trust_root_graph_drift(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     base = build_preflight_result(workspace=root)
@@ -154,6 +204,28 @@ def test_base_preflight_reports_trust_root_graph_drift(tmp_path: Path) -> None:
     assert head.trust_root_graph_diff is not None
     assert head.trust_root_graph_diff.changed is True
     assert head.policy_drift is not None
+
+
+def test_base_preflight_reports_recursive_trust_root_graph_drift(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    _write(root, "policies/refund.yaml", "limit: 100\n")
+    _write(root, ".codex/hooks/preflight.sh", "echo OK\n")
+    base = build_preflight_result(workspace=root)
+
+    _write(root, "policies/refund.yaml", "limit: 999999\n")
+    _write(root, ".codex/hooks/preflight.sh", "echo HACKED\n")
+    head = build_preflight_result(workspace=root, base_preflight=base)
+
+    assert head.trust_root_graph_diff is not None
+    assert head.trust_root_graph_diff.changed is True
+    modified = set(head.trust_root_graph_diff.modified)
+    changed_patterns = {
+        node.pattern for node in head.trust_root_graph.nodes if node.id in modified
+    }
+    assert "**/policies/**" in changed_patterns
+    assert "**/.codex/hooks/**" in changed_patterns
 
 
 def test_cli_preflight_json_changed_files_and_diff(tmp_path: Path) -> None:
