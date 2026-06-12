@@ -59,6 +59,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     verifier_json = output_dir / "verifier.json"
     pr_comment_markdown = output_dir / "pr-comment.md"
     agent_result_json = output_dir / "agent-result.json"
+    check_annotations_json = output_dir / "check-annotations.json"
+    capability_lock_json = output_dir / "capabilities.lock.json"
+    base_capability_lock_json = output_dir / "base.capabilities.lock.json"
+    capability_lock_diff_json = output_dir / "capability-lock-diff.json"
 
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
@@ -107,6 +111,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "verifier_json": verifier_json,
         "pr_comment_markdown": pr_comment_markdown,
         "agent_result_json": agent_result_json,
+        "check_annotations_json": check_annotations_json,
+        "capability_lock_json": capability_lock_json,
+        "base_capability_lock_json": base_capability_lock_json,
+        "capability_lock_diff_json": capability_lock_diff_json,
         "decision": release_decision.get("decision", ""),
         "blocker_count": len(release_decision.get("blockers") or []),
         "review_item_count": len(release_decision.get("review_items") or []),

@@ -75,6 +75,14 @@ inputs:
     required: false
     default: "true"
     description: Upload reports as a workflow artifact.
+  check_annotations:
+    required: false
+    default: "true"
+    description: Emit GitHub Actions job annotations for source-backed blockers and review items.
+  check_annotation_limit:
+    required: false
+    default: "50"
+    description: Maximum number of GitHub Actions annotations to emit.
   pr_comment:
     required: false
     default: "false"
@@ -153,6 +161,18 @@ outputs:
   agent_result_json:
     description: Path to agent-result.json.
     value: ${{ steps.report_outputs.outputs.agent_result_json }}
+  check_annotations_json:
+    description: Path to generated GitHub Actions annotation payload.
+    value: ${{ steps.report_outputs.outputs.check_annotations_json }}
+  capability_lock_json:
+    description: Path to generated head capability lock JSON.
+    value: ${{ steps.report_outputs.outputs.capability_lock_json }}
+  base_capability_lock_json:
+    description: Path to generated base capability lock JSON when base diff is available.
+    value: ${{ steps.report_outputs.outputs.base_capability_lock_json }}
+  capability_lock_diff_json:
+    description: Path to generated capability lock diff JSON when base and head locks are available.
+    value: ${{ steps.report_outputs.outputs.capability_lock_diff_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -340,6 +360,15 @@ runs:
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
+
+    - name: Emit Agents Shipgate annotations
+      if: ${{ always() && inputs.check_annotations == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}
+      run: |
+        python "${GITHUB_ACTION_PATH}/scripts/github_action_annotations.py"
 
     - name: Upload Agents Shipgate report
       if: ${{ always() && inputs.upload_artifact == 'true' }}

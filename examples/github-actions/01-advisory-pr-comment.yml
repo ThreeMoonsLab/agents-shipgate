@@ -22,5 +22,6 @@ jobs:
         with:
           ci_mode: advisory
           diff_base: target
+          check_annotations: 'true'
           pr_comment: 'true'
           shipgate_version: '0.13.0'

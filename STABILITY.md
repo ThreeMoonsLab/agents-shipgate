@@ -864,13 +864,15 @@ The public standard is documented in
 
 `agents-shipgate verify` also writes the head static lock to
 `agents-shipgate-reports/capabilities.lock.json` after a successful head scan.
-When `--base` is provided and the base tree contains the reviewed committed lock
-at `.agents-shipgate/capabilities.lock.json`, verify writes
-`agents-shipgate-reports/capability-lock-diff.json` and
-`agents-shipgate-reports/capability-lock-diff.md`, and the PR comment leads with
-that semantic capability diff after the verdict summary. If the base lock is
-absent or invalid, verify records a note and falls back to the existing
-`capability_review.top_changes[]` projection without changing the release gate.
+When `--base` is provided and the base scan can be materialized, verify writes
+`agents-shipgate-reports/base.capabilities.lock.json`,
+`agents-shipgate-reports/capability-lock-diff.json`, and
+`agents-shipgate-reports/capability-lock-diff.md`, and the PR comment includes a
+compact semantic capability diff summary. If the base scan-derived lock is
+unavailable, verify falls back to the reviewed committed lock at
+`.agents-shipgate/capabilities.lock.json`; if both are unavailable, it records a
+note and falls back to the existing `capability_review.top_changes[]` projection
+without changing the release gate.
 
 ### Workflow-evidence capture
 

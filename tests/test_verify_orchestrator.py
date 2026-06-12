@@ -30,13 +30,14 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     _git(repo, "add", "AGENTS.md")
     _git(repo, "commit", "-m", "touch agent instructions")
 
-    _verifier, report, _exit_code = run_verify(
+    out_dir = repo / "agents-shipgate-reports"
+    verifier, report, _exit_code = run_verify(
         workspace=repo,
         config=Path("samples/support_refund_agent/shipgate.yaml"),
         base="HEAD~1",
         head="HEAD",
         archive_head=True,
-        out=repo / "agents-shipgate-reports",
+        out=out_dir,
         ci_mode="advisory",
         fail_on=None,
         baseline=None,
@@ -56,6 +57,18 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
         and finding.evidence.get("changed_file") == "AGENTS.md"
         for finding in report.findings
     )
+    assert verifier.artifacts["capability_lock_json"] == (
+        "agents-shipgate-reports/capabilities.lock.json"
+    )
+    assert verifier.artifacts["base_capability_lock_json"] == (
+        "agents-shipgate-reports/base.capabilities.lock.json"
+    )
+    assert verifier.artifacts["capability_lock_diff_json"] == (
+        "agents-shipgate-reports/capability-lock-diff.json"
+    )
+    assert (out_dir / "capabilities.lock.json").is_file()
+    assert (out_dir / "base.capabilities.lock.json").is_file()
+    assert (out_dir / "capability-lock-diff.json").is_file()
 
 
 def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):

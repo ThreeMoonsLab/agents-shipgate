@@ -431,10 +431,10 @@ For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Verify writes
 `agents-shipgate-reports/verifier.json`, `pr-comment.md`, the head capability
 lock, and the normal `report.{md,json,sarif}` / packet artifacts when a scan is
-required. If the base tree contains `.agents-shipgate/capabilities.lock.json`,
-verify also writes `capability-lock-diff.{json,md}` and the PR comment leads
-with that semantic capability diff after the verdict. Lead with `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, and the capability diff or
+required. If the base scan can be materialized, verify also writes
+`base.capabilities.lock.json` plus `capability-lock-diff.{json,md}`, and the PR
+comment includes a compact semantic capability diff summary. Lead with
+`merge_verdict`, `can_merge_without_human`, `first_next_action`, and the capability diff or
 `capability_review.top_changes`; use `release_decision.decision` as the release
 gate.
 
@@ -484,8 +484,9 @@ minimal manifests, see [`docs/minimal-real-configs.md`](docs/minimal-real-config
     pr_comment: "true"
 ```
 
-The PR comment leads with `merge_verdict`, semantic capability diff when the
-base lock is available, required next action, and artifact links:
+The PR comment is fixed into a human summary plus agent instruction block, with
+`merge_verdict`, the semantic capability diff when available, required next
+action, and artifact links:
 
 ![Preview of the optional Agents Shipgate PR comment showing merge verdict, capability changes, required next action, and report artifacts.](assets/pr-comment-preview.png)
 
@@ -512,7 +513,7 @@ artifacts — in read order:
 
 - **`agents-shipgate-reports/verifier.json`** — the **primary, agent-facing artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `first_next_action`, and `fix_task` to decide whether to continue, repair, or stop for a human. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
 - **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and semantic capability diff when available, shaped for a reviewer.
-- **`agents-shipgate-reports/capabilities.lock.json`** + **`agents-shipgate-reports/capability-lock-diff.{json,md}`** — the **capability review primitive**. Verify always emits the head lock after a successful scan; it emits the diff when the base ref has the reviewed committed lock at `.agents-shipgate/capabilities.lock.json`.
+- **`agents-shipgate-reports/capabilities.lock.json`** + **`agents-shipgate-reports/base.capabilities.lock.json`** + **`agents-shipgate-reports/capability-lock-diff.{json,md}`** — the **capability review primitive**. Verify always emits the head lock after a successful scan; it emits the base lock and diff when the base scan can be materialized, falling back to the reviewed committed lock at `.agents-shipgate/capabilities.lock.json` if needed.
 - **Gate source of truth** — `report.json.release_decision.decision` (`passed | review_required | insufficient_evidence | blocked`). `merge_verdict` is a deterministic projection of it; the report stays the one decision engine.
 - **Tool-Use Readiness Report** (supporting) — `agents-shipgate-reports/report.{md,json,sarif}`. Markdown for human release review, JSON for tools and coding agents, SARIF for GitHub code-scanning workflows. This is the underlying check domain the verdict summarizes.
 - **Release Evidence Packet** (supporting) — `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` with the `[pdf]` extras). Reviewer-shaped synthesis with fixed sections, including the compact evidence matrix plus tool-surface and action-surface diffs when available. Packet outputs are locally redacted by default; see [STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v07).
@@ -784,15 +785,18 @@ jobs:
         with:
           ci_mode: advisory
           diff_base: target
+          check_annotations: 'true'
           pr_comment: 'true'
           shipgate_version: '0.13.0'
 ```
 
-After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
+After adoption, choose an explicit merge policy. [`examples/github-actions/07-block-on-blocked-verdict.yml`](examples/github-actions/07-block-on-blocked-verdict.yml) blocks only when `merge_verdict == blocked`; [`examples/github-actions/08-require-mergeable.yml`](examples/github-actions/08-require-mergeable.yml) requires `can_merge_without_human == true`; [`examples/github-actions/11-fail-on-insufficient-evidence.yml`](examples/github-actions/11-fail-on-insufficient-evidence.yml) fails only when `merge_verdict == insufficient_evidence`. See [`examples/github-actions/`](examples/github-actions/) for strict / baseline / SARIF / multi-config / changed-paths recipes.
 
-Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `pr_comment`, `check_run`, `check_run_name`, `github_token`, `shipgate_version`. Set `check_run: true` (with `checks: write` permission) to publish the merge verdict as a native Check Run with line-level SARIF annotations. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
+Inputs: `config`, `ci_mode` (`advisory` or `strict`), `fail_on`, `baseline`, `baseline_mode`, `diff_from`, `diff_base`, `base_ref`, `head_ref`, `policy_packs`, `no_plugins`, `output_dir`, `upload_artifact`, `check_annotations`, `check_annotation_limit`, `pr_comment`, `check_run`, `check_run_name`, `github_token`, `shipgate_version`. Set `check_run: true` (with `checks: write` permission) to publish the merge verdict as a native Check Run with line-level SARIF annotations. Set `diff_base: target` for PR base/head diff enrichment. The action delegates to `agents-shipgate verify` and never fetches; use `fetch-depth: 0` on checkout, or fetch the base ref in an earlier step. If `head_ref` is set, verify scans an isolated archive of that ref; otherwise it scans the checked-out workspace. If an explicit base ref or PR diff cannot be inspected, verify skips a head-only scan, writes `merge_verdict: "unknown"` to `verifier.json`, and exits 2.
 
-Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `exit_code`. Use `decision` / `ci_would_fail` for CI gating, use `merge_verdict` / `can_merge_without_human` for PR-controller routing, and avoid legacy `status` for new gates.
+Outputs: `decision`, `merge_verdict`, `can_merge_without_human`, `blocker_count`, `review_item_count`, `ci_would_fail`, `diff_enabled`, `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `adk_agent_count`, `adk_dynamic_toolset_count`, `trust_root_touched`, `policy_weakened`, `capability_changes_added`, `capability_changes_modified`, `capability_changes_removed`, `report_json`, `report_markdown`, `report_sarif`, `verifier_json`, `pr_comment_markdown`, `check_annotations_json`, `capability_lock_json`, `base_capability_lock_json`, `capability_lock_diff_json`, `exit_code`. Use `decision` / `ci_would_fail` for CI gating, use `merge_verdict` / `can_merge_without_human` for PR-controller routing, and avoid legacy `status` for new gates.
+
+The default PR comment is fixed into two sections: a human summary and a fenced JSON agent instruction block. The Action also emits source-backed GitHub Actions annotations for blockers and review items by default. `verify` writes capability lock/diff artifacts when a base ref is available; these remain non-gating review artifacts.
 
 Set `shipgate_version` to install a pinned PyPI release instead of the action source when your workflow requires package/version parity.
 

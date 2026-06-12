@@ -16,7 +16,6 @@ from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
-    DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
     diff_capability_locks,
     load_capability_lock_json,
     render_capability_lock_diff_json,
@@ -109,6 +108,7 @@ def run_verify(
     base_status: VerifierBaseStatus = "not_requested"
     base_tree: str | None = None
     base_report: Path | None = None
+    base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
 
@@ -244,7 +244,13 @@ def run_verify(
         base_report = _resolve_under_workspace(git_root, diff_from)
         base_notes.append(f"Using explicit diff reference: {_display_path(base_report, git_root)}")
     elif base and base_exists:
-        base_status, base_tree, base_report, cache_notes = _prepare_base_report(
+        (
+            base_status,
+            base_tree,
+            base_report,
+            base_capability_lock,
+            cache_notes,
+        ) = _prepare_base_report(
             git_root=git_root,
             base=base,
             config_relative=config_relative,
@@ -266,8 +272,6 @@ def run_verify(
     head_tree: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
-    capability_lock_written = False
-    capability_lock_diff_written = False
 
     def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
         nonlocal head_capability_lock
@@ -323,11 +327,10 @@ def run_verify(
                     git_root=git_root,
                     out_dir=out_dir,
                     base=base,
+                    base_lock=base_capability_lock,
                     head_lock=head_capability_lock,
                     base_notes=base_notes,
                 )
-                capability_lock_written = True
-                capability_lock_diff_written = capability_lock_diff is not None
             except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
                 base_notes.append(f"Capability review artifacts unavailable: {exc}")
     except ConfigError as exc:
@@ -365,8 +368,6 @@ def run_verify(
             head_exit_code=head_exit_code,
             out_dir=out_dir,
             ci_mode=ci_mode,
-            include_capability_lock=capability_lock_written,
-            include_capability_lock_diff=capability_lock_diff_written,
         )
         try:
             try:
@@ -401,12 +402,18 @@ def _prepare_base_report(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     verbose: bool,
-) -> tuple[VerifierBaseStatus, str | None, Path | None, list[str]]:
+) -> tuple[
+    VerifierBaseStatus,
+    str | None,
+    Path | None,
+    CapabilityLockFileV1 | None,
+    list[str],
+]:
     notes: list[str] = []
     try:
         base_tree = tree_sha(git_root, base)
     except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-        return "archive_failed", None, None, [f"Could not resolve base tree: {exc}"]
+        return "archive_failed", None, None, None, [f"Could not resolve base tree: {exc}"]
 
     cache_report = _cache_report_path(
         base_tree=base_tree,
@@ -418,11 +425,13 @@ def _prepare_base_report(
         no_heuristics=no_heuristics,
     )
     if cache_report.exists():
+        base_lock, lock_notes = _load_cached_capability_lock(cache_report)
         return (
             "cache_hit",
             base_tree,
             cache_report,
-            [f"Reused cached base report for tree {base_tree}."],
+            base_lock,
+            [f"Reused cached base report for tree {base_tree}.", *lock_notes],
         )
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
@@ -436,6 +445,7 @@ def _prepare_base_report(
                 "archive_failed",
                 base_tree,
                 None,
+                None,
                 [f"Could not materialize base tree {base!r}: {exc}"],
             )
 
@@ -445,8 +455,15 @@ def _prepare_base_report(
                 "missing_manifest",
                 base_tree,
                 None,
+                None,
                 [f"Base tree does not contain {config_relative.as_posix()}."],
             )
+
+        base_capability_lock: CapabilityLockFileV1 | None = None
+
+        def capture_base_capability_lock(lock: CapabilityLockFileV1) -> None:
+            nonlocal base_capability_lock
+            base_capability_lock = lock
 
         try:
             with _without_github_step_summary():
@@ -474,11 +491,13 @@ def _prepare_base_report(
                     packet_enabled=False,
                     packet_formats=None,
                     no_heuristics=no_heuristics,
+                    capability_lock_callback=capture_base_capability_lock,
                 )
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
             return (
                 "scan_failed",
                 base_tree,
+                None,
                 None,
                 [f"Base scan failed without changing the head gate: {exc}"],
             )
@@ -486,6 +505,7 @@ def _prepare_base_report(
             return (
                 "scan_failed",
                 base_tree,
+                None,
                 None,
                 [f"Base scan exited {base_exit}; diff enrichment disabled."],
             )
@@ -495,12 +515,17 @@ def _prepare_base_report(
                 "scan_failed",
                 base_tree,
                 None,
+                None,
                 ["Base scan did not produce report.json; diff enrichment disabled."],
             )
         _copy_report_to_cache(source_report, cache_report)
+        if base_capability_lock is not None:
+            _write_capability_lock_to_cache(base_capability_lock, cache_report)
+        else:
+            notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
         notes.append(f"Cached base report for tree {base_tree}.")
-    return "succeeded", base_tree, cache_report, notes
+    return "succeeded", base_tree, cache_report, base_capability_lock, notes
 
 
 def _cache_report_path(
@@ -543,6 +568,50 @@ def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
     try:
         shutil.copy2(source_report, temp_path)
         temp_path.replace(cache_report)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _base_capability_lock_cache_path(cache_report: Path) -> Path:
+    return cache_report.with_name("capabilities.lock.json")
+
+
+def _load_cached_capability_lock(
+    cache_report: Path,
+) -> tuple[CapabilityLockFileV1 | None, list[str]]:
+    cache_lock = _base_capability_lock_cache_path(cache_report)
+    if not cache_lock.exists():
+        return None, ["Cached base capability lock missing; capability diff may fall back."]
+    try:
+        return (
+            load_capability_lock_json(
+                cache_lock.read_text(encoding="utf-8"),
+                source=str(cache_lock),
+            ),
+            [],
+        )
+    except (OSError, InputParseError) as exc:
+        return None, [f"Cached base capability lock invalid; capability diff may fall back: {exc}"]
+
+
+def _write_capability_lock_to_cache(
+    lock: CapabilityLockFileV1,
+    cache_report: Path,
+) -> None:
+    cache_lock = _base_capability_lock_cache_path(cache_report)
+    cache_lock.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=cache_lock.parent,
+        prefix="capabilities-",
+        suffix=".tmp",
+        delete=False,
+        mode="w",
+        encoding="utf-8",
+    ) as handle:
+        temp_path = Path(handle.name)
+        handle.write(render_capability_lock_json(lock))
+    try:
+        temp_path.replace(cache_lock)
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -785,8 +854,6 @@ def _build_verifier(
     out_dir: Path,
     ci_mode: str | None = None,
     preview: bool = False,
-    include_capability_lock: bool = False,
-    include_capability_lock_diff: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -798,8 +865,6 @@ def _build_verifier(
         out_dir,
         git_root=git_root,
         include_scan_artifacts=report is not None,
-        include_capability_lock=include_capability_lock,
-        include_capability_lock_diff=include_capability_lock_diff,
     )
     decision = release_decision_model.decision if release_decision_model else None
     merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
@@ -902,8 +967,6 @@ def _artifact_paths(
     *,
     git_root: Path,
     include_scan_artifacts: bool,
-    include_capability_lock: bool = False,
-    include_capability_lock_diff: bool = False,
 ) -> dict[str, str]:
     candidates = {
         "verifier_json": out_dir / "verifier.json",
@@ -916,14 +979,17 @@ def _artifact_paths(
             "report_json": out_dir / "report.json",
             "report_sarif": out_dir / "report.sarif",
             "packet_json": out_dir / "packet.json",
+            "capability_lock_json": out_dir / "capabilities.lock.json",
+            "base_capability_lock_json": out_dir / "base.capabilities.lock.json",
+            "capability_lock_diff_json": out_dir / "capability-lock-diff.json",
+            "capability_lock_diff_markdown": out_dir / "capability-lock-diff.md",
             **candidates,
         }
-    if include_capability_lock:
-        candidates["capability_lock"] = out_dir / "capabilities.lock.json"
-    if include_capability_lock_diff:
-        candidates["capability_lock_diff_json"] = out_dir / "capability-lock-diff.json"
-        candidates["capability_lock_diff_markdown"] = out_dir / "capability-lock-diff.md"
-    return {key: _display_path(path.resolve(), git_root) for key, path in candidates.items()}
+    return {
+        key: _display_path(path.resolve(), git_root)
+        for key, path in candidates.items()
+        if key in {"verifier_json", "pr_comment", "agent_result_json"} or path.exists()
+    }
 
 
 def _write_artifacts(
@@ -964,26 +1030,31 @@ def _write_capability_review_artifacts(
     git_root: Path,
     out_dir: Path,
     base: str | None,
+    base_lock: CapabilityLockFileV1 | None,
     head_lock: CapabilityLockFileV1,
     base_notes: list[str],
 ) -> CapabilityLockDiffV1 | None:
     lock_path = out_dir / "capabilities.lock.json"
+    base_lock_path = out_dir / "base.capabilities.lock.json"
     lock_path.write_text(render_capability_lock_json(head_lock), encoding="utf-8")
     if not base:
         base_notes.append("Capability lock diff unavailable: no --base ref was provided.")
         return None
-    base_lock = _load_base_capability_lock(
-        git_root=git_root,
-        base=base,
-        base_notes=base_notes,
-    )
+    used_scan_derived_base = base_lock is not None
+    if base_lock is None:
+        base_lock = _load_base_capability_lock(
+            git_root=git_root,
+            base=base,
+            base_notes=base_notes,
+        )
     if base_lock is None:
         return None
+    base_lock_path.write_text(render_capability_lock_json(base_lock), encoding="utf-8")
     diff = diff_capability_locks(
         base_lock,
         head_lock,
-        base_path=DEFAULT_CAPABILITY_LOCK_PATH,
-        head_path=DEFAULT_CAPABILITY_LOCK_REPORT_PATH,
+        base_path=base_lock_path,
+        head_path=lock_path,
     )
     (out_dir / "capability-lock-diff.json").write_text(
         render_capability_lock_diff_json(diff),
@@ -993,10 +1064,13 @@ def _write_capability_review_artifacts(
         render_capability_lock_diff_markdown(diff),
         encoding="utf-8",
     )
-    base_notes.append(
-        "Capability lock diff compared the base reviewed envelope at "
-        f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
-    )
+    if used_scan_derived_base:
+        base_notes.append("Capability lock diff compared scan-derived base/head locks.")
+    else:
+        base_notes.append(
+            "Capability lock diff compared the base reviewed envelope at "
+            f"{DEFAULT_CAPABILITY_LOCK_PATH.as_posix()}."
+        )
     return diff
 
 

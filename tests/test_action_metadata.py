@@ -39,6 +39,10 @@ def test_action_has_marketplace_metadata_and_outputs():
         "verifier_json",
         "pr_comment_markdown",
         "agent_result_json",
+        "check_annotations_json",
+        "capability_lock_json",
+        "base_capability_lock_json",
+        "capability_lock_diff_json",
         "exit_code",
         "agent_decision",
         "risk_level",
@@ -62,6 +66,10 @@ def test_action_has_marketplace_metadata_and_outputs():
     )
     assert data["inputs"]["verify_mode"]["default"] == "verify"
     assert data["inputs"]["fail_on_decisions"]["default"] == ""
+    assert data["inputs"]["check_annotations"]["default"] == "true"
+    assert data["inputs"]["check_annotation_limit"]["default"] == "50"
+    assert data["inputs"]["check_run"]["default"] == "false"
+    assert data["inputs"]["check_run_name"]["default"] == "Agents Shipgate"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
 
@@ -106,6 +114,8 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "VERIFY_MODE: ${{ inputs.verify_mode }}" in text
     assert "INPUT_HEAD_REF: ${{ inputs.head_ref }}" in text
     assert "PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}" in text
+    assert "CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}" in text
+    assert "scripts/github_action_annotations.py" in text
     assert "fail_on_decisions" in text
     assert "Apply Agents Shipgate decision policy" in text
     assert "decision_policy_exit_code" in text
@@ -113,6 +123,8 @@ def test_action_preserves_reports_before_applying_exit_code():
         "if: ${{ always() && inputs.fail_on_decisions != '' }}" in text
     )
     assert "agent-result.json did not expose an agent decision" in text
+    assert "scripts/github_check_run.py" in text
+    assert "check-run-payload.json" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text

@@ -35,15 +35,23 @@ In PR workflows, `agents-shipgate verify` emits the review copy directly:
   scan.
 - `agents-shipgate-reports/capability-lock-diff.json` and
   `agents-shipgate-reports/capability-lock-diff.md` when `--base` is provided
-  and the base tree contains `.agents-shipgate/capabilities.lock.json`.
-- If the reviewed base lock is absent or invalid, verify records a note and
-  falls back to the report-derived `capability_review.top_changes[]` PR surface.
+  and the base scan can be materialized.
+- If the base scan-derived lock is unavailable, verify falls back to the
+  reviewed base lock at `.agents-shipgate/capabilities.lock.json`; if both are
+  unavailable, it records a note and keeps the report-derived
+  `capability_review.top_changes[]` PR surface.
 
 Default export paths are unchanged:
 
 - `.agents-shipgate/capabilities.lock.json` for the reviewed committed lock.
 - `agents-shipgate-reports/capabilities.lock.json` for a byte-identical
   generated mirror.
+
+`agents-shipgate verify` also writes PR-standard generated artifacts under
+`agents-shipgate-reports/`: `capabilities.lock.json` for head, and when a base
+ref is available, `base.capabilities.lock.json` plus
+`capability-lock-diff.json`. These are review artifacts only; the release gate
+remains `report.json.release_decision.decision`.
 
 Repeated exports over the same manifest-relative static inputs are byte-stable.
 No wall-clock timestamp is stored.

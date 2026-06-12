@@ -165,16 +165,26 @@ def test_scenario_codex_adds_refund_tool_blocks(tmp_path: Path) -> None:
     change = refund_adds[0]
     assert change["impact"] == "blocks_release"
     artifacts = payload["artifacts"]
-    assert "capability_lock" in artifacts
-    assert "capability_lock_diff_json" not in artifacts
+    assert artifacts["capability_lock_json"] == "agents-shipgate-reports/capabilities.lock.json"
+    assert (
+        artifacts["base_capability_lock_json"]
+        == "agents-shipgate-reports/base.capabilities.lock.json"
+    )
+    assert (
+        artifacts["capability_lock_diff_json"]
+        == "agents-shipgate-reports/capability-lock-diff.json"
+    )
     reports = repo / "agents-shipgate-reports"
     assert (reports / "capabilities.lock.json").is_file()
-    assert not (reports / "capability-lock-diff.json").exists()
+    assert (reports / "base.capabilities.lock.json").is_file()
+    assert (reports / "capability-lock-diff.json").is_file()
     comment = (reports / "pr-comment.md").read_text(encoding="utf-8")
-    assert "### Capability changes" in comment
+    assert "### Human summary" in comment
+    assert "### Agent instruction block" in comment
+    assert "- Capability lock diff: +1, -0, 0 changed" in comment
     assert "### Capability Diff" not in comment
     assert any(
-        "base tree does not contain .agents-shipgate/capabilities.lock.json" in note
+        "Capability lock diff compared scan-derived base/head locks." in note
         for note in payload["base_notes"]
     )
 
@@ -198,7 +208,11 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
     assert payload["head_status"] == "succeeded"
     assert payload["merge_verdict"] == "blocked"
     artifacts = payload["artifacts"]
-    assert artifacts["capability_lock"] == "agents-shipgate-reports/capabilities.lock.json"
+    assert artifacts["capability_lock_json"] == "agents-shipgate-reports/capabilities.lock.json"
+    assert (
+        artifacts["base_capability_lock_json"]
+        == "agents-shipgate-reports/base.capabilities.lock.json"
+    )
     assert (
         artifacts["capability_lock_diff_json"]
         == "agents-shipgate-reports/capability-lock-diff.json"
@@ -217,9 +231,11 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
     assert "## Capability Diff" in diff_markdown
     assert "| stripe.create_refund |" in diff_markdown
     comment = (reports / "pr-comment.md").read_text(encoding="utf-8")
-    assert "### Capability Diff" in comment
-    assert "### Capability changes" not in comment
-    assert comment.index("Release gate: `blocked`") < comment.index("### Capability Diff")
+    assert "### Human summary" in comment
+    assert "### Agent instruction block" in comment
+    assert "- Capability lock diff: +1, -0, 0 changed" in comment
+    assert "### Capability Diff" not in comment
+    assert comment.index("Release gate: `blocked`") < comment.index("### Agent instruction block")
 
 
 def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(

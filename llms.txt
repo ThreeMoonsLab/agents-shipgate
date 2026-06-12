@@ -67,7 +67,7 @@
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
-- Verify capability diff, when the base lock exists: `agents-shipgate-reports/capability-lock-diff.{json,md}`.
+- Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
 - Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json
 - Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.2.json

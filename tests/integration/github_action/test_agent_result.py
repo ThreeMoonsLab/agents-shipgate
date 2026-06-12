@@ -130,7 +130,7 @@ def test_allow_comment_is_concise_and_has_no_contradictory_decision():
     assert result.decision == "allow"
     assert result.risk_level == "none"
     assert result.required_reviewers == []
-    assert "Decision: `allow`" in comment
+    assert "Agent decision: `allow`" in comment
     assert "Release gate: `passed`" in comment
     assert "Decision: `passed`" not in comment
     assert "Required reviewers:" not in comment
@@ -319,6 +319,16 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_agent_resul
     assert outputs["decision"] == "passed"
     assert outputs["report_json"] == output_dir / "report.json"
     assert outputs["agent_result_json"] == output_dir / "agent-result.json"
+    assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
+    assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
+    assert (
+        outputs["base_capability_lock_json"]
+        == output_dir / "base.capabilities.lock.json"
+    )
+    assert (
+        outputs["capability_lock_diff_json"]
+        == output_dir / "capability-lock-diff.json"
+    )
     assert outputs["agent_decision"] == "allow"
     assert outputs["risk_level"] == "low"
     assert outputs["audit_id"] == "sg_audit_test"
