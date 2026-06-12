@@ -158,6 +158,32 @@ def _run_git(
     )
 
 
+def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
+    """Return staged (index) paths under ``subdir``, relative to ``workspace``.
+
+    Reads the git index only (``git diff --cached --name-only --relative``);
+    never fetches or writes. Used to warn when generated Agents Shipgate
+    reports have been staged for commit — they are generated artifacts that
+    ``init`` already gitignores. Returns ``[]`` outside a git checkout.
+
+    Defined below ``_run_git`` so the line-pinned static-only allowlist entry
+    for that subprocess call-site (``tests/test_adapter_static_only.py``)
+    stays stable.
+    """
+
+    prefix = subdir.rstrip("/") + "/"
+    result = _run_git(
+        workspace, ["diff", "--cached", "--name-only", "--relative"], check=False
+    )
+    if result.returncode != 0:
+        return []
+    return [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip().startswith(prefix)
+    ]
+
+
 def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
     root = destination.resolve()
     for member in tar.getmembers():
@@ -176,6 +202,7 @@ __all__ = [
     "git_path",
     "read_file_at_ref",
     "ref_exists",
+    "staged_paths_under",
     "tree_sha",
     "working_tree_context",
 ]
