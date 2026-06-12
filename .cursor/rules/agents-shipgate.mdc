@@ -38,6 +38,7 @@ Default to advisory verification while adopting the gate.
 For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
 
+  agents-shipgate preflight --json
   agents-shipgate verify --workspace . --config shipgate.yaml \
       --base origin/main --head HEAD --ci-mode advisory --format json
 
@@ -50,6 +51,13 @@ Read `agents-shipgate-reports/verifier.json` first. Lead with
 `first_next_action.actor`, and `fix_task.safe_to_attempt`. Use
 `agents-shipgate-reports/report.json` as the source of truth for
 `release_decision.decision`.
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
+`agents-shipgate preflight --json` or `agents-shipgate preflight
+--changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`first_next_action.actor` is `human`, stop and route the change to a human.
 
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly

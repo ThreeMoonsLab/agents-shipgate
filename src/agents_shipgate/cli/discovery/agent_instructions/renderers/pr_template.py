@@ -28,6 +28,9 @@ capability changes — a local-first, static Tool-Use Readiness review.
       `merge_verdict`, and checked `capability_review.top_changes[]`.
 - [ ] I reviewed `agents-shipgate-reports/report.json` and used
       `release_decision.decision` as the release gate.
+- [ ] If this PR touches a protected surface, I ran
+      `agents-shipgate preflight --json` and routed human-review items to a
+      human.
 - [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
       or prohibited-action policy decisions.
 

@@ -40,7 +40,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "ec2c3378a8a73e7b259664170fdcd33fa3242f9adb3c9b83b0ae616609fa6c4a"
+        "34d553e37c8836aafd50d71fca30e010647fdce096c7b8dd3878a2531ed2d8b4"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "ea3c37cfbbd42c40d164abfe21d468a3a5550d5384125f94a53c947dea6b4b2a"
@@ -67,7 +67,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "0c939414da7900b8f03f2a743e0f6b8f4d96f409c1d5cde038e27a98318bf486"
+        "1d59c30ea72b1e7ba12ae0f650cf75462f62f1a8b532ab44f88c78e2242a8d17"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
@@ -75,10 +75,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "ba127bfa1f47e00b78b7b8d463857496dbd2594615b7f223bd4d7c0c572aa7b6"
+        "2a5dbfba22080c4733f0ab3289a7289360bf8a9e219844e402e7c1b80c446f5f"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "584546244c7e6aa559606aa4dbb1c050b3539aa6e371c38239382796733a39b1"
+        "cefd7b8b44d682fb2120b2c6f4d8ea30cf2f8233c50225a9116bfe04c7ec513e"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
@@ -104,6 +104,7 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
     assert out.startswith("---\n")
     assert "alwaysApply: false" in out
     assert "globs:" in out
+    assert "agents-shipgate preflight" in out
     # Path-based trigger globs. Diff-only Python decorator triggers are
     # intentionally not represented by a broad "**/*.py" Cursor glob.
     for token in (
@@ -238,6 +239,7 @@ def test_claude_code_skill_has_required_surfaces() -> None:
     assert ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml" in files
     skill = files[".claude/skills/agents-shipgate/SKILL.md"]
     assert "release_decision.decision" in skill
+    assert "agents-shipgate preflight" in skill
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not claim a finding is fixed" in skill
     assert "agents-shipgate verify" in skill
@@ -252,6 +254,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert ".agents/skills/agents-shipgate/agents/openai.yaml" in files
     skill = files[".agents/skills/agents-shipgate/SKILL.md"]
     assert "release_decision.decision" in skill
+    assert "agents-shipgate preflight" in skill
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not auto-assert approval" in skill
     assert "agents-shipgate verify" in skill
@@ -260,6 +263,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
     assert "Require `agents-shipgate >=0.11.0`" in recipes
     assert 'python -m pip install -U "agents-shipgate>=0.11"' in recipes
+    assert "Protected Surface Preflight" in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:
@@ -274,6 +278,7 @@ def test_agents_md_includes_report_json_contract() -> None:
     assert "merge_verdict" in out
     assert "agents-shipgate-reports/report.json" in out
     assert "release_decision.decision" in out
+    assert "agents-shipgate preflight" in out
 
 
 def test_claude_md_is_self_contained_no_dangling_link() -> None:
@@ -284,6 +289,7 @@ def test_claude_md_is_self_contained_no_dangling_link() -> None:
     assert "agents-shipgate verify --preview" in out
     assert "merge_verdict" in out
     assert "release_decision.decision" in out
+    assert "agents-shipgate preflight" in out
     # Cross-link to AGENTS.md is intentionally omitted.
     assert "AGENTS.md" not in out
 

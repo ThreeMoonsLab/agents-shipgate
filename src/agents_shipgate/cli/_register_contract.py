@@ -30,6 +30,7 @@ def register(app: typer.Typer) -> None:
             "Capability lock diff schema version: "
             f"{payload.capability_lock_diff_schema_version}"
         )
+        typer.echo(f"Preflight schema version: {payload.preflight_schema_version}")
         typer.echo(
             "Capability standard version: "
             f"{payload.capability_standard_version}"

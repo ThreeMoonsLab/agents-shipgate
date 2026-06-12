@@ -17,11 +17,13 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 
-CONTRACT_VERSION: Literal["2"] = "2"
+CONTRACT_VERSION: Literal["3"] = "3"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
+    "preflight",
     "capability_lock",
     "capability_lock_diff",
     "capability_standard",
@@ -87,6 +89,7 @@ class ContractPayload(BaseModel):
     packet_schema_version: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
+    preflight_schema_version: str
     capability_standard_version: str
     governance_benchmark_catalog_schema_version: str
     governance_benchmark_result_schema_version: str
@@ -111,6 +114,7 @@ def build_contract_payload() -> ContractPayload:
         packet_schema_version=str(packet_schema_version),
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         governance_benchmark_catalog_schema_version=(
             GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION

@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-06-08; auto-checked against `agents-shipgate contract --json`:
-runtime contract `2`, report schema `v0.25`, packet schema `v0.7`.
+runtime contract `3`, report schema `v0.25`, packet schema `v0.7`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -21,9 +21,10 @@ src/agents_shipgate/
 │                      (scan, init, doctor, explain, list-checks, contract,
 │                      baseline {save,verify}). Leaf commands (detect,
 │                      apply-patches, bootstrap, evidence-packet,
-│                      explain-finding, self-check) register inline in
-│                      `cli/main.py`. `fixture` and `scenario` are Typer
-│                      subapps. `cli/main.py` is an ~90-line dispatcher.
+│                      explain-finding, preflight, mcp-serve, self-check)
+│                      register inline in `cli/main.py`. `fixture` and
+│                      `scenario` are Typer subapps. `cli/main.py` is a
+│                      small dispatcher.
 ├── inputs/             Adapters that read user artifacts into normalized
 │                      tools. All adapters register a `ToolSourceAdapter`
 │                      class with `inputs/protocol.py:REGISTRY`. No
@@ -48,7 +49,8 @@ src/agents_shipgate/
 │                      `report`, `packet`, `baseline`, `contract`,
 │                      `diagnostics`, `surfaces`, `policy_pack`,
 │                      `checks`, `patches`, `disclaimers`, `detect`,
-│                      `codex_plugin`, `adoption_scorecard`, `common`.
+│                      `preflight`, `codex_plugin`, `adoption_scorecard`,
+│                      `common`.
 │                      Layer-isolated: schemas may NOT import core (lint
 │                      enforced by `tests/test_schema_boundaries.py`).
 ├── ci/                 release_decision, exit_policy, github_summary.
@@ -167,7 +169,7 @@ cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
 ## Schemas layer (v0.11+)
 
 Wire-shape Pydantic models live under `src/agents_shipgate/schemas/`
-(15 modules, see `Module map` above). `core/` holds processing logic — finding builders,
+(see `Module map` above). `core/` holds processing logic — finding builders,
 resolver, baseline manager, privacy sanitizer, etc. The two layers
 are **AST-isolated**:
 
@@ -187,6 +189,12 @@ Adding a new wire field: edit the relevant `schemas/<name>.py`, run
 `report_schema_version` / `packet_schema_version` if the addition is
 public. The CI step `python scripts/generate_schemas.py --check`
 fails if the committed JSON drifts from the live model.
+
+`preflight-schema.v0.1.json` is a proactive planning schema rather than a
+release gate schema. It exposes protected surfaces, forbidden shortcuts,
+required evidence for proposed high-risk capabilities, and deterministic
+policy/trust-root hashes. `release_decision.decision` remains the only merge
+gate.
 
 ## Typed domain types: `Scope`, `SideEffect`, `Action`
 

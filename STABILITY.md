@@ -21,6 +21,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate init` | `--workspace`, `--write`, `--json` |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
+| `agents-shipgate preflight` | `--workspace`, `--config`, `-c`, `--changed-files`, `--diff`, `--capability-request`, `--base-preflight`, `--json` |
 | `agents-shipgate explain` | `<check_id>`, `--no-plugins`, `--json` |
 | `agents-shipgate explain-finding` (v0.12+) | `<fingerprint>`, `--from`, `--no-plugins`, `--json` |
 | `agents-shipgate findings` (v0.20+) | `--from` (default: `agents-shipgate-reports/report.json`), `--provenance-kind`, `--include-suppressed`, `--json` |
@@ -35,6 +36,7 @@ These commands and flags are stable across all `0.x.y` releases. They will only 
 | `agents-shipgate fixture run` | `<name>`, `--ci-mode`, `--out` |
 | `agents-shipgate fixture copy` | `<name>`, `--to` |
 | `agents-shipgate fixture verify` | `<name>` |
+| `agents-shipgate mcp-serve` | no stable flags |
 | `agents-shipgate self-check` | `--json` |
 
 ### Provisional CLI command surface
@@ -76,6 +78,7 @@ Stable JSON fields:
   emitted by `agents-shipgate capability export`.
 - `capability_lock_diff_schema_version` — current stable semantic diff schema
   emitted by `agents-shipgate capability diff`.
+- `preflight_schema_version` — current proactive preflight routing schema.
 - `capability_standard_version` — current capability standard version.
 - `governance_benchmark_catalog_schema_version` — current benchmark catalog
   schema version.
@@ -95,6 +98,34 @@ shape should check `agents-shipgate contract --json` instead of inferring schema
 support from the package version alone.
 
 Signal paths use dotted notation; `[]` denotes an array field.
+
+### Preflight JSON fields (stable)
+
+`agents-shipgate preflight --json` is a proactive, static-only planning surface
+for coding agents. It does not inspect runtime tool calls, start an MCP server,
+or claim merge safety. `release_decision.decision` remains the only release gate.
+
+The stable top-level fields in `PreflightResultV1` are:
+
+- `preflight_schema_version` — currently `"0.1"`.
+- `workspace` and `config` — resolved workspace and manifest path context.
+- `protected_surfaces[]` — canonical trust-root surfaces with `kind`, `pattern`,
+  `scope_type`, `present`, and `present_paths`.
+- `forbidden_file_edits[]` — standing whole-file deny-list for autonomous
+  agents; this is not a general allow-list.
+- `forbidden_actions[]` — shortcuts agents must not take to clear a gate.
+- `required_evidence[]` — deterministic evidence requirements for a
+  `--capability-request` high-risk action proposal.
+- `changed_files[]` and `protected_surface_touches[]` — optional path review
+  projection from `--changed-files` and/or `--diff`.
+- `requires_human_review` — true when the requested preflight input touches a
+  protected surface or lacks high/critical required evidence.
+- `policy_snapshot_hash`, `trust_root_graph_hash`, and `trust_root_graph` —
+  deterministic hashes/projection for policy and trust-root drift review.
+- `policy_drift` and `trust_root_graph_diff` — populated when
+  `--base-preflight` is supplied.
+- `first_next_action` — routing hint for coding-agent vs human next action.
+- `notes[]` — non-gating diagnostics such as missing manifest context.
 
 ### JSON report fields (stable)
 

@@ -29,6 +29,7 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
 
@@ -166,6 +167,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "packet_schema_version",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
+        "preflight_schema_version",
         "capability_standard_version",
         "governance_benchmark_catalog_schema_version",
         "governance_benchmark_result_schema_version",
@@ -184,6 +186,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         ),
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+        "preflight_schema_version": PREFLIGHT_SCHEMA_VERSION,
         "capability_standard_version": CAPABILITY_STANDARD_VERSION,
         "governance_benchmark_catalog_schema_version": (
             GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
@@ -222,6 +225,7 @@ def test_cli_contract_text_outputs_key_values():
         str(EvidencePacket.model_fields["packet_schema_version"].default)
         in result.output
     )
+    assert PREFLIGHT_SCHEMA_VERSION in result.output
     assert GATING_SIGNAL in result.output
 
 

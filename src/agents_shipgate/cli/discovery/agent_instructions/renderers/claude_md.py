@@ -23,6 +23,7 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 agents-shipgate verify --preview --json
+agents-shipgate preflight --json
 agents-shipgate verify --workspace . --config shipgate.yaml \\
   --ci-mode advisory --format json
 ```
@@ -42,6 +43,13 @@ Then read `agents-shipgate-reports/report.json` and summarize:
 - top critical/high findings
 - safe patches applied
 - findings requiring human review
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
+`agents-shipgate preflight --json` or `agents-shipgate preflight
+--changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`first_next_action.actor` is `human`, stop and route the change to a human.
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip

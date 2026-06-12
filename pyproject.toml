@@ -75,6 +75,11 @@ pdf = [
   # warning if not installed; the rest of the packet still renders.
   "weasyprint>=68.1,<70",
 ]
+mcp = [
+  # Optional dependency for `agents-shipgate mcp-serve`. The default CLI stays
+  # static-only and does not start an MCP server implicitly.
+  "mcp>=1,<2",
+]
 dev = [
   "build>=1.5.0,<2",
   "cyclonedx-bom>=7.3.0,<8",

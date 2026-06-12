@@ -31,7 +31,24 @@ work is complete.
    pre-commit work, verify when the changed files are agent-related or when
    you need a full advisory check before handing off.
 
-3. **Run the verifier.**
+3. **Run preflight before protected-surface edits.**
+   Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+   policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+   plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
+   ```bash
+   agents-shipgate preflight --workspace . --json
+   ```
+   If you have changed-file or diff context, use it:
+   ```bash
+   agents-shipgate preflight --workspace . \
+     --changed-files /tmp/shipgate-changed-files.txt \
+     --diff /tmp/shipgate.diff --json
+   ```
+   If `requires_human_review` is true or `first_next_action.actor` is `human`,
+   stop and route the change to a human. Preflight is a routing surface only;
+   it does not replace the verifier.
+
+4. **Run the verifier.**
    For local uncommitted work, omit `--head` and omit `--base` so the
    checked-out working tree is scanned, including uncommitted edits:
    ```bash
@@ -48,7 +65,7 @@ work is complete.
    head-only pass. Fetch the base ref for committed PR/CI verification, or
    omit `--base` for local working-tree verification.
 
-4. **Read JSON, not Markdown.**
+5. **Read JSON, not Markdown.**
    - `agents-shipgate-reports/verifier.json` is the PR/controller artifact.
    - Lead with `merge_verdict`, then inspect `capability_review.top_changes[]`,
      `first_next_action.actor`, and `fix_task.safe_to_attempt`.
@@ -58,12 +75,12 @@ work is complete.
      `verdict` mirrors `release_decision.decision` and never gates
      independently.
 
-5. **Do not bypass the verifier.** Do not suppress findings, lower severity,
+6. **Do not bypass the verifier.** Do not suppress findings, lower severity,
    expand baselines or waivers, remove Shipgate CI, or soften agent
    instructions to make the run pass. Those trust-root edits are protected by
    `SHIP-VERIFY-*` findings and require human review.
 
-6. **Report back with:**
+7. **Report back with:**
    - `merge_verdict` and `headline` from `verifier.json`
    - `capability_review.top_changes[]`
    - `first_next_action.actor` and `fix_task.safe_to_attempt`

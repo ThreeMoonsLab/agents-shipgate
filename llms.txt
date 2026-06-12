@@ -64,6 +64,8 @@
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.7.json
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
+- Preflight planning JSON (non-gating): `agents-shipgate preflight --json`.
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.1.json
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
@@ -80,6 +82,7 @@
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
+- Before editing protected surfaces or proposing high-risk actions: `agents-shipgate preflight --json`.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=all`.
 - Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
 - Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and `capability_review.top_changes`. Then read `report.json.release_decision.decision`; it is the release gate.
@@ -128,6 +131,7 @@
 - Zero-install detector (stdlib-only Python; same structural verdict as `agents-shipgate detect --json` — emits the canonical `DetectResult` fields plus `script_version`, but NOT the CLI's `diagnostics` or `next_actions` arrays): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py
 - Zero-install paths overview (single-file detector, uvx, GitHub Action): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/zero-install.md
 - Manifest schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.1.json
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.25.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.7.json

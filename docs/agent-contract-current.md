@@ -11,10 +11,11 @@ agents-shipgate contract --json
 ```
 
 - Latest release: `v0.11.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `2`
+- Runtime contract: `3`
 - Current report schema: `0.25` — [`docs/report-schema.v0.25.json`](report-schema.v0.25.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
+- Current preflight schema: `0.1` — [`docs/preflight-schema.v0.1.json`](preflight-schema.v0.1.json)
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
@@ -24,11 +25,11 @@ agents-shipgate contract --json
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
-## Two read entry points
+## Three read entry points
 
-There are two correct "read first" paths; which one applies depends on who is
-reading. They are not two decisions — they are two entry points into the same
-one decision engine.
+There are three correct "read first" paths; which one applies depends on who is
+reading. They are not three decisions — PR/controller and gate/CI flow enter the
+same decision engine, while preflight is an earlier planning surface.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
   repair, or stop*. Read `agents-shipgate-reports/verifier.json`: lead with
@@ -39,9 +40,17 @@ one decision engine.
 - **Gate / CI flow** — deciding pass/fail, or any raw `report.json` consumer.
   Read `agents-shipgate-reports/report.json` → `release_decision.decision` (the
   next section). `.well-known` → `gating_signal` names this signal.
+- **Pre-edit planning flow** — an autonomous coding agent deciding whether it may
+  touch a protected surface or needs human evidence first. Run
+  `agents-shipgate preflight --json` (optionally with `--changed-files`,
+  `--diff`, or `--capability-request`). Read `requires_human_review`,
+  `protected_surface_touches[]`, `required_evidence[]`, and
+  `first_next_action`. This is a routing/projection surface only; it never
+  claims merge safety.
 
 `merge_verdict` is a deterministic projection of `release_decision.decision`, so
-the two can never disagree.
+the two can never disagree. Preflight results are intentionally earlier than the
+gate and do not introduce a second verdict.
 
 ## Read these first for release gating
 
@@ -223,13 +232,14 @@ work. `findings[].provenance_kind` is included there as a filter/review signal
 only; it never changes the release decision, severity, fingerprints, baselines,
 or CI exit behavior.
 
-Runtime contract `2` also exposes stable non-gating integration fields:
-`capability_lock_schema_version`, `capability_lock_diff_schema_version`,
-`capability_standard_version`,
+Runtime contract `3` also exposes stable non-gating integration fields:
+`preflight_schema_version`, `capability_lock_schema_version`,
+`capability_lock_diff_schema_version`, `capability_standard_version`,
 `governance_benchmark_catalog_schema_version`,
 `governance_benchmark_result_schema_version`, and
 `external_integration_surfaces[]`. These advertise capability lock/diff and
-benchmark artifacts for integrations and research. They do not change the gate:
+benchmark artifacts, plus the proactive preflight routing surface, for
+integrations and research. They do not change the gate:
 `release_decision.decision` remains the only release decision signal.
 
 The capability/intent diff fields (v0.9+), used by reviewers to spot misalignment between declared agent intent and actual tool surface:

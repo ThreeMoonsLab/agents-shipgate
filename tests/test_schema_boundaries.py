@@ -236,12 +236,13 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="2",
+        contract_version="3",
         cli_version="0.0.0",
         report_schema_version="0.17",
         packet_schema_version="0.6",
         capability_lock_schema_version="0.2",
         capability_lock_diff_schema_version="0.3",
+        preflight_schema_version="0.1",
         capability_standard_version="0.1",
         governance_benchmark_catalog_schema_version="0.2",
         governance_benchmark_result_schema_version="0.2",
@@ -249,12 +250,13 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         gating_signal="release_decision.decision",
         manual_review_signals=[],
     ).model_dump(mode="json") == {
-        "contract_version": "2",
+        "contract_version": "3",
         "cli_version": "0.0.0",
         "report_schema_version": "0.17",
         "packet_schema_version": "0.6",
         "capability_lock_schema_version": "0.2",
         "capability_lock_diff_schema_version": "0.3",
+        "preflight_schema_version": "0.1",
         "capability_standard_version": "0.1",
         "governance_benchmark_catalog_schema_version": "0.2",
         "governance_benchmark_result_schema_version": "0.2",

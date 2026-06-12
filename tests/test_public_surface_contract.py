@@ -46,6 +46,7 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
 
@@ -329,12 +330,23 @@ def test_well_known_metadata_lists_packet_outputs():
         f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
     )
     outputs = data.get("outputs", [])
-    for expected in ("packet_md", "packet_json", "packet_html", "feedback_json"):
+    for expected in (
+        "packet_md",
+        "packet_json",
+        "packet_html",
+        "preflight_json",
+        "feedback_json",
+    ):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
             "the Release Evidence Packet and feedback export are first-class outputs."
         )
     schemas = data.get("schemas", {})
+    assert data.get("preflight_schema_version") == PREFLIGHT_SCHEMA_VERSION
+    assert "preflight" in data.get("external_integration_surfaces", [])
+    assert data.get("commands", {}).get("preflight") == (
+        "agents-shipgate preflight --json"
+    )
     assert "packet" in schemas, (
         ".well-known/agents-shipgate.json `schemas` missing 'packet'; "
         "expected a URL pointing to the current packet schema "
@@ -354,6 +366,11 @@ def test_well_known_metadata_lists_packet_outputs():
     assert CURRENT_PACKET_SCHEMA in packet_url, (
         f".well-known schemas.packet must point to {CURRENT_PACKET_SCHEMA}; "
         f"got {packet_url!r}."
+    )
+    preflight_url = schemas.get("preflight", "")
+    assert f"preflight-schema.v{PREFLIGHT_SCHEMA_VERSION}.json" in preflight_url, (
+        ".well-known schemas.preflight must point to the current preflight "
+        f"schema; got {preflight_url!r}."
     )
     feedback_url = schemas.get("feedback", "")
     assert "feedback-schema.v0.1.json" in feedback_url, (
@@ -444,6 +461,10 @@ def test_agent_contract_current_doc_is_canonical():
         f"schema (v{CURRENT_PACKET_SCHEMA_VERSION}) so coding agents know "
         "about the Release Evidence Packet."
     )
+    assert f"preflight-schema.v{PREFLIGHT_SCHEMA_VERSION}.json" in text, (
+        "docs/agent-contract-current.md must reference the current preflight "
+        "schema so coding agents can discover proactive routing."
+    )
 
 
 def test_architecture_doc_contract_stamp_matches_runtime():
@@ -521,6 +542,9 @@ def test_constants_match_contract_doc():
     packet_match = re.search(
         r"Current packet schema:\s*`(\d+\.\d+)`", text
     )
+    preflight_match = re.search(
+        r"Current preflight schema:\s*`(\d+\.\d+)`", text
+    )
     release_match = re.search(
         r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text
     )
@@ -530,6 +554,10 @@ def test_constants_match_contract_doc():
     )
     assert packet_match, (
         "docs/agent-contract-current.md must declare 'Current packet "
+        "schema: `X.Y`'."
+    )
+    assert preflight_match, (
+        "docs/agent-contract-current.md must declare 'Current preflight "
         "schema: `X.Y`'."
     )
     assert release_match, (
@@ -545,6 +573,11 @@ def test_constants_match_contract_doc():
         f"contract doc says packet schema is "
         f"{packet_match.group(1)!r}; test constant says "
         f"{CURRENT_PACKET_SCHEMA_VERSION!r}. Update both together."
+    )
+    assert preflight_match.group(1) == PREFLIGHT_SCHEMA_VERSION, (
+        f"contract doc says preflight schema is "
+        f"{preflight_match.group(1)!r}; runtime says "
+        f"{PREFLIGHT_SCHEMA_VERSION!r}. Update both together."
     )
     assert release_match.group(1) == _load_pyproject_version(), (
         f"contract doc says latest release is "

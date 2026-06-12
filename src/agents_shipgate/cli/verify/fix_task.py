@@ -14,22 +14,12 @@ from __future__ import annotations
 
 import shlex
 
+from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
     VerifierFixTask,
-)
-
-# Reward-hacking moves that are never acceptable, for either actor. Kept in
-# sync with the PR-comment guardrail language (cli/verify/pr_comment.py).
-FORBIDDEN_SHORTCUTS: tuple[str, ...] = (
-    "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-    "Do not lower severity or add a waiver just to pass the gate.",
-    "Do not invent or assume approval, idempotency, or audit evidence you "
-    "cannot prove from the code.",
-    "Do not weaken the release policy, CI gate, or agent instructions that "
-    "evaluate this change.",
 )
 
 _MAX_INSTRUCTIONS = 5

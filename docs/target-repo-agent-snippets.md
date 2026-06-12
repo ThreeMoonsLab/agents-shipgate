@@ -47,6 +47,7 @@ Commands:
 
 ```bash
 agents-shipgate verify --preview --json
+agents-shipgate preflight --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=all
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
@@ -55,6 +56,13 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 Read `agents-shipgate-reports/verifier.json` first and lead with
 `merge_verdict`. Then read `agents-shipgate-reports/report.json`; use
 `release_decision.decision` as the release gate.
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
+`agents-shipgate preflight --json` or `agents-shipgate preflight
+--changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`first_next_action.actor` is `human`, stop and route the change to a human.
 
 Before finishing an agent-related diff in a repo with `shipgate.yaml`, run
 `agents-shipgate verify` or report the exact `agents-shipgate trigger` skip
@@ -137,6 +145,7 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 agents-shipgate verify --preview --json
+agents-shipgate preflight --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
@@ -156,6 +165,13 @@ Then read `agents-shipgate-reports/report.json` and summarize:
 - top critical/high findings
 - safe patches applied
 - findings requiring human review
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
+`agents-shipgate preflight --json` or `agents-shipgate preflight
+--changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`first_next_action.actor` is `human`, stop and route the change to a human.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
@@ -217,6 +233,7 @@ Default to advisory verification while adopting the gate.
 For an existing `shipgate.yaml`, prefer the ongoing-PR verifier before
 finishing:
 
+  agents-shipgate preflight --json
   agents-shipgate verify --workspace . --config shipgate.yaml \
       --base origin/main --head HEAD --ci-mode advisory --format json
 
@@ -229,6 +246,13 @@ Read `agents-shipgate-reports/verifier.json` first. Lead with
 `first_next_action.actor`, and `fix_task.safe_to_attempt`. Use
 `agents-shipgate-reports/report.json` as the source of truth for
 `release_decision.decision`.
+
+Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
+policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
+plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
+`agents-shipgate preflight --json` or `agents-shipgate preflight
+--changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`first_next_action.actor` is `human`, stop and route the change to a human.
 
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
@@ -298,6 +322,9 @@ capability changes — a local-first, static Tool-Use Readiness review.
       `merge_verdict`, and checked `capability_review.top_changes[]`.
 - [ ] I reviewed `agents-shipgate-reports/report.json` and used
       `release_decision.decision` as the release gate.
+- [ ] If this PR touches a protected surface, I ran
+      `agents-shipgate preflight --json` and routed human-review items to a
+      human.
 - [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
       or prohibited-action policy decisions.
 ````
@@ -342,6 +369,7 @@ companion to the bootstrap snippets above:
 ```text
 Before claiming completion on any PR that changes agent tools, MCP exports,
 OpenAPI specs, prompts, permissions, policies, CI gates, or shipgate.yaml, run:
+`agents-shipgate preflight --json` before editing protected trust roots, then
 `agents-shipgate verify --base origin/main --head HEAD --json`. Read
 agents-shipgate-reports/verifier.json first: merge_verdict,
 can_merge_without_human, first_next_action, fix_task, and

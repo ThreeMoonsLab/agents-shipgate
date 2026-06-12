@@ -98,6 +98,23 @@ expanding baselines or waivers, removing Shipgate CI, or weakening agent
 instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
 release-visible and route them to human review.
 
+**Before editing a protected release surface** — ask the proactive static
+planner first:
+
+```bash
+agents-shipgate preflight --json
+agents-shipgate preflight --changed-files changed.txt --json
+agents-shipgate preflight --capability-request request.json --json
+```
+
+If `requires_human_review` is `true` or `first_next_action.actor` is `human`,
+stop and route the change to a human. Protected surfaces include
+`shipgate.yaml`, `.github/workflows/agents-shipgate.yml`,
+`AGENTS.md`/`CLAUDE.md`/Cursor rules, policy packs, baselines, waivers,
+suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`,
+`.app.json`, and `SKILL.md`. Preflight is a routing/projection surface only;
+`release_decision.decision` remains the release gate.
+
 To reproduce the verify-native blocked refund PR demo without writing YAML:
 
 ```bash
@@ -163,6 +180,7 @@ Every command supports JSON output for programmatic consumption:
 
 ```bash
 agents-shipgate detect --workspace . --json
+agents-shipgate preflight --workspace . --json
 agents-shipgate init --workspace . --write --json
 agents-shipgate scan -c shipgate.yaml                    # already produces report.json
 agents-shipgate apply-patches --from agents-shipgate-reports/report.json --json

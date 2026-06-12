@@ -96,8 +96,13 @@ prompts, permissions, policies, CI gates, or `shipgate.yaml`, Claude Code should
 run it before reporting the change as complete:
 
 ```bash
+agents-shipgate preflight --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
+
+If preflight returns `requires_human_review: true`, Claude Code must stop for a
+human before editing the protected surface or asserting missing high-risk
+evidence.
 
 Then read `agents-shipgate-reports/verifier.json` and **lead with
 `merge_verdict`** (`mergeable` / `human_review_required` /
