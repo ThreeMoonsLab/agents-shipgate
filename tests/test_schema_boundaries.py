@@ -304,6 +304,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_name_candidates": [],
         "project_name_candidates": [],
         "suggested_sources": [],
+        "excluded_sources": [],
         "codex_plugin_candidates": [],
         "next_action": "",
         "workspace_signals": {

@@ -244,3 +244,104 @@ def test_init_auto_flag_is_accepted_as_no_op(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0
     assert (workspace / "shipgate.yaml").exists()
+
+
+# --- Cold-start regression: unparseable glob matches must never be written ---
+# Found by mining stripe/ai at cd8cee5 (PR #232 era): a Cursor plugin
+# `mcp.json` is an mcpServers-style host config that matches the `*mcp*.json`
+# suggestion glob. init --write used to declare it as an `mcp` tool source,
+# and the very next documented step — `scan -c shipgate.yaml` — exited 3 with
+# "MCP tools file must contain a tools array".
+
+_CURSOR_PLUGIN_MCP = """{
+  "mcpServers": {
+    "stripe": {
+      "command": "npx",
+      "args": ["-y", "@stripe/mcp", "--tools=all"],
+      "env": {"STRIPE_SECRET_KEY": "sk_test_CHANGE_ME"}
+    }
+  }
+}
+"""
+
+_MCP_TOOLS_EXPORT = """{
+  "tools": [
+    {
+      "name": "create_payment_link",
+      "description": "Create a payment link for an order checkout flow.",
+      "inputSchema": {"type": "object", "properties": {"amount": {"type": "integer"}}}
+    }
+  ]
+}
+"""
+
+
+def _cursor_config_workspace(tmp_path: Path, *, with_export: bool) -> Path:
+    workspace = tmp_path / "ws"
+    plugin_dir = workspace / "providers" / "cursor" / "plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "mcp.json").write_text(_CURSOR_PLUGIN_MCP, encoding="utf-8")
+    if with_export:
+        tools = workspace / "tools"
+        tools.mkdir()
+        (tools / "payments-mcp.json").write_text(_MCP_TOOLS_EXPORT, encoding="utf-8")
+    return workspace
+
+
+def test_cold_start_init_then_scan_with_mcpservers_config_present(tmp_path: Path) -> None:
+    """init must never write a tool_sources entry the scan input adapters
+    reject: the documented cold-start flow is `init --write` → `scan`, and
+    one poison entry breaks it out of the box on real repos."""
+    import json as _json
+
+    workspace = _cursor_config_workspace(tmp_path, with_export=True)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = _json.loads(result.output)
+    assert payload["created"] is True
+    excluded = payload["auto_detected"]["excluded_sources"]
+    assert [entry["path"] for entry in excluded] == ["providers/cursor/plugin/mcp.json"]
+    assert "mcpServers" in excluded[0]["reason"]
+
+    manifest_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    manifest = _validates(manifest_text)
+    # The real export is declared; the host config is hinted, never declared.
+    assert [s.path for s in manifest.tool_sources] == ["tools/payments-mcp.json"]
+    assert "#   providers/cursor/plugin/mcp.json" in manifest_text
+
+    scan_result = runner.invoke(
+        app, ["scan", "--config", str(workspace / "shipgate.yaml")]
+    )
+    assert scan_result.exit_code == 0, scan_result.output
+    assert "Input parsing error" not in scan_result.output
+
+
+def test_init_config_only_workspace_writes_stub_not_poison_source(tmp_path: Path) -> None:
+    """With ONLY the host config present, init falls back to the CHANGE_ME
+    stub (pre-existing empty-workspace contract) and hints the excluded
+    file — it must not declare the config as a tool source."""
+    workspace = _cursor_config_workspace(tmp_path, with_export=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", "--workspace", str(workspace), "--write"])
+    assert result.exit_code == 0, result.output
+    assert "Excluded 1 detected file(s)" in result.output
+    manifest_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    manifest = _validates(manifest_text)
+    assert all(
+        s.path != "providers/cursor/plugin/mcp.json" for s in manifest.tool_sources
+    )
+    assert any(s.id == "CHANGE_ME" for s in manifest.tool_sources)
+    assert "#   providers/cursor/plugin/mcp.json" in manifest_text
+
+
+def test_minimal_template_excludes_mcpservers_config(tmp_path: Path) -> None:
+    """The legacy --minimal discovery path shares the parse probe: the host
+    config must not appear as a tool source there either."""
+    workspace = _cursor_config_workspace(tmp_path, with_export=True)
+    template = render_manifest_template(workspace.resolve())
+    assert "tools/payments-mcp.json" in template
+    assert "providers/cursor/plugin/mcp.json" not in template

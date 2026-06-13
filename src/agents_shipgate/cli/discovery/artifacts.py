@@ -99,19 +99,85 @@ def discover_manifest_paths(workspace: Path) -> list[Path]:
     return _candidate_files_matching(workspace, ("shipgate.yaml",))
 
 
+def probe_suggested_source(workspace: Path, rel_path: str, source_type: str) -> str | None:
+    """Parse-check a suggested tool source with the real input adapter.
+
+    Returns ``None`` when the adapter accepts the file, else a one-line
+    reason why ``scan`` would reject it with an input-parse error (exit 3).
+    Suggestion rules are filename globs, and filenames lie: a Cursor plugin
+    ``mcp.json`` is an ``mcpServers``-style host config, not an MCP
+    tools-array export. ``init`` must never write a ``tool_sources`` entry
+    that fails this probe — the documented cold-start flow is
+    ``init --write`` → ``scan``, and one unparseable entry breaks it out of
+    the box. Probing with the adapters themselves (rather than a parallel
+    shape classifier) keeps the gate exactly as strict as ``scan``.
+    """
+    # Lazy imports: discovery stays loader-free for framework *scoring*
+    # (see signals.py module docstring); the probe is the one deliberate
+    # adapter touchpoint, used only on glob-matched candidate files.
+    from agents_shipgate.core.errors import InputParseError
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    if source_type == "mcp":
+        from agents_shipgate.inputs.mcp import load_mcp_tools as loader
+    elif source_type == "openapi":
+        from agents_shipgate.inputs.openapi import load_openapi_tools as loader
+    else:
+        return None
+    source = ToolSourceConfig(id=f"probe_{source_type}", type=source_type, path=rel_path)
+    try:
+        loader(source, workspace)
+    except InputParseError as exc:
+        return _probe_failure_reason(workspace, rel_path, source_type, str(exc))
+    except Exception as exc:  # noqa: BLE001 - a loader bug must downgrade the
+        # suggestion, not crash detect/init; scan would crash on it anyway.
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+def _probe_failure_reason(
+    workspace: Path, rel_path: str, source_type: str, message: str
+) -> str:
+    if source_type == "mcp":
+        try:
+            data = json.loads((workspace / rel_path).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            data = None
+        # Same key pair the host-boundary surface reads; these files are
+        # host MCP *configuration*, which scan's mcp adapter never accepts.
+        if isinstance(data, dict) and any(
+            isinstance(data.get(key), dict) for key in ("mcpServers", "servers")
+        ):
+            return (
+                "mcpServers-style MCP server config (host configuration), "
+                "not an MCP tools-array export"
+            )
+    resolved = str((workspace / rel_path).resolve())
+    return message.replace(resolved, rel_path)
+
+
 def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
+    """Glob OpenAPI/MCP candidates and keep only files the real input
+    adapters accept. A glob hit that fails the parse probe (e.g. an
+    ``mcpServers``-style host config matching ``*mcp*.json``) is dropped:
+    writing it would guarantee a ``scan`` input-parse failure."""
     sources: list[dict[str, str]] = []
     seen: set[Path] = set()
+    rejected: set[Path] = set()
     for pattern in OPENAPI_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
-            if path in seen:
+            if path in seen or path in rejected:
+                continue
+            rel = _relative(path, workspace)
+            if probe_suggested_source(workspace, rel, "openapi") is not None:
+                rejected.add(path)
                 continue
             seen.add(path)
             sources.append(
                 {
                     "id": _source_id(path, "openapi"),
                     "type": "openapi",
-                    "path": _relative(path, workspace),
+                    "path": rel,
                 }
             )
     for pattern in MCP_PATTERNS:
@@ -120,12 +186,15 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
                 continue
             if path in seen:
                 continue
+            rel = _relative(path, workspace)
+            if probe_suggested_source(workspace, rel, "mcp") is not None:
+                continue
             seen.add(path)
             sources.append(
                 {
                     "id": _source_id(path, "mcp"),
                     "type": "mcp",
-                    "path": _relative(path, workspace),
+                    "path": rel,
                 }
             )
     return sources

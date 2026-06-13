@@ -71,6 +71,7 @@ def detect(
     ):
         typer.echo("Workspace does not appear to be an agent project.")
         typer.echo("No agent framework signals matched the strong-signal threshold.")
+        _echo_excluded_sources(result.excluded_sources)
         return
 
     typer.echo(
@@ -102,6 +103,7 @@ def detect(
         typer.echo("Suggested tool sources:")
         for source in result.suggested_sources:
             typer.echo(f"- {source['type']}: {source['path']}")
+    _echo_excluded_sources(result.excluded_sources)
     if result.codex_plugin_candidates:
         typer.echo("")
         typer.echo("Codex plugin candidates:")
@@ -109,3 +111,17 @@ def detect(
             typer.echo(f"- {candidate.mode}: {candidate.path}")
     typer.echo("")
     typer.echo(f"Next: {result.next_action}")
+
+
+def _echo_excluded_sources(excluded: list[dict[str, str]]) -> None:
+    """List glob-matched files the input adapters reject.
+
+    Answers "why wasn't my mcp.json picked up?" without making the file a
+    tool source — writing it would fail ``scan`` input parsing (exit 3).
+    """
+    if not excluded:
+        return
+    typer.echo("")
+    typer.echo("Excluded sources (scan cannot parse these as tool sources):")
+    for source in excluded:
+        typer.echo(f"- {source['type']}: {source['path']} — {source['reason']}")
