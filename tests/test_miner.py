@@ -83,6 +83,17 @@ def test_capability_pr_is_evaluated_end_to_end(tmp_path: Path) -> None:
         "blocked",
     }
     assert row.files_changed == 1
+    # v0.2 receipt fields: the real verify ran base-vs-head with the
+    # injected manifest on both sides and produced a per-PR verdict.
+    assert row.verify_verdict in {
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown",
+    }, row.to_json()
+    assert row.verify_decision != "", row.to_json()
+    assert isinstance(row.verify_can_merge, bool)
     # The worktrees must be cleaned up even on success.
     assert _git(repo, "worktree", "list").count("\n") == 0
 

@@ -27,6 +27,7 @@ mainline change, correct for both squash and merge):
 | Boundary gate | `check_decision, check_rule_ids` | `shipgate check --agent claude-code --diff …` (no manifest needed) |
 | Release gate | `init_status, head_decision, head_blockers, head_review_items, evidence_gaps, tools_scanned` | `init --write` (cold-start) + `scan` on a head worktree |
 | Authority delta | `cap_added, cap_removed, cap_changed, cap_broadened` | `capability export` on base+head worktrees (same manifest both sides) + `capability diff` |
+| **Receipt (v0.2)** | `verify_verdict, verify_decision, verify_can_merge, verify_trust_root_touched, verify_policy_weakened, verify_cap_added/modified/removed` | Real `verify --base <base'> --head <head''>` with the cold-start manifest committed onto **both** sides; `head''` is re-parented onto `base'` (`commit-tree`) so the three-dot diff is exactly the PR's delta and the injected manifest cannot fire the trust-root signal. Diff-aware `SHIP-VERIFY-*` checks and new-findings gating apply — these columns are the per-PR verdict; the scan columns above remain the cold-start whole-surface state. |
 | Lifecycle | `status` (`evaluated \| trigger_skip \| init_skip \| scan_failed \| error`), `notes` | — |
 
 `evaluated` means the head scan produced a release decision. When the
@@ -77,7 +78,7 @@ python -m benchmark.miner evaluate \
 
 | Run | Date | Repos | Rows | Notes |
 |---|---|---|---|---|
-| [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | First real run; findings below. |
+| [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
 
 ### 2026-W24 findings (read this before quoting the numbers)
 
@@ -94,13 +95,43 @@ python -m benchmark.miner evaluate \
   would not pass the default gate at that merge point" — see
   `openai-agents-python#3392` (`blocked`, but it's a docs PR;
   `cap_added=0`; the blocker is pre-existing surface). Treat rows as
-  **labeled-corpus candidates**; true per-PR receipts need the verify
-  path (base-vs-head, new-findings-only) — that is miner v0.2.
+  **labeled-corpus candidates**. Schema v0.2 adds exactly the missing
+  half: the `verify_*` columns are the per-PR receipt (base-vs-head,
+  new-findings gating), while `head_decision` remains the cold-start
+  whole-surface state — read the pair together.
 - **Ground truth reproduced:** `stripe/ai#232` (the 2026-06-01 pilot's
   silent least-privilege removal) round-trips through the cold-start
   path via the monorepo retry (`retry_at:tools/python`) and lands on the
   pilot's exact verdict: `insufficient_evidence`, 5 review items,
   4 evidence gaps.
+- **The blocked flip, demonstrated on real history (v0.2):** on the real
+  PR #232 trees, `verify` with a **directory-scoped** SDK source
+  (`path: examples/openai/customer_support`) returns
+  `merge_verdict: blocked` with blocker
+  `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` and
+  `can_merge_without_human: false` — the silent least-privilege removal
+  is caught and the merge is refused. The cold-start v0.2 receipt stops
+  at `insufficient_evidence` + `can_merge_without_human: false`
+  (fails safe, names no risk) for one reason: `init` scopes the SDK
+  source to a single entrypoint **file** (`…/customer_support/main.py`)
+  while the bounded `StripeAgentToolkit(configuration=…)` constructor
+  lives in the sibling `support_agent.py`. Init source scoping
+  (directory, not file) is the gap between "fails safe" and "blocks the
+  attack" on this case — tracked with the init source-quality fix.
+- **Engine bug found by the v0.2 receipts (caveat on `verify_cap_*`):**
+  verify's report-level `capability_change` marks every capability
+  "broadened (unknown direction; schema_hash changed)" even on a
+  docs-only diff, while the lock-diff artifact from the same run
+  correctly says `unchanged` — two engine paths disagree on identical
+  input. Until that fix lands, treat `verify_cap_modified` as inflated
+  on rows with many tools (e.g. 103 on `openai-agents-python#3392`,
+  a docs PR); `verify_verdict`/`verify_decision` are baseline-gated and
+  unaffected in their gate semantics. Also fixed while building v0.2:
+  without a base-tree baseline the receipt included pre-existing
+  blockers (a docs PR scored a `blocked` receipt from standing
+  surface) — receipts are now `--baseline`-gated; and the injected
+  manifest is committed re-parented (`head''` onto `base'`) so it
+  cannot fire the trust-root signal.
 - **Two product bugs found by one mining session:** (1) a symlink loop in
   stripe/ai crashed `detect`/`init` cold-start with a traceback — fixed
   with this run (see `cli/discovery/artifacts.py`); (2) `init` at the

@@ -209,7 +209,184 @@ def _cold_start_scan(
     _capability_delta(
         row, repo_path, base_wt, head_wt, manifest, tmp_path, subdir=subdir
     )
+    _verify_pr(row, repo_path, base_wt, head_wt, manifest, tmp_path, subdir=subdir)
     return True
+
+
+def _verify_pr(
+    row: MinedRow,
+    repo_path: Path,
+    base_wt: Path,
+    head_wt: Path,
+    head_manifest: Path,
+    tmp_path: Path,
+    *,
+    subdir: str,
+) -> None:
+    """Run the real PR verifier with the cold-start manifest on both sides.
+
+    Commits the manifest as a detached temp commit in each worktree (object-db
+    only; no branch is touched) so ``verify --base <base'> --head <head'>``
+    sees identical manifests and the verdict reflects the PR's delta — the
+    diff-aware ``SHIP-VERIFY-*`` checks and new-findings gating included.
+    These are the receipt fields; the v0.1 scan fields above are the
+    cold-start whole-surface state.
+    """
+
+    manifest_rel = f"{subdir}/shipgate.yaml" if subdir else "shipgate.yaml"
+    head_commit = _commit_manifest(head_wt, manifest_rel)
+    if head_commit is None:
+        row.notes = _append_note(row.notes, "verify_head_commit_failed")
+        return
+    # Self-sufficient base setup: _capability_delta usually created the base
+    # worktree and copied the manifest, but its earlier failures must not
+    # also cost us the verify receipt.
+    if not base_wt.exists():
+        try:
+            _worktree_add(repo_path, base_wt, row.base_sha)
+        except RuntimeError:
+            row.notes = _append_note(row.notes, "verify_base_worktree_failed")
+            return
+    base_manifest = base_wt / manifest_rel
+    if not base_manifest.parent.is_dir():
+        row.notes = _append_note(row.notes, "verify_base_subdir_missing")
+        return
+    if not base_manifest.is_file():
+        shutil.copyfile(head_manifest, base_manifest)
+    base_sha = _commit_manifest(base_wt, manifest_rel)
+    if base_sha is None:
+        row.notes = _append_note(row.notes, "verify_base_commit_failed")
+        return
+    # Re-parent head' onto base': verify diffs base...head (three-dot, i.e.
+    # since the merge base). With independent manifest commits on each side
+    # the merge base is the original base, so the injected shipgate.yaml
+    # shows up as "added" and falsely fires the trust-root signal. Building
+    # head'' = head-tree-with-manifest parented on base' makes the diff
+    # exactly the PR's delta (the identical manifest cancels out).
+    # Delta-gating: without a baseline, verify's release decision includes
+    # the repo's PRE-EXISTING blockers (release_decision.py gates on the
+    # full findings set; only baseline-matched findings demote to accepted
+    # debt). A baseline saved from the BASE tree is what makes the receipt
+    # reflect the PR's new findings — observed concretely: a docs-only PR
+    # in openai-agents-python scored a "blocked" receipt from standing
+    # surface until this baseline was added.
+    baseline_path = tmp_path / "base-baseline.json"
+    baseline = _run(
+        [
+            *shipgate_cmd(),
+            "baseline",
+            "save",
+            "--config",
+            str(base_wt / manifest_rel),
+            "--out",
+            str(baseline_path),
+        ]
+    )
+    if baseline.returncode != 0 or not baseline_path.is_file():
+        row.notes = _append_note(row.notes, "verify_baseline_failed")
+        return
+    head_tree = _git(head_wt, ["rev-parse", f"{head_commit}^{{tree}}"])
+    if head_tree.returncode != 0 or not head_tree.stdout.strip():
+        row.notes = _append_note(row.notes, "verify_head_tree_failed")
+        return
+    reparented = _git(
+        head_wt,
+        [
+            "-c",
+            "user.email=miner@local",
+            "-c",
+            "user.name=shipgate-miner",
+            "commit-tree",
+            head_tree.stdout.strip(),
+            "-p",
+            base_sha,
+            "-m",
+            "miner: PR head with injected cold-start manifest",
+        ],
+    )
+    head_sha = reparented.stdout.strip()
+    if reparented.returncode != 0 or not head_sha:
+        row.notes = _append_note(row.notes, "verify_reparent_failed")
+        return
+    result = _run(
+        [
+            *shipgate_cmd(),
+            "verify",
+            "--workspace",
+            str(head_wt),
+            "--config",
+            manifest_rel,
+            "--base",
+            base_sha,
+            "--head",
+            head_sha,
+            "--baseline",
+            str(baseline_path),
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+            "--out",
+            str(tmp_path / "verify-reports"),
+        ]
+    )
+    payload = _parse_json(result.stdout)
+    if payload is None:
+        row.notes = _append_note(
+            row.notes, f"verify_unparseable_exit_{result.returncode}"
+        )
+        return
+    row.verify_verdict = str(payload.get("merge_verdict") or "")
+    can_merge = payload.get("can_merge_without_human")
+    row.verify_can_merge = can_merge if isinstance(can_merge, bool) else None
+    release_decision = payload.get("release_decision") or {}
+    if isinstance(release_decision, dict):
+        row.verify_decision = str(release_decision.get("decision") or "")
+    review = payload.get("capability_review") or {}
+    if isinstance(review, dict):
+        trust = review.get("trust_root_touched")
+        row.verify_trust_root_touched = trust if isinstance(trust, bool) else None
+        weakened = review.get("policy_weakened")
+        row.verify_policy_weakened = weakened if isinstance(weakened, bool) else None
+        row.verify_cap_added = _as_int(review.get("added"))
+        row.verify_cap_modified = _as_int(review.get("modified"))
+        row.verify_cap_removed = _as_int(review.get("removed"))
+
+
+def _commit_manifest(worktree: Path, manifest_rel: str) -> str | None:
+    """Commit the injected manifest on the worktree's detached HEAD.
+
+    Returns the new commit SHA (object-db only — no branch moves), or the
+    current HEAD when the manifest is already tracked and unchanged.
+    """
+
+    add = _git(worktree, ["add", "--", manifest_rel])
+    if add.returncode != 0:
+        return None
+    status = _git(worktree, ["status", "--porcelain", "--", manifest_rel])
+    if status.returncode != 0:
+        return None
+    if status.stdout.strip():
+        commit = _git(
+            worktree,
+            [
+                "-c",
+                "user.email=miner@local",
+                "-c",
+                "user.name=shipgate-miner",
+                "commit",
+                "-q",
+                "--no-verify",
+                "-m",
+                "miner: inject cold-start manifest",
+            ],
+        )
+        if commit.returncode != 0:
+            return None
+    head = _git(worktree, ["rev-parse", "HEAD"])
+    if head.returncode != 0:
+        return None
+    return head.stdout.strip() or None
 
 
 def _boundary_check(row: MinedRow, head_wt: Path, diff_text: str, tmp_path: Path) -> None:

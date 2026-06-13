@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-MINER_SCHEMA_VERSION = "0.1"
+MINER_SCHEMA_VERSION = "0.2"
 
 # Row lifecycle states.
 STATUS_EVALUATED = "evaluated"  # head scan produced a release decision
@@ -47,6 +47,18 @@ class MinedRow:
     cap_removed: int | None = None
     cap_changed: int | None = None
     cap_broadened: int | None = None
+    # v0.2 — the per-PR receipt fields: real `verify --base --head` with the
+    # cold-start manifest committed onto BOTH sides, so the verdict reflects
+    # the PR's delta (new-findings gating + SHIP-VERIFY-* diff checks), not
+    # the repo's standing surface.
+    verify_verdict: str = ""
+    verify_decision: str = ""
+    verify_can_merge: bool | None = None
+    verify_trust_root_touched: bool | None = None
+    verify_policy_weakened: bool | None = None
+    verify_cap_added: int | None = None
+    verify_cap_modified: int | None = None
+    verify_cap_removed: int | None = None
     status: str = STATUS_ERROR
     notes: str = ""
     schema_version: str = field(default=MINER_SCHEMA_VERSION)
