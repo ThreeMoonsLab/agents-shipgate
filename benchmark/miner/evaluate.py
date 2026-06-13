@@ -209,7 +209,16 @@ def _cold_start_scan(
     _capability_delta(
         row, repo_path, base_wt, head_wt, manifest, tmp_path, subdir=subdir
     )
-    _verify_pr(row, repo_path, base_wt, head_wt, manifest, tmp_path, subdir=subdir)
+    _verify_pr(
+        row,
+        repo_path,
+        base_wt,
+        head_wt,
+        manifest,
+        tmp_path,
+        subdir=subdir,
+        manifest_injected=row.init_status == "written",
+    )
     return True
 
 
@@ -222,15 +231,15 @@ def _verify_pr(
     tmp_path: Path,
     *,
     subdir: str,
+    manifest_injected: bool,
 ) -> None:
-    """Run the real PR verifier with the cold-start manifest on both sides.
+    """Run the real PR verifier to produce the per-PR receipt fields.
 
-    Commits the manifest as a detached temp commit in each worktree (object-db
-    only; no branch is touched) so ``verify --base <base'> --head <head'>``
-    sees identical manifests and the verdict reflects the PR's delta — the
-    diff-aware ``SHIP-VERIFY-*`` checks and new-findings gating included.
-    These are the receipt fields; the v0.1 scan fields above are the
-    cold-start whole-surface state.
+    ``manifest_injected`` distinguishes the miner's synthetic cold-start
+    manifest from a real ``shipgate.yaml`` the PR itself changed, which
+    decides how the base side is set up (see below). These are the receipt
+    fields; the v0.1 scan fields above are the cold-start whole-surface
+    state.
     """
 
     manifest_rel = f"{subdir}/shipgate.yaml" if subdir else "shipgate.yaml"
@@ -248,43 +257,63 @@ def _verify_pr(
             row.notes = _append_note(row.notes, "verify_base_worktree_failed")
             return
     base_manifest = base_wt / manifest_rel
-    if not base_manifest.parent.is_dir():
-        row.notes = _append_note(row.notes, "verify_base_subdir_missing")
-        return
-    if not base_manifest.is_file():
-        shutil.copyfile(head_manifest, base_manifest)
-    base_sha = _commit_manifest(base_wt, manifest_rel)
-    if base_sha is None:
-        row.notes = _append_note(row.notes, "verify_base_commit_failed")
-        return
-    # Re-parent head' onto base': verify diffs base...head (three-dot, i.e.
-    # since the merge base). With independent manifest commits on each side
-    # the merge base is the original base, so the injected shipgate.yaml
-    # shows up as "added" and falsely fires the trust-root signal. Building
-    # head'' = head-tree-with-manifest parented on base' makes the diff
-    # exactly the PR's delta (the identical manifest cancels out).
-    # Delta-gating: without a baseline, verify's release decision includes
-    # the repo's PRE-EXISTING blockers (release_decision.py gates on the
-    # full findings set; only baseline-matched findings demote to accepted
-    # debt). A baseline saved from the BASE tree is what makes the receipt
-    # reflect the PR's new findings — observed concretely: a docs-only PR
-    # in openai-agents-python scored a "blocked" receipt from standing
-    # surface until this baseline was added.
-    baseline_path = tmp_path / "base-baseline.json"
-    baseline = _run(
-        [
-            *shipgate_cmd(),
-            "baseline",
-            "save",
-            "--config",
-            str(base_wt / manifest_rel),
-            "--out",
-            str(baseline_path),
-        ]
+    # Decide the manifest's kind from git history at the REAL base commit,
+    # NOT from base_wt on disk: _capability_delta already copied the manifest
+    # into the base worktree for its export, so a filesystem check would
+    # mis-read a PR-added manifest as preexisting.
+    base_had_manifest = (
+        _git(base_wt, ["cat-file", "-e", f"{row.base_sha}:{manifest_rel}"]).returncode == 0
     )
-    if baseline.returncode != 0 or not baseline_path.is_file():
-        row.notes = _append_note(row.notes, "verify_baseline_failed")
-        return
+
+    if manifest_injected:
+        # Synthetic apparatus: force the identical manifest onto base so it
+        # cancels out of the base...head diff — it is not a PR change.
+        if not base_manifest.parent.is_dir():
+            row.notes = _append_note(row.notes, "verify_base_subdir_missing")
+            return
+        shutil.copyfile(head_manifest, base_manifest)
+
+    baseline_path: Path | None = None
+    if manifest_injected or base_had_manifest:
+        # Base has a manifest in scope (synthetic on both sides, or the PR
+        # EDITED a real one): commit it so the diff is clean, then baseline-gate.
+        # Without a baseline, verify counts the repo's PRE-EXISTING blockers
+        # (release_decision.py only demotes baseline-MATCHED findings); a
+        # base-tree baseline makes the receipt reflect the PR's new findings —
+        # a docs-only PR scored a "blocked" receipt from standing surface
+        # until this was added.
+        base_sha = _commit_manifest(base_wt, manifest_rel)
+        if base_sha is None:
+            row.notes = _append_note(row.notes, "verify_base_commit_failed")
+            return
+        baseline_path = tmp_path / "base-baseline.json"
+        baseline = _run(
+            [
+                *shipgate_cmd(),
+                "baseline",
+                "save",
+                "--config",
+                str(base_manifest),
+                "--out",
+                str(baseline_path),
+            ]
+        )
+        if baseline.returncode != 0 or not baseline_path.is_file():
+            row.notes = _append_note(row.notes, "verify_baseline_failed")
+            return
+    else:
+        # The PR ADDED a real manifest: read the real base commit (no manifest)
+        # so the addition stays a visible trust-root diff. Copying head's
+        # manifest onto base would erase exactly the SHIP-VERIFY-TRUST-ROOT-
+        # TOUCHED signal verify exists to report. No base tool surface → no
+        # baseline (nothing pre-existed); verify reads the commit, so the stray
+        # working-tree copy from _capability_delta is irrelevant.
+        base_sha = row.base_sha
+
+    # Re-parent head'' = head-tree (with the head-side manifest) onto base',
+    # so verify's three-dot base...head diff is exactly the PR's delta: an
+    # injected manifest committed independently on each side would otherwise
+    # show as "added" and falsely fire the trust-root signal.
     head_tree = _git(head_wt, ["rev-parse", f"{head_commit}^{{tree}}"])
     if head_tree.returncode != 0 or not head_tree.stdout.strip():
         row.notes = _append_note(row.notes, "verify_head_tree_failed")
@@ -301,35 +330,36 @@ def _verify_pr(
             "-p",
             base_sha,
             "-m",
-            "miner: PR head with injected cold-start manifest",
+            "miner: PR head for verify",
         ],
     )
     head_sha = reparented.stdout.strip()
     if reparented.returncode != 0 or not head_sha:
         row.notes = _append_note(row.notes, "verify_reparent_failed")
         return
-    result = _run(
-        [
-            *shipgate_cmd(),
-            "verify",
-            "--workspace",
-            str(head_wt),
-            "--config",
-            manifest_rel,
-            "--base",
-            base_sha,
-            "--head",
-            head_sha,
-            "--baseline",
-            str(baseline_path),
-            "--ci-mode",
-            "advisory",
-            "--format",
-            "json",
-            "--out",
-            str(tmp_path / "verify-reports"),
-        ]
-    )
+    cmd = [
+        *shipgate_cmd(),
+        "verify",
+        "--workspace",
+        str(head_wt),
+        "--config",
+        manifest_rel,
+        "--base",
+        base_sha,
+        "--head",
+        head_sha,
+    ]
+    if baseline_path is not None:
+        cmd += ["--baseline", str(baseline_path)]
+    cmd += [
+        "--ci-mode",
+        "advisory",
+        "--format",
+        "json",
+        "--out",
+        str(tmp_path / "verify-reports"),
+    ]
+    result = _run(cmd)
     payload = _parse_json(result.stdout)
     if payload is None:
         row.notes = _append_note(
