@@ -473,8 +473,17 @@ def _git_candidate_files(workspace: Path) -> list[Path] | None:
             rel = raw_rel.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        path = (git_root / rel).resolve()
-        if path.is_file() and not _skip(path, workspace):
+        try:
+            path = (git_root / rel).resolve()
+            is_file = path.is_file()
+        except (OSError, RuntimeError):
+            # A symlink loop (ELOOP surfaces as RuntimeError from
+            # Path.resolve on CPython) or an unreadable entry must skip
+            # that entry, not crash discovery — `detect` is the advertised
+            # safe first touch and real repos contain such paths
+            # (found mining stripe/ai: llm/ai-sdk/LICENSE loop).
+            continue
+        if is_file and not _skip(path, workspace):
             candidates.append(path)
     return sorted(candidates)
 

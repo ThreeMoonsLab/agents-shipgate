@@ -241,6 +241,39 @@ def test_detect_result_serializes_cleanly() -> None:
     assert isinstance(payload["agent_name_candidates"], list)
 
 
+def test_symlink_loop_in_git_workspace_does_not_crash_detect(tmp_path: Path) -> None:
+    """A symlink loop must skip the entry, never crash discovery.
+
+    Found mining real history: stripe/ai ships a looping symlink
+    (llm/ai-sdk/LICENSE), and ``Path.resolve()`` surfaces ELOOP as
+    ``RuntimeError`` on CPython — which crashed ``detect`` (and therefore
+    ``init`` cold-start) with a traceback. The git candidate path
+    (``git ls-files -co``) is the one that lists symlinks.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git unavailable")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    (tmp_path / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from langchain_core.tools import tool
+
+            @tool
+            def lookup(query: str) -> str:
+                \"\"\"Look up a document.\"\"\"
+                return query
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "loop").symlink_to(tmp_path / "loop")
+
+    result = detect_workspace(tmp_path)
+
+    assert isinstance(result, DetectResult)
+    assert result.is_agent_project is True
+
+
 # --- Suggested-source parse probe ------------------------------------------
 # Suggestion rules are filename globs and filenames lie: detect must only
 # suggest files the real input adapters accept, and report the rest as

@@ -47,3 +47,6 @@ docs/decks/vc-thesis/build/fragments/*
 !docs/decks/vc-thesis/build/deck*.pptx
 !docs/decks/vc-thesis/build/slide-*.png
 !docs/decks/vc-thesis/build/fragments/*.png
+
+# Merged-PR miner clone cache (benchmark/miner)
+.miner-work/
