@@ -409,6 +409,31 @@ def build_action(
     )
 
 
+def public_action_schema_hash(
+    input_fields: list[str],
+    required_input_fields: list[str],
+) -> str:
+    """Canonical hash of an action's input schema for PUBLIC facts.
+
+    Derived only from the public, serialized schema fields
+    (``input_fields`` / ``required_input_fields``) so the value is
+    reproducible from a round-tripped ``ActionFact``. The base diff
+    reference carries no raw ``input_schema`` / ``parameters`` (they are
+    not fields on ``ActionFact``), so any formula reading those cannot be
+    reproduced base-side — which previously left the fresh head fact and
+    the round-tripped base fact hashing different inputs and flipping
+    ``schema_hash`` for every capability on an identical tree. Both
+    ``action_to_fact`` and ``_refresh_public_action_hashes`` route through
+    here so the head and base sides can never drift onto two formulas.
+    """
+    return _stable_hash(
+        {
+            "input_fields": input_fields,
+            "required_input_fields": required_input_fields,
+        }
+    )
+
+
 def action_to_fact(action: Action) -> ActionFact:
     """Serialize a typed ``Action`` to its wire-shape ``ActionFact``.
 
@@ -418,9 +443,10 @@ def action_to_fact(action: Action) -> ActionFact:
       typed-Action enrichment must not alter what gets hashed.
     - Hashes are a serialization concern, not a domain concern.
 
-    Byte-identical to the legacy ``_action_from_tool`` body for any
-    Action built via ``build_action``; pinned by
-    ``tests/test_action_surface_diff.py`` golden assertions.
+    ``schema_hash`` is derived from the public, serializable schema fields
+    via ``public_action_schema_hash`` (not the raw ``input_schema`` /
+    ``parameters``, which are absent from the round-tripped base fact) so
+    a fresh head fact and a round-tripped base fact hash the same inputs.
     """
     approval = ActionApprovalFact(
         required=action.approval_required,
@@ -437,11 +463,8 @@ def action_to_fact(action: Action) -> ActionFact:
         runbook=action.evidence_runbook,
         approval_ticket=action.evidence_approval_ticket,
     )
-    schema_hash = _stable_hash(
-        {
-            "input_schema": action.input_schema,
-            "parameters": action.parameters_for_hash,
-        }
+    schema_hash = public_action_schema_hash(
+        action.input_fields, action.required_input_fields
     )
     policy_hash = _stable_hash(
         {
