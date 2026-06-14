@@ -209,7 +209,214 @@ def _cold_start_scan(
     _capability_delta(
         row, repo_path, base_wt, head_wt, manifest, tmp_path, subdir=subdir
     )
+    _verify_pr(
+        row,
+        repo_path,
+        base_wt,
+        head_wt,
+        manifest,
+        tmp_path,
+        subdir=subdir,
+        manifest_injected=row.init_status == "written",
+    )
     return True
+
+
+def _verify_pr(
+    row: MinedRow,
+    repo_path: Path,
+    base_wt: Path,
+    head_wt: Path,
+    head_manifest: Path,
+    tmp_path: Path,
+    *,
+    subdir: str,
+    manifest_injected: bool,
+) -> None:
+    """Run the real PR verifier to produce the per-PR receipt fields.
+
+    ``manifest_injected`` distinguishes the miner's synthetic cold-start
+    manifest from a real ``shipgate.yaml`` the PR itself changed, which
+    decides how the base side is set up (see below). These are the receipt
+    fields; the v0.1 scan fields above are the cold-start whole-surface
+    state.
+    """
+
+    manifest_rel = f"{subdir}/shipgate.yaml" if subdir else "shipgate.yaml"
+    head_commit = _commit_manifest(head_wt, manifest_rel)
+    if head_commit is None:
+        row.notes = _append_note(row.notes, "verify_head_commit_failed")
+        return
+    # Self-sufficient base setup: _capability_delta usually created the base
+    # worktree and copied the manifest, but its earlier failures must not
+    # also cost us the verify receipt.
+    if not base_wt.exists():
+        try:
+            _worktree_add(repo_path, base_wt, row.base_sha)
+        except RuntimeError:
+            row.notes = _append_note(row.notes, "verify_base_worktree_failed")
+            return
+    base_manifest = base_wt / manifest_rel
+    # Decide the manifest's kind from git history at the REAL base commit,
+    # NOT from base_wt on disk: _capability_delta already copied the manifest
+    # into the base worktree for its export, so a filesystem check would
+    # mis-read a PR-added manifest as preexisting.
+    base_had_manifest = (
+        _git(base_wt, ["cat-file", "-e", f"{row.base_sha}:{manifest_rel}"]).returncode == 0
+    )
+
+    if manifest_injected:
+        # Synthetic apparatus: force the identical manifest onto base so it
+        # cancels out of the base...head diff — it is not a PR change.
+        if not base_manifest.parent.is_dir():
+            row.notes = _append_note(row.notes, "verify_base_subdir_missing")
+            return
+        shutil.copyfile(head_manifest, base_manifest)
+
+    baseline_path: Path | None = None
+    if manifest_injected or base_had_manifest:
+        # Base has a manifest in scope (synthetic on both sides, or the PR
+        # EDITED a real one): commit it so the diff is clean, then baseline-gate.
+        # Without a baseline, verify counts the repo's PRE-EXISTING blockers
+        # (release_decision.py only demotes baseline-MATCHED findings); a
+        # base-tree baseline makes the receipt reflect the PR's new findings —
+        # a docs-only PR scored a "blocked" receipt from standing surface
+        # until this was added.
+        base_sha = _commit_manifest(base_wt, manifest_rel)
+        if base_sha is None:
+            row.notes = _append_note(row.notes, "verify_base_commit_failed")
+            return
+        baseline_path = tmp_path / "base-baseline.json"
+        baseline = _run(
+            [
+                *shipgate_cmd(),
+                "baseline",
+                "save",
+                "--config",
+                str(base_manifest),
+                "--out",
+                str(baseline_path),
+            ]
+        )
+        if baseline.returncode != 0 or not baseline_path.is_file():
+            row.notes = _append_note(row.notes, "verify_baseline_failed")
+            return
+    else:
+        # The PR ADDED a real manifest: read the real base commit (no manifest)
+        # so the addition stays a visible trust-root diff. Copying head's
+        # manifest onto base would erase exactly the SHIP-VERIFY-TRUST-ROOT-
+        # TOUCHED signal verify exists to report. No base tool surface → no
+        # baseline (nothing pre-existed); verify reads the commit, so the stray
+        # working-tree copy from _capability_delta is irrelevant.
+        base_sha = row.base_sha
+
+    # Re-parent head'' = head-tree (with the head-side manifest) onto base',
+    # so verify's three-dot base...head diff is exactly the PR's delta: an
+    # injected manifest committed independently on each side would otherwise
+    # show as "added" and falsely fire the trust-root signal.
+    head_tree = _git(head_wt, ["rev-parse", f"{head_commit}^{{tree}}"])
+    if head_tree.returncode != 0 or not head_tree.stdout.strip():
+        row.notes = _append_note(row.notes, "verify_head_tree_failed")
+        return
+    reparented = _git(
+        head_wt,
+        [
+            "-c",
+            "user.email=miner@local",
+            "-c",
+            "user.name=shipgate-miner",
+            "commit-tree",
+            head_tree.stdout.strip(),
+            "-p",
+            base_sha,
+            "-m",
+            "miner: PR head for verify",
+        ],
+    )
+    head_sha = reparented.stdout.strip()
+    if reparented.returncode != 0 or not head_sha:
+        row.notes = _append_note(row.notes, "verify_reparent_failed")
+        return
+    cmd = [
+        *shipgate_cmd(),
+        "verify",
+        "--workspace",
+        str(head_wt),
+        "--config",
+        manifest_rel,
+        "--base",
+        base_sha,
+        "--head",
+        head_sha,
+    ]
+    if baseline_path is not None:
+        cmd += ["--baseline", str(baseline_path)]
+    cmd += [
+        "--ci-mode",
+        "advisory",
+        "--format",
+        "json",
+        "--out",
+        str(tmp_path / "verify-reports"),
+    ]
+    result = _run(cmd)
+    payload = _parse_json(result.stdout)
+    if payload is None:
+        row.notes = _append_note(
+            row.notes, f"verify_unparseable_exit_{result.returncode}"
+        )
+        return
+    row.verify_verdict = str(payload.get("merge_verdict") or "")
+    can_merge = payload.get("can_merge_without_human")
+    row.verify_can_merge = can_merge if isinstance(can_merge, bool) else None
+    release_decision = payload.get("release_decision") or {}
+    if isinstance(release_decision, dict):
+        row.verify_decision = str(release_decision.get("decision") or "")
+    review = payload.get("capability_review") or {}
+    if isinstance(review, dict):
+        trust = review.get("trust_root_touched")
+        row.verify_trust_root_touched = trust if isinstance(trust, bool) else None
+        weakened = review.get("policy_weakened")
+        row.verify_policy_weakened = weakened if isinstance(weakened, bool) else None
+        row.verify_cap_added = _as_int(review.get("added"))
+        row.verify_cap_modified = _as_int(review.get("modified"))
+        row.verify_cap_removed = _as_int(review.get("removed"))
+
+
+def _commit_manifest(worktree: Path, manifest_rel: str) -> str | None:
+    """Commit the injected manifest on the worktree's detached HEAD.
+
+    Returns the new commit SHA (object-db only — no branch moves), or the
+    current HEAD when the manifest is already tracked and unchanged.
+    """
+
+    add = _git(worktree, ["add", "--", manifest_rel])
+    if add.returncode != 0:
+        return None
+    status = _git(worktree, ["status", "--porcelain", "--", manifest_rel])
+    if status.returncode != 0:
+        return None
+    if status.stdout.strip():
+        commit = _git(
+            worktree,
+            [
+                "-c",
+                "user.email=miner@local",
+                "-c",
+                "user.name=shipgate-miner",
+                "commit",
+                "-q",
+                "--no-verify",
+                "-m",
+                "miner: inject cold-start manifest",
+            ],
+        )
+        if commit.returncode != 0:
+            return None
+    head = _git(worktree, ["rev-parse", "HEAD"])
+    if head.returncode != 0:
+        return None
+    return head.stdout.strip() or None
 
 
 def _boundary_check(row: MinedRow, head_wt: Path, diff_text: str, tmp_path: Path) -> None:

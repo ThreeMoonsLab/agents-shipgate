@@ -83,8 +83,47 @@ def test_capability_pr_is_evaluated_end_to_end(tmp_path: Path) -> None:
         "blocked",
     }
     assert row.files_changed == 1
+    # v0.2 receipt fields: the real verify ran base-vs-head with the
+    # injected manifest on both sides and produced a per-PR verdict.
+    assert row.verify_verdict in {
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown",
+    }, row.to_json()
+    assert row.verify_decision != "", row.to_json()
+    assert isinstance(row.verify_can_merge, bool)
     # The worktrees must be cleaned up even on success.
     assert _git(repo, "worktree", "list").count("\n") == 0
+
+
+def test_pr_that_adds_real_manifest_keeps_the_trust_root_diff(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "mcp-tools.json").write_text(
+        '{"tools": [{"name": "delete_files", "description": "Delete files."}]}\n',
+        encoding="utf-8",
+    )
+    base = _commit_all(repo, "base: tool source, no manifest")
+    # The PR ADDS a real shipgate.yaml — a trust-root surface. From the miner's
+    # POV the manifest is "preexisting" (head already has it), but the base
+    # genuinely lacks it: the receipt must not erase that trust-root diff by
+    # mirroring head's manifest onto base.
+    (repo / "shipgate.yaml").write_text(
+        'version: "0.1"\n'
+        "project: {name: adds-manifest}\n"
+        "agent: {name: svc-agent, declared_purpose: [serve]}\n"
+        "environment: {target: production_like}\n"
+        "tool_sources: [{id: mcp, type: mcp, path: mcp-tools.json}]\n",
+        encoding="utf-8",
+    )
+    head = _commit_all(repo, "add shipgate.yaml")
+
+    row = evaluate_pr(repo_path=repo, base_sha=base, head_sha=head)
+
+    assert row.init_status == "preexisting", row.to_json()
+    assert row.verify_trust_root_touched is True, row.to_json()
+    assert row.verify_can_merge is False, row.to_json()
 
 
 def test_docs_only_pr_is_a_trigger_skip(tmp_path: Path) -> None:
