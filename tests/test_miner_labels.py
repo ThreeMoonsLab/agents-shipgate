@@ -91,6 +91,29 @@ def test_load_labels_skips_blank_and_rejects_unknown(tmp_path: Path) -> None:
         load_labels(bad)
 
 
+def test_load_labels_rejects_malformed_files(tmp_path: Path) -> None:
+    # Header typo (`url` not `pr_url`) must NOT silently read zero labels.
+    bad_header = tmp_path / "header.csv"
+    bad_header.write_text("url,label,rationale\nu/1,must_block,x\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing required column"):
+        load_labels(bad_header)
+
+    # A filled label with no pr_url can't be attributed.
+    no_url = tmp_path / "no_url.csv"
+    no_url.write_text("pr_url,label,rationale\n,must_block,x\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no pr_url"):
+        load_labels(no_url)
+
+    # Duplicate pr_url is ambiguous ground truth.
+    dupe = tmp_path / "dupe.csv"
+    dupe.write_text(
+        "pr_url,label,rationale\nu/1,must_block,a\nu/1,safe_to_merge,b\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="duplicate pr_url"):
+        load_labels(dupe)
+
+
 def test_score_confusion_matrix_and_metrics() -> None:
     rows = [
         _row("u/1", verify="blocked"),  # must_block, correctly blocked
@@ -136,3 +159,62 @@ def test_render_matrix_markdown_has_a_row_per_label() -> None:
     for label in LABELS:
         assert f"`{label}`" in md
     assert md.count("\n") >= len(LABELS) + 1  # header + separator + label rows
+
+
+# --- CLI exit-code gates: `score` must fail loud, never publish a bad table ---
+
+from benchmark.miner.__main__ import main  # noqa: E402
+from benchmark.miner.rows import write_jsonl  # noqa: E402
+
+
+def _results_file(tmp_path: Path) -> Path:
+    path = tmp_path / "results.jsonl"
+    write_jsonl([_row("u/1", verify="blocked")], path)
+    return path
+
+
+def test_score_cli_fails_on_bad_header(tmp_path: Path) -> None:
+    results = _results_file(tmp_path)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("url,label,rationale\nu/1,must_block,x\n", encoding="utf-8")
+    assert main(["score", "--results", str(results), "--labels", str(labels)]) == 1
+
+
+def test_score_cli_fails_on_unmatched_label(tmp_path: Path) -> None:
+    results = _results_file(tmp_path)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("pr_url,label,rationale\nu/missing,must_block,x\n", encoding="utf-8")
+    assert main(["score", "--results", str(results), "--labels", str(labels)]) == 1
+    # Escape hatch lets it through.
+    assert (
+        main(
+            [
+                "score",
+                "--results",
+                str(results),
+                "--labels",
+                str(labels),
+                "--allow-unmatched",
+                "--allow-empty",
+            ]
+        )
+        == 0
+    )
+
+
+def test_score_cli_fails_on_zero_labeled_rows(tmp_path: Path) -> None:
+    results = _results_file(tmp_path)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("pr_url,label,rationale\nu/1,,not labeled yet\n", encoding="utf-8")
+    assert main(["score", "--results", str(results), "--labels", str(labels)]) == 1
+    assert (
+        main(["score", "--results", str(results), "--labels", str(labels), "--allow-empty"])
+        == 0
+    )
+
+
+def test_score_cli_succeeds_on_a_clean_labels_file(tmp_path: Path) -> None:
+    results = _results_file(tmp_path)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("pr_url,label,rationale\nu/1,must_block,real\n", encoding="utf-8")
+    assert main(["score", "--results", str(results), "--labels", str(labels)]) == 0

@@ -121,29 +121,51 @@ def write_worksheet(worksheet: list[dict[str, object]], path: Path) -> None:
         writer.writerows(worksheet)
 
 
+REQUIRED_LABEL_COLUMNS: tuple[str, ...] = ("pr_url", "label")
+
+
 def load_labels(path: Path) -> dict[str, str]:
     """Read the adjudicated labels file (``pr_url,label,rationale``).
 
-    Returns ``{pr_url: label}``. Blank labels are skipped (worksheet rows the
-    human hasn't filled). Raises on an unknown label value so a typo can't
-    silently corrupt the confusion matrix.
+    Returns ``{pr_url: label}``. Rows with a blank ``label`` are skipped
+    (worksheet rows the human hasn't filled yet). Because this file feeds the
+    headline accuracy table, every other malformation is a hard error rather
+    than a silent partial read:
+
+    - missing a required header (e.g. ``url`` instead of ``pr_url``) — would
+      otherwise read zero labels and publish an all-null benchmark;
+    - a filled ``label`` with no ``pr_url`` — the label cannot be attributed;
+    - a duplicate ``pr_url`` — ambiguous ground truth;
+    - an unknown ``label`` value — a typo must not be miscounted.
     """
 
     labels: dict[str, str] = {}
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        missing = [c for c in REQUIRED_LABEL_COLUMNS if c not in fieldnames]
+        if missing:
+            raise ValueError(
+                f"{path}: labels file missing required column(s): "
+                f"{', '.join(missing)} (found: {', '.join(fieldnames) or 'none'})"
+            )
         for line_no, record in enumerate(reader, start=2):
             label = (record.get("label") or "").strip()
+            pr_url = (record.get("pr_url") or "").strip()
             if not label:
-                continue
+                continue  # unfilled worksheet row — not yet labeled.
             if label not in LABELS:
                 raise ValueError(
                     f"{path}:{line_no}: unknown label {label!r}; "
                     f"expected one of {', '.join(LABELS)}"
                 )
-            pr_url = (record.get("pr_url") or "").strip()
-            if pr_url:
-                labels[pr_url] = label
+            if not pr_url:
+                raise ValueError(
+                    f"{path}:{line_no}: row labeled {label!r} has no pr_url"
+                )
+            if pr_url in labels:
+                raise ValueError(f"{path}:{line_no}: duplicate pr_url {pr_url!r}")
+            labels[pr_url] = label
     return labels
 
 

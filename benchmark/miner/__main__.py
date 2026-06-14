@@ -129,17 +129,35 @@ def _cmd_score(args: argparse.Namespace) -> int:
     from benchmark.miner.labels import load_labels, render_matrix_markdown, score
 
     rows = read_jsonl(Path(args.results))
-    labels = load_labels(Path(args.labels))
+    try:
+        labels = load_labels(Path(args.labels))
+    except ValueError as exc:
+        print(f"[miner] ERROR: {exc}", file=sys.stderr)
+        return 1
     scored = score(rows, labels)
+
+    # This command publishes the headline accuracy table — fail loud rather
+    # than print a misleading partial matrix.
+    unmatched = scored["unmatched_labels"]
+    if unmatched and not args.allow_unmatched:
+        print(
+            f"[miner] ERROR: {len(unmatched)} labeled pr_url(s) not found in the "
+            f"results (stale labels or wrong --results?): {', '.join(unmatched[:5])}"
+            f"{' …' if len(unmatched) > 5 else ''}. Pass --allow-unmatched to override.",
+            file=sys.stderr,
+        )
+        return 1
+    if scored["labeled_rows"] == 0 and not args.allow_empty:
+        print(
+            "[miner] ERROR: no labeled rows to score — fill labels per "
+            "benchmark/miner/LABELING.md (or pass --allow-empty).",
+            file=sys.stderr,
+        )
+        return 1
+
     print(json.dumps(scored, indent=2))
     print()
     print(render_matrix_markdown(scored))
-    if scored["unmatched_labels"]:
-        print(
-            f"\n[miner] WARNING: {len(scored['unmatched_labels'])} labeled pr_url(s) "
-            "not found in the results — stale labels or wrong results file.",
-            file=sys.stderr,
-        )
     return 0
 
 
@@ -181,6 +199,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     score_cmd.add_argument("--results", required=True, help="Mined results .jsonl.")
     score_cmd.add_argument("--labels", required=True, help="Adjudicated labels CSV.")
+    score_cmd.add_argument(
+        "--allow-unmatched",
+        action="store_true",
+        help="Do not fail when a labeled pr_url is absent from the results.",
+    )
+    score_cmd.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Do not fail when no rows are labeled yet.",
+    )
     score_cmd.set_defaults(func=_cmd_score)
 
     args = parser.parse_args(argv)
