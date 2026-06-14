@@ -4,9 +4,10 @@ Pins the script's structural verdict to ``agents-shipgate detect --json``
 (via :func:`agents_shipgate.cli.discovery.detect_workspace`) on every
 sample fixture in ``samples/``. The contract is **structural parity**,
 not byte parity: same ``is_agent_project``, same set of fired
-frameworks, same ``suggested_sources``. Evidence strings and absolute
-scores are intentionally simplified — a coding agent uses the script
-to make a yes/no decision, not to re-derive the report.
+frameworks, same ``suggested_sources`` and ``excluded_sources``.
+Evidence/reason strings and absolute scores are intentionally simplified
+— a coding agent uses the script to make a yes/no decision, not to
+re-derive the report.
 
 If a new sample is added or the canonical detection rules change, this
 test catches drift between the script and the CLI immediately.
@@ -39,6 +40,7 @@ CANONICAL_KEYS = frozenset(
         "agent_name_candidates",
         "project_name_candidates",
         "suggested_sources",
+        "excluded_sources",
         "next_action",
         "workspace_signals",
     }
@@ -137,7 +139,8 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     """Structural parity: for every sample, the zero-install script
     must agree with the canonical CLI on (a) ``is_agent_project``,
     (b) the set of fired frameworks, (c) the set of suggested-source
-    types and paths, and (d) workspace-signals keys."""
+    types and paths, (d) the set of excluded-source types and paths,
+    and (e) workspace-signals keys."""
     if sample_dir.name in SCRIPT_PARITY_GAPS:
         pytest.skip(
             f"{sample_dir.name}: zero-install script parity not yet implemented "
@@ -169,6 +172,19 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     assert script_sources == cli_sources, (
         f"{sample_dir.name}: suggested_sources diverged "
         f"(script={script_sources!r}, cli={cli_sources!r})."
+    )
+
+    script_excluded = sorted(
+        (s["type"], s["path"]) for s in script_result["excluded_sources"]
+    )
+    cli_excluded = sorted(
+        (s["type"], s["path"]) for s in cli_result["excluded_sources"]
+    )
+    assert script_excluded == cli_excluded, (
+        f"{sample_dir.name}: excluded_sources diverged "
+        f"(script={script_excluded!r}, cli={cli_excluded!r}). "
+        "The script's stdlib parse probe must reject the same JSON "
+        "candidates as cli/discovery/artifacts.py:probe_suggested_source."
     )
 
     script_codex = sorted(
@@ -208,3 +224,79 @@ def test_script_finds_at_least_one_python_file_when_cli_does(
             f"the zero-install script found 0. Walk logic diverged — "
             "check SKIP_DIRS and the os.walk pruning."
         )
+
+
+def test_script_excludes_mcpservers_config_like_cli(script_module, tmp_path):
+    """The load-bearing parse-probe case: a Cursor-style ``mcpServers``
+    host config matches the ``*mcp*.json`` glob but is not a tools-array
+    export. No published sample carries one, so this pins the behavior
+    directly — script and CLI must BOTH drop it from suggested_sources
+    and report it under excluded_sources. Regression for the zero-install
+    half of the init->scan cold-start fix (the canonical CLI was fixed in
+    cli/discovery; the script is a separate stdlib re-implementation)."""
+    plugin_dir = tmp_path / "providers" / "cursor" / "plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "mcp.json").write_text(
+        '{"mcpServers": {"stripe": {"command": "npx"}}}', encoding="utf-8"
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "payments-mcp.json").write_text(
+        '{"tools": [{"name": "create_payment_link", "description": '
+        '"Create a payment link for checkout."}]}',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    assert script_result["suggested_sources"] == [
+        {"type": "mcp", "path": "tools/payments-mcp.json"}
+    ]
+    assert [
+        (s["type"], s["path"]) for s in script_result["suggested_sources"]
+    ] == [(s["type"], s["path"]) for s in cli_result["suggested_sources"]]
+    assert [
+        (s["type"], s["path"]) for s in script_result["excluded_sources"]
+    ] == [(s["type"], s["path"]) for s in cli_result["excluded_sources"]] == [
+        ("mcp", "providers/cursor/plugin/mcp.json")
+    ]
+    assert "mcpServers" in script_result["excluded_sources"][0]["reason"]
+
+
+def test_script_keeps_yaml_openapi_as_suggestion(script_module, tmp_path):
+    """The stdlib probe is JSON-only (no YAML parser). A ``.yaml`` OpenAPI
+    spec must be kept as a suggestion, never wrongly excluded — and a
+    valid spec stays in parity with the CLI, which parses it for real."""
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    (specs / "support.openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+        encoding="utf-8",
+    )
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+    assert script_result["suggested_sources"] == [
+        {"type": "openapi", "path": "specs/support.openapi.yaml"}
+    ]
+    assert script_result["excluded_sources"] == []
+    assert [
+        (s["type"], s["path"]) for s in cli_result["suggested_sources"]
+    ] == [("openapi", "specs/support.openapi.yaml")]
+
+
+def test_script_excludes_swagger2_json_like_cli(script_module, tmp_path):
+    """A Swagger 2.0 *JSON* document matches the ``*swagger*.json`` glob
+    but the openapi adapter only accepts OpenAPI 3.x. JSON is parseable
+    with stdlib, so the script must exclude it exactly like the CLI."""
+    (tmp_path / "legacy-swagger.json").write_text(
+        '{"swagger": "2.0", "info": {"title": "t", "version": "1"}, "paths": {}}',
+        encoding="utf-8",
+    )
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+    assert script_result["suggested_sources"] == []
+    assert [
+        (s["type"], s["path"]) for s in script_result["excluded_sources"]
+    ] == [(s["type"], s["path"]) for s in cli_result["excluded_sources"]] == [
+        ("openapi", "legacy-swagger.json")
+    ]

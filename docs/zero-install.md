@@ -27,18 +27,21 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "frameworks": [{"type": "openai_agents_sdk", "score": 4.5, ...}],
   "agent_name_candidates": [...],
   "suggested_sources": [{"type": "mcp", "path": "..."}],
+  "excluded_sources": [{"type": "mcp", "path": "...", "reason": "..."}],
   "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.1.0"
+  "script_version": "0.2.0"
 }
 ```
 
-The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, and same Codex plugin candidates for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
+Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI candidate before suggesting it — a filename match is not a guarantee. A Cursor plugin `mcp.json` is an `mcpServers`-style host config, not an MCP tools-array export; suggesting it would make the next `init --write` → `scan` step fail. Rejected candidates appear under `excluded_sources` (`{type, path, reason}`) instead of `suggested_sources`. The probe is **JSON-only** (stdlib has no YAML parser): a `.json` candidate the adapters would reject is excluded here too, while a `.yaml`/`.yml` OpenAPI spec is always kept as a suggestion (never wrongly dropped). The real-world miss this guards against — `mcpServers`-style host configs — is always JSON, so the probe is exact where it matters.
+
+The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, same excluded sources, and same Codex plugin candidates for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
 
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 
-**Constraints:** Python 3.12+ on the runner. No git fast path (uses `os.walk` only). Evidence strings and absolute scores are simplified — the verdict is what's pinned, not the prose.
+**Constraints:** Python 3.12+ on the runner. No git fast path (uses `os.walk` only). Evidence/reason strings and absolute scores are simplified — the verdict is what's pinned, not the prose.
 
 ## 2. `uvx` (no permanent install)
 
