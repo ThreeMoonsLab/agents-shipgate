@@ -10,7 +10,10 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.lenses.action_surface import build_action_surface_facts
+from agents_shipgate.core.lenses.action_surface import (
+    build_action_surface_facts,
+    public_action_schema_hash,
+)
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_model
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
@@ -51,7 +54,7 @@ def _build_public_action_surface_facts(
     stats: RedactionStats,
 ) -> ActionSurfaceFacts:
     try:
-        return sanitize_model(
+        public_facts = sanitize_model(
             build_action_surface_facts(
                 manifest,
                 agent_id=agent_id,
@@ -72,6 +75,19 @@ def _build_public_action_surface_facts(
             stats=stats,
             path="action_surface_facts",
         )
+    # Re-derive the public hashes from the PUBLIC (post-redaction) fields,
+    # exactly as the base diff reference does via
+    # ``_sanitize_existing_action_surface_facts`` -> ``_refresh_public_action_hashes``.
+    # Both sides therefore hash the same post-redaction inputs: head and
+    # base stay byte-for-byte comparable even when redaction rewrites a
+    # field name. Skipping this once let the head keep a pre-redaction hash
+    # while the base re-derived a post-redaction one, so ``schema_hash``
+    # differed for every capability on an otherwise-identical tree --
+    # flipping the whole action surface to "modified" and every
+    # capability_change member to a false "broadened (schema_hash changed
+    # without a proven direction)".
+    _refresh_public_action_surface_hashes(public_facts)
+    return public_facts
 
 
 def _sanitize_existing_action_surface_facts(
@@ -97,15 +113,26 @@ def _disambiguate_public_action_ids(facts: ActionSurfaceFacts) -> None:
         seen[action.action_id] = count
         if count > 1:
             action.action_id = f"{action.action_id}#{count}"
+    _refresh_public_action_surface_hashes(facts)
+
+
+def _refresh_public_action_surface_hashes(facts: ActionSurfaceFacts) -> None:
+    """Re-derive every action's public hashes from its public fields.
+
+    The single hashing path shared by the fresh head facts and the
+    round-tripped base diff reference, so both sides derive
+    ``input_schema_hash`` / ``hashes`` from the same post-redaction,
+    serializable inputs. Keeping this the only producer of public action
+    hashes is what stops head and base from drifting onto two different
+    ``schema_hash`` formulas for an identical action.
+    """
+    for action in facts.actions:
         _refresh_public_action_hashes(action)
 
 
 def _refresh_public_action_hashes(action: ActionFact) -> None:
-    schema_hash = _stable_hash(
-        {
-            "input_fields": action.input_fields,
-            "required_input_fields": action.required_input_fields,
-        }
+    schema_hash = public_action_schema_hash(
+        action.input_fields, action.required_input_fields
     )
     policy_hash = _stable_hash(
         {
