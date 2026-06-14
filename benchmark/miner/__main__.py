@@ -28,6 +28,7 @@ from benchmark.miner.evaluate import evaluate_pr
 from benchmark.miner.rows import (
     STATUS_ERROR,
     MinedRow,
+    read_jsonl,
     summarize,
     write_csv,
     write_jsonl,
@@ -113,6 +114,53 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_labels(args: argparse.Namespace) -> int:
+    from benchmark.miner.labels import build_worksheet, write_worksheet
+
+    rows = read_jsonl(Path(args.results))
+    worksheet = build_worksheet(rows)
+    write_worksheet(worksheet, Path(args.out))
+    print(f"[miner] wrote {len(worksheet)} worksheet rows → {args.out}")
+    print("[miner] fill the `label` and `rationale` columns per benchmark/miner/LABELING.md")
+    return 0
+
+
+def _cmd_score(args: argparse.Namespace) -> int:
+    from benchmark.miner.labels import load_labels, render_matrix_markdown, score
+
+    rows = read_jsonl(Path(args.results))
+    try:
+        labels = load_labels(Path(args.labels))
+    except ValueError as exc:
+        print(f"[miner] ERROR: {exc}", file=sys.stderr)
+        return 1
+    scored = score(rows, labels)
+
+    # This command publishes the headline accuracy table — fail loud rather
+    # than print a misleading partial matrix.
+    unmatched = scored["unmatched_labels"]
+    if unmatched and not args.allow_unmatched:
+        print(
+            f"[miner] ERROR: {len(unmatched)} labeled pr_url(s) not found in the "
+            f"results (stale labels or wrong --results?): {', '.join(unmatched[:5])}"
+            f"{' …' if len(unmatched) > 5 else ''}. Pass --allow-unmatched to override.",
+            file=sys.stderr,
+        )
+        return 1
+    if scored["labeled_rows"] == 0 and not args.allow_empty:
+        print(
+            "[miner] ERROR: no labeled rows to score — fill labels per "
+            "benchmark/miner/LABELING.md (or pass --allow-empty).",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(json.dumps(scored, indent=2))
+    print()
+    print(render_matrix_markdown(scored))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="benchmark.miner", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -138,6 +186,30 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("--pr-url", default="")
     evaluate.add_argument("--force-run", action="store_true")
     evaluate.set_defaults(func=_cmd_evaluate)
+
+    labels = sub.add_parser(
+        "labels", help="Generate a blank labeling worksheet from a results JSONL."
+    )
+    labels.add_argument("--results", required=True, help="Mined results .jsonl.")
+    labels.add_argument("--out", required=True, help="Worksheet CSV to write.")
+    labels.set_defaults(func=_cmd_labels)
+
+    score_cmd = sub.add_parser(
+        "score", help="Confusion matrix + accuracy metrics from an adjudicated labels file."
+    )
+    score_cmd.add_argument("--results", required=True, help="Mined results .jsonl.")
+    score_cmd.add_argument("--labels", required=True, help="Adjudicated labels CSV.")
+    score_cmd.add_argument(
+        "--allow-unmatched",
+        action="store_true",
+        help="Do not fail when a labeled pr_url is absent from the results.",
+    )
+    score_cmd.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Do not fail when no rows are labeled yet.",
+    )
+    score_cmd.set_defaults(func=_cmd_score)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

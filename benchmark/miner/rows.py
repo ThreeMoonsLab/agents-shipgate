@@ -95,6 +95,28 @@ def write_jsonl(rows: list[MinedRow], path: Path) -> None:
             handle.write(json.dumps(row.to_json(), sort_keys=True) + "\n")
 
 
+_FIELD_NAMES = frozenset(f.name for f in dataclasses.fields(MinedRow))
+
+
+def read_jsonl(path: Path) -> list[MinedRow]:
+    """Load mined rows from a JSONL artifact.
+
+    Forward/backward compatible: unknown keys are dropped and missing keys
+    take dataclass defaults, so a row file written by a different miner minor
+    still loads.
+    """
+
+    rows: list[MinedRow] = []
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            rows.append(MinedRow(**{k: v for k, v in payload.items() if k in _FIELD_NAMES}))
+    return rows
+
+
 def summarize(rows: list[MinedRow]) -> dict[str, object]:
     """Aggregate counts for the run summary printed after a mine."""
 
