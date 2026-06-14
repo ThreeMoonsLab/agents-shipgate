@@ -6,7 +6,7 @@
 # reporting). A new minor that reshapes those events would silently change
 # paid-run behaviour with no repo diff. Bump the lower bound only after
 # you've re-run the smoke + a paid Sonnet cell against the new release.
-claude-agent-sdk>=0.2.93,<0.3
+claude-agent-sdk>=0.2.101,<0.3
 pydantic>=2.13.4,<3
 pyyaml>=6.0,<7
 rich>=15.0.0,<16
