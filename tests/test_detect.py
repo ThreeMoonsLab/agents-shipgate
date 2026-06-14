@@ -272,3 +272,83 @@ def test_symlink_loop_in_git_workspace_does_not_crash_detect(tmp_path: Path) -> 
 
     assert isinstance(result, DetectResult)
     assert result.is_agent_project is True
+
+
+# --- Suggested-source parse probe ------------------------------------------
+# Suggestion rules are filename globs and filenames lie: detect must only
+# suggest files the real input adapters accept, and report the rest as
+# excluded_sources with a reason. Regression context: a Cursor plugin
+# mcp.json (mcpServers-style host config) matched `*mcp*.json`, got written
+# by `init --write`, and made the very next `scan` exit 3.
+
+
+def test_mcpservers_config_is_excluded_not_suggested(tmp_path: Path) -> None:
+    plugin_dir = tmp_path / "providers" / "cursor" / "plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "mcp.json").write_text(
+        '{"mcpServers": {"stripe": {"command": "npx"}}}', encoding="utf-8"
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "payments-mcp.json").write_text(
+        '{"tools": [{"name": "create_payment_link", "description": '
+        '"Create a payment link for checkout."}]}',
+        encoding="utf-8",
+    )
+    result = detect_workspace(tmp_path)
+    assert result.suggested_sources == [
+        {"type": "mcp", "path": "tools/payments-mcp.json"}
+    ]
+    assert len(result.excluded_sources) == 1
+    excluded = result.excluded_sources[0]
+    assert excluded["type"] == "mcp"
+    assert excluded["path"] == "providers/cursor/plugin/mcp.json"
+    assert "mcpServers" in excluded["reason"]
+
+
+def test_dot_mcp_json_stays_silently_skipped(tmp_path: Path) -> None:
+    """The literal `.mcp.json` (Claude Code host config) was always skipped
+    by name; it must not start showing up as excluded-source noise in every
+    repo that has one."""
+    (tmp_path / ".mcp.json").write_text(
+        '{"mcpServers": {"docs": {"command": "npx"}}}', encoding="utf-8"
+    )
+    result = detect_workspace(tmp_path)
+    assert result.suggested_sources == []
+    assert result.excluded_sources == []
+
+
+def test_corrupt_mcp_json_is_excluded_with_parse_reason(tmp_path: Path) -> None:
+    (tmp_path / "notes-mcp.json").write_text("{not json", encoding="utf-8")
+    result = detect_workspace(tmp_path)
+    assert result.suggested_sources == []
+    assert len(result.excluded_sources) == 1
+    assert "Unable to parse input file" in result.excluded_sources[0]["reason"]
+    # Reasons are workspace-relative so manifests/JSON stay deterministic.
+    assert "notes-mcp.json" in result.excluded_sources[0]["reason"]
+
+
+def test_swagger2_doc_is_excluded_from_openapi_suggestions(tmp_path: Path) -> None:
+    """Swagger 2.0 documents match the `*swagger*` glob but the openapi
+    adapter only accepts OpenAPI 3.x (`openapi:` version key) — same
+    poison-manifest failure mode as the mcpServers case."""
+    (tmp_path / "legacy-swagger.json").write_text(
+        '{"swagger": "2.0", "info": {"title": "t", "version": "1"}, "paths": {}}',
+        encoding="utf-8",
+    )
+    result = detect_workspace(tmp_path)
+    assert result.suggested_sources == []
+    assert len(result.excluded_sources) == 1
+    excluded = result.excluded_sources[0]
+    assert excluded["type"] == "openapi"
+    assert "openapi" in excluded["reason"]
+
+
+def test_wildcard_mcp_export_stays_suggested(tmp_path: Path) -> None:
+    """Wildcard exposure (`tools: "*"`) is a shape the mcp adapter accepts;
+    the probe must not tighten the suggestion rules beyond what scan parses."""
+    (tmp_path / "everything-mcp.json").write_text('{"tools": "*"}', encoding="utf-8")
+    result = detect_workspace(tmp_path)
+    assert result.suggested_sources == [
+        {"type": "mcp", "path": "everything-mcp.json"}
+    ]
+    assert result.excluded_sources == []

@@ -4,11 +4,15 @@ Pass A of the v0.6 detection pipeline. Walks a workspace once, AST-parses
 candidate ``.py`` files, scores per-framework signals, and returns a
 :class:`DetectResult` for ``shipgate detect`` and for ``init`` Pass B.
 
-This is *new* signal-scanning logic. It deliberately does not call the
-framework loaders in ``agents_shipgate.inputs.*`` — those gate on a
-populated manifest and would no-op here. Instead it borrows their
+This is *new* signal-scanning logic. Framework *scoring* deliberately does
+not call the framework loaders in ``agents_shipgate.inputs.*`` — those gate
+on a populated manifest and would no-op here. Instead it borrows their
 constants where they map cleanly onto detection signals
 (e.g. :data:`agents_shipgate.inputs.langchain.TOOL_DECORATOR_MODULES`).
+The one deliberate adapter touchpoint is the suggested-source parse probe
+(:func:`agents_shipgate.cli.discovery.artifacts.probe_suggested_source`),
+which keeps ``suggested_sources`` exactly as strict as ``scan``'s input
+parsing so ``init`` never writes a tool source that ``scan`` rejects.
 
 Scoring (per plan §1, post-review v4):
 
@@ -51,6 +55,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     _discover_patterns,
     _looks_like_n8n_workflow,
     _relative,
+    probe_suggested_source,
 )
 from agents_shipgate.schemas.detect import (
     CodexPluginCandidate,
@@ -210,7 +215,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
 
     agent_name_candidates = _agent_name_candidates(py_facts, workspace)
     project_name_candidates = _project_name_candidates(workspace)
-    suggested_sources = _suggested_sources(workspace)
+    suggested_sources, excluded_sources = _suggested_sources(workspace)
     codex_plugin_candidates = _codex_plugin_candidates(workspace)
 
     is_agent_project = bool(detections)
@@ -238,6 +243,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         agent_name_candidates=agent_name_candidates,
         project_name_candidates=project_name_candidates,
         suggested_sources=suggested_sources,
+        excluded_sources=excluded_sources,
         codex_plugin_candidates=codex_plugin_candidates,
         next_action=next_action,
         workspace_signals=workspace_signals,
@@ -563,26 +569,55 @@ def _project_name_candidates(workspace: Path) -> list[NameCandidate]:
     return candidates
 
 
-def _suggested_sources(workspace: Path) -> list[dict[str, str]]:
-    suggested: list[dict[str, str]] = []
-    seen: set[str] = set()
+def _suggested_sources(
+    workspace: Path,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Suggest OpenAPI/MCP artifact files the real input adapters accept.
+
+    Returns ``(suggested, excluded)``. A glob match that fails the adapter
+    parse probe lands in ``excluded`` as ``{type, path, reason}`` instead
+    of ``suggested`` — ``init`` consumes ``suggested`` verbatim, and a
+    manifest pointing at an unparseable file fails ``scan`` out of the box.
+    The literal ``.mcp.json`` skip below is the same rule for the one host
+    config filename known in advance; the probe generalizes it to any
+    ``mcpServers``-shaped or otherwise unparseable file (silently for
+    ``.mcp.json``, with a visible reason for everything else).
+    """
+    candidates: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for pattern in OPENAPI_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
             rel = _relative(path, workspace)
-            if rel in seen:
+            if ("openapi", rel) in seen:
                 continue
-            seen.add(rel)
-            suggested.append({"type": "openapi", "path": rel})
+            seen.add(("openapi", rel))
+            candidates.append(("openapi", rel))
     for pattern in MCP_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
             if path.name == ".mcp.json":
                 continue
             rel = _relative(path, workspace)
-            if rel in seen:
+            if ("mcp", rel) in seen:
                 continue
-            seen.add(rel)
-            suggested.append({"type": "mcp", "path": rel})
-    return suggested
+            seen.add(("mcp", rel))
+            candidates.append(("mcp", rel))
+
+    suggested: list[dict[str, str]] = []
+    suggested_paths: set[str] = set()
+    failures: list[dict[str, str]] = []
+    for source_type, rel in candidates:
+        if rel in suggested_paths:
+            continue
+        reason = probe_suggested_source(workspace, rel, source_type)
+        if reason is None:
+            suggested.append({"type": source_type, "path": rel})
+            suggested_paths.add(rel)
+        else:
+            failures.append({"type": source_type, "path": rel, "reason": reason})
+    # A path can match both pattern families (e.g. ``*openapi*mcp*.json``);
+    # only report it excluded when no type accepted it.
+    excluded = [entry for entry in failures if entry["path"] not in suggested_paths]
+    return suggested, excluded
 
 
 def _codex_plugin_candidates(workspace: Path) -> list[CodexPluginCandidate]:

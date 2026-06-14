@@ -703,8 +703,14 @@ Consume the response to decide whether to proceed. Key fields:
   (lowest).
 - `project_name_candidates[]` — same shape; `pyproject` source seeds
   `project.name` only.
-- `suggested_sources[]` — MCP/OpenAPI files matched by glob. These do
-  NOT bump `is_agent_project` on their own.
+- `suggested_sources[]` — MCP/OpenAPI files matched by glob AND accepted
+  by the real input adapters, so `init` never writes a `tool_sources`
+  entry that `scan` rejects at parse time. These do NOT bump
+  `is_agent_project` on their own.
+- `excluded_sources[]` — `{type, path, reason}` for glob matches the
+  input adapters reject (e.g. an `mcpServers`-style host config such as
+  a Cursor plugin `mcp.json`, or a Swagger 2.0 document). Do not add
+  these to `tool_sources`; the `reason` says what `scan` would fail on.
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.

@@ -18,18 +18,34 @@ canonical ``agents-shipgate detect --json`` output, NOT a drop-in
 replacement: the CLI also emits ``diagnostics[]`` and ``next_actions[]``
 arrays (the diagnostic engine), which are intentionally out of scope for
 the zero-install path. The contract test pins the verdict — ``is_agent_project``,
-fired frameworks, suggested sources — against the CLI on every sample in
-``samples/``, so the two cannot drift on the load-bearing fields.
+fired frameworks, suggested sources, excluded sources — against the CLI on
+every sample in ``samples/``, so the two cannot drift on the load-bearing
+fields.
+
+Like the canonical CLI, glob-matched MCP/OpenAPI candidates are
+parse-probed before they are suggested: a filename is a glob match, not a
+guarantee. A Cursor plugin ``mcp.json`` is an ``mcpServers``-style host
+config, not an MCP tools-array export — suggesting it would make the very
+next ``agents-shipgate init --write`` → ``scan`` step fail. Rejected
+candidates move to ``excluded_sources[]`` (``{type, path, reason}``)
+instead of ``suggested_sources``.
 
 Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
 - No git-ls-files fast path; ``os.walk`` only.
-- Descriptive (not byte-identical) ``evidence`` strings.
+- Descriptive (not byte-identical) ``evidence`` / ``reason`` strings.
 - Absolute scores may differ by ±0.5 in edge cases.
+- The parse probe is **JSON-only** (stdlib has no YAML parser). A
+  ``.json`` candidate the input adapters would reject is excluded here
+  too; a ``.yaml`` / ``.yml`` OpenAPI spec is kept as a suggestion
+  unconditionally (never wrongly dropped). The real-world miss this
+  guards against — ``mcpServers``-style host configs — is always JSON,
+  so the probe is exact where it matters.
 
-The verdict and detected framework set match.
+The verdict, detected framework set, and suggested/excluded source split
+match.
 """
 from __future__ import annotations
 
@@ -43,7 +59,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.1.0"
+SCRIPT_VERSION = "0.2.0"
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
 LANGCHAIN_IMPORTS = {
@@ -181,6 +197,68 @@ def _looks_like_n8n_workflow(path: Path) -> bool:
             ):
                 return True
     return False
+
+
+def _probe_suggested(workspace: Path, rel: str, kind: str) -> str | None:
+    """Return ``None`` if the input adapters would accept ``rel`` as a
+    ``kind`` tool source, else a one-line reason ``scan`` would reject it.
+
+    Stdlib mirror of
+    :func:`agents_shipgate.cli.discovery.artifacts.probe_suggested_source`
+    (which calls the real ``load_mcp_tools`` / ``load_openapi_tools``).
+    The probe is JSON-only — see the module docstring — so an unparseable
+    or YAML candidate is kept as a suggestion rather than wrongly dropped.
+    The MCP suggestion globs are all ``*.json`` / ``.agents-shipgate/*.json``,
+    so the load-bearing ``mcpServers``-host-config case is always covered.
+    """
+    path = workspace / rel
+    if kind == "openapi" and path.suffix.lower() in (".yaml", ".yml"):
+        return None  # No stdlib YAML parser — keep, never wrongly exclude.
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        if path.suffix.lower() == ".json":
+            # A .json the adapter would also fail to parse (exit 3).
+            return f"Unable to parse input file: {rel}"
+        return None  # Non-JSON we can't read — conservative keep.
+    if kind == "mcp":
+        return _probe_mcp(data)
+    return _probe_openapi(data)
+
+
+def _probe_mcp(data: Any) -> str | None:
+    """Mirror ``load_mcp_tools``'s accept rule (inputs/mcp.py)."""
+    if isinstance(data, list):
+        return None  # Top-level tools array.
+    if not isinstance(data, dict):
+        return "MCP tools file must be an object or array"
+    if isinstance(data.get("mcpServers"), dict) or isinstance(data.get("servers"), dict):
+        # Host MCP *configuration* (e.g. a Cursor/Claude plugin manifest),
+        # which the mcp adapter never accepts as a tools export.
+        return (
+            "mcpServers-style MCP server config (host configuration), "
+            "not an MCP tools-array export"
+        )
+    raw_tools = data.get("tools")
+    if data.get("wildcard") is True or raw_tools == "*":
+        if isinstance(raw_tools, list) and raw_tools:
+            return "MCP source declares wildcard tool exposure and an explicit tools array"
+        return None  # Wildcard exposure.
+    if not isinstance(raw_tools, list):
+        return "MCP tools file must contain a tools array"
+    return None
+
+
+def _probe_openapi(data: Any) -> str | None:
+    """Mirror ``load_openapi_tools``'s accept rule (inputs/openapi.py)."""
+    if not isinstance(data, dict):
+        return "OpenAPI file must contain an object"
+    if "openapi" not in data:
+        # Catches Swagger 2.0 (keyed ``swagger:``) and non-OpenAPI JSON.
+        return "OpenAPI file missing 'openapi' version"
+    if not isinstance(data.get("paths"), dict):
+        return "OpenAPI file missing paths object"
+    return None
 
 
 def _name(node: ast.AST) -> str | None:
@@ -359,15 +437,34 @@ def detect(workspace: Path) -> dict[str, Any]:
             project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
     project_names.append({"value": workspace.name, "source": "workspace_dir"})
 
-    suggested: list[dict[str, str]] = []
-    seen_paths: set[str] = set()
+    # Glob candidates, then keep only the ones the input adapters accept —
+    # a glob hit (e.g. an mcpServers-style host config matching *mcp*.json)
+    # that fails the probe would make the next init->scan step fail, so it
+    # is reported under excluded_sources instead. Mirrors signals.py.
+    candidates: list[tuple[str, str]] = []
+    seen_cand: set[tuple[str, str]] = set()
     for kind, patterns in (("openapi", OPENAPI_PATTERNS), ("mcp", MCP_PATTERNS)):
         for p in _glob(workspace, files, patterns):
-            if Path(p).name == ".mcp.json":
+            if kind == "mcp" and Path(p).name == ".mcp.json":
                 continue
-            if p not in seen_paths:
-                seen_paths.add(p)
-                suggested.append({"type": kind, "path": p})
+            if (kind, p) in seen_cand:
+                continue
+            seen_cand.add((kind, p))
+            candidates.append((kind, p))
+
+    suggested: list[dict[str, str]] = []
+    suggested_paths: set[str] = set()
+    failures: list[dict[str, str]] = []
+    for kind, p in candidates:
+        if p in suggested_paths:
+            continue
+        reason = _probe_suggested(workspace, p, kind)
+        if reason is None:
+            suggested.append({"type": kind, "path": p})
+            suggested_paths.add(p)
+        else:
+            failures.append({"type": kind, "path": p, "reason": reason})
+    excluded = [e for e in failures if e["path"] not in suggested_paths]
 
     codex_plugin_candidates: list[dict[str, str]] = []
     seen_codex: set[tuple[str, str]] = set()
@@ -406,6 +503,7 @@ def detect(workspace: Path) -> dict[str, Any]:
         "agent_name_candidates": name_candidates,
         "project_name_candidates": project_names,
         "suggested_sources": suggested,
+        "excluded_sources": excluded,
         "codex_plugin_candidates": sorted(
             codex_plugin_candidates, key=lambda item: (item["mode"], item["path"])
         ),
@@ -447,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Suggested sources (artifact-only):")
             for s in result["suggested_sources"]:
                 print(f"- {s['type']}: {s['path']}")
+        _print_excluded(result["excluded_sources"])
         if result["codex_plugin_candidates"]:
             print("Codex plugin candidates:")
             for c in result["codex_plugin_candidates"]:
@@ -459,8 +558,17 @@ def main(argv: list[str] | None = None) -> int:
         print("\nSuggested sources:")
         for s in result["suggested_sources"]:
             print(f"- {s['type']}: {s['path']}")
+    _print_excluded(result["excluded_sources"])
     print(f"\nNext: pipx install agents-shipgate && {result['next_action']}")
     return 0
+
+
+def _print_excluded(excluded: list[dict[str, str]]) -> None:
+    if not excluded:
+        return
+    print("\nExcluded sources (scan cannot parse these as tool sources):")
+    for s in excluded:
+        print(f"- {s['type']}: {s['path']} — {s['reason']}")
 
 
 if __name__ == "__main__":
