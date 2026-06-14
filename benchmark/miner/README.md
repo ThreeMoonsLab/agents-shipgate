@@ -72,9 +72,15 @@ python -m benchmark.miner evaluate \
 - A row with `status=evaluated` and `head_decision=insufficient_evidence`
   counts toward the IE-rate KPI. `trigger_skip` rows are the negative-control
   pool (the 0-noise-on-irrelevant-diffs property, on real history).
-- Labeling for the accuracy corpus happens in a separate file next to the CSV
-  (`<run>.labels.csv`: `pr_url,label,rationale`), two labels per case with
-  adjudication — the mined row is evidence, the label is the ground truth.
+- Labeling for the accuracy corpus happens in a separate adjudicated file next
+  to the CSV (`<run>.labels.csv`: `pr_url,label,rationale`) — the mined row is
+  evidence, the label is the ground truth. The rubric, two-labeler process, and
+  metrics are in [`LABELING.md`](LABELING.md). Generate the turnkey worksheet
+  with `python -m benchmark.miner labels` (a ready copy for the current run is
+  committed as
+  [`2026-W24-mined.labels.template.csv`](results/2026-W24-mined.labels.template.csv)),
+  then `python -m benchmark.miner score --results <jsonl> --labels <csv>`
+  prints the confusion matrix + headline accuracy metrics.
 
 | Run | Date | Repos | Rows | Notes |
 |---|---|---|---|---|
