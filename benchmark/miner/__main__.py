@@ -114,6 +114,29 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_constructed(args: argparse.Namespace) -> int:
+    import csv
+
+    from benchmark.miner.constructed import build_constructed_corpus
+
+    rows, labels, rationales = build_constructed_corpus()
+    failed = [r.pr_url for r in rows if r.status != "evaluated"]
+    write_jsonl(rows, Path(args.out))
+    write_csv(rows, Path(args.out).with_suffix(".csv"))
+    labels_path = Path(args.labels_out)
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+    with labels_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(["pr_url", "label", "rationale"])
+        for row in rows:
+            writer.writerow([row.pr_url, labels[row.pr_url], rationales[row.pr_url]])
+    print(f"[miner] wrote {len(rows)} constructed rows → {args.out} (+ labels → {labels_path})")
+    if failed:
+        print(f"[miner] ERROR: {len(failed)} fixture(s) did not evaluate: {failed}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_labels(args: argparse.Namespace) -> int:
     from benchmark.miner.labels import build_worksheet, write_worksheet
 
@@ -186,6 +209,14 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("--pr-url", default="")
     evaluate.add_argument("--force-run", action="store_true")
     evaluate.set_defaults(func=_cmd_evaluate)
+
+    constructed = sub.add_parser(
+        "constructed",
+        help="Build the constructed-adversarial corpus from bundled fixtures (definitional labels).",
+    )
+    constructed.add_argument("--out", required=True, help="constructed corpus .jsonl to write.")
+    constructed.add_argument("--labels-out", required=True, help="definitional labels CSV to write.")
+    constructed.set_defaults(func=_cmd_constructed)
 
     labels = sub.add_parser(
         "labels", help="Generate a blank labeling worksheet from a results JSONL."
