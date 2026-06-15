@@ -1,0 +1,3 @@
+pr_url,repo,pr_number,title,status,head_decision,verify_verdict,verify_can_merge,verify_trust_root_touched,cap_added,cap_broadened,label,rationale
+https://github.com/google/adk-samples/pull/1977,google/adk-samples,1977,Fix typo in travel planner folder name.,evaluated,insufficient_evidence,insufficient_evidence,False,True,0,0,,
+https://github.com/google/adk-samples/pull/1975,google/adk-samples,1975,Travel planning agent demo built with ADK and Google Maps MCP,evaluated,insufficient_evidence,insufficient_evidence,False,True,0,0,,

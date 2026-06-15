@@ -85,6 +85,33 @@ python -m benchmark.miner evaluate \
 | Run | Date | Repos | Rows | Notes |
 |---|---|---|---|---|
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
+| [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. Findings below. |
+
+### 2026-W25 findings — diminishing returns from framework-core breadth
+
+- **The base rate of capability-changing merged PRs is low, and now quantified.**
+  Across both runs — **6 repos / 241 merged PRs — 226 (93%) organically
+  trigger-skip and only 9 are decided.** The trigger noise bound is strongly
+  validated on real history; but real-history mining is an *inefficient* source
+  of decided cases, especially from framework **cores**: `langgraph` and
+  `modelcontextprotocol/servers` produced **zero** decided rows (library-
+  internals churn and TS-MCP sources the static extractor doesn't resolve).
+- **The engine is robust across 3 new families.** Zero crashes / error rows
+  over ADK + LangGraph + MCP-servers — the three mining-found fixes (#212
+  symlink, #214 init source-quality, #215 capability_change) hold.
+- **The 2 decided rows are both the dynamic-toolkit/MCP `insufficient_evidence`
+  pattern** (`adk-samples#1975`, a Travel agent wired to a Google Maps **MCP**
+  toolset: `cap_added=0`, `evidence_gaps=246`). Consistent with the original #1
+  real-world gap — extraction *coverage*, failing safe, not a wrong verdict.
+- **Implication for the accuracy corpus (P3):** do not chase decided
+  *positives* by mining more framework cores. The labeled corpus should compose
+  three strata — mined-real for the **negative** control (the 226 trigger-skips)
+  and IE/coverage cases; **constructed-adversarial** for the `must_block`
+  positives (already seeded: `samples/_anti_patterns`,
+  `tests/fixtures/stripe_pr232`, `tests/test_verifier_scenarios.py`,
+  `agent_weakens_gate`); and harness transcripts. Deeper-history mining of
+  agent **application/example** repos is the only real-history source of more
+  decided cases.
 
 ### 2026-W24 findings (read this before quoting the numbers)
 

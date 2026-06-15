@@ -154,3 +154,33 @@ def test_w24_headline_numbers_reproduce_from_committed_data() -> None:
     assert summary["by_status"][STATUS_EVALUATED] == 7
     # IE on decided = 3/7 (the first measured real-world extraction-coverage gap).
     assert summary["ie_rate_on_decided"] == round(3 / 7, 3)
+
+
+def test_w25_headline_numbers_reproduce_from_committed_data() -> None:
+    """Pin the published 2026-W25 widen-run headline (the noise-bound claim)."""
+    rows = read_jsonl(RESULTS_DIR / "2026-W25-mined.jsonl")
+    summary = summarize(rows)
+    assert summary["rows"] == 120
+    assert summary["by_status"][STATUS_TRIGGER_SKIP] == 118
+    assert summary["by_status"][STATUS_EVALUATED] == 2
+
+
+def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
+    """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
+
+    Aggregated over every committed run, so it tightens as more runs land and
+    fails if a future corpus edit quietly changes the validated noise bound.
+    """
+    skip = decided = total = 0
+    for jsonl_path in _mined_jsonl_files():
+        for row in read_jsonl(jsonl_path):
+            total += 1
+            if row.status == STATUS_TRIGGER_SKIP:
+                skip += 1
+            if row.head_decision:
+                decided += 1
+    assert total >= 241
+    assert skip / total >= 0.9, f"trigger-skip rate fell to {skip}/{total}"
+    # Decided capability-changing PRs are rare on real history — documented,
+    # not aspirational. Guard the order of magnitude, not an exact count.
+    assert decided / total <= 0.1
