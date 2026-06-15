@@ -76,11 +76,11 @@ python -m benchmark.miner evaluate \
   to the CSV (`<run>.labels.csv`: `pr_url,label,rationale`) — the mined row is
   evidence, the label is the ground truth. The rubric, two-labeler process, and
   metrics are in [`LABELING.md`](LABELING.md). Generate the turnkey worksheet
-  with `python -m benchmark.miner labels` (a ready copy for the current run is
-  committed as
-  [`2026-W24-mined.labels.template.csv`](results/2026-W24-mined.labels.template.csv)),
-  then `python -m benchmark.miner score --results <jsonl> --labels <csv>`
-  prints the confusion matrix + headline accuracy metrics.
+  with `python -m benchmark.miner labels`; a ready blank copy is committed
+  alongside each run's results as `<run>.labels.template.csv` (one per run in
+  the table below — currently `2026-W24-…` and `2026-W25-…`). Label the run
+  you mean to score, then `python -m benchmark.miner score --results <jsonl>
+  --labels <csv>` prints the confusion matrix + headline accuracy metrics.
 
 | Run | Date | Repos | Rows | Notes |
 |---|---|---|---|---|
