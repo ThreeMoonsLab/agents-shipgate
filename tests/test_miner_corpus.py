@@ -114,12 +114,22 @@ def test_committed_corpus_files_are_lf_only(jsonl_path: Path) -> None:
     assert b"\r" not in csv_path.read_bytes(), f"{csv_path.name} has CRLF (git diff --check)"
 
 
-def test_labels_template_matches_its_corpus() -> None:
-    template = RESULTS_DIR / "2026-W24-mined.labels.template.csv"
-    corpus = RESULTS_DIR / "2026-W24-mined.jsonl"
-    if not template.is_file():
-        pytest.skip("no committed labels template")
-    assert b"\r" not in template.read_bytes(), "labels template has CRLF (git diff --check)"
+_TEMPLATE_SUFFIX = ".labels.template.csv"
+
+
+def _label_templates() -> list[Path]:
+    return sorted(RESULTS_DIR.glob(f"*{_TEMPLATE_SUFFIX}"))
+
+
+@pytest.mark.parametrize("template", _label_templates(), ids=lambda p: p.name)
+def test_labels_template_matches_its_corpus(template: Path) -> None:
+    # Each committed template must stay an exact, blank worksheet of its OWN
+    # run — so a stale or accidentally-labeled template for any run fails, not
+    # just the W24 one.
+    run = template.name[: -len(_TEMPLATE_SUFFIX)]
+    corpus = RESULTS_DIR / f"{run}.jsonl"
+    assert corpus.is_file(), f"{template.name} has no corpus sibling {corpus.name}"
+    assert b"\r" not in template.read_bytes(), f"{template.name} has CRLF (git diff --check)"
 
     # The committed template must be exactly the worksheet the corpus generates —
     # no omitted engine-engaged rows, no duplicates, no stale extras.
@@ -130,15 +140,15 @@ def test_labels_template_matches_its_corpus() -> None:
         template_rows = list(reader)
     template_urls = [r["pr_url"] for r in template_rows]
 
-    assert len(template_urls) == len(set(template_urls)), "duplicate rows in labels template"
+    assert len(template_urls) == len(set(template_urls)), f"duplicate rows in {template.name}"
     assert sorted(template_urls) == sorted(expected_urls), (
-        "labels template is out of sync with the corpus worksheet "
+        f"{template.name} is out of sync with the corpus worksheet "
         "(regenerate with `python -m benchmark.miner labels`)"
     )
     for record in template_rows:
         # The committed template is blank — labels belong in an adjudicated file.
-        assert record["label"] == "", "committed template must not carry labels"
-        assert record["rationale"] == "", "committed template must not carry rationales"
+        assert record["label"] == "", f"{template.name} must not carry labels"
+        assert record["rationale"] == "", f"{template.name} must not carry rationales"
 
 
 def test_w24_headline_numbers_reproduce_from_committed_data() -> None:
@@ -154,3 +164,33 @@ def test_w24_headline_numbers_reproduce_from_committed_data() -> None:
     assert summary["by_status"][STATUS_EVALUATED] == 7
     # IE on decided = 3/7 (the first measured real-world extraction-coverage gap).
     assert summary["ie_rate_on_decided"] == round(3 / 7, 3)
+
+
+def test_w25_headline_numbers_reproduce_from_committed_data() -> None:
+    """Pin the published 2026-W25 widen-run headline (the noise-bound claim)."""
+    rows = read_jsonl(RESULTS_DIR / "2026-W25-mined.jsonl")
+    summary = summarize(rows)
+    assert summary["rows"] == 120
+    assert summary["by_status"][STATUS_TRIGGER_SKIP] == 118
+    assert summary["by_status"][STATUS_EVALUATED] == 2
+
+
+def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
+    """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
+
+    Aggregated over every committed run, so it tightens as more runs land and
+    fails if a future corpus edit quietly changes the validated noise bound.
+    """
+    skip = decided = total = 0
+    for jsonl_path in _mined_jsonl_files():
+        for row in read_jsonl(jsonl_path):
+            total += 1
+            if row.status == STATUS_TRIGGER_SKIP:
+                skip += 1
+            if row.head_decision:
+                decided += 1
+    assert total >= 241
+    assert skip / total >= 0.9, f"trigger-skip rate fell to {skip}/{total}"
+    # Decided capability-changing PRs are rare on real history — documented,
+    # not aspirational. Guard the order of magnitude, not an exact count.
+    assert decided / total <= 0.1
