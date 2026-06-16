@@ -89,7 +89,7 @@ python -m benchmark.miner evaluate \
 |---|---|---|---|---|
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
 | [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. Findings below. |
-| [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit, block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223) and first real `review_required` decided rows. Schema v0.2. Findings below. |
+| [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit, block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
@@ -128,12 +128,18 @@ trigger-skips) and the real-history **extraction-coverage** (`insufficient_evide
 ### 2026-W26 findings — deepen run over agent apps/toolkits
 
 - **App/toolkit repos do yield more decided rows than framework cores — but
-  thin and rarely `must_block`.** `stripe/agent-toolkit` produced 6 decided
-  rows (15% of its 40 PRs) vs **0** from `block/goose` and `pydantic/pydantic-ai`
-  (a framework core, the same library-internals-churn pattern as W25). All 6
-  are `review_required` (the first real non-IE decided rows), but they collapse
-  to **one** distinct pattern — a repeated automated "sync skills from
-  docs.stripe.com" bot PR — so the decided *diversity* added is ≈1.
+  thin, IE-effective, and never `must_block`.** `stripe/agent-toolkit` produced
+  6 decided rows (15% of its 40 PRs) vs **0** from `block/goose` and
+  `pydantic/pydantic-ai` (a framework core, the same library-internals-churn
+  pattern as W25). Their cold-start `head_decision` is `review_required`, but
+  the per-PR `verify` receipt — **the verdict the accuracy scorer uses**
+  (`labels._effective_verdict` = `verify_verdict or head_decision`) — is
+  `insufficient_evidence` for all 6 (the toolkit surface still isn't statically
+  resolvable on the base→head diff). So the *scored* verdict mix stays
+  IE-dominated; W26 adds **no** scored `review_required` cases. And the 6
+  collapse to **one** distinct pattern (a repeated automated "sync skills from
+  docs.stripe.com" bot PR), so decided *diversity* added is ≈1. Net: even the
+  best app/toolkit repo's decided rows are effectively IE once verified.
 - **`tools_scanned` capture validated on real data (#223).** Every decided row
   records the ratio denominator (`tools_scanned=2`); pinned by
   `test_w26_headline_numbers_reproduce_from_committed_data`. This is the first
