@@ -216,6 +216,57 @@ def test_summarize_reports_ie_rate() -> None:
     assert summary["ie_rate_on_decided"] == 0.5
 
 
+def _blank_row() -> MinedRow:
+    return MinedRow(
+        repo="r", pr_number=1, pr_url="", title="", merged_at="",
+        base_sha="", head_sha="",
+    )
+
+
+def test_record_head_report_reads_tool_count_from_tool_surface() -> None:
+    # Regression: the total tool count lives in tool_surface.total_tools, NOT
+    # summary. Reading it from summary left tools_scanned null on every run,
+    # blanking the IE-threshold ratio denominator.
+    from benchmark.miner.evaluate import _record_head_report
+
+    report = {
+        "release_decision": {
+            "decision": "insufficient_evidence",
+            "blockers": [],
+            "review_items": [{"id": "x"}],
+            "evidence_coverage": {"evidence_gaps": [{"kind": "low_confidence_tool"}, {"kind": "low_confidence_tool"}]},
+        },
+        "tool_surface": {"total_tools": 5, "high_risk_tools": 0},
+        "summary": {"status": "clean"},  # deliberately carries no tool count
+    }
+    row = _blank_row()
+    _record_head_report(row, report)
+    assert row.tools_scanned == 5
+    assert row.head_decision == "insufficient_evidence"
+    assert row.evidence_gaps == 2
+    assert row.head_review_items == 1
+
+
+def test_record_head_report_falls_back_to_tool_inventory_length() -> None:
+    from benchmark.miner.evaluate import _record_head_report
+
+    report = {
+        "release_decision": {"decision": "passed"},
+        "tool_inventory": [{"name": "a"}, {"name": "b"}, {"name": "c"}],
+    }
+    row = _blank_row()
+    _record_head_report(row, report)
+    assert row.tools_scanned == 3
+
+
+def test_record_head_report_tools_scanned_null_when_absent() -> None:
+    from benchmark.miner.evaluate import _record_head_report
+
+    row = _blank_row()
+    _record_head_report(row, {"release_decision": {"decision": "passed"}})
+    assert row.tools_scanned is None
+
+
 # --- Source-hermeticity: parent trigger eval must use THIS checkout ----------
 
 

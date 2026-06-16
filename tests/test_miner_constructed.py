@@ -14,6 +14,7 @@ fixtures so a future change that breaks a verdict fails here, not silently.
 from __future__ import annotations
 
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -70,6 +71,46 @@ def test_live_engine_still_produces_the_constructed_verdicts() -> None:
     live = {r.pr_url: (r.head_decision, r.verify_verdict) for r in rows}
     committed = {r.pr_url: (r.head_decision, r.verify_verdict) for r in read_jsonl(CORPUS)}
     assert live == committed, "committed constructed corpus is stale vs the live engine"
+
+
+def test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture(
+    tmp_path: Path,
+) -> None:
+    """Calibration data point for the IE threshold (see CALIBRATION.md).
+
+    ``openai_agents_sdk_agent`` is the one labeled constructed case that lands
+    on the IE threshold (a dynamic SDK toolset static extraction can't
+    resolve). It must be ``insufficient_evidence`` *because* its low-confidence
+    ratio meets the current threshold — this ties the otherwise-untested
+    ``_LOW_CONFIDENCE_TOOL_RATIO`` constant to a labeled fixture, so an
+    extraction improvement that resolves the surface (or a threshold change)
+    surfaces here rather than silently. It also documents why the constant
+    cannot be *calibrated* from constructed data: the point sits at the robust
+    extreme (every tool low-confidence), indistinguishable across ratios.
+    """
+    from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
+
+    result = subprocess.run(
+        [sys.executable, "-m", "agents_shipgate", "fixture", "run",
+         "openai_agents_sdk_agent", "--out", str(tmp_path / "out")],
+        capture_output=True, text=True, timeout=180, env=cli_env(), check=False,
+    )
+    report_path = tmp_path / "out" / "report.json"
+    assert report_path.is_file(), f"exit {result.returncode}: {result.stderr[:400]}"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    decision = report["release_decision"]
+    coverage = decision["evidence_coverage"]
+    low = coverage["low_confidence_tool_count"]
+    total = (report.get("tool_surface") or {}).get("total_tools") or len(
+        report.get("tool_inventory") or []
+    )
+    assert decision["decision"] == "insufficient_evidence"
+    # The current constant correctly classifies it as below-threshold.
+    assert low >= _low_confidence_tool_threshold(total)
+    # It sits at the robust extreme (every tool is low-confidence), so this
+    # single labeled point cannot distinguish ratio values in (0, 1]. Moving
+    # the constant needs the human labeling pass + a re-mine, not this fixture.
+    assert low == total and total > 0
 
 
 def test_cli_env_prepends_this_checkouts_src() -> None:

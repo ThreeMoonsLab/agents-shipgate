@@ -72,6 +72,9 @@ python -m benchmark.miner evaluate \
 - A row with `status=evaluated` and `head_decision=insufficient_evidence`
   counts toward the IE-rate KPI. `trigger_skip` rows are the negative-control
   pool (the 0-noise-on-irrelevant-diffs property, on real history).
+- The IE-threshold constants (`_LOW_CONFIDENCE_TOOL_RATIO`,
+  `_MAX_TOLERATED_SOURCE_WARNINGS`) are examined and held — the calibration
+  attempt, finding, and revisit conditions are in [`CALIBRATION.md`](CALIBRATION.md).
 - Labeling for the accuracy corpus happens in a separate adjudicated file next
   to the CSV (`<run>.labels.csv`: `pr_url,label,rationale`) — the mined row is
   evidence, the label is the ground truth. The rubric, two-labeler process, and

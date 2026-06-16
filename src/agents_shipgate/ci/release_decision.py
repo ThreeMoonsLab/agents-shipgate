@@ -25,7 +25,13 @@ from agents_shipgate.schemas.report import (
 
 # Thresholds for the `insufficient_evidence` decision state. Private
 # module-level constants so they're tunable in code without expanding
-# the manifest or CLI surface.
+# the manifest or CLI surface. Examined and deliberately HELD at these
+# values: see benchmark/miner/CALIBRATION.md — the available corpora cannot
+# justify a change (the real corpus is unlabeled; the labeled constructed set
+# has a single threshold-exercising point at the robust extreme). The one
+# labeled point is pinned to _LOW_CONFIDENCE_TOOL_RATIO by
+# tests/test_miner_constructed.py so a change here surfaces in CI. Recalibrate
+# only after the human labeling pass + a re-mine (prerequisites in that doc).
 _LOW_CONFIDENCE_TOOL_RATIO = 0.5
 _MAX_TOLERATED_SOURCE_WARNINGS = 3
 
