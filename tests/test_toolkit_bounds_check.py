@@ -33,7 +33,7 @@ def _ctx(bounds: list[ToolkitScopeBound]) -> ScanContext:
     )
 
 
-def _bound(*, bounded: bool) -> ToolkitScopeBound:
+def _bound(*, bounded: bool, source_line: int = 27) -> ToolkitScopeBound:
     return ToolkitScopeBound(
         provider="stripe",
         constructor="StripeAgentToolkit",
@@ -41,7 +41,7 @@ def _bound(*, bounded: bool) -> ToolkitScopeBound:
         scopes=["customers:read"] if bounded else [],
         binding="stripe_agent_toolkit",
         source_ref="support_agent.py",
-        source_line=27,
+        source_line=source_line,
     )
 
 
@@ -54,7 +54,23 @@ def test_unbounded_toolkit_emits_finding() -> None:
     assert finding.category == "scope"
     assert finding.evidence["provider"] == "stripe"
     assert finding.evidence["constructor"] == "StripeAgentToolkit"
-    assert "support_agent.py:27" in finding.evidence["source_ref"]
+    # The actionable location is the constructor (source), not the manifest.
+    assert finding.source is not None
+    assert finding.source.path == "support_agent.py"
+    assert finding.source.start_line == 27
+    # The line is NOT in fingerprinted evidence (see churn test below).
+    assert finding.evidence["source_ref"] == "support_agent.py"
+
+
+def test_fingerprint_is_stable_across_harmless_line_moves() -> None:
+    from agents_shipgate.core.findings.identity import finding_fingerprint
+
+    at_27 = toolkit_bounds.run(_ctx([_bound(bounded=False, source_line=27)]))[0]
+    at_28 = toolkit_bounds.run(_ctx([_bound(bounded=False, source_line=28)]))[0]
+    # Moving the constructor down a line must not churn baselines/accepted debt.
+    assert finding_fingerprint(at_27) == finding_fingerprint(at_28)
+    # …but the surfaced location still reflects the real line.
+    assert at_28.source is not None and at_28.source.start_line == 28
 
 
 def test_bounded_toolkit_does_not_emit() -> None:
@@ -85,5 +101,8 @@ def test_scan_of_stripe_head_fixture_names_the_unbounded_toolkit(tmp_path: Path)
     )
     assert result.returncode == 0, result.stderr
     report = json.loads((out / "report.json").read_text(encoding="utf-8"))
-    ids = [f["check_id"] for f in report.get("findings", [])]
-    assert "SHIP-SCOPE-TOOLKIT-UNBOUNDED" in ids
+    matches = [f for f in report.get("findings", []) if f["check_id"] == "SHIP-SCOPE-TOOLKIT-UNBOUNDED"]
+    assert matches, "the unbounded-toolkit finding did not fire on the Stripe head fixture"
+    # The finding must point at the constructor, not shipgate.yaml.
+    source = matches[0].get("source") or {}
+    assert (source.get("path") or "").endswith("support_agent.py"), source

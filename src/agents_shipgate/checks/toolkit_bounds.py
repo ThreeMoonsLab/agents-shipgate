@@ -19,8 +19,8 @@ state directly.
 
 from __future__ import annotations
 
-from agents_shipgate.checks.base import agent_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.schemas.common import SourceReference, parse_confidence, parse_severity
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-SCOPE-TOOLKIT-UNBOUNDED"
@@ -33,29 +33,37 @@ def run(context: ScanContext) -> list[Finding]:
             # An explicit resource:verb allowlist was declared — least
             # privilege, exactly what we want. Nothing to flag.
             continue
-        location = bound.source_ref or ""
-        if bound.source_line is not None:
-            location = f"{location}:{bound.source_line}" if location else str(bound.source_line)
         findings.append(
-            agent_finding(
+            Finding(
                 check_id=CHECK_ID,
                 title=f"{bound.provider} toolkit mounted without a scope bound",
-                severity="high",
+                severity=parse_severity("high"),
                 category="scope",
+                agent_id=context.agent.id,
+                # Evidence is fingerprinted (core/findings/identity), so it
+                # stays stable across harmless line moves: the file is here,
+                # the LINE is not. The precise constructor location lives in
+                # `source` (not fingerprinted) so SARIF / report point at the
+                # constructor itself, not the manifest.
                 evidence={
                     "provider": bound.provider,
                     "constructor": bound.constructor,
                     "binding": bound.binding or "",
-                    "source_ref": location,
+                    "source_ref": bound.source_ref or "",
                 },
-                confidence="high",
+                confidence=parse_confidence("high"),
+                provenance_kind="ast_extraction",
+                source=SourceReference(
+                    type="agent_toolkit",
+                    ref=bound.source_ref,
+                    path=bound.source_ref,
+                    start_line=bound.source_line,
+                ),
                 recommendation=(
                     f"Pass an explicit `configuration` allowlist (resource:verb "
                     f"actions) to the {bound.constructor} constructor so the agent "
                     "mounts only the tools it needs, not the full toolkit surface."
                 ),
-                context=context,
-                provenance_kind="ast_extraction",
             )
         )
     return findings
