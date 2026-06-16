@@ -528,16 +528,43 @@ def _head_scan(row: MinedRow, scan_root: Path, tmp_path: Path) -> bool:
     except (OSError, json.JSONDecodeError):
         row.notes = _append_note(row.notes, "head_report_unparseable")
         return False
+    _record_head_report(row, report)
+    return True
+
+
+def _tool_count(report: dict) -> int | None:
+    """Total tools the scan enumerated.
+
+    Lives in ``tool_surface.total_tools`` (``tool_inventory`` length is the
+    fallback) — NOT in ``summary``. The previous read looked in ``summary``
+    for ``tools_scanned``/``tool_count``, keys ``ReportSummary`` does not
+    carry, so ``tools_scanned`` came back null on every run — blanking the
+    denominator the IE-threshold ratio (low_confidence_tools / total_tools)
+    is calibrated against.
+    """
+    surface = report.get("tool_surface") or {}
+    total = surface.get("total_tools")
+    if isinstance(total, int):
+        return total
+    inventory = report.get("tool_inventory")
+    if isinstance(inventory, list):
+        return len(inventory)
+    return None
+
+
+def _record_head_report(row: MinedRow, report: dict) -> None:
+    """Project a parsed head ``report.json`` onto the row.
+
+    Pure (no I/O) so the head-decision/evidence capture is unit-testable
+    without running a scan.
+    """
     decision = report.get("release_decision") or {}
     row.head_decision = str(decision.get("decision") or "")
     row.head_blockers = _safe_len(decision.get("blockers"))
     row.head_review_items = _safe_len(decision.get("review_items"))
     coverage = decision.get("evidence_coverage") or {}
     row.evidence_gaps = _safe_len(coverage.get("evidence_gaps"))
-    summary = report.get("summary") or {}
-    tools = summary.get("tools_scanned", summary.get("tool_count"))
-    row.tools_scanned = int(tools) if isinstance(tools, int) else None
-    return True
+    row.tools_scanned = _tool_count(report)
 
 
 def _capability_delta(
