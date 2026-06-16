@@ -67,8 +67,17 @@ def _item(finding: Finding) -> ReleaseDecisionItem:
     )
 
 
-def _report(*, decision: str, findings, blockers=(), review_items=()) -> ReadinessReport:
-    return ReadinessReport(
+def _report(
+    *,
+    decision: str,
+    findings,
+    blockers=(),
+    review_items=(),
+    low_confidence_tool_count: int = 0,
+    source_warning_count: int = 0,
+    tool_inventory=None,
+) -> ReadinessReport:
+    report = ReadinessReport(
         run_id="r",
         project={"name": "p"},
         agent={"name": "a"},
@@ -82,8 +91,8 @@ def _report(*, decision: str, findings, blockers=(), review_items=()) -> Readine
             evidence_coverage=EvidenceCoverageDecision(
                 level="static",
                 human_review_recommended=False,
-                source_warning_count=0,
-                low_confidence_tool_count=0,
+                source_warning_count=source_warning_count,
+                low_confidence_tool_count=low_confidence_tool_count,
             ),
             baseline_delta=BaselineDelta(enabled=False),
             fail_policy=FailPolicy(
@@ -97,6 +106,9 @@ def _report(*, decision: str, findings, blockers=(), review_items=()) -> Readine
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
         findings=list(findings),
     )
+    if tool_inventory is not None:
+        report.tool_inventory = list(tool_inventory)
+    return report
 
 
 def _review(*, policy_weakened=False, trust_root_touched=False) -> VerifierCapabilityReview:
@@ -196,6 +208,67 @@ def test_insufficient_evidence_forces_human() -> None:
     assert task is not None
     assert task.actor == "human"
     assert task.safe_to_attempt is False
+
+
+def test_degraded_evidence_under_review_required_forces_human() -> None:
+    # v0.27 regression guard: an active high finding elevates a degraded-evidence
+    # case from insufficient_evidence to review_required. The finding here is
+    # mechanically fixable (autofix_safe, no human review), so without an
+    # evidence-aware escalation it would route to coding_agent / safe_to_attempt
+    # — opening an auto-fix path on evidence too weak to gate. The fix_task must
+    # still fail closed to a human because the evidence is below the IE
+    # threshold (2 low-confidence tools of 2 → threshold 1).
+    f = _finding(
+        "F1",
+        requires_human_review=False,
+        autofix_safe=True,
+        severity="high",
+        recommendation="Add the missing scope bound.",
+    )
+    report = _report(
+        decision="review_required",
+        findings=[f],
+        review_items=[f],
+        low_confidence_tool_count=2,
+        tool_inventory=[
+            {"name": "a", "source_type": "langchain", "source_ref": "t.py", "confidence": "low"},
+            {"name": "b", "source_type": "langchain", "source_ref": "t.py", "confidence": "low"},
+        ],
+    )
+    task = _fix_task(report)
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+    # The human still gets the concrete "make the surface enumerable" remedy,
+    # even though the verdict is review_required rather than the bare IE verdict.
+    joined = " ".join(task.instructions)
+    assert "explicit local tool inventory" in joined
+
+
+def test_review_required_with_full_evidence_stays_mechanical() -> None:
+    # Counterpart guard: a mechanically-fixable high finding with HIGH-confidence
+    # evidence (no gap) must still route to the coding agent — the escalation
+    # fires on degraded evidence, not on severity.
+    f = _finding(
+        "F1",
+        requires_human_review=False,
+        autofix_safe=True,
+        severity="high",
+        recommendation="Add an owner field from CODEOWNERS.",
+    )
+    report = _report(
+        decision="review_required",
+        findings=[f],
+        review_items=[f],
+        low_confidence_tool_count=0,
+        tool_inventory=[
+            {"name": "a", "source_type": "mcp", "source_ref": "m.json", "confidence": "high"},
+        ],
+    )
+    task = _fix_task(report)
+    assert task is not None
+    assert task.actor == "coding_agent"
+    assert task.safe_to_attempt is True
 
 
 # --- Instructions / guardrails / verification -------------------------------

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shlex
 
+from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
@@ -109,6 +110,19 @@ def build_fix_task(
 
     gating = _gating_findings(report)
 
+    # Degraded static evidence (below the IE threshold) is an authority gap
+    # regardless of which verdict it produced. An active high/critical finding
+    # elevates a degraded-evidence case from `insufficient_evidence` to
+    # `review_required` (a more actionable verdict),
+    # so keying the escalation on `merge_verdict == "insufficient_evidence"`
+    # alone would let a mechanically-fixable high finding open a coding-agent
+    # auto-fix path on weak evidence. Compute the threshold directly from the
+    # same predicate the release decision uses so the two never drift.
+    evidence_degraded = evidence_below_ie_threshold(
+        report.release_decision.evidence_coverage,
+        tool_count=len(report.tool_inventory),
+    )
+
     # The coding-agent route is the only non-human outcome and it MUST fail
     # closed: every gating finding has to be explicitly mechanical
     # (``autofix_safe is True`` AND ``requires_human_review is False``). A
@@ -123,6 +137,7 @@ def build_fix_task(
         capability_review.policy_weakened
         or capability_review.trust_root_touched
         or merge_verdict in {"insufficient_evidence", "unknown"}
+        or evidence_degraded
     )
     if mechanical and not authority_escalation:
         return VerifierFixTask(
@@ -143,7 +158,11 @@ def build_fix_task(
         actor="human",
         safe_to_attempt=False,
         instructions=_human_instructions(
-            report, capability_review, gating, merge_verdict=merge_verdict
+            report,
+            capability_review,
+            gating,
+            merge_verdict=merge_verdict,
+            evidence_degraded=evidence_degraded,
         ),
         allowed_repairs=_human_repairs(
             report,
@@ -181,11 +200,16 @@ def _human_instructions(
     gating: list[Finding],
     *,
     merge_verdict: MergeVerdict = "human_review_required",
+    evidence_degraded: bool = False,
 ) -> list[str]:
     decision = report.release_decision
     assert decision is not None
     out: list[str] = [decision.reason]
-    if merge_verdict == "insufficient_evidence":
+    # Surface the concrete "make the hidden authority enumerable" remedies
+    # whenever evidence is degraded — not only on the bare IE verdict. A
+    # high-finding case elevated to review_required carries the same
+    # evidence gap and the human needs the same remedy.
+    if merge_verdict == "insufficient_evidence" or evidence_degraded:
         out.extend(_insufficient_evidence_remedies(report))
     if capability_review.policy_weakened:
         out.append(

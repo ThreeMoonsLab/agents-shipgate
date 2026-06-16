@@ -331,14 +331,36 @@ the scan also has low-confidence tools or source warnings.
 
 When there are no blockers, `insufficient_evidence` means the static inputs are
 not strong enough for Shipgate to gate release confidently. It does **not**
-prove the agent is unsafe. The decision fires when low-confidence tools are at
-least `max(1, ceil(tool_count × 0.5))`, or when source-loader warnings exceed
-`3`. One to three source warnings without blockers route to `review_required`
-so a human still sees the degraded source coverage.
+prove the agent is unsafe. The evidence is considered below threshold when
+low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or when
+source-loader warnings exceed `3`. One to three source warnings without
+blockers route to `review_required` so a human still sees the degraded source
+coverage.
 
-The intended recovery is to provide clearer local evidence — for example an MCP
+**Active high/critical findings take precedence over the IE label.** When the
+evidence is below threshold *and* there is an active (non-baseline-accepted)
+high- or critical-severity review finding, the decision is `review_required`
+rather than `insufficient_evidence`. Both verdicts are
+equally non-mergeable (`can_merge_without_human` is false either way), but
+`review_required` points the reviewer at a specific, named finding instead of
+the vaguer "we couldn't see enough." The evidence gap is **not** lost: the
+underlying counts remain in `release_decision.evidence_coverage`
+(`low_confidence_tool_count`, `source_warning_count`, `evidence_gaps[]`), so a
+consumer must read those fields rather than the verdict label alone to know
+whether evidence was degraded. `insufficient_evidence` still fires when the only
+signal is weak evidence with no named high/critical concern; `blocked` still
+takes precedence over both. The precedence is therefore:
+`blocked` → `review_required` (active high/critical) → `insufficient_evidence`
+→ `review_required` (other) → `passed`.
+
+The intended recovery for a degraded-evidence case — whichever of the two
+verdicts it lands on — is to provide clearer local evidence — for example an MCP
 export, OpenAPI spec, explicit local tool inventory, broader OpenAI Agents SDK
-source path, or validation trace — and rerun the scan.
+source path, or validation trace — and rerun the scan. When the decision is
+`review_required` because of an active high/critical finding, also resolve that
+finding. `agents-shipgate verify` keeps both cases human-routed
+(`fix_task.actor = "human"`): a degraded-evidence case never opens an automated
+coding-agent fix path, regardless of which verdict it carries.
 
 ### Check IDs
 
