@@ -1,0 +1,8 @@
+repo,pr_number,pr_url,title,merged_at,base_sha,head_sha,files_changed,trigger_run,trigger_rationale,check_decision,check_rule_ids,init_status,head_decision,head_blockers,head_review_items,evidence_gaps,tools_scanned,cap_added,cap_removed,cap_changed,cap_broadened,verify_verdict,verify_decision,verify_can_merge,verify_trust_root_touched,verify_policy_weakened,verify_cap_added,verify_cap_modified,verify_cap_removed,status,notes,schema_version
+fixture/ai_generated_refund_pr,0,fixture://ai_generated_refund_pr,ai_generated_refund_pr,,,,0,False,,,,,blocked,,,,,,,,,blocked,,False,,,,,,evaluated,,0.2
+fixture/agent_weakens_gate,0,fixture://agent_weakens_gate,agent_weakens_gate,,,,0,False,,,,,blocked,,,,,,,,,blocked,,False,,,,,,evaluated,,0.2
+fixture/support_refund_agent,0,fixture://support_refund_agent,support_refund_agent,,,,0,False,,,,,blocked,,,,,,,,,,,,,,,,,evaluated,,0.2
+fixture/clean_read_only_agent,0,fixture://clean_read_only_agent,clean_read_only_agent,,,,0,False,,,,,passed,,,,,,,,,,,,,,,,,evaluated,,0.2
+fixture/hitl_evidence_covered_agent,0,fixture://hitl_evidence_covered_agent,hitl_evidence_covered_agent,,,,0,False,,,,,passed,,,,,,,,,,,,,,,,,evaluated,,0.2
+fixture/hitl_evidence_agent,0,fixture://hitl_evidence_agent,hitl_evidence_agent,,,,0,False,,,,,review_required,,,,,,,,,,,,,,,,,evaluated,,0.2
+fixture/openai_agents_sdk_agent,0,fixture://openai_agents_sdk_agent,openai_agents_sdk_agent,,,,0,False,,,,,insufficient_evidence,,,,,,,,,,,,,,,,,evaluated,,0.2

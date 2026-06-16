@@ -9,7 +9,10 @@ thin subprocess wrapper run by maintainers, not CI).
 from __future__ import annotations
 
 import csv
+import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 from benchmark.miner.evaluate import evaluate_pr
@@ -211,3 +214,47 @@ def test_summarize_reports_ie_rate() -> None:
     summary = summarize([evaluated_ie, evaluated_ok, skip])
     assert summary["rows"] == 3
     assert summary["ie_rate_on_decided"] == 0.5
+
+
+# --- Source-hermeticity: parent trigger eval must use THIS checkout ----------
+
+
+def test_ensure_repo_src_on_path_inserts_when_absent(monkeypatch) -> None:
+    from benchmark.miner.evaluate import _REPO_SRC, _ensure_repo_src_on_path
+
+    # Simulate the repro: this checkout's src/ absent from the parent path
+    # (e.g. an editable .pth points at a different checkout / installed wheel).
+    filtered = [p for p in sys.path if Path(p).resolve() != _REPO_SRC.resolve()]
+    monkeypatch.setattr(sys, "path", filtered)
+    _ensure_repo_src_on_path()
+    assert Path(sys.path[0]).resolve() == _REPO_SRC.resolve()
+
+
+def test_evaluate_cli_is_source_hermetic_without_src_on_parent_path(tmp_path: Path) -> None:
+    """`benchmark.miner evaluate` must decide run/skip from THIS checkout's
+    trigger catalog even when the parent env has no src/ — the parent trigger
+    import, not just the child subprocesses, has to resolve here.
+    """
+    repo = _init_repo(tmp_path)
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    base = _commit_all(repo, "base")
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    head = _commit_all(repo, "docs")  # docs-only → trigger-skip, fast (no scan)
+
+    repo_root = Path(__file__).resolve().parent.parent
+    env = dict(os.environ)
+    # Parent can import `benchmark` (repo root) but NOT agents_shipgate (no src)
+    # — only the _ensure_repo_src_on_path fix puts this checkout's src first.
+    env["PYTHONPATH"] = str(repo_root)
+    env.pop("AGENTS_SHIPGATE_AGENT_MODE", None)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "benchmark.miner", "evaluate",
+            "--repo-path", str(repo), "--base", base, "--head", head,
+        ],
+        capture_output=True, text=True, timeout=180, env=env, cwd=str(repo_root),
+    )
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)
+    assert row["status"] == STATUS_TRIGGER_SKIP
+    assert row["trigger_run"] is False

@@ -40,17 +40,49 @@ from benchmark.miner.rows import (
 
 _GIT_TIMEOUT = 120
 _CLI_TIMEOUT = 420
+# <repo>/src — the checkout this miner lives in. evaluate.py is at
+# <repo>/benchmark/miner/evaluate.py, so parents[2] is the repo root.
+_REPO_SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 def shipgate_cmd() -> list[str]:
     return [sys.executable, "-m", "agents_shipgate"]
 
 
-def _cli_env() -> dict[str, str]:
+def _ensure_repo_src_on_path() -> None:
+    """Make in-process ``import agents_shipgate`` resolve to THIS checkout.
+
+    ``cli_env`` only fixes child subprocesses; ``evaluate_pr`` imports
+    ``agents_shipgate.triggers`` in the PARENT to decide run/skip. Run by hand
+    against an older installed copy (or an editable ``.pth`` for a different
+    checkout), the parent would otherwise compute trigger decisions from a
+    stale catalog. Idempotent, and a no-op under pytest where conftest already
+    front-loads src. Must run before the first agents_shipgate import.
+    """
+
+    src = str(_REPO_SRC)
+    if src not in sys.path:
+        sys.path.insert(0, src)
+
+
+def cli_env() -> dict[str, str]:
+    """Environment for child ``python -m agents_shipgate`` runs.
+
+    Two pins, both load-bearing:
+
+    - ``AGENTS_SHIPGATE_AGENT_MODE=0`` so stdout shapes don't flip when the
+      miner itself runs inside a coding-agent shell (``CLAUDECODE=1``).
+    - the checkout's ``src/`` prepended to ``PYTHONPATH`` so the child imports
+      THIS source tree, never a stale ``agents-shipgate`` wheel on the machine.
+      Without it, the documented ``python -m benchmark.miner …`` commands are
+      only hermetic under pytest (conftest sets ``PYTHONPATH``); run by hand
+      against an older installed copy they silently resolve to it.
+    """
+
     env = dict(os.environ)
-    # Pin agent-mode off so stdout shapes don't flip when the miner itself
-    # runs inside a coding-agent shell (CLAUDECODE=1 auto-detection).
     env["AGENTS_SHIPGATE_AGENT_MODE"] = "0"
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(_REPO_SRC) + (os.pathsep + existing if existing else "")
     return env
 
 
@@ -66,7 +98,7 @@ def _run(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env=_cli_env(),
+        env=cli_env(),
         check=False,
     )
 
@@ -130,6 +162,7 @@ def _evaluate(row: MinedRow, *, repo_path: Path, force_run: bool) -> MinedRow:
         _git(repo_path, ["cat-file", "-e", f"{row.head_sha}:shipgate.yaml"]).returncode == 0
     )
 
+    _ensure_repo_src_on_path()
     from agents_shipgate.triggers import evaluate as evaluate_trigger
 
     trigger = evaluate_trigger(

@@ -87,6 +87,39 @@ python -m benchmark.miner evaluate \
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
 | [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. Findings below. |
 
+## Constructed-adversarial accuracy — the blocked-recall proof
+
+Real merged PRs almost never contain a `must_block` capability change (W25:
+9 decided / 241), so the accuracy benchmark's **positives** come from the
+repo's bundled fixtures, each built to be a specific case. The labels are each
+fixture's **documented design intent** — external ground truth, not a post-hoc
+opinion about the engine's output — so scoring the engine's verdict against
+them is *non-circular*. This is the moat claim, measured: the gate blocks what
+is known-unsafe and does not escalate what is known-safe.
+
+Corpus: [`results/constructed.jsonl`](results/constructed.jsonl) +
+[`results/constructed.labels.csv`](results/constructed.labels.csv). Regenerate
+with `python -m benchmark.miner constructed --out … --labels-out …`; score with
+`python -m benchmark.miner score`.
+
+| label \ verdict | allow | review | insufficient_evidence | block |
+|---|---|---|---|---|
+| `safe_to_merge` | 2 | 0 | 0 | 0 |
+| `needs_human` | 0 | 1 | 1 | 0 |
+| `must_block` | 0 | 0 | 0 | 3 |
+
+| Metric | Value | Reading |
+|---|---|---|
+| `blocked_recall` | **1.0** (3/3) | every known-unsafe fixture is blocked |
+| `benign_escalation_rate` | **0.0** (0/2) | no known-safe fixture is escalated |
+| `needs_human_caught` | **1.0** (2/2) | both review-needed cases are routed to a human (review / insufficient_evidence), never auto-passed |
+
+The live engine is re-run against these fixtures in CI
+(`tests/test_miner_constructed.py`), so a change that regresses a blocked
+verdict fails there rather than silently in the data file. The mined runs below
+supply the complementary halves — the **negative control** (the 226
+trigger-skips) and the real-history **extraction-coverage** (`insufficient_evidence`) rate.
+
 ### 2026-W25 findings — diminishing returns from framework-core breadth
 
 - **The base rate of capability-changing merged PRs is low, and now quantified.**

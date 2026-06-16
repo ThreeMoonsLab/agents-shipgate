@@ -1,0 +1,8 @@
+pr_url,label,rationale
+fixture://ai_generated_refund_pr,must_block,homepage story: adds stripe.create_refund with no approval policy and no idempotency evidence
+fixture://agent_weakens_gate,must_block,trust-root: the coding agent deletes the Shipgate CI gate to make its PR self-merge
+fixture://support_refund_agent,must_block,refund tool missing approval policy and idempotency evidence (two criticals by design)
+fixture://clean_read_only_agent,safe_to_merge,read-only tool surface; no risky actions by design
+fixture://hitl_evidence_covered_agent,safe_to_merge,refund domain with the approval/idempotency evidence a reviewer expects already covered
+fixture://hitl_evidence_agent,needs_human,authority-bearing refund surface a reviewer must sign off (human-in-the-loop evidence expected)
+fixture://openai_agents_sdk_agent,needs_human,dynamic OpenAI Agents SDK toolset; static extraction can't resolve the full surface (coverage gap)
