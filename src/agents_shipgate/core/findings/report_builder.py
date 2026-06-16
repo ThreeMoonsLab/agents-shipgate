@@ -115,6 +115,11 @@ def build_report(
         findings=findings,
         release_decision=report.release_decision,
         json_report_path=generated_reports.get("json"),
+        # Threaded so agent_summary can detect below-IE-threshold evidence
+        # (the ratio needs the total tool count) and put evidence
+        # remediation ahead of auto-apply even when an active high/critical
+        # finding elevated the verdict to review_required (Phase 2c).
+        tool_count=len(tools),
     )
     # v0.20 NOTE: ``report.reviewer_summary`` is NOT built here. It
     # depends on ``report.misalignments`` which ``apply_capability_diff``
