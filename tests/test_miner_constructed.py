@@ -14,13 +14,18 @@ fixtures so a future change that breaks a verdict fails here, not silently.
 from __future__ import annotations
 
 import csv
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from benchmark.miner.constructed import CONSTRUCTED_CASES, build_constructed_corpus
+from benchmark.miner.evaluate import cli_env
 from benchmark.miner.labels import LABELS, load_labels, score
 from benchmark.miner.rows import STATUS_EVALUATED, read_jsonl
 
-RESULTS = Path(__file__).resolve().parent.parent / "benchmark" / "miner" / "results"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RESULTS = REPO_ROOT / "benchmark" / "miner" / "results"
 CORPUS = RESULTS / "constructed.jsonl"
 LABELS_FILE = RESULTS / "constructed.labels.csv"
 
@@ -65,3 +70,47 @@ def test_live_engine_still_produces_the_constructed_verdicts() -> None:
     live = {r.pr_url: (r.head_decision, r.verify_verdict) for r in rows}
     committed = {r.pr_url: (r.head_decision, r.verify_verdict) for r in read_jsonl(CORPUS)}
     assert live == committed, "committed constructed corpus is stale vs the live engine"
+
+
+def test_cli_env_prepends_this_checkouts_src() -> None:
+    """The child `python -m agents_shipgate` must import THIS checkout.
+
+    Regression for the stale-install footgun: without src/ first on the
+    child's PYTHONPATH, the documented commands resolve to whatever
+    agents-shipgate is installed on the machine.
+    """
+    env = cli_env()
+    first = env["PYTHONPATH"].split(os.pathsep)[0]
+    assert Path(first) == (REPO_ROOT / "src"), first
+    assert env["AGENTS_SHIPGATE_AGENT_MODE"] == "0"
+
+
+def test_constructed_cli_is_source_hermetic(tmp_path: Path) -> None:
+    """End-to-end: regenerate via the CLI with src/ removed from the parent
+    env. The child must still find this checkout (via cli_env), not fall back
+    to an installed wheel — so the command exits 0 and writes all 7 rows.
+    """
+    env = dict(os.environ)
+    # Parent can import `benchmark` (repo root) but NOT agents_shipgate (no src) —
+    # only the cli_env fix puts src on the child's path.
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    env.pop("AGENTS_SHIPGATE_AGENT_MODE", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "benchmark.miner",
+            "constructed",
+            "--out",
+            str(tmp_path / "constructed.jsonl"),
+            "--labels-out",
+            str(tmp_path / "constructed.labels.csv"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(read_jsonl(tmp_path / "constructed.jsonl")) == len(CONSTRUCTED_CASES)

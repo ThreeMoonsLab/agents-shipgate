@@ -22,13 +22,13 @@ corpus scores through the very same confusion-matrix code as the mined corpus.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from benchmark.miner.evaluate import cli_env
 from benchmark.miner.rows import STATUS_ERROR, STATUS_EVALUATED, MinedRow
 
 
@@ -83,12 +83,6 @@ CONSTRUCTED_CASES: tuple[ConstructedCase, ...] = (
 _RUN_TIMEOUT = 180
 
 
-def _cli_env() -> dict[str, str]:
-    env = dict(os.environ)
-    env["AGENTS_SHIPGATE_AGENT_MODE"] = "0"
-    return env
-
-
 def evaluate_constructed_case(case: ConstructedCase) -> MinedRow:
     """Run one bundled fixture and record its verdict as a score-able row."""
 
@@ -110,7 +104,7 @@ def evaluate_constructed_case(case: ConstructedCase) -> MinedRow:
                 capture_output=True,
                 text=True,
                 timeout=_RUN_TIMEOUT,
-                env=_cli_env(),
+                env=cli_env(),
                 check=False,
             )
             report = out / "report.json"
