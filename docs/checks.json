@@ -2677,6 +2677,29 @@
     },
     {
       "autofix_safe": false,
+      "category": "scope",
+      "default_severity": "high",
+      "description": "A dynamically-loaded agent toolkit is mounted without a scope bound.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-toolkit-unbounded",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "provider",
+        "constructor",
+        "binding",
+        "source_ref"
+      ],
+      "fires_when": "A recognized agent-toolkit constructor is called with no configuration\nallowlist (the parsed ToolkitScopeBound is unbounded), so the full toolkit\nsurface is mounted.",
+      "floor_severity": null,
+      "id": "SHIP-SCOPE-TOOLKIT-UNBOUNDED",
+      "mvp_tier": "core",
+      "rationale": "A recognized toolkit constructor (e.g. stripe_agent_toolkit) called with no\nconfiguration allowlist mounts its full tool surface \u2014 refund/cancel/dispute \u2014\nwhich the static extractor cannot enumerate. The unbounded grant must be\nreviewed rather than pass silently into insufficient_evidence.",
+      "recommendation": "Pass an explicit configuration allowlist (resource:verb actions) to the toolkit constructor so the agent mounts only the tools it needs.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": true,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "side_effects",
       "default_severity": "high",
       "description": "Risky write tool lacks idempotency evidence; critical when retry is known.",

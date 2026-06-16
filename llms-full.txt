@@ -1598,6 +1598,10 @@ A write-capable tool contradicts a read-only declared purpose. Remove the tool o
 
 A tool appears to overlap with a manifest `prohibited_actions` entry. Remove or narrow the tool, or revise policy/scope text.
 
+### SHIP-SCOPE-TOOLKIT-UNBOUNDED
+
+A recognized agent-toolkit constructor (e.g. `stripe_agent_toolkit`) is mounted with no `configuration` allowlist, so the full toolkit surface — which static extraction cannot enumerate — is granted. Routes to human review instead of passing silently. Pass an explicit `configuration` allowlist (resource:verb actions) to bound the mounted tools.
+
 ### SHIP-POLICY-APPROVAL-MISSING
 
 A high-risk tool lacks a declared approval policy. Add an approval policy or remove the tool from the release.
