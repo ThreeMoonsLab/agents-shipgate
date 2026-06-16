@@ -175,6 +175,25 @@ def test_w25_headline_numbers_reproduce_from_committed_data() -> None:
     assert summary["by_status"][STATUS_EVALUATED] == 2
 
 
+def test_w26_headline_numbers_reproduce_from_committed_data() -> None:
+    """Pin the 2026-W26 deepen run (stripe/agent-toolkit + block/goose +
+    pydantic/pydantic-ai). Two firsts: the first run with `tools_scanned`
+    captured (the #223 fix, validated here on real data) and the first real
+    `review_required` decided rows (the framework cores only ever yielded IE).
+    """
+    rows = read_jsonl(RESULTS_DIR / "2026-W26-mined.jsonl")
+    summary = summarize(rows)
+    assert summary["rows"] == 120
+    assert summary["by_status"][STATUS_TRIGGER_SKIP] == 110
+    assert summary["by_status"][STATUS_EVALUATED] == 6
+    assert summary["by_status"][STATUS_SCAN_FAILED] == 4
+    # Every decided row is review_required (not IE) — IE rate 0.0 on decided.
+    assert summary["ie_rate_on_decided"] == 0.0
+    # The #223 tools_scanned fix populated the ratio denominator on real data.
+    evaluated = [r for r in rows if r.status == STATUS_EVALUATED]
+    assert evaluated and all(r.tools_scanned is not None for r in evaluated)
+
+
 def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
     """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
 
@@ -189,7 +208,7 @@ def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
                 skip += 1
             if row.head_decision:
                 decided += 1
-    assert total >= 241
+    assert total >= 361
     assert skip / total >= 0.9, f"trigger-skip rate fell to {skip}/{total}"
     # Decided capability-changing PRs are rare on real history — documented,
     # not aspirational. Guard the order of magnitude, not an exact count.

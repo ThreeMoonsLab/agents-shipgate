@@ -40,8 +40,9 @@ unusable for calibration even descriptively:
 - `tools_scanned` was captured from the wrong place (`summary`, which carries
   no tool count) and came back `null` on every row — the ratio denominator was
   missing entirely. **Fixed** in `evaluate._tool_count` (now reads
-  `tool_surface.total_tools`); future mines record it. The committed corpus
-  predates the fix and still shows `null` — re-mine to populate.
+  `tool_surface.total_tools`) and **validated on real data** by the 2026-W26
+  run, whose decided rows all record it (W24/W25 predate the fix and still show
+  `null`). The denominator is now captured; the *labels* still are not.
 - The row schema records `evidence_gaps` (low-confidence tools **+** source
   warnings, combined) but not the split, so the two threshold terms can't be
   separated. Splitting them is a `MinedRow` schema change, which forces a full

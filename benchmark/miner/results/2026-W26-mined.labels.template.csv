@@ -1,0 +1,11 @@
+pr_url,repo,pr_number,title,status,head_decision,verify_verdict,verify_can_merge,verify_trust_root_touched,cap_added,cap_broadened,label,rationale
+https://github.com/stripe/ai/pull/400,stripe/agent-toolkit,400,[automated] sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/stripe/ai/pull/353,stripe/agent-toolkit,353,[automated] sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/stripe/ai/pull/338,stripe/agent-toolkit,338,[automated] sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/stripe/ai/pull/336,stripe/agent-toolkit,336,[automated] sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/stripe/ai/pull/332,stripe/agent-toolkit,332,[automated] sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/stripe/ai/pull/312,stripe/agent-toolkit,312,Sync skills from docs.stripe.com,evaluated,review_required,insufficient_evidence,False,True,0,0,,
+https://github.com/aaif-goose/goose/pull/9798,block/goose,9798,feat(session): add opt-in ACP last message snippets,scan_failed,,,,,,,,
+https://github.com/aaif-goose/goose/pull/9717,block/goose,9717,feat: use acp search session in Desktop,scan_failed,,,,,,,,
+https://github.com/aaif-goose/goose/pull/9684,block/goose,9684,chore(release): bump version to 1.38.0 (minor),scan_failed,,,,,,,,
+https://github.com/aaif-goose/goose/pull/9637,block/goose,9637,Improve benchmarking,scan_failed,,,,,,,,
