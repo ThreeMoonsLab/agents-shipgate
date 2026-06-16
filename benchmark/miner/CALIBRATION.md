@@ -79,14 +79,20 @@ but only one threshold-exercising point, and it is uninformative about where in
 
 **Hold `0.5` / `3`.** No available data supports a change, and an unjustified
 change would move the IE rate blindly. The constants are now *examined and
-guarded* rather than unexamined:
+guarded* rather than unexamined — two guards with distinct jobs:
 
-- `test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture`
-  (`tests/test_miner_constructed.py`) pins the one labeled IE point to the live
-  constant, so an extraction improvement that resolves the dynamic surface — or
-  a threshold edit — surfaces in CI.
-- `test_record_head_report_*` (`tests/test_miner.py`) lock the `tools_scanned`
-  capture fix so the next mine records the denominator.
+- **Threshold edits** → `test_ie_threshold_constants_are_frozen`
+  (`tests/test_release_decision.py`) asserts the constants equal `0.5` / `3`.
+  Changing either fails CI, so a recalibration is a deliberate edit that must
+  update this note alongside it.
+- **Extraction regressions** → `test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture`
+  (`tests/test_miner_constructed.py`) re-runs the one labeled IE fixture; if
+  extraction later resolves its dynamic surface the verdict flips and this
+  fails. It does *not* catch threshold edits — the point sits at ratio 1.0, so
+  it stays above any threshold in `(0, 1]` (which is the whole reason it can't
+  calibrate the constant).
+- **The denominator** → `test_record_head_report_*` (`tests/test_miner.py`)
+  lock the `tools_scanned` capture fix so the next mine records it.
 
 ## When to revisit
 

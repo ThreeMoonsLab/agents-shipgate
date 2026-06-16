@@ -6,7 +6,11 @@ from agents_shipgate.ci.exit_policy import (
     GATE_FAILURE_EXIT_CODE,
     exit_code_for_report,
 )
-from agents_shipgate.ci.release_decision import build_release_decision
+from agents_shipgate.ci.release_decision import (
+    _LOW_CONFIDENCE_TOOL_RATIO,
+    _MAX_TOLERATED_SOURCE_WARNINGS,
+    build_release_decision,
+)
 from agents_shipgate.core.domain import (
     AuthInfo,
     Tool,
@@ -340,6 +344,27 @@ def test_accepted_high_finding_does_not_outrank_insufficient_evidence():
     )
     decision = _build(report, ci_mode="advisory", tools=tools, new_findings_only=True)
     assert decision.decision == "insufficient_evidence"
+
+
+def test_ie_threshold_constants_are_frozen():
+    """Freeze the IE-threshold constants at their examined-and-held values.
+
+    benchmark/miner/CALIBRATION.md decided to HOLD these because no available
+    data justifies a change. The labeled constructed fixture
+    (test_miner_constructed) only guards extraction for that case — it sits at
+    ratio 1.0 and so cannot detect a threshold edit. This is the guard that
+    makes a threshold edit surface in CI: changing 0.5 / 3 here is a deliberate
+    recalibration that must update CALIBRATION.md (and the revisit
+    prerequisites: the human labeling pass + a re-mine) alongside this test.
+    """
+    assert _LOW_CONFIDENCE_TOOL_RATIO == 0.5, (
+        "IE low-confidence ratio changed — recalibrate per "
+        "benchmark/miner/CALIBRATION.md and update this guard."
+    )
+    assert _MAX_TOLERATED_SOURCE_WARNINGS == 3, (
+        "IE source-warning tolerance changed — recalibrate per "
+        "benchmark/miner/CALIBRATION.md and update this guard."
+    )
 
 
 def test_insufficient_evidence_reason_lists_both_counts():

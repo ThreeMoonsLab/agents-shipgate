@@ -80,13 +80,16 @@ def test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture(
 
     ``openai_agents_sdk_agent`` is the one labeled constructed case that lands
     on the IE threshold (a dynamic SDK toolset static extraction can't
-    resolve). It must be ``insufficient_evidence`` *because* its low-confidence
-    ratio meets the current threshold — this ties the otherwise-untested
-    ``_LOW_CONFIDENCE_TOOL_RATIO`` constant to a labeled fixture, so an
-    extraction improvement that resolves the surface (or a threshold change)
-    surfaces here rather than silently. It also documents why the constant
-    cannot be *calibrated* from constructed data: the point sits at the robust
-    extreme (every tool low-confidence), indistinguishable across ratios.
+    resolve). It is ``insufficient_evidence`` because every tool is
+    low-confidence (ratio 1.0), well above the current threshold.
+
+    What this guards: an **extraction change** for this fixture — if extraction
+    later resolves the dynamic surface, ``low`` drops, the verdict flips, and
+    this fails. It does NOT guard threshold edits: the point sits at the robust
+    extreme (low == total), so it stays ``low >= threshold`` for any ratio in
+    ``(0, 1]`` — which is exactly why one labeled point cannot *calibrate* the
+    constant. Freezing the constant itself is
+    ``test_ie_threshold_constants_are_frozen`` in ``test_release_decision.py``.
     """
     from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
 
