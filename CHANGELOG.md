@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **A named high concern now routes to review, not `insufficient_evidence`.**
+  When a scan turns up an *active* (not baseline-accepted) high/critical review
+  finding, the release decision is now `review_required` even if low-confidence
+  extraction would otherwise have produced `insufficient_evidence`. Both
+  verdicts are equally non-auto-mergeable, but `review_required` points the
+  human at a specific, actionable finding (e.g. the new
+  `SHIP-SCOPE-TOOLKIT-UNBOUNDED`) instead of the vaguer "we couldn't see
+  enough." `blocked` still outranks everything; IE still fires when the only
+  signal is thin extraction. The 2026-06-01 Stripe pilot's silent/IE case now
+  surfaces as a routed review. `evidence_gaps` are preserved on the report
+  either way, so the extraction-coverage signal is not lost.
+
 ## 0.13.0 - 2026-06-12
 
 - **Accepted-debt exception workflow (baseline schema 0.6).** `baseline save`
