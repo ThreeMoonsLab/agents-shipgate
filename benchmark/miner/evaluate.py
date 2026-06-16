@@ -49,6 +49,22 @@ def shipgate_cmd() -> list[str]:
     return [sys.executable, "-m", "agents_shipgate"]
 
 
+def _ensure_repo_src_on_path() -> None:
+    """Make in-process ``import agents_shipgate`` resolve to THIS checkout.
+
+    ``cli_env`` only fixes child subprocesses; ``evaluate_pr`` imports
+    ``agents_shipgate.triggers`` in the PARENT to decide run/skip. Run by hand
+    against an older installed copy (or an editable ``.pth`` for a different
+    checkout), the parent would otherwise compute trigger decisions from a
+    stale catalog. Idempotent, and a no-op under pytest where conftest already
+    front-loads src. Must run before the first agents_shipgate import.
+    """
+
+    src = str(_REPO_SRC)
+    if src not in sys.path:
+        sys.path.insert(0, src)
+
+
 def cli_env() -> dict[str, str]:
     """Environment for child ``python -m agents_shipgate`` runs.
 
@@ -146,6 +162,7 @@ def _evaluate(row: MinedRow, *, repo_path: Path, force_run: bool) -> MinedRow:
         _git(repo_path, ["cat-file", "-e", f"{row.head_sha}:shipgate.yaml"]).returncode == 0
     )
 
+    _ensure_repo_src_on_path()
     from agents_shipgate.triggers import evaluate as evaluate_trigger
 
     trigger = evaluate_trigger(
