@@ -55,6 +55,11 @@ def build_release_decision(
     review_items: list[ReleaseDecisionItem] = []
     contribution_rules: list[ContributionRule] = []
     blocker_severities: set[Severity] = {"critical", *fail_on_resolved}
+    # v0.27 (Phase 2c): an active (non-accepted) high/critical finding routed to
+    # review is a *named* concern — the gate has decided "a human must look",
+    # which is more specific than "insufficient_evidence". Tracked here so the
+    # decision can prefer review_required over IE when one exists (see below).
+    has_active_high_review = False
 
     # v0.17: iterate the FULL findings list (not just `active`) so the
     # audit row set is exhaustive over report.findings. The branching
@@ -121,6 +126,11 @@ def build_release_decision(
             or finding.requires_human_review is True
         ):
             review_items.append(_to_item(finding))
+            if (
+                finding.severity in {"critical", "high"}
+                and finding.baseline_status != "matched"
+            ):
+                has_active_high_review = True
             contribution_rules.append(
                 _rule(
                     finding,
@@ -183,6 +193,16 @@ def build_release_decision(
     decision: ReleaseDecisionStatus
     if blockers:
         decision = "blocked"
+    elif has_active_high_review:
+        # Phase 2c: a named, active high/critical concern (e.g. an unbounded
+        # toolkit mounted on the agent) is not "insufficient evidence" — the
+        # gate HAS something concrete for a human to review. Prefer the
+        # actionable review_required over the vaguer insufficient_evidence.
+        # Both are equally non-auto-mergeable (can_merge_without_human=False),
+        # so this loses no safety; the low-confidence detail is still carried
+        # in evidence_coverage.evidence_gaps. IE stays the verdict when the
+        # only signal is weak evidence with no named high concern.
+        decision = "review_required"
     elif (
         evidence.low_confidence_tool_count >= low_confidence_threshold
         or evidence.source_warning_count > _MAX_TOLERATED_SOURCE_WARNINGS

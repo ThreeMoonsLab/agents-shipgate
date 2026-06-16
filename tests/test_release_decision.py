@@ -303,6 +303,45 @@ def test_insufficient_evidence_outranks_review_required():
     assert len(decision.review_items) == 1
 
 
+def test_active_high_review_finding_outranks_insufficient_evidence():
+    """Phase 2c: an active (non-accepted) HIGH finding is a *named* concern —
+    review_required, not the vaguer insufficient_evidence — even when the
+    low-confidence-tool gate would otherwise trip. Contrast with the medium
+    case above, which stays insufficient_evidence. Both verdicts are equally
+    non-auto-mergeable, so this loses no safety; the evidence detail is kept."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[
+            _finding(
+                check_id="SHIP-SCOPE-TOOLKIT-UNBOUNDED",
+                severity="high",
+                baseline_status="new",
+            )
+        ],
+        tools=tools,
+        human_review_recommended=True,
+    )
+    decision = _build(report, ci_mode="advisory", tools=tools)
+    assert decision.decision == "review_required"
+    assert len(decision.review_items) == 1
+    # The insufficient-evidence detail is preserved for the reviewer.
+    assert decision.evidence_coverage.low_confidence_tool_count == 2
+    assert decision.evidence_coverage.evidence_gaps
+
+
+def test_accepted_high_finding_does_not_outrank_insufficient_evidence():
+    """A baseline-MATCHED (accepted) high finding is acknowledged debt — it
+    must NOT elevate out of insufficient_evidence; only active high concerns do."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[_finding(severity="high", baseline_status="matched")],
+        tools=tools,
+        baseline=BaselineSummary(path=".agents-shipgate/baseline.json", matched_count=1),
+    )
+    decision = _build(report, ci_mode="advisory", tools=tools, new_findings_only=True)
+    assert decision.decision == "insufficient_evidence"
+
+
 def test_insufficient_evidence_reason_lists_both_counts():
     """When both gates trip, the reason names both counts."""
     tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
