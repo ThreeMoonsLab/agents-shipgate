@@ -24,6 +24,7 @@ def _sc(
     headline_pass: bool = True,
     negative_overlay: str | None = None,
     prompt: str = "01-prepare-for-release",
+    driver_degraded: bool = False,
 ) -> ScorecardV1:
     now = datetime.now(UTC)
     return ScorecardV1(
@@ -42,6 +43,7 @@ def _sc(
         blockers=[],
         rubric_score=score,
         headline_pass=headline_pass,
+        driver_degraded=driver_degraded,
         artifacts_dir=str(Path("/tmp/x")),
     )
 
@@ -74,6 +76,55 @@ def test_cursor_static_reported_in_details_only() -> None:
     assert report.details["cursor_static_cells"] == 2
     assert report.details["behavioural_cells"] == 1
     assert report.details["cursor_static_pass_rate"] == 1.0
+
+
+def test_degraded_behavioural_cells_do_not_distort_exit_criteria() -> None:
+    scorecards = [
+        _sc(agent="codex", variant="00-no-hints", score=30, headline_pass=False),
+        _sc(agent="codex", variant="10-agents-md", score=95),
+        _sc(agent="codex", variant="40-shipgate-yaml", score=95),
+        _sc(
+            agent="cursor-manual",
+            variant="00-no-hints",
+            score=0,
+            headline_pass=False,
+            driver_degraded=True,
+        ),
+        _sc(
+            agent="cursor-manual",
+            variant="10-agents-md",
+            score=0,
+            headline_pass=False,
+            driver_degraded=True,
+        ),
+        _sc(
+            agent="cursor-manual",
+            variant="40-shipgate-yaml",
+            score=0,
+            headline_pass=False,
+            driver_degraded=True,
+        ),
+        _sc(
+            agent="cursor-manual",
+            variant="00-no-hints",
+            negative_overlay="60-docs-only-negative",
+            prompt="04-docs-only-negative",
+            score=0,
+            headline_pass=False,
+            driver_degraded=True,
+        ),
+    ]
+
+    report = check_exit_criteria(scorecards)
+
+    assert report.details["behavioural_cells"] == 3
+    assert report.details["behavioural_degraded_cells"] == 4
+    assert report.details["mean_score_00_no_hints"] == 30
+    assert report.details["mean_score_10_agents_md"] == 95
+    assert report.details["mean_score_40_shipgate_yaml"] == 95
+    assert report.details["docs_only_cells"] == 0
+    assert report.materially_outperforms_no_hints is True
+    assert report.near_perfect_activation is True
 
 
 def test_docs_only_filter_excludes_cursor_static() -> None:

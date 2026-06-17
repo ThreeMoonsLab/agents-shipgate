@@ -24,6 +24,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "artifacts",
         "verifier_read_order",
         "gating_signal",
+        "agent_result_schema_version",
+        "agent_result_schema_path",
+        "agent_result_control_fields",
         "merge_verdicts",
         "release_decisions",
         "do_not_auto_assert",
@@ -35,9 +38,29 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["commands"]["install_agent_workflow"] == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
+    assert payload["commands"]["agent_check_codex"] == (
+        "shipgate check --agent codex --workspace . --format agent-json"
+    )
+    assert payload["commands"]["agent_check_claude_code"] == (
+        "shipgate check --agent claude-code --workspace . --format agent-json"
+    )
+    assert payload["commands"]["agent_check_cursor"] == (
+        "shipgate check --agent cursor --workspace . --format agent-json"
+    )
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
     assert payload["verifier_read_order"][0] == "merge_verdict"
     assert payload["gating_signal"] == GATING_SIGNAL
+    assert payload["agent_result_schema_version"] == "agent_result_v1"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
+    assert payload["agent_result_control_fields"] == [
+        "decision",
+        "completion_allowed",
+        "must_stop",
+        "first_next_action",
+        "human_review",
+        "repair",
+        "policy",
+    ]
     assert "blocked" in payload["merge_verdicts"]
     assert "passed" in payload["release_decisions"]
     assert "approval" in payload["do_not_auto_assert"]

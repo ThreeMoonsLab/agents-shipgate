@@ -8,6 +8,10 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 shipgate check --agent claude-code --workspace . --format agent-json
 ```
 
+Parse stdout as `agent_result_v1` and switch on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`. Do not infer a local control decision from prose.
+
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 
 | Surface | What it does | Source path in this repo |
@@ -116,12 +120,13 @@ It should then summarize `verifier.json.merge_verdict`,
 
 ## Verify an agent PR
 
-The bootstrap flow above wires Shipgate into a repo. The ongoing-PR command is
-`verify`. On any PR that changes agent tools, MCP exports, OpenAPI specs,
-prompts, permissions, policies, CI gates, or `shipgate.yaml`, Claude Code should
-run it before reporting the change as complete:
+The bootstrap flow above wires Shipgate into a repo. On any PR that changes
+agent tools, MCP exports, OpenAPI specs, prompts, permissions, policies, CI
+gates, or `shipgate.yaml`, Claude Code should run the local control check before
+reporting the change as complete, then run `verify` for PR/reviewer evidence:
 
 ```bash
+shipgate check --agent claude-code --workspace . --format agent-json
 agents-shipgate preflight --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```

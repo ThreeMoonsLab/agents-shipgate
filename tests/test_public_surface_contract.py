@@ -344,7 +344,16 @@ def test_well_known_metadata_lists_packet_outputs():
         "gating_signal: 'release_decision.decision' so coding agents "
         "don't fall back to summary.status."
     )
-    assert data.get("contract_version") == "3"
+    assert data.get("contract_version") == CONTRACT_VERSION
+    assert data.get("agent_result_schema_version") == contract["agent_result_schema_version"]
+    assert data.get("agent_result_schema_path") == contract["agent_result_schema_path"]
+    assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
+    commands = data.get("commands", {})
+    assert commands.get("agent_check_codex") == contract["commands"]["agent_check_codex"]
+    assert commands.get("agent_check_claude_code") == (
+        contract["commands"]["agent_check_claude_code"]
+    )
+    assert commands.get("agent_check_cursor") == contract["commands"]["agent_check_cursor"]
     assert data.get("artifacts", {}).get("local_contract") == (".shipgate/agent-contract.json")
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (

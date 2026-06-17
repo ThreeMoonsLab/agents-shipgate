@@ -84,9 +84,10 @@
 - Install with pipx: `pipx install agents-shipgate`.
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
+- Local agent control: `shipgate check --agent codex --workspace . --format agent-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `agent_result_v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
 - Before editing protected surfaces, run `agents-shipgate preflight --workspace . --json` or pass planned paths with `--changed-files`; stop when `requires_human_review` is true.
-- Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=all`.
+- Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=default --json`.
 - Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
 - Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and the capability diff artifact when present (fallback: `capability_review.top_changes`). Then read `report.json.release_decision.decision`; it is the release gate.
 - Run the verify-native demo fixture: `agents-shipgate fixture run ai_generated_refund_pr`.

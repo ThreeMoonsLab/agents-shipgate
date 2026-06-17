@@ -70,41 +70,23 @@ agents-shipgate scan -c shipgate.yaml
 
 Reports land at `agents-shipgate-reports/report.{md,json}`.
 
-**Before reporting an agent-capability change complete** — once `shipgate.yaml`
-exists, run the deterministic verifier on the diff:
+**Local control for coding agents** — before reporting an agent-capability
+change complete, run the local control loop and parse stdout JSON:
 
 ```bash
-agents-shipgate verify --json
+shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format agent-json
 ```
 
-Inside a coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor
-`CURSOR_TRACE_ID`) agent mode auto-enables and `--json` prints the compact
-agent result (`merge_verdict`, `can_merge_without_human`, repair
-instructions) on stdout. When `--base` is omitted, verify auto-detects the
-default branch (`origin/main` etc.) for diff context; pass `--no-base` to
-disable, or pin refs explicitly for CI:
-
-```bash
-agents-shipgate verify --workspace . --config shipgate.yaml \
-  --base origin/main --head HEAD --ci-mode advisory --format json
-```
-
-For local uncommitted work the working tree is scanned. For committed PR/CI
-refs, make the base ref available first because `verify` never fetches. Read
-`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`
-(`mergeable | human_review_required | insufficient_evidence | blocked |
-unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
-`capability_review.top_changes[]`. Then read
-`agents-shipgate-reports/report.json.release_decision.decision`
-(`blocked | review_required | insufficient_evidence | passed`), which remains
-the release gate. Do not report completion while `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user explicitly
-accepts human review.
-
-Do not bypass the verifier by suppressing findings, lowering severity,
-expanding baselines or waivers, removing Shipgate CI, or weakening agent
-instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
-release-visible and route them to human review.
+Read the single stdout object as `agent_result_v1`. Switch on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`; never infer a local-control decision from Markdown, PR
+comments, or prose. If `decision=allow` or `warn`, continue and summarize the
+result. If `first_next_action.kind=repair` and `repair.safe_to_attempt` is
+`true`, apply only that repair and rerun the command. If
+`human_review.required=true` or `must_stop=true`, stop and surface the JSON
+result to a human.
 
 **Before editing a protected release surface** — ask the proactive static
 planner first:
@@ -122,6 +104,32 @@ stop and route the change to a human. Protected surfaces include
 suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`,
 `.app.json`, and `SKILL.md`. Preflight is a routing/projection surface only;
 `release_decision.decision` remains the release gate.
+
+**PR / reviewer evidence** — for committed PR/CI refs, run the deterministic
+verifier on the diff. Make the base ref available first because `verify` never
+fetches:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+```
+
+For local uncommitted verifier work, omit `--base`/`--head` so the working tree
+is scanned. Read `agents-shipgate-reports/verifier.json` first and lead with
+`merge_verdict`
+(`mergeable | human_review_required | insufficient_evidence | blocked |
+unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
+`capability_review.top_changes[]`. Then read
+`agents-shipgate-reports/report.json.release_decision.decision`
+(`blocked | review_required | insufficient_evidence | passed`), which remains
+the release gate. Do not report completion while `merge_verdict` is `blocked`,
+`insufficient_evidence`, or `human_review_required` unless the user explicitly
+accepts human review.
+
+Do not bypass the verifier by suppressing findings, lowering severity,
+expanding baselines or waivers, removing Shipgate CI, or weakening agent
+instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
+release-visible and route them to human review.
 
 To reproduce the verify-native blocked refund PR demo without writing YAML:
 
@@ -163,11 +171,11 @@ agents-shipgate bootstrap --json
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
   `--agent-instructions=default` renders the recommended downstream kit
-  (`AGENTS.md`, `.cursor/rules/agents-shipgate.mdc`,
+  (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/agents-shipgate.mdc`,
   `.claude/commands/shipgate.md`, and `.shipgate/agent-contract.json`).
   Use `--ci` to write advisory CI. `--agent-instructions=all` means every
   supported target. A comma-separated subset can name any target:
-  `agents-md,cursor,claude-command,local-contract,codex-skill,claude-code-skill,claude-md,pr-template`.
+  `agents-md,claude-md,cursor,claude-command,local-contract,codex-skill,claude-code-skill,pr-template`.
   Combined with `--write`, managed-block hosts are idempotently updated and
   full-file / skill-bundle targets use safe-update checks. The `codex-skill` and
   `claude-code-skill` targets remain explicit opt-ins and write multi-file skill

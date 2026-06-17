@@ -100,10 +100,17 @@ Stable JSON fields:
 - `external_integration_surfaces[]` — stable non-gating integration and
   research surfaces exposed by the contract.
 - `gating_signal` — always `release_decision.decision` in this contract.
+- `agent_result_schema_version` — local coding-agent control schema version
+  emitted by `shipgate check --format agent-json`.
+- `agent_result_schema_path` — checked-in JSON Schema path for that local
+  control object.
+- `agent_result_control_fields[]` — ordered fields coding agents must switch on
+  before claiming completion.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
-- `commands{}` — minimal stable commands for preview, default local agent
-  workflow install, local verify, PR verify, and contract introspection.
+- `commands{}` — minimal stable commands for local `shipgate check` control,
+  preview, default local agent workflow install, local verify, PR verify, and
+  contract introspection.
 - `default_paths{}` — default manifest, report directory, and local contract
   paths used by generated downstream agent instructions.
 - `artifacts{}` — stable report artifact paths an agent should inspect first.

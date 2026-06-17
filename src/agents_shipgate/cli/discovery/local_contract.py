@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.contract import (
+    AGENT_RESULT_CONTROL_FIELDS,
+    AGENT_RESULT_SCHEMA_PATH,
+    AGENT_RESULT_SCHEMA_VERSION,
     ARTIFACTS,
     COMMANDS,
     CONTRACT_VERSION,
@@ -36,6 +39,9 @@ class LocalAgentContract(BaseModel):
     artifacts: dict[str, str]
     verifier_read_order: list[str]
     gating_signal: str
+    agent_result_schema_version: str
+    agent_result_schema_path: str
+    agent_result_control_fields: list[str]
     merge_verdicts: list[str]
     release_decisions: list[str]
     do_not_auto_assert: list[str]
@@ -53,6 +59,9 @@ def build_local_agent_contract() -> LocalAgentContract:
         artifacts=dict(ARTIFACTS),
         verifier_read_order=list(VERIFIER_READ_ORDER),
         gating_signal=GATING_SIGNAL,
+        agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
+        agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
+        agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         merge_verdicts=list(MERGE_VERDICTS),
         release_decisions=list(RELEASE_DECISIONS),
         do_not_auto_assert=list(DO_NOT_AUTO_ASSERT),

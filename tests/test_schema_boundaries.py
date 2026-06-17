@@ -255,7 +255,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="3",
+        contract_version="4",
         cli_version="0.0.0",
         report_schema_version="0.17",
         packet_schema_version="0.6",
@@ -267,6 +267,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         governance_benchmark_result_schema_version="0.2",
         external_integration_surfaces=[],
         gating_signal="release_decision.decision",
+        agent_result_schema_version="agent_result_v1",
+        agent_result_schema_path="docs/agent-result-schema.v1.json",
+        agent_result_control_fields=["decision"],
         manual_review_signals=[],
         commands={"preview": "agents-shipgate verify --preview --json"},
         default_paths={"manifest": "shipgate.yaml"},
@@ -276,7 +279,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "3",
+        "contract_version": "4",
         "cli_version": "0.0.0",
         "report_schema_version": "0.17",
         "packet_schema_version": "0.6",
@@ -288,6 +291,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "governance_benchmark_result_schema_version": "0.2",
         "external_integration_surfaces": [],
         "gating_signal": "release_decision.decision",
+        "agent_result_schema_version": "agent_result_v1",
+        "agent_result_schema_path": "docs/agent-result-schema.v1.json",
+        "agent_result_control_fields": ["decision"],
         "manual_review_signals": [],
         "commands": {"preview": "agents-shipgate verify --preview --json"},
         "default_paths": {"manifest": "shipgate.yaml"},

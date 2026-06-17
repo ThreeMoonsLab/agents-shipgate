@@ -190,7 +190,7 @@ def test_claude_command_current_file_matches_renderer() -> None:
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "1"
-    assert payload["contract_version"] == "3"
+    assert payload["contract_version"] == "4"
     assert payload["gating_signal"] == "release_decision.decision"
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["verifier_read_order"][:5] == [

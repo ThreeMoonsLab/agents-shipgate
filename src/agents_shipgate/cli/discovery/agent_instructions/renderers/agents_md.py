@@ -29,6 +29,8 @@ Commands:
 
 ```bash
 shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format agent-json
 agents-shipgate verify --preview --json
 agents-shipgate preflight --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
@@ -37,8 +39,9 @@ agents-shipgate verify --workspace . --config shipgate.yaml \\
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`agent_result_v1`; switch on `decision`, then follow `first_next_action`,
-`repair`, and `human_review`. Do not infer a decision from prose.
+`agent_result_v1`; switch on `decision`, `completion_allowed`, and `must_stop`,
+then follow `first_next_action`, `human_review`, `repair`, and `policy`. Do not
+infer a decision from prose.
 
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
