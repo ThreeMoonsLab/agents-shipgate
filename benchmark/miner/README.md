@@ -133,7 +133,7 @@ trigger-skips) and the real-history **extraction-coverage** (`insufficient_evide
   `pydantic/pydantic-ai` (a framework core, the same library-internals-churn
   pattern as W25). Their cold-start `head_decision` is `review_required`, but
   the per-PR `verify` receipt — **the verdict the accuracy scorer uses**
-  (`labels._effective_verdict` = `verify_verdict or head_decision`) — is
+  (`labels.effective_verdict` = `verify_verdict or head_decision`) — is
   `insufficient_evidence` for all 6 (the toolkit surface still isn't statically
   resolvable on the base→head diff). So the *scored* verdict mix stays
   IE-dominated; W26 adds **no** scored `review_required` cases. And the 6
