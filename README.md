@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/threemoonslab-agents-shipgate-badge.png)](https://mseep.ai/app/threemoonslab-agents-shipgate)
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme-header-dark.png">
