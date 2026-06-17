@@ -1243,7 +1243,7 @@ def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Pa
     assert payload["mode"] == "preview"
     assert payload["first_next_action"]["command"] == (
         f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
-        f"--base origin/main --head HEAD --out {out} --ci-mode advisory --format json"
+        f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
     )
 
 

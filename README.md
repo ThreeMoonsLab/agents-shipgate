@@ -96,7 +96,7 @@ the coding-agent diff that adds `stripe.create_refund` to a support agent
 >    `safeguards.idempotency` for this financial write action.
 > 3. Replace wildcard/admin scopes with operation-specific scopes.
 >
-> Then re-verify: `agents-shipgate verify --base origin/main --head HEAD --format json`
+> Then re-verify: `agents-shipgate verify --base origin/main --head HEAD --json`
 
 The same `uvx agents-shipgate fixture run ai_generated_refund_pr` command
 above writes this comment verbatim to `reports/pr-comment.md`.

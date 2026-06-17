@@ -4,6 +4,11 @@
 #
 # This recipe uses check_run_policy=require-mergeable, so only PRs with
 # can_merge_without_human=true produce a successful Check Run.
+#
+# check_run_policy is newer than v0.13.0. Until the next release is tagged,
+# this example targets main and intentionally omits shipgate_version so the
+# action installs the CLI from the same ref. After release, pin both the action
+# ref and shipgate_version to that release.
 name: Agents Shipgate (check run)
 
 on:
@@ -22,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+      - uses: ThreeMoonsLab/agents-shipgate@main
         with:
           config: shipgate.yaml
           ci_mode: advisory
@@ -30,4 +35,3 @@ jobs:
           pr_comment: 'true'
           check_run: 'true'
           check_run_policy: require-mergeable
-          shipgate_version: '0.13.0'

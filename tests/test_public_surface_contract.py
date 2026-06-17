@@ -1360,7 +1360,6 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert commands.get("install_ai_coding_workflow") == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
-    assert commands.get("verify_pr", "").endswith("--format json")
     assert data.get("check_run_policies") == [
         "advisory",
         "blocked-fails",

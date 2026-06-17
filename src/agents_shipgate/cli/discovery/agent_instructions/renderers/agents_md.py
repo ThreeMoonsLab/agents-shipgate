@@ -57,7 +57,7 @@ repair and rerun the command. If `human_review.required=true` or
 `must_stop=true`, stop and surface the JSON result to a human.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
-origin/main --head HEAD --format json` after making the base ref available; it never
+origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-result.json` first, then
 `agents-shipgate-reports/verifier.json` for `merge_verdict` and
 `agents-shipgate-reports/report.json.release_decision.decision` for the release

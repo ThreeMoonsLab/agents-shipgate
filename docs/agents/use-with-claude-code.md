@@ -128,7 +128,7 @@ reporting the change as complete, then run `verify` for PR/reviewer evidence:
 ```bash
 shipgate check --agent claude-code --workspace . --format agent-json
 agents-shipgate preflight --json
-agents-shipgate verify --base origin/main --head HEAD --format json
+agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 If preflight returns `requires_human_review: true`, Claude Code must stop for a

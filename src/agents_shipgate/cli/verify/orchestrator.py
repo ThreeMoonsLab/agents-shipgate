@@ -1168,7 +1168,7 @@ def _preview_verify_command(
         parts.extend(["--head", head])
     if out is not None:
         parts.extend(["--out", str(out)])
-    parts.extend(["--ci-mode", "advisory", "--format", "json"])
+    parts.extend(["--ci-mode", "advisory", "--json"])
     return _shell_join(parts)
 
 

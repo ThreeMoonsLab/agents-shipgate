@@ -149,3 +149,56 @@ def test_annotations_include_source_backed_capability_changes(tmp_path: Path) ->
     assert annotation["level"] == "error"
     assert annotation["merge_impact"] == "blocks_release"
     assert annotation["capability_subject"] == "action:stripe.create_refund"
+
+
+def test_annotations_dedupe_capability_change_related_to_selected_finding(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    (output_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "release_decision": {"blockers": [{"id": "F1"}]},
+                "findings": [
+                    {
+                        "id": "F1",
+                        "check_id": "SHIP-ACTION-APPROVAL-REMOVED",
+                        "title": "Approval removed",
+                        "severity": "critical",
+                        "recommendation": "Restore approval.",
+                        "source": {"path": "api.yaml", "start_line": 42},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / "verifier.json").write_text(
+        json.dumps(
+            {
+                "capability_review": {
+                    "top_changes": [
+                        {
+                            "id": "cap-refund",
+                            "change_type": "action_added",
+                            "subject_kind": "action",
+                            "subject": "stripe.create_refund",
+                            "impact": "blocks_release",
+                            "rationale": "Action added: stripe.create_refund",
+                            "source_path": "api.yaml",
+                            "source_start_line": 42,
+                            "related_finding_ids": ["F1"],
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_annotations(output_dir, limit=10)
+
+    assert [item["check_id"] for item in payload["annotations"]] == [
+        "SHIP-ACTION-APPROVAL-REMOVED"
+    ]

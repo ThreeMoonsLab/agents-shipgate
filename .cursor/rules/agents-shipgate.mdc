@@ -58,7 +58,7 @@ plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 `first_next_action.actor` is `human`, stop and route the change to a human.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
-origin/main --head HEAD --format json` after making the base ref available; it never
+origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-result.json` first, then
 `agents-shipgate-reports/verifier.json` for `merge_verdict` and
 `agents-shipgate-reports/report.json.release_decision.decision` for the release

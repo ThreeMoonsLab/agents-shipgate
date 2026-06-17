@@ -96,9 +96,13 @@ source-backed blockers and review items. Disable with `check_annotations:
 
 When `check_run: 'true'` is enabled, the Check Run uses the same PR projection
 as job annotations. `check_run_policy: advisory` preserves the default
-mergeable/success, blocked/failure, human-routed/neutral behavior. For direct
+mergeable/success, blocked/failure, human-routed/neutral behavior.
+`check_run_policy: blocked-fails` keeps human-routed verdicts neutral but fails
+`blocked` and `unknown` so setup failures do not look successful. For direct
 branch protection, use `check_run_policy: require-mergeable`; only
-`can_merge_without_human == true` succeeds.
+`can_merge_without_human == true` succeeds. `check_run_policy` is newer than
+v0.13.0; until the next release is tagged, the Check Run policy example targets
+`main` and omits `shipgate_version` so the action installs from that ref.
 
 `verify` writes static capability artifacts to the workflow artifact when
 available: `capabilities.lock.json`, `base.capabilities.lock.json`, and

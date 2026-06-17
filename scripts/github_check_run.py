@@ -11,9 +11,11 @@ Mapping contract:
 - ``merge_verdict`` + ``check_run_policy`` → check conclusion. The default
   ``advisory`` policy preserves the historical mapping
   (``mergeable`` → ``success``, ``blocked`` → ``failure``, everything else
-  → ``neutral``). ``require-mergeable`` is the branch-protection policy:
-  only ``can_merge_without_human=true`` succeeds. The conclusion mirrors —
-  never replaces — the one decision engine:
+  → ``neutral``). ``blocked-fails`` maps ``blocked`` and ``unknown`` to
+  ``failure`` while leaving human-routed verdicts neutral. ``require-mergeable``
+  is the strict branch-protection policy: only
+  ``can_merge_without_human=true`` succeeds. The conclusion mirrors — never
+  replaces — the one decision engine:
   ``report.json.release_decision.decision`` stays the gate.
 - PR projection items → up to ``MAX_ANNOTATIONS`` line-level annotations
   (Checks API caps one request at 50). SARIF remains the full finding export;

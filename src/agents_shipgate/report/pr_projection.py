@@ -251,6 +251,11 @@ def _append_unique(
     seen: set[str],
     item: PrReviewItem,
 ) -> None:
+    if any(
+        f"finding-id:{finding_id}" in seen
+        for finding_id in item.related_finding_ids
+    ):
+        return
     key = _item_key(item)
     if key in seen:
         return
