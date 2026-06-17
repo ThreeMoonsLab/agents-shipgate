@@ -92,7 +92,23 @@ def build_action_surface_facts(
     *,
     agent_id: str,
     tools: list[Tool],
+    warnings: list[str] | None = None,
 ) -> ActionSurfaceFacts:
+    """Build the typed action surface from ``tools`` + manifest declarations.
+
+    Two distinct operations can derive the same ``action_id`` — most
+    commonly two OpenAPI operations whose paths normalize identically
+    (e.g. a trailing-slash variant of ``/sessions/{session_id}``), because
+    the OpenAPI ``operation`` token is ``METHOD path`` only and drops the
+    ``operationId``. A third-party spec must never crash a scan, so when a
+    ``warnings`` sink is provided the colliding ids are disambiguated
+    fail-soft and one ``source_warning`` is recorded per collision (same
+    fail-soft principle as the symlink-loop and MCP-as-tools fixes).
+
+    Callers that cannot tolerate a fail-soft snapshot (the redaction path,
+    which has its own public-only ordinal disambiguator) pass no sink and
+    keep the legacy hard :class:`ConfigError`.
+    """
     declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
     actions = [
         _action_from_tool(
@@ -103,7 +119,26 @@ def build_action_surface_facts(
         )
         for tool in sorted(tools, key=lambda item: item.name)
     ]
-    _validate_unique_action_ids(actions)
+    if warnings is None:
+        _validate_unique_action_ids(actions)
+    else:
+        # Tools whose action_id carries a manifest-authored component. A
+        # collision touching one of these stays a hard ConfigError even on
+        # the fail-soft path — only inferred-vs-inferred collisions degrade.
+        # `id`, `provider`, and `operation` all override action_id
+        # components (see `build_action` / `_provider` / `_operation`), so a
+        # declaration setting any of them is an explicit identity the engine
+        # must never silently rewrite.
+        explicit_tool_names = {
+            entry.tool
+            for entry in manifest.action_surface.actions
+            if entry.id or entry.provider or entry.operation
+        }
+        warnings.extend(
+            _disambiguate_duplicate_action_ids(
+                actions, explicit_tool_names=explicit_tool_names
+            )
+        )
     return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
 
 
@@ -547,8 +582,11 @@ def _validate_unique_action_ids(actions: list[ActionFact]) -> None:
         for action_id, tool_names in by_id.items()
         if len(tool_names) > 1
     }
-    if not duplicates:
-        return
+    if duplicates:
+        _raise_duplicate_action_ids(duplicates)
+
+
+def _raise_duplicate_action_ids(duplicates: dict[str, list[str]]) -> None:
     details = "; ".join(
         f"{action_id!r} used by {', '.join(tool_names)}"
         for action_id, tool_names in sorted(duplicates.items())
@@ -558,6 +596,76 @@ def _validate_unique_action_ids(actions: list[ActionFact]) -> None:
         f"{details}. Set unique action_surface.actions[].id values or adjust "
         "provider/operation metadata."
     )
+
+
+def _disambiguate_duplicate_action_ids(
+    actions: list[ActionFact],
+    *,
+    explicit_tool_names: set[str],
+) -> list[str]:
+    """Fail-soft replacement for :func:`_validate_unique_action_ids`,
+    scoped to *inferred* collisions only.
+
+    A manifest-authored action identity — any ``action_surface.actions[]``
+    declaration setting ``id``, ``provider``, or ``operation`` — is a
+    contract: a collision that involves one (explicit-vs-explicit or
+    explicit-vs-inferred) is a config mistake to fix, so it stays a hard
+    :class:`ConfigError` (identical to the no-sink path).
+    ``explicit_tool_names`` names the tools carrying such a declaration.
+
+    Only collisions between purely *inferred* ids degrade — most commonly
+    two OpenAPI operations whose paths normalize identically. Those are
+    mutated in place so each ``action_id`` is unique, returning one
+    human-readable warning per resolved collision. The first member of each
+    colliding group (in ``tool_name`` order) keeps the bare id; the rest
+    gain a ``#<operationId>`` suffix so distinct operations stay distinct in
+    the diff. An ordinal fallback covers the pathological case where two
+    colliding actions also share a ``tool_name``. Renamed actions get a
+    refreshed ``identity_hash`` so downstream identity-hash consumers stay
+    consistent.
+    """
+    by_id: dict[str, list[ActionFact]] = {}
+    for action in actions:
+        by_id.setdefault(action.action_id, []).append(action)
+    colliding = {
+        action_id: group for action_id, group in by_id.items() if len(group) > 1
+    }
+
+    # Hard-fail any collision that touches an explicitly declared id. These
+    # are not third-party quirks the engine should silently rewrite.
+    explicit_collisions = {
+        action_id: sorted(item.tool_name for item in group)
+        for action_id, group in colliding.items()
+        if any(item.tool_name in explicit_tool_names for item in group)
+    }
+    if explicit_collisions:
+        _raise_duplicate_action_ids(explicit_collisions)
+
+    warnings: list[str] = []
+    for action_id, group in sorted(colliding.items()):
+        ordered = sorted(group, key=lambda item: item.tool_name)
+        warnings.append(
+            "Duplicate action_surface action_id "
+            f"{action_id!r} derived from operations "
+            f"{', '.join(repr(item.tool_name) for item in ordered)}; "
+            "disambiguated with per-operation suffixes so distinct "
+            "operations are not collapsed."
+        )
+        used_suffixes: dict[str, int] = {}
+        for index, action in enumerate(ordered):
+            if index == 0:
+                continue
+            suffix = action.tool_name or str(index)
+            seen = used_suffixes.get(suffix, 0) + 1
+            used_suffixes[suffix] = seen
+            if seen > 1:
+                suffix = f"{suffix}#{seen}"
+            new_id = f"{action_id}#{suffix}"
+            action.action_id = new_id
+            action.hashes = action.hashes.model_copy(
+                update={"identity_hash": _stable_hash(new_id)}
+            )
+    return warnings
 
 
 def _provider(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:

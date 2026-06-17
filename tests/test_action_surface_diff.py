@@ -13,6 +13,7 @@ from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings import assign_finding_ids
 from agents_shipgate.core.lenses.action_surface import (
     _dedupe_findings,
+    _stable_hash,
     build_action_surface_facts,
     compute_action_surface_diff,
     enrich_action_surface_diff_with_source,
@@ -209,6 +210,11 @@ def test_action_surface_rejects_duplicate_tool_declarations():
 
 
 def test_action_surface_rejects_action_id_collisions():
+    """An explicit ``actions[].id`` colliding with another action's inferred
+    id is a manifest config error and must stay a hard ConfigError — even on
+    the fail-soft (warnings-sink) path the live scan uses. Only purely
+    inferred collisions degrade; a user-declared id is never silently
+    rewritten."""
     manifest = _manifest(
         {
             "action_surface": {
@@ -244,6 +250,109 @@ def test_action_surface_rejects_action_id_collisions():
             agent_id="agent:action-test/agent",
             tools=tools,
         )
+    # The live scan path always passes a warnings sink; an explicit-vs-inferred
+    # collision must NOT be silently disambiguated into review_required.
+    with pytest.raises(ConfigError, match="Duplicate action_surface action_id"):
+        build_action_surface_facts(
+            manifest,
+            agent_id="agent:action-test/agent",
+            tools=tools,
+            warnings=[],
+        )
+
+
+def test_action_surface_rejects_collision_from_explicit_provider_operation():
+    """``provider``/``operation`` declarations override action_id components
+    just like ``id`` does. A collision between two such manifest-authored
+    identities must stay a hard ConfigError even on the warnings-sink path —
+    not be silently rewritten to ``...:shared#beta``."""
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "actions": [
+                    {"tool": "alpha", "provider": "tools", "operation": "shared"},
+                    {"tool": "beta", "provider": "tools", "operation": "shared"},
+                ]
+            }
+        }
+    )
+    tools = [
+        Tool(
+            id="tool:alpha",
+            name="alpha",
+            source_type="mcp",
+            source_id="tools",
+            extraction_confidence="high",
+        ),
+        Tool(
+            id="tool:beta",
+            name="beta",
+            source_type="mcp",
+            source_id="tools",
+            extraction_confidence="high",
+        ),
+    ]
+
+    for sink in (None, []):
+        with pytest.raises(ConfigError, match="Duplicate action_surface action_id"):
+            build_action_surface_facts(
+                manifest,
+                agent_id="agent:action-test/agent",
+                tools=tools,
+                warnings=sink,
+            )
+
+
+def test_action_surface_disambiguates_openapi_action_id_collisions_fail_soft():
+    """Two OpenAPI operations whose paths normalize identically (a
+    trailing-slash variant) collapse to one ``action_id``. With a warnings
+    sink the scan degrades instead of raising: ids stay distinct and one
+    warning is recorded. Real-world repro: block/goose's spec."""
+    manifest = _manifest()
+    tools = [
+        Tool(
+            id="tool:get_session",
+            name="get_session",
+            source_type="openapi",
+            source_id="goose-api",
+            annotations={"httpMethod": "get", "path": "/sessions/{session_id}"},
+            extraction_confidence="high",
+        ),
+        Tool(
+            id="tool:get_session_detail",
+            name="get_session_detail",
+            source_type="openapi",
+            source_id="goose-api",
+            # Trailing slash normalizes to the same path as get_session.
+            annotations={"httpMethod": "get", "path": "/sessions/{session_id}/"},
+            extraction_confidence="high",
+        ),
+    ]
+
+    warnings: list[str] = []
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=tools,
+        warnings=warnings,
+    )
+
+    action_ids = [action.action_id for action in facts.actions]
+    base_id = "agent:action-test/agent:openapi:goose-api:GET /sessions/{session_id}"
+    # Both operations are retained as distinct actions; the first (in
+    # tool-name order) keeps the bare id, the second is suffixed.
+    assert action_ids == sorted([base_id, f"{base_id}#get_session_detail"])
+    assert len(set(action_ids)) == 2
+    assert {action.tool_name for action in facts.actions} == {
+        "get_session",
+        "get_session_detail",
+    }
+    # identity_hash tracks the renamed action_id.
+    suffixed = next(a for a in facts.actions if a.action_id.endswith("#get_session_detail"))
+    assert suffixed.hashes.identity_hash == _stable_hash(suffixed.action_id)
+    assert len(warnings) == 1
+    assert "Duplicate action_surface action_id" in warnings[0]
+    assert "get_session" in warnings[0] and "get_session_detail" in warnings[0]
 
 
 def test_action_surface_policy_requires_typed_expected_values():
