@@ -181,9 +181,11 @@ python -m harness.adoption run \
 ```
 
 The `cursor-manual` driver replays those files into the same scorer artifacts
-as live Codex and Claude Code runs. Keep `cursor-static` in the matrix for
-configuration linting; do not mix static-lint scores into behavioural adoption
-claims.
+as live Codex and Claude Code runs. If the manual directory is absent or lacks a
+non-empty `transcript.jsonl` or `commands.jsonl`, the cell is marked
+`driver_degraded` and excluded from the published behavioural exit-criteria
+means. Keep `cursor-static` in the matrix for configuration linting; do not mix
+static-lint or degraded manual scores into behavioural adoption claims.
 
 ## Failure → fix routing rubric
 
@@ -212,10 +214,10 @@ and written to `exit_criteria.json` in the run directory:
   − mean on `00-no-hints` ≥ +25.
 * **Near-perfect activation:** mean rubric score on `40-shipgate-yaml`
   ≥ 90 **and** zero blockers.
-* **Not noisy on docs-only:** for cells with
+* **Not noisy on docs-only:** for non-degraded behavioural cells with
   `negative_overlay == 60-docs-only-negative` and `variant ∈
-  {00, 10, 20, 30, 50}`, fraction where `runs_init OR runs_scan` is true is
-  ≤ 10 %. The `40-shipgate-yaml + 60-docs-only-negative` combination is
+  {00, 10, 20, 30, 35, 50}`, fraction where `agent_proposed_shipgate` is true
+  is ≤ 10 %. The `40-shipgate-yaml + 60-docs-only-negative` combination is
   excluded from this metric — `docs/triggers.json` defines `force_run` for
   opted-in repos.
 

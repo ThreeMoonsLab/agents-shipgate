@@ -202,7 +202,14 @@ def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
       * docs-only-negative-overlay cells on un-adopted variants:
         ``runs_init OR runs_scan`` true in ≤ 10 % of cells.
     """
-    behavioural = [sc for sc in scorecards if sc.agent in BEHAVIORAL_AGENTS]
+    degraded_behavioural = [
+        sc for sc in scorecards if sc.agent in BEHAVIORAL_AGENTS and sc.driver_degraded
+    ]
+    behavioural = [
+        sc
+        for sc in scorecards
+        if sc.agent in BEHAVIORAL_AGENTS and not sc.driver_degraded
+    ]
     cursor = [sc for sc in scorecards if sc.agent == "cursor-static"]
 
     mean_00 = _mean_score(behavioural, variant="00-no-hints")
@@ -236,6 +243,7 @@ def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
         not_noisy_on_docs_only=noisy_fraction <= 0.10,
         details={
             "behavioural_cells": len(behavioural),
+            "behavioural_degraded_cells": len(degraded_behavioural),
             "cursor_static_cells": len(cursor),
             "cursor_static_pass_rate": cursor_pass,
             "mean_score_00_no_hints": mean_00,

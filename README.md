@@ -116,7 +116,11 @@ Switch on `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy`; never infer a
 decision from prose. For committed PRs, the release loop remains verify-first:
 when a PR changes what your agent can do, run the deterministic verifier on the
-diff and read its merge verdict before you merge.
+diff and read its merge verdict before you merge. `shipgate check` is necessary
+but not sufficient for capability-expanding diffs: if a change adds dynamic,
+undeclared, or otherwise ambiguous tool capability, do not treat
+`decision="allow"` as merge readiness; run `verify` and read
+`release_decision.decision`.
 
 First ask whether Shipgate applies to the current repo or diff:
 

@@ -281,8 +281,15 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
         ],
     )
 
-    assert result.exit_code == 2
-    assert "--base and --head must be provided together" in result.stderr
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
+    assert payload["decision"] == "block"
+    assert payload["completion_allowed"] is False
+    assert payload["first_next_action"]["actor"] == "coding_agent"
+    assert payload["first_next_action"]["kind"] == "repair"
+    assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+    assert payload["exit_code_hint"] == 2
 
 
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:

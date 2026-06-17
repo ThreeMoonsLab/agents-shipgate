@@ -70,6 +70,13 @@ schema with the package. `decision`, `completion_allowed`, `must_stop`,
 signals. `risk_level` is explanatory and may differ between local-check and
 verifier projections for the same allowed decision.
 
+With `--format agent-json`, schema-valid results normally exit `0` even when
+`decision` is `block` or `require_review`; wrappers must switch on
+`decision`, `completion_allowed`, and `must_stop`, not `$?`. Diff-input setup
+failures also return a `block` result with `exit_code_hint: 2`. Unsupported
+CLI shape errors such as an invalid `--agent` or `--format` still exit nonzero
+before an `agent_result_v1` object exists.
+
 ## State Machine
 
 | `decision` | Agent action |
@@ -120,6 +127,11 @@ agents have the same trust-root boundary even when no finding fires.
 policy, and skills) from the diff. It does **not** compute the tool-use
 capability delta — that is `verify`'s job, and `release_decision.decision`
 remains the one authoritative capability gate.
+
+Treat `check` as necessary but not sufficient for capability-expanding diffs.
+If a change adds dynamic, undeclared, or otherwise ambiguous tool capability,
+do not treat `decision="allow"` as merge readiness; run `verify` and read
+`release_decision.decision`.
 
 So that `check` never disagrees with that gate, a clean boundary result over a
 diff that changes a **manifest-declared tool source** (a `tool_sources[].path`

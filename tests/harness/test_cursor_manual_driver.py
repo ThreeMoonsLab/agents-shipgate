@@ -78,3 +78,26 @@ def test_cursor_manual_driver_degrades_when_evidence_is_missing(tmp_path) -> Non
 
     assert result.degraded is True
     assert "manual Cursor evidence directory not found" in (result.error or "")
+
+
+def test_cursor_manual_driver_degrades_when_manual_dir_has_no_events(tmp_path) -> None:
+    artifacts = tmp_path / "cell"
+    manual = artifacts / "manual"
+    manual.mkdir(parents=True)
+    manual.joinpath("summary.md").write_text("I ran Cursor manually.\n", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    inputs = DriverInputs(
+        workspace=workspace,
+        prompt_text="",
+        artifacts_dir=artifacts,
+        cell_id="cell",
+        agent_name="cursor-manual",
+        model=None,
+    )
+
+    with TranscriptWriter(artifacts / "raw") as writer:
+        result = CursorManualDriver().run(inputs, writer)
+
+    assert result.degraded is True
+    assert "manual Cursor behavioral evidence not found" in (result.error or "")

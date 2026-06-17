@@ -26,8 +26,8 @@ from harness.adoption import workspace as ws_mod
 from harness.adoption.drivers.base import DriverInputs
 from harness.adoption.drivers.claude_code import ClaudeCodeDriver
 from harness.adoption.drivers.codex import CodexDriver
-from harness.adoption.drivers.cursor_manual import CursorManualDriver
 from harness.adoption.drivers.cursor import CursorStaticDriver
+from harness.adoption.drivers.cursor_manual import CursorManualDriver
 from harness.adoption.drivers.mock import MockDriver
 from harness.adoption.matrix import Cell, load_matrix
 from harness.adoption.observer.fs_snapshot import FsDiff, snapshot

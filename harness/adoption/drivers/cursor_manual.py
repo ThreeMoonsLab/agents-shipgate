@@ -35,6 +35,22 @@ class CursorManualDriver:
                     "under this cell directory and rerun the harness."
                 ),
             )
+        if not _has_behavioral_evidence(manual_dir):
+            ended = datetime.now(UTC)
+            return RunResult(
+                started_at=started,
+                ended_at=ended,
+                degraded=True,
+                error=(
+                    "manual Cursor behavioral evidence not found: expected a "
+                    "non-empty transcript.jsonl or commands.jsonl"
+                ),
+                summary_text=(
+                    "Cursor manual-entry evidence incomplete. Add at least one "
+                    "non-empty manual/transcript.jsonl or manual/commands.jsonl "
+                    "file for the captured session and rerun the harness."
+                ),
+            )
 
         for payload in _read_jsonl(manual_dir / "transcript.jsonl"):
             writer.transcript(payload)
@@ -81,6 +97,13 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def _has_behavioral_evidence(manual_dir: Path) -> bool:
+    return any(
+        path.is_file() and bool(path.read_text(encoding="utf-8").strip())
+        for path in (manual_dir / "transcript.jsonl", manual_dir / "commands.jsonl")
+    )
 
 
 __all__ = ["CursorManualDriver"]
