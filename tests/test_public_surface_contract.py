@@ -1360,6 +1360,18 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert commands.get("install_ai_coding_workflow") == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
+    assert commands.get("verify_pr", "").endswith("--format json")
+    assert data.get("check_run_policies") == [
+        "advisory",
+        "blocked-fails",
+        "require-mergeable",
+    ]
+    assert (
+        data.get("github_action_pr_workflow", {})
+        .get("recommended_inputs", {})
+        .get("diff_base")
+        == "target"
+    )
     assert "feedback export" in commands.get("feedback_export", "")
     assert data.get("fixture_run") == "agents-shipgate fixture run ai_generated_refund_pr"
     assert data.get("static_scan_fixture_run") == (

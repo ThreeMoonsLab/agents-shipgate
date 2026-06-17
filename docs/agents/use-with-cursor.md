@@ -85,7 +85,7 @@ treating the change as finished, then run `verify` for PR/reviewer evidence:
 ```bash
 shipgate check --agent cursor --workspace . --format agent-json
 agents-shipgate preflight --json
-agents-shipgate verify --base origin/main --head HEAD --json
+agents-shipgate verify --base origin/main --head HEAD --format json
 ```
 
 If preflight returns `requires_human_review: true`, Cursor must stop for a human

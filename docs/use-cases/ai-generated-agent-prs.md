@@ -58,7 +58,7 @@ projection of it. There is no second verdict.
 A coding agent is asked to "add a support-agent feature that can issue Stripe
 refunds." It adds `stripe.create_refund` to the tool surface and opens a PR.
 
-`agents-shipgate verify --base origin/main --head HEAD --json` produces:
+`agents-shipgate verify --base origin/main --head HEAD --format json` produces:
 
 - a `capability_review.top_changes[]` row for `stripe.create_refund`, with an
   impact derived from the tool/action surface diff;
@@ -101,7 +101,7 @@ block release through ordinary `SHIP-VERIFY-*` findings.
 pipx install agents-shipgate
 agents-shipgate verify --preview --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
-agents-shipgate verify --base origin/main --head HEAD --json
+agents-shipgate verify --base origin/main --head HEAD --format json
 ```
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
@@ -113,7 +113,7 @@ agents-shipgate verify --base origin/main --head HEAD --json
   (`AGENTS.md`, the Cursor rule, the Claude `/shipgate` command, and
   `.shipgate/agent-contract.json`). Skill bundles stay explicit targets such as
   `codex-skill`.
-- `verify --base origin/main --head HEAD --json` runs the authoritative head
+- `verify --base origin/main --head HEAD --format json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or
   `git fetch origin main` locally); if the requested diff cannot be inspected,

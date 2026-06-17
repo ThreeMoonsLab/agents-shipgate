@@ -157,6 +157,7 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
         return
 
     payload = _load_json(output_dir / "report.json")
+    verifier_payload = _load_json(output_dir / "verifier.json")
     agent_result = _load_json(output_dir / "agent-result.json")
     release_decision = payload.get("release_decision") or {}
     summary = payload.get("summary") or {}
@@ -169,8 +170,23 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
     blocker_count = len(release_decision.get("blockers") or [])
     review_item_count = len(release_decision.get("review_items") or [])
     would_fail_ci = str(bool(fail_policy.get("would_fail_ci"))).lower()
+    first_next_action = verifier_payload.get("first_next_action") or {}
     with open(step_summary, "a", encoding="utf-8") as summary_file:
         summary_file.write("## Agents Shipgate\n\n")
+        if verifier_payload:
+            summary_file.write(
+                f"- Merge verdict: `{clean(verifier_payload.get('merge_verdict'))}`\n"
+            )
+            summary_file.write(
+                "- Can merge without human: "
+                f"`{clean(values.get('can_merge_without_human'))}`\n"
+            )
+            if isinstance(first_next_action, dict) and first_next_action:
+                actor = clean(first_next_action.get("actor"))
+                kind = clean(first_next_action.get("kind"))
+                action = "/".join(part for part in (actor, kind) if part)
+                if action:
+                    summary_file.write(f"- First next action: `{action}`\n")
         if agent_result:
             summary_file.write(
                 f"- Decision: `{clean(agent_result.get('decision'))}`\n"
@@ -254,6 +270,15 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
                 f"- Tool-surface diff: {clean(tool_surface_diff.get('notes')[0])}\n"
             )
         summary_file.write(f"- Report JSON: `{clean(values.get('report_json'))}`\n")
+        if values.get("verifier_json"):
+            summary_file.write(
+                f"- Verifier JSON: `{clean(values.get('verifier_json'))}`\n"
+            )
+        if values.get("pr_comment_markdown"):
+            summary_file.write(
+                "- PR comment Markdown: "
+                f"`{clean(values.get('pr_comment_markdown'))}`\n"
+            )
 
 
 def write_github_outputs(values: dict[str, object]) -> None:

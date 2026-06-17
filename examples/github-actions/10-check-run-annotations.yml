@@ -1,10 +1,9 @@
 # Surface the merge verdict as a native GitHub Check Run with line-level
-# annotations from the SARIF report. Branch protection can then require
+# annotations from the PR projection. Branch protection can then require
 # the "Agents Shipgate" check directly — no custom exit-code wiring.
 #
-# Conclusion mapping: mergeable → success, blocked → failure, everything
-# else (human_review_required / insufficient_evidence / unknown) →
-# neutral, so human-routed verdicts never hard-fail the check.
+# This recipe uses check_run_policy=require-mergeable, so only PRs with
+# can_merge_without_human=true produce a successful Check Run.
 name: Agents Shipgate (check run)
 
 on:
@@ -30,4 +29,5 @@ jobs:
           diff_base: target
           pr_comment: 'true'
           check_run: 'true'
+          check_run_policy: require-mergeable
           shipgate_version: '0.13.0'

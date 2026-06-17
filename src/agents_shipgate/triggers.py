@@ -152,7 +152,10 @@ def _next_action(
         if manifest_present:
             return {
                 "kind": "command",
-                "command": "agents-shipgate verify --base origin/main --head HEAD --json",
+                "command": (
+                    "agents-shipgate verify --workspace . --config shipgate.yaml "
+                    "--base origin/main --head HEAD --ci-mode advisory --format json"
+                ),
                 "why": (
                     "This change affects an agent tool or release-policy "
                     "surface; verify whether the PR can merge."
@@ -171,8 +174,8 @@ def _next_action(
         }
     if dry_run_recommended:
         command = (
-            "agents-shipgate verify --base origin/main --head HEAD "
-            "--ci-mode advisory --json"
+            "agents-shipgate verify --workspace . --config shipgate.yaml "
+            "--base origin/main --head HEAD --ci-mode advisory --format json"
             if manifest_present
             else default_command
         )

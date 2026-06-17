@@ -628,7 +628,7 @@ Acceptance criteria:
       "Do not lower severity.",
       "Do not mark approval_policy: present without evidence."
     ],
-    "verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"
+    "verification_command": "agents-shipgate verify --base origin/main --head HEAD --format json"
   }
 }
 ```

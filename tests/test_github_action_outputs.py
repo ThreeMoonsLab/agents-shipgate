@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.github_action_outputs import (
+    append_step_summary,
     decision_policy_exit_code,
     extract_outputs,
     trigger_action,
@@ -192,6 +193,46 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
     assert outputs["audit_id"] == "sg_audit_abc"
     assert outputs["required_reviewers"] == "security,agent-platform"
     assert outputs["policy_snapshot_sha256"] == "b" * 64
+
+
+def test_step_summary_leads_with_verifier_merge_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    summary_path = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    _write_json(
+        output_dir / "report.json",
+        {
+            "summary": {"status": "release_blockers_detected"},
+            "release_decision": {
+                "decision": "blocked",
+                "blockers": [{"id": "F1"}],
+                "review_items": [{"id": "F2"}],
+                "fail_policy": {"would_fail_ci": True, "exit_code": 20},
+            },
+        },
+    )
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "merge_verdict": "blocked",
+            "can_merge_without_human": False,
+            "first_next_action": {"actor": "human", "kind": "review"},
+        },
+    )
+    values = extract_outputs(output_dir)
+
+    append_step_summary(output_dir, values)
+
+    text = summary_path.read_text(encoding="utf-8")
+    assert text.index("Merge verdict: `blocked`") < text.index("Release gate: `blocked`")
+    assert "Can merge without human: `false`" in text
+    assert "First next action: `human/review`" in text
+    assert f"Verifier JSON: `{output_dir / 'verifier.json'}`" in text
+    assert f"PR comment Markdown: `{output_dir / 'pr-comment.md'}`" in text
 
 
 def test_decision_policy_exit_code_is_opt_in() -> None:

@@ -105,11 +105,12 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     ),
     "verify_local": (
-        "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
+        "agents-shipgate verify --workspace . --config shipgate.yaml "
+        "--ci-mode advisory --format json"
     ),
     "verify_pr": (
         "agents-shipgate verify --workspace . --config shipgate.yaml "
-        "--base origin/main --head HEAD --ci-mode advisory --json"
+        "--base origin/main --head HEAD --ci-mode advisory --format json"
     ),
     "contract": "agents-shipgate contract --json",
 }

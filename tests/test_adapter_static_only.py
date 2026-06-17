@@ -237,7 +237,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=480,
+        line=483,
         snippet="subprocess.run(names_cmd, **run_kwargs)",
         rationale=(
             "git-diff change-name pass: ``git diff --name-only "
@@ -249,7 +249,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=481,
+        line=484,
         snippet="subprocess.run(body_cmd, **run_kwargs)",
         rationale=(
             "git-diff body pass: ``git diff base...HEAD`` for full "
@@ -260,7 +260,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=486,
+        line=489,
         snippet=(
             "subprocess.run(['git', 'ls-files', '--others', "
             "'--exclude-standard'], **run_kwargs)"

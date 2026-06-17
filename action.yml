@@ -98,8 +98,12 @@ inputs:
       Create/update a GitHub Check Run named by check_run_name with the
       merge verdict as the check conclusion (mergeable=success,
       blocked=failure, otherwise neutral) and up to 50 line-level
-      annotations from report.sarif. Requires `checks: write` permission
-      on the workflow.
+      annotations from the PR projection. Requires `checks: write`
+      permission on the workflow.
+  check_run_policy:
+    required: false
+    default: advisory
+    description: "Check Run conclusion policy: advisory, blocked-fails, or require-mergeable."
   check_run_name:
     required: false
     default: "Agents Shipgate"
@@ -395,7 +399,14 @@ runs:
             return;
           }
           const STICKY = "<!-- agents-shipgate-pr-comment -->";
-          const body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
+          let body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
+          const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
+          const runId = process.env.GITHUB_RUN_ID;
+          const runUrl = `${serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+          const artifactLine = `\n\nWorkflow artifacts: ${runUrl}`;
+          if (body.length + artifactLine.length <= 6000) {
+            body = `${body}${artifactLine}`;
+          }
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
           // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
           // earlier comments before Shipgate's first run, which would silently regress to append-only.
@@ -428,6 +439,7 @@ runs:
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_RUN_NAME: ${{ inputs.check_run_name }}
+        CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
       run: |
         python "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 

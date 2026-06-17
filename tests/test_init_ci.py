@@ -52,6 +52,16 @@ def test_write_ci_workflow_writes_to_fresh_workspace(tmp_path: Path) -> None:
     from agents_shipgate import __version__
     assert f"ThreeMoonsLab/agents-shipgate@v{__version__}" in content
     assert "ci_mode: advisory" in content
+    assert "pull_request:" in content
+    assert "push:" not in content
+    assert "pull-requests: write" in content
+    assert "# checks: write" in content
+    assert "fetch-depth: 0" in content
+    assert "diff_base: target" in content
+    assert 'check_annotations: "true"' in content
+    assert 'pr_comment: "true"' in content
+    assert '# check_run: "true"' in content
+    assert "# check_run_policy: require-mergeable" in content
 
 
 def test_write_ci_workflow_refuses_overwrite(tmp_path: Path) -> None:
@@ -217,5 +227,13 @@ def test_workflow_template_references_action_yml_input_names(tmp_path: Path) -> 
     write_ci_workflow(tmp_path)
     content = (tmp_path / WORKFLOW_RELATIVE_PATH).read_text(encoding="utf-8")
     # Required inputs from action.yml that appear in the template:
-    for token in ("config:", "ci_mode:"):
+    for token in (
+        "config:",
+        "ci_mode:",
+        "diff_base:",
+        "check_annotations:",
+        "pr_comment:",
+    ):
         assert token in content
+    for opt_in in ("fail_on:", "baseline:", "check_run:", "check_run_policy:"):
+        assert f"# {opt_in}" in content

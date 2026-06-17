@@ -69,6 +69,8 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert data["inputs"]["check_annotations"]["default"] == "true"
     assert data["inputs"]["check_annotation_limit"]["default"] == "50"
     assert data["inputs"]["check_run"]["default"] == "false"
+    assert data["inputs"]["check_run_policy"]["default"] == "advisory"
+    assert "require-mergeable" in data["inputs"]["check_run_policy"]["description"]
     assert data["inputs"]["check_run_name"]["default"] == "Agents Shipgate"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
@@ -125,6 +127,7 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "agent-result.json did not expose an agent decision" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
+    assert "CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text
@@ -141,13 +144,16 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "args+=(--no-plugins)" in text
 
 
-def test_action_step_summary_leads_with_release_decision():
+def test_action_step_summary_leads_with_verifier_merge_state():
     text = Path("action.yml").read_text(encoding="utf-8")
     script = Path("scripts/github_action_outputs.py").read_text(encoding="utf-8")
 
     assert "scripts/github_action_outputs.py" in text
     assert "GITHUB_STEP_SUMMARY" in script
     assert "## Agents Shipgate" in script
+    assert "Merge verdict:" in script
+    assert "Can merge without human:" in script
+    assert "First next action:" in script
     assert "Decision:" in script
     assert "Risk:" in script
     assert "Audit ID:" in script
@@ -162,6 +168,8 @@ def test_action_pr_comment_truncates_user_controlled_text():
     assert "pr-comment.md" in text
     assert "fs.readFileSync(commentPath" in text
     assert ".slice(0, 6000)" in text
+    assert "Workflow artifacts:" in text
+    assert "body.length + artifactLine.length <= 6000" in text
     assert "preferredDiff" not in text
 
 

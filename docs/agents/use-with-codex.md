@@ -211,7 +211,7 @@ verifier before claiming the work is done:
 
 ```bash
 agents-shipgate preflight --json
-agents-shipgate verify --base origin/main --head HEAD --json
+agents-shipgate verify --base origin/main --head HEAD --format json
 ```
 
 If preflight returns `requires_human_review: true`, Codex must stop for a human
