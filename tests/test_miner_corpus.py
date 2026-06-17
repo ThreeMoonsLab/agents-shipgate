@@ -175,6 +175,38 @@ def test_w25_headline_numbers_reproduce_from_committed_data() -> None:
     assert summary["by_status"][STATUS_EVALUATED] == 2
 
 
+def test_w26_headline_numbers_reproduce_from_committed_data() -> None:
+    """Pin the 2026-W26 deepen run (stripe/agent-toolkit + block/goose +
+    pydantic/pydantic-ai). The headline value is the first run with
+    `tools_scanned` captured (the #223 fix, validated here on real data).
+
+    Verdict nuance: the decided rows' cold-start `head_decision` is
+    `review_required`, but the accuracy scorer uses the per-PR `verify` receipt
+    (`labels.effective_verdict` = `verify_verdict or head_decision`), which is
+    `insufficient_evidence` for all 6 — so W26 adds NO scored `review_required`
+    cases; the effective verdict mix stays IE-dominated. This guard asserts both
+    so the README/findings can't drift back to the misleading "non-IE" framing.
+    """
+    from benchmark.miner.labels import effective_verdict
+
+    rows = read_jsonl(RESULTS_DIR / "2026-W26-mined.jsonl")
+    summary = summarize(rows)
+    assert summary["rows"] == 120
+    assert summary["by_status"][STATUS_TRIGGER_SKIP] == 110
+    assert summary["by_status"][STATUS_EVALUATED] == 6
+    assert summary["by_status"][STATUS_SCAN_FAILED] == 4
+    evaluated = [r for r in rows if r.status == STATUS_EVALUATED]
+    # `summarize.ie_rate_on_decided` reads head_decision; all 6 are
+    # review_required at cold-start, so the HEAD IE rate is 0.0.
+    assert summary["ie_rate_on_decided"] == 0.0
+    assert all(r.head_decision == "review_required" for r in evaluated)
+    # But the SCORED (effective) verdict is insufficient_evidence for all 6 —
+    # W26 contributes IE cases to the accuracy corpus, not review_required ones.
+    assert all(effective_verdict(r) == "insufficient_evidence" for r in evaluated)
+    # The #223 tools_scanned fix populated the ratio denominator on real data.
+    assert evaluated and all(r.tools_scanned is not None for r in evaluated)
+
+
 def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
     """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
 
@@ -189,7 +221,7 @@ def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
                 skip += 1
             if row.head_decision:
                 decided += 1
-    assert total >= 241
+    assert total >= 361
     assert skip / total >= 0.9, f"trigger-skip rate fell to {skip}/{total}"
     # Decided capability-changing PRs are rare on real history — documented,
     # not aspirational. Guard the order of magnitude, not an exact count.

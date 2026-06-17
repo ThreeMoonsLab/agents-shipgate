@@ -81,7 +81,7 @@ python -m benchmark.miner evaluate \
   metrics are in [`LABELING.md`](LABELING.md). Generate the turnkey worksheet
   with `python -m benchmark.miner labels`; a ready blank copy is committed
   alongside each run's results as `<run>.labels.template.csv` (one per run in
-  the table below — currently `2026-W24-…` and `2026-W25-…`). Label the run
+  the table below — currently `2026-W24-…`, `2026-W25-…`, and `2026-W26-…`). Label the run
   you mean to score, then `python -m benchmark.miner score --results <jsonl>
   --labels <csv>` prints the confusion matrix + headline accuracy metrics.
 
@@ -89,11 +89,13 @@ python -m benchmark.miner evaluate \
 |---|---|---|---|---|
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
 | [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. Findings below. |
+| [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit, block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
-Real merged PRs almost never contain a `must_block` capability change (W25:
-9 decided / 241), so the accuracy benchmark's **positives** come from the
+Real merged PRs almost never contain a `must_block` capability change (15
+decided / 361 across W24–W26, and **zero** of those 15 are `must_block`), so
+the accuracy benchmark's **positives** come from the
 repo's bundled fixtures, each built to be a specific case. The labels are each
 fixture's **documented design intent** — external ground truth, not a post-hoc
 opinion about the engine's output — so scoring the engine's verdict against
@@ -120,15 +122,46 @@ with `python -m benchmark.miner constructed --out … --labels-out …`; score w
 The live engine is re-run against these fixtures in CI
 (`tests/test_miner_constructed.py`), so a change that regresses a blocked
 verdict fails there rather than silently in the data file. The mined runs below
-supply the complementary halves — the **negative control** (the 226
+supply the complementary halves — the **negative control** (the 336
 trigger-skips) and the real-history **extraction-coverage** (`insufficient_evidence`) rate.
+
+### 2026-W26 findings — deepen run over agent apps/toolkits
+
+- **App/toolkit repos do yield more decided rows than framework cores — but
+  thin, IE-effective, and never `must_block`.** `stripe/agent-toolkit` produced
+  6 decided rows (15% of its 40 PRs) vs **0** from `block/goose` and
+  `pydantic/pydantic-ai` (a framework core, the same library-internals-churn
+  pattern as W25). Their cold-start `head_decision` is `review_required`, but
+  the per-PR `verify` receipt — **the verdict the accuracy scorer uses**
+  (`labels.effective_verdict` = `verify_verdict or head_decision`) — is
+  `insufficient_evidence` for all 6 (the toolkit surface still isn't statically
+  resolvable on the base→head diff). So the *scored* verdict mix stays
+  IE-dominated; W26 adds **no** scored `review_required` cases. And the 6
+  collapse to **one** distinct pattern (a repeated automated "sync skills from
+  docs.stripe.com" bot PR), so decided *diversity* added is ≈1. Net: even the
+  best app/toolkit repo's decided rows are effectively IE once verified.
+- **`tools_scanned` capture validated on real data (#223).** Every decided row
+  records the ratio denominator (`tools_scanned=2`); pinned by
+  `test_w26_headline_numbers_reproduce_from_committed_data`. This is the first
+  committed run where the IE-threshold ratio is computable from the data.
+- **Engine-robustness bug found:** `block/goose`'s OpenAPI spec crashes `scan`
+  with `Config error: Duplicate action_surface action_id` (4 `scan_failed`
+  rows) — the OpenAPI action_id is built from method+path without the
+  operationId, so two operations on `GET /sessions/{session_id}` collide. A
+  third-party spec must never hard-crash a scan; chipped as a follow-up (same
+  fail-soft class as #212/#214).
+- **Confirms the W25 implication:** mining agent **application/toolkit** repos
+  is the only real-history source of more decided rows, but it does **not**
+  surface `must_block` positives — those still must come from the
+  constructed-adversarial stratum.
 
 ### 2026-W25 findings — diminishing returns from framework-core breadth
 
 - **The base rate of capability-changing merged PRs is low, and now quantified.**
-  Across both runs — **6 repos / 241 merged PRs — 226 (93%) organically
-  trigger-skip and only 9 are decided.** The trigger noise bound is strongly
-  validated on real history; but real-history mining is an *inefficient* source
+  Across all three runs — **9 repos / 361 merged PRs — 336 (93%) organically
+  trigger-skip and only 15 are decided** (none `must_block`). The trigger noise
+  bound is strongly validated on real history; but real-history mining is an
+  *inefficient* source
   of decided cases, especially from framework **cores**: `langgraph` and
   `modelcontextprotocol/servers` produced **zero** decided rows (library-
   internals churn and TS-MCP sources the static extractor doesn't resolve).
@@ -141,7 +174,7 @@ trigger-skips) and the real-history **extraction-coverage** (`insufficient_evide
   real-world gap — extraction *coverage*, failing safe, not a wrong verdict.
 - **Implication for the accuracy corpus (P3):** do not chase decided
   *positives* by mining more framework cores. The labeled corpus should compose
-  three strata — mined-real for the **negative** control (the 226 trigger-skips)
+  three strata — mined-real for the **negative** control (the 336 trigger-skips)
   and IE/coverage cases; **constructed-adversarial** for the `must_block`
   positives (already seeded: `samples/_anti_patterns`,
   `tests/fixtures/stripe_pr232`, `tests/test_verifier_scenarios.py`,
