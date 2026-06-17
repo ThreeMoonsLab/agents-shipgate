@@ -103,6 +103,11 @@ class _ChecksDecision:
 
     action_surface_facts: ActionSurfaceFacts
     action_surface_diff: Any  # ActionSurfaceDiff (internal/semantic)
+    # Fail-soft warnings raised while building the action surface (e.g.
+    # duplicate action_id collisions from OpenAPI specs whose paths
+    # normalize identically). Merged into ``report.source_warnings`` so a
+    # third-party spec degrades to review_required instead of crashing.
+    action_surface_warnings: list[str]
     findings: list[Any]  # list[Finding]
     legacy_fingerprints: list[str]
     override_resolution: Any  # SeverityOverrideResolution
