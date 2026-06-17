@@ -128,6 +128,26 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
     assert '"**/*.py"' not in out
 
 
+def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:
+    for name, text in {
+        "agents-md": render_agents_md(),
+        "claude-md": render_claude_md(),
+        "cursor": render_cursor_file(),
+    }.items():
+        for token in (
+            "shipgate check",
+            "agent_result_v1",
+            "decision",
+            "completion_allowed",
+            "must_stop",
+            "first_next_action",
+            "human_review",
+            "repair",
+            "policy",
+        ):
+            assert token in text, f"{name} missing {token!r}"
+
+
 def test_committed_cursor_rule_matches_renderer() -> None:
     """The repo-level Cursor rule and the init renderer must not drift."""
     committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(encoding="utf-8")
@@ -144,7 +164,21 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "1"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "3"
+    assert payload["contract_version"] == "4"
+    assert payload["agent_result_schema_version"] == "agent_result_v1"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
+    assert payload["agent_result_control_fields"] == [
+        "decision",
+        "completion_allowed",
+        "must_stop",
+        "first_next_action",
+        "human_review",
+        "repair",
+        "policy",
+    ]
+    assert payload["commands"]["agent_check_codex"].startswith("shipgate check")
+    assert payload["commands"]["agent_check_claude_code"].startswith("shipgate check")
+    assert payload["commands"]["agent_check_cursor"].startswith("shipgate check")
     assert payload["commands"]["install_agent_workflow"].endswith(
         "--ci --agent-instructions=default --json"
     )

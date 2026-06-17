@@ -8,6 +8,10 @@ For the normative agent protocol, use [codex.md](codex.md) and
 shipgate check --agent codex --workspace . --format agent-json
 ```
 
+Parse stdout as `agent_result_v1` and switch on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`. Do not infer a local control decision from prose.
+
 Agents Shipgate ships a skill-only Codex plugin so users can install it from
 the Codex plugin experience, start a new thread, invoke `$agents-shipgate`, and
 have Codex run the existing Shipgate CLI workflows correctly. The plugin gives
@@ -186,9 +190,12 @@ Open Codex in the project and run these checks:
    Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
-   `agents-shipgate preflight --json` before protected-surface edits, then
+   `shipgate check --agent codex --workspace . --format agent-json` and parse
+   `agent_result_v1`; run `agents-shipgate preflight --json` before
+   protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
-   or report the exact `agents-shipgate trigger` skip verdict.
+   for PR/reviewer evidence or report the exact `agents-shipgate trigger` skip
+   verdict.
 
    For local uncommitted work, omit `--base`/`--head` so uncommitted edits are
    scanned. For committed PR/CI refs, make the base ref available first because

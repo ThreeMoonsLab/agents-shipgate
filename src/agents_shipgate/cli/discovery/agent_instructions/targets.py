@@ -22,21 +22,23 @@ from dataclasses import dataclass
 BLOCK_VERSION: int = 1
 
 # Order is the order targets are applied and printed. AGENTS.md first because
-# it's the agent-facing entry point; Cursor / Claude command / local contract are
-# full-file discovery surfaces. Skill bundles, CLAUDE.md, and the PR template
-# remain explicit opt-ins unless the caller asks for the literal "all" set.
+# it's the agent-facing entry point; CLAUDE.md, Cursor, Claude command, and the
+# local contract are default discovery surfaces. Skill bundles and the PR
+# template remain explicit opt-ins unless the caller asks for the literal "all"
+# set.
 TARGETS: tuple[str, ...] = (
     "agents-md",
+    "claude-md",
     "cursor",
     "claude-command",
     "local-contract",
     "codex-skill",
     "claude-code-skill",
-    "claude-md",
     "pr-template",
 )
 DEFAULT_TARGETS: tuple[str, ...] = (
     "agents-md",
+    "claude-md",
     "cursor",
     "claude-command",
     "local-contract",

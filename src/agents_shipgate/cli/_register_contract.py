@@ -40,6 +40,11 @@ def register(app: typer.Typer) -> None:
         for surface in payload.external_integration_surfaces:
             typer.echo(f"  {surface}")
         typer.echo(f"Gating signal: {payload.gating_signal}")
+        typer.echo(f"Agent result schema version: {payload.agent_result_schema_version}")
+        typer.echo(f"Agent result schema path: {payload.agent_result_schema_path}")
+        typer.echo("Agent result control fields:")
+        for field in payload.agent_result_control_fields:
+            typer.echo(f"  {field}")
         typer.echo("Manual review signals:")
         for signal in payload.manual_review_signals:
             typer.echo(f"  {signal}")

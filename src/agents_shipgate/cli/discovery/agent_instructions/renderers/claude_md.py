@@ -30,8 +30,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml \\
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`agent_result_v1`; switch on `decision`, then follow `first_next_action`,
-`repair`, and `human_review`.
+`agent_result_v1`; switch on `decision`, `completion_allowed`, and `must_stop`,
+then follow `first_next_action`, `human_review`, `repair`, and `policy`.
 
 Before finishing an agent-related diff, run `shipgate check`. If
 `decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`

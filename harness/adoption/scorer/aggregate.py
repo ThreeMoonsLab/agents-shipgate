@@ -182,18 +182,20 @@ class ExitCriteriaReport:
 
 
 # Behavioural agents whose rubric scores feed the three published exit
-# criteria. Static lints (e.g., ``cursor-static``) are aggregated
+# criteria. Cursor behavioural evidence is manual-entry until Cursor has a
+# reliable headless runner. Static lints (e.g., ``cursor-static``) are aggregated
 # separately because their rubric semantics differ — a cursor-static
 # ``00-no-hints`` cell correctly scores 100 when the rule is absent, which
 # would inflate any Claude-uplift metric if mixed in.
-BEHAVIORAL_AGENTS: frozenset[str] = frozenset({"claude-code", "codex"})
+BEHAVIORAL_AGENTS: frozenset[str] = frozenset({"claude-code", "codex", "cursor-manual"})
 
 
 def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
     """Compute the three exit-criteria metrics from the plan.
 
     Thresholds (all evaluated over BEHAVIORAL agent rows only — Claude
-    Code, Codex; ``cursor-static`` is reported as a separate detail):
+    Code, Codex, and manually captured Cursor; ``cursor-static`` is reported as
+    a separate detail):
 
       * 10-agents-md mean − 00-no-hints mean ≥ +25 rubric points.
       * 40-shipgate-yaml mean ≥ 90 AND zero blockers across that subset.
@@ -214,7 +216,7 @@ def check_exit_criteria(scorecards: list[ScorecardV1]) -> ExitCriteriaReport:
         sc
         for sc in behavioural
         if sc.negative_overlay == "60-docs-only-negative"
-        and sc.variant in {"00-no-hints", "10-agents-md", "20-claude-md", "30-cursor-rule", "50-advisory-workflow"}
+        and sc.variant in {"00-no-hints", "10-agents-md", "20-claude-md", "30-cursor-rule", "35-local-contract", "50-advisory-workflow"}
     ]
     # The behavioural criteria on negative-control cells are N/A by design
     # (so a correct skip scores 100), which means ``runs_init OR runs_scan``

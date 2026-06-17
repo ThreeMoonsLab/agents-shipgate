@@ -10,6 +10,7 @@ from agents_shipgate.cli.agent_result import (
     build_codex_agent_result,
     git_diff_text,
 )
+from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
 
 
 def check(
@@ -75,8 +76,16 @@ def check(
         else:
             diff_text = git_diff_text(workspace=workspace, base=base, head=head)
     except (OSError, RuntimeError) as exc:
-        typer.echo(f"Could not read --diff input: {exc}", err=True)
-        raise typer.Exit(2) from exc
+        result = _diff_input_error_result(
+            agent=agent,
+            workspace=workspace,
+            diff=diff,
+            base=base,
+            head=head,
+            error=str(exc) or "diff input could not be resolved",
+        )
+        typer.echo(agent_result_json(result))
+        return
 
     result = build_codex_agent_result(
         agent=agent,
@@ -86,3 +95,93 @@ def check(
         policy=policy,
     )
     typer.echo(agent_result_json(result))
+
+
+def _diff_input_error_result(
+    *,
+    agent: str,
+    workspace: Path,
+    diff: str | None,
+    base: str | None,
+    head: str | None,
+    error: str,
+) -> AgentResultV1:
+    command = _rerun_command(agent=agent, diff=diff, base=base, head=head)
+    return AgentResultV1(
+        agent=agent,
+        subject={
+            "workspace": str(workspace),
+            "agent": agent,
+            "diff": diff,
+            "base": base,
+            "head": head,
+        },
+        decision="block",
+        risk_level="medium",
+        audit_id="agent_check_diff_input_error",
+        policy_version="unresolved",
+        summary="Agents Shipgate could not resolve the diff input for local agent control.",
+        changed_files=[],
+        completion_allowed=False,
+        must_stop=False,
+        first_next_action={
+            "actor": "coding_agent",
+            "kind": "repair",
+            "command": command,
+            "why": (
+                "Fix the diff input, make the requested git refs available, or omit "
+                "--base/--head for local uncommitted changes; then rerun shipgate check."
+            ),
+        },
+        repair={
+            "actor": "coding_agent",
+            "safe_to_attempt": True,
+            "instructions": [
+                f"Resolve diff input error: {error}",
+                "Provide both --base and --head for committed refs, or omit both for local work.",
+                "If --diff names a file, make sure the file exists and contains a unified diff.",
+            ],
+            "command": command,
+            "forbidden_shortcuts": [
+                "Do not claim completion without a successful shipgate check rerun.",
+                "Do not infer a Shipgate decision from prose or a failed command.",
+            ],
+        },
+        policy={
+            "id": "unresolved",
+            "version": "unknown",
+            "source": "missing",
+            "discovery": [],
+        },
+        diagnostics=[
+            {
+                "level": "error",
+                "code": "diff_input_unresolved",
+                "message": error,
+            }
+        ],
+        trace=[
+            {
+                "step": "diff",
+                "summary": "Diff resolution failed before boundary-policy evaluation.",
+            }
+        ],
+        source_artifacts={},
+        exit_code_hint=2,
+    )
+
+
+def _rerun_command(
+    *,
+    agent: str,
+    diff: str | None,
+    base: str | None,
+    head: str | None,
+) -> str:
+    parts = ["shipgate", "check", "--agent", agent, "--workspace", "."]
+    if diff:
+        parts.extend(["--diff", diff])
+    elif base and head:
+        parts.extend(["--base", base, "--head", head])
+    parts.extend(["--format", "agent-json"])
+    return " ".join(parts)

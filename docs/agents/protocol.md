@@ -66,9 +66,9 @@ The stable schema is `docs/agent-result-schema.v1.json`. In v0.13.0, `policy`
 is required for every in-tree producer under the existing `agent_result_v1`
 schema name; consumers that validate v0.12.0-era objects should update the
 schema with the package. `decision`, `completion_allowed`, `must_stop`,
-`human_review`, and `repair` are the control signals. `risk_level` is
-explanatory and may differ between local-check and verifier projections for the
-same allowed decision.
+`first_next_action`, `human_review`, `repair`, and `policy` are the control
+signals. `risk_level` is explanatory and may differ between local-check and
+verifier projections for the same allowed decision.
 
 ## State Machine
 

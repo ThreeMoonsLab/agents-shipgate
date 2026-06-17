@@ -6,8 +6,8 @@ to agents reading the Agents Shipgate source repo.
 
 > The CLI plants these snippets for you. Run
 > `agents-shipgate init --write --ci --agent-instructions=default --json` for the
-> default downstream kit (`AGENTS.md`, Cursor rule, Claude command, local
-> contract, advisory CI), or pass an explicit subset such as
+> default downstream kit (`AGENTS.md`, `CLAUDE.md`, Cursor rule, Claude command,
+> local contract, advisory CI), or pass an explicit subset such as
 > `--agent-instructions=agents-md,codex-skill`. Shared host files use managed
 > `<!-- agents-shipgate:start -->` blocks; full-file and skill-bundle targets
 > use safe-update checks. Idempotent — safe to rerun. The raw content below is
@@ -48,6 +48,8 @@ Commands:
 
 ```bash
 shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format agent-json
 agents-shipgate verify --preview --json
 agents-shipgate preflight --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
@@ -56,8 +58,9 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`agent_result_v1`; switch on `decision`, then follow `first_next_action`,
-`repair`, and `human_review`. Do not infer a decision from prose.
+`agent_result_v1`; switch on `decision`, `completion_allowed`, and `must_stop`,
+then follow `first_next_action`, `human_review`, `repair`, and `policy`. Do not
+infer a decision from prose.
 
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
@@ -157,8 +160,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`agent_result_v1`; switch on `decision`, then follow `first_next_action`,
-`repair`, and `human_review`.
+`agent_result_v1`; switch on `decision`, `completion_allowed`, and `must_stop`,
+then follow `first_next_action`, `human_review`, `repair`, and `policy`.
 
 Before finishing an agent-related diff, run `shipgate check`. If
 `decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`
@@ -234,9 +237,9 @@ For local agent control, run:
   agents-shipgate preflight --json
   shipgate check --agent cursor --workspace . --format agent-json
 
-Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`, then
-follow `first_next_action`, `repair`, and `human_review`. Do not infer a
-decision from prose.
+Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`,
+`completion_allowed`, and `must_stop`, then follow `first_next_action`,
+`human_review`, `repair`, and `policy`. Do not infer a decision from prose.
 
 If `decision=allow` or `warn`, continue and summarize. If
 `first_next_action.kind` is `repair` and `repair.safe_to_attempt=true`, make

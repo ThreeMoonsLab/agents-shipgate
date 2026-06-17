@@ -167,9 +167,15 @@ def _render_generated_files(renderer_name: str) -> dict[str, str]:
         )
 
         return render_codex_skill_files()
+    if renderer_name == "local-contract":
+        from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+            render_local_contract_file,
+        )
+
+        return {".shipgate/agent-contract.json": render_local_contract_file()}
     raise OverlayError(
         f"Unknown overlay renderer {renderer_name!r}. "
-        "Supported renderers: codex-skill."
+        "Supported renderers: codex-skill, local-contract."
     )
 
 

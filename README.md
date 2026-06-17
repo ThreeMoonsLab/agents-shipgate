@@ -103,8 +103,20 @@ above writes this comment verbatim to `reports/pr-comment.md`.
 
 ## Verify-first quickstart
 
-The core loop is verify-first: when a PR changes what your agent can do, run the
-deterministic verifier on the diff and read its merge verdict before you merge.
+For coding-agent local control, start with `shipgate check` and parse its
+stdout `agent_result_v1` object:
+
+```bash
+shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format agent-json
+```
+
+Switch on `decision`, `completion_allowed`, `must_stop`,
+`first_next_action`, `human_review`, `repair`, and `policy`; never infer a
+decision from prose. For committed PRs, the release loop remains verify-first:
+when a PR changes what your agent can do, run the deterministic verifier on the
+diff and read its merge verdict before you merge.
 
 First ask whether Shipgate applies to the current repo or diff:
 
@@ -220,13 +232,22 @@ Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md
 
 ```text
 Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
-Run:
+Run the local command for your agent runtime:
+shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format agent-json
 agents-shipgate verify --preview --json
 If Shipgate is relevant, run:
 agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
+Before editing protected surfaces, run:
+agents-shipgate preflight --workspace . --json
+For PR/reviewer evidence, run:
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
-For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
+For local control, parse the `shipgate check` stdout JSON (`agent_result_v1`):
+switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
+`human_review`, `repair`, and `policy`. For local uncommitted verify work,
+omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
 `can_merge_without_human`, `first_next_action`, `fix_task`, and
@@ -434,7 +455,7 @@ and pre-commit equivalents.
 When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
-- **`agents-shipgate-reports/verifier.json`** — the **primary, agent-facing artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `first_next_action`, and `fix_task` to decide whether to continue, repair, or stop for a human. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
+- **`agents-shipgate-reports/verifier.json`** — the **primary PR/controller evidence artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `first_next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check` and `agent_result_v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
 - **`agents-shipgate-reports/pr-comment.md`** — the **human PR surface**: the same verdict and semantic capability diff when available, shaped for a reviewer.
 - **`agents-shipgate-reports/capabilities.lock.json`** + **`agents-shipgate-reports/base.capabilities.lock.json`** + **`agents-shipgate-reports/capability-lock-diff.{json,md}`** — the **capability review primitive**. Verify always emits the head lock after a successful scan; it emits the base lock and diff when the base scan can be materialized, falling back to the reviewed committed lock at `.agents-shipgate/capabilities.lock.json` if needed.
 - **Gate source of truth** — `report.json.release_decision.decision` (`passed | review_required | insufficient_evidence | blocked`). `merge_verdict` is a deterministic projection of it; the report stays the one decision engine.
@@ -463,7 +484,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
 - **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to propose `agents-shipgate detect`. Schema is stable for `0.x`.
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
-- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions.
+- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; contract v4 names the `agent_result_v1` control fields and the `shipgate check` commands for Codex, Claude Code, and Cursor.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
 - **[`docs/capability-standard.md`](docs/capability-standard.md)** — stable non-gating capability lock/diff standard for external integrations and research tooling.

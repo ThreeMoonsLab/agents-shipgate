@@ -225,6 +225,37 @@ def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> Non
     assert after_payload["must_stop"] is False
 
 
+def test_check_diff_input_failure_emits_schema_valid_agent_result(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--agent",
+            "claude-code",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(tmp_path / "missing.diff"),
+            "--format",
+            "agent-json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    _validator().validate(payload)
+    AgentResultV1.model_validate(payload)
+    assert payload["agent"] == "claude-code"
+    assert payload["schema_version"] == "agent_result_v1"
+    assert payload["decision"] == "block"
+    assert payload["completion_allowed"] is False
+    assert payload["must_stop"] is False
+    assert payload["first_next_action"]["actor"] == "coding_agent"
+    assert payload["first_next_action"]["kind"] == "repair"
+    assert payload["repair"]["safe_to_attempt"] is True
+    assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+
+
 def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:
     payload = _load_json(GOLDEN / "missing-install.json")
 

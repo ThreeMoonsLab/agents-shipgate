@@ -7,8 +7,8 @@ shipgate check --agent codex --workspace . --format agent-json
 ```
 
 Parse stdout as `agent_result_v1`. Switch only on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `repair`, and
-`human_review`.
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`.
 
 If the binary is missing, surface the schema-valid install fixture with
 `first_next_action.kind="install"` and command `pipx install agents-shipgate`.

@@ -10,14 +10,16 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v3 also exposes the local agent command spec:
+Runtime contract v4 also exposes the local agent command spec:
 `commands{}`, `default_paths{}`, `artifacts{}`, `verifier_read_order[]`,
-`merge_verdicts[]`, `release_decisions[]`, and `do_not_auto_assert[]`. Downstream
-repos generated with `init --agent-instructions=default` get the minimal local copy at
+`merge_verdicts[]`, `release_decisions[]`, `do_not_auto_assert[]`,
+`agent_result_schema_version`, `agent_result_schema_path`, and
+`agent_result_control_fields[]`. Downstream repos generated with
+`init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.13.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `3`
+- Runtime contract: `4`
 - Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
@@ -266,14 +268,13 @@ second verdict.
 
 ## Read this for coding-agent control
 
-`shipgate check --agent codex --workspace . --format agent-json` is the
-canonical local coding-agent command. Use `--agent claude-code` or
-`--agent cursor` for those runtimes. The command emits exactly one stdout JSON
-object using `schema_version: "agent_result_v1"` and the schema in
+`shipgate check --agent <codex|claude-code|cursor> --workspace . --format
+agent-json` is the canonical local coding-agent command. The command emits
+exactly one stdout JSON object using `schema_version: "agent_result_v1"` and the schema in
 [`agent-result-schema.v1.json`](agent-result-schema.v1.json).
 
 Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `repair`, and `human_review`. Do not derive an agent
+`first_next_action`, `human_review`, `repair`, and `policy`. Do not derive an agent
 decision from Markdown, PR comments, or natural language. `agents-shipgate
 verify` and `report.json` remain the full CI/reviewer substrate.
 

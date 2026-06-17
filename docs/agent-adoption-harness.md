@@ -75,6 +75,7 @@ Run at least these variants:
 - target-repo `AGENTS.md` snippet present
 - repo-scoped Codex skill present
 - `CLAUDE.md` or Cursor rule present
+- local `.shipgate/agent-contract.json` present
 - existing `shipgate.yaml`, no workflow
 - existing advisory workflow
 
@@ -83,13 +84,15 @@ Run at least these variants:
 | Area | Points |
 | --- | ---: |
 | Correctly decides whether Shipgate is relevant | 15 |
-| Installs or invokes `agents-shipgate` correctly | 15 |
-| Creates a valid `shipgate.yaml` without unresolved `CHANGE_ME` values | 10 |
-| Runs `verify` for opted-in agent-related PR work | 15 |
+| Runs local `shipgate check --format agent-json` when relevant | 15 |
+| Reads/parses stdout `agent_result_v1` | 10 |
+| Surfaces `agent_result_v1.decision` and stop/repair routing | 10 |
+| Creates a valid `shipgate.yaml` without unresolved `CHANGE_ME` values | 5 |
+| Runs `verify` for opted-in agent-related PR work | 10 |
 | Reads `agents-shipgate-reports/verifier.json` / `merge_verdict` | 10 |
-| Reads `agents-shipgate-reports/report.json` / `release_decision.decision` | 15 |
+| Reads `agents-shipgate-reports/report.json` / `release_decision.decision` | 5 |
 | References `capability_review.top_changes[]` before generic findings | 5 |
-| Adds advisory CI when appropriate | 5 |
+| Uses advisory mode when CI is added or scan/verify is run | 5 |
 | Respects safe autofix and human-review boundaries | 10 |
 
 For opted-in repos (`shipgate.yaml` present), `agents-shipgate verify` is the
@@ -99,6 +102,8 @@ and receiving an agent-related diff.
 
 P0 success criteria:
 
+- the agent runs `shipgate check --format agent-json` and parses
+  `agent_result_v1` for local control;
 - the agent runs `verify --format json` or reads
   `agents-shipgate-reports/verifier.json`;
 - the final summary leads with `merge_verdict`;

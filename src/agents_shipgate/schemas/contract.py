@@ -20,8 +20,21 @@ from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 
-CONTRACT_VERSION: Literal["3"] = "3"
+CONTRACT_VERSION: Literal["4"] = "4"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
+AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
+AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
+    "docs/agent-result-schema.v1.json"
+)
+AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
+    "decision",
+    "completion_allowed",
+    "must_stop",
+    "first_next_action",
+    "human_review",
+    "repair",
+    "policy",
+)
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "preflight",
     "capability_lock",
@@ -81,6 +94,11 @@ DEFAULT_PATHS: dict[str, str] = {
     "local_contract": ".shipgate/agent-contract.json",
 }
 COMMANDS: dict[str, str] = {
+    "agent_check_codex": "shipgate check --agent codex --workspace . --format agent-json",
+    "agent_check_claude_code": (
+        "shipgate check --agent claude-code --workspace . --format agent-json"
+    ),
+    "agent_check_cursor": "shipgate check --agent cursor --workspace . --format agent-json",
     "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --json",
     "preview": "agents-shipgate verify --preview --json",
     "install_agent_workflow": (
@@ -156,6 +174,9 @@ class ContractPayload(BaseModel):
     governance_benchmark_result_schema_version: str
     external_integration_surfaces: list[str]
     gating_signal: str
+    agent_result_schema_version: str
+    agent_result_schema_path: str
+    agent_result_control_fields: list[str]
     manual_review_signals: list[str]
     commands: dict[str, str]
     default_paths: dict[str, str]
@@ -184,6 +205,9 @@ def build_contract_payload() -> ContractPayload:
         governance_benchmark_result_schema_version=(GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION),
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
+        agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
+        agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
+        agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
         commands=dict(COMMANDS),
         default_paths=dict(DEFAULT_PATHS),
@@ -197,6 +221,9 @@ def build_contract_payload() -> ContractPayload:
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AGENT_RESULT_CONTROL_FIELDS",
+    "AGENT_RESULT_SCHEMA_PATH",
+    "AGENT_RESULT_SCHEMA_VERSION",
     "ARTIFACTS",
     "COMMANDS",
     "DEFAULT_PATHS",

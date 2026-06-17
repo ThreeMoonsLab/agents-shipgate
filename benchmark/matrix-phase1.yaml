@@ -1,0 +1,47 @@
+# Phase 1 adoption matrix: make Shipgate obvious to coding agents.
+#
+# This matrix measures the local `shipgate check` control loop across Codex,
+# Claude Code, and manually captured Cursor sessions. Cursor uses the
+# cursor-manual driver because there is no reliable headless Cursor agent mode.
+
+benchmark_schema_version: "0.3"
+
+cells:
+  # Codex
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 01-prepare-for-release, agent: codex}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 04-docs-only-negative, agent: codex, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff, agent: codex}
+
+  # Claude Code
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 04-docs-only-negative, agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 04-docs-only-negative, agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 04-docs-only-negative, agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 04-docs-only-negative, agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 01-prepare-for-release, agent: claude-code, model: claude-opus-4-7}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 04-docs-only-negative, agent: claude-code, model: claude-opus-4-7, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff, agent: claude-code, model: claude-opus-4-7}
+
+  # Cursor manual behavioural scorecards
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 01-prepare-for-release, agent: cursor-manual}
+  - {archetype: openai-agents-sdk, variant: 00-no-hints, prompt: 04-docs-only-negative, agent: cursor-manual, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 01-prepare-for-release, agent: cursor-manual}
+  - {archetype: openai-agents-sdk, variant: 10-agents-md, prompt: 04-docs-only-negative, agent: cursor-manual, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 01-prepare-for-release, agent: cursor-manual}
+  - {archetype: openai-agents-sdk, variant: 20-claude-md, prompt: 04-docs-only-negative, agent: cursor-manual, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 01-prepare-for-release, agent: cursor-manual}
+  - {archetype: openai-agents-sdk, variant: 30-cursor-rule, prompt: 04-docs-only-negative, agent: cursor-manual, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 01-prepare-for-release, agent: cursor-manual}
+  - {archetype: openai-agents-sdk, variant: 35-local-contract, prompt: 04-docs-only-negative, agent: cursor-manual, negative_overlay: 60-docs-only-negative}
+  - {archetype: openai-agents-sdk, variant: 40-shipgate-yaml, prompt: 05-verify-agent-diff, agent: cursor-manual}

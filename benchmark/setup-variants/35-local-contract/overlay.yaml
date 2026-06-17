@@ -1,0 +1,7 @@
+# 35-local-contract — install only the machine-readable local agent contract.
+# This measures whether cold agents can discover `.shipgate/agent-contract.json`
+# without prose-heavy AGENTS/CLAUDE/Cursor guidance.
+renderers:
+  - local-contract
+files: []
+required_placeholders: []

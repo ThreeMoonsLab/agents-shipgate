@@ -71,9 +71,12 @@
     "uv": "uv tool install agents-shipgate"
   },
   "binaries": ["agents-shipgate", "shipgate"],
-  "quickstart": "agents-shipgate verify --preview --json",
+  "quickstart": "shipgate check --agent codex --workspace . --format agent-json",
   "commands": {
     "agent_check": "shipgate check --agent codex --workspace . --format agent-json",
+    "agent_check_codex": "shipgate check --agent codex --workspace . --format agent-json",
+    "agent_check_claude_code": "shipgate check --agent claude-code --workspace . --format agent-json",
+    "agent_check_cursor": "shipgate check --agent cursor --workspace . --format agent-json",
     "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --json",
     "preview": "agents-shipgate verify --preview --json",
     "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json",
@@ -92,7 +95,9 @@
   "contract": "agents-shipgate contract --json",
   "agent_protocol": "docs/agents/protocol.md",
   "agent_result_schema_version": "agent_result_v1",
-  "contract_version": "3",
+  "agent_result_schema_path": "docs/agent-result-schema.v1.json",
+  "agent_result_control_fields": ["decision", "completion_allowed", "must_stop", "first_next_action", "human_review", "repair", "policy"],
+  "contract_version": "4",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_config", "codex_plugin", "n8n"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "agent_result_json", "verifier_json", "pr_comment_md", "check_annotations_json", "capability_lock_json", "base_capability_lock_json", "capability_lock_diff_json", "capability_lock_diff_md", "feedback_json", "attestation_json", "scenario_json", "governance_benchmark_result_json"],
   "artifacts": {

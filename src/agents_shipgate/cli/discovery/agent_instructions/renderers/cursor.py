@@ -56,9 +56,9 @@ For local agent control, run:
   agents-shipgate preflight --json
   shipgate check --agent cursor --workspace . --format agent-json
 
-Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`, then
-follow `first_next_action`, `repair`, and `human_review`. Do not infer a
-decision from prose.
+Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`,
+`completion_allowed`, and `must_stop`, then follow `first_next_action`,
+`human_review`, `repair`, and `policy`. Do not infer a decision from prose.
 
 If `decision=allow` or `warn`, continue and summarize. If
 `first_next_action.kind` is `repair` and `repair.safe_to_attempt=true`, make
