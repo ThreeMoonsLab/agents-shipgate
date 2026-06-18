@@ -53,6 +53,7 @@ def shipgate_preflight(
     changed_files: list[str] | None = None,
     diff_text: str | None = None,
     capability_request: dict[str, Any] | None = None,
+    plan: dict[str, Any] | None = None,
     base_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read-only MCP tool implementation for ``shipgate.preflight``."""
@@ -75,6 +76,7 @@ def shipgate_preflight(
         config=Path(config),
         changed_files=changed,
         capability_request=request,
+        plan=plan,
         base_preflight=base_preflight,
     )
     return result.model_dump(mode="json")
@@ -178,6 +180,7 @@ def create_server():
         changed_files: list[str] | None = None,
         diff_text: str | None = None,
         capability_request: dict[str, Any] | None = None,
+        plan: dict[str, Any] | None = None,
         base_preflight: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return shipgate_preflight(
@@ -186,6 +189,7 @@ def create_server():
             changed_files=changed_files,
             diff_text=diff_text,
             capability_request=capability_request,
+            plan=plan,
             base_preflight=base_preflight,
         )
 

@@ -19,7 +19,7 @@ MCP/OpenAPI surfaces, prompts, permissions, policies, release gates, or
 
 ```bash
 agents-shipgate verify --preview --json
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 ```
@@ -34,8 +34,9 @@ make the base ref available first because `verify` never fetches. Read
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --json` or pass the proposed paths with
-`--changed-files`. If `requires_human_review` is true, stop for a human.
+`agents-shipgate preflight --workspace . --plan - --json` with a
+`PreflightPlanV1` object. Legacy `--changed-files` remains available. If
+`requires_human_review` is true, stop for a human.
 
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly

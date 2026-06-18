@@ -191,7 +191,8 @@ Open Codex in the project and run these checks:
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `shipgate check --agent codex --workspace . --format agent-json` and parse
-   `agent_result_v1`; run `agents-shipgate preflight --json` before
+   `agent_result_v1`; run
+   `agents-shipgate preflight --workspace . --plan - --json` before
    protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
    for PR/reviewer evidence or report the exact `agents-shipgate trigger` skip
@@ -210,7 +211,7 @@ permissions, policies, CI gates, or `shipgate.yaml`, Codex should run the
 verifier before claiming the work is done:
 
 ```bash
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 

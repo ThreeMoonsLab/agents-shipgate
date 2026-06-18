@@ -65,8 +65,8 @@
 - SARIF report: `agents-shipgate-reports/report.sarif`.
 - Verifier orchestration record (ongoing-PR verify): `agents-shipgate-reports/verifier.json`.
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
-- Proactive preflight routing JSON: `agents-shipgate preflight --json` emits `preflight_schema_version: "0.1"`; it routes protected-surface edits and high-risk capability evidence gaps but is not a release verdict.
-- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.1.json
+- Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.2"`; it routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.2.json
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
 - Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
@@ -86,7 +86,7 @@
 - Install with uv: `uv tool install agents-shipgate`.
 - Local agent control: `shipgate check --agent codex --workspace . --format agent-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `agent_result_v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
-- Before editing protected surfaces, run `agents-shipgate preflight --workspace . --json` or pass planned paths with `--changed-files`; stop when `requires_human_review` is true.
+- Before editing protected surfaces, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object; stop when `requires_human_review` is true.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=default --json`.
 - Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
 - Read `verifier.json` first: `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, and the capability diff artifact when present (fallback: `capability_review.top_changes`). Then read `report.json.release_decision.decision`; it is the release gate.
@@ -138,7 +138,7 @@
 - Report schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.26.json
 - Privacy/redaction docs: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/privacy.md
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.7.json
-- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.1.json
+- Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.2.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
 - Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json

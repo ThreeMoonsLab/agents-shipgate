@@ -84,7 +84,7 @@ treating the change as finished, then run `verify` for PR/reviewer evidence:
 
 ```bash
 shipgate check --agent cursor --workspace . --format agent-json
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 

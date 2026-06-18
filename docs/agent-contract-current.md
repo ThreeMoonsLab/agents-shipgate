@@ -23,7 +23,7 @@ Runtime contract v4 also exposes the local agent command spec:
 - Current report schema: `0.26` — [`docs/report-schema.v0.26.json`](report-schema.v0.26.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
-- Current preflight schema: `0.1` — [`docs/preflight-schema.v0.1.json`](preflight-schema.v0.1.json)
+- Current preflight schema: `0.2` — [`docs/preflight-schema.v0.2.json`](preflight-schema.v0.2.json)
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
@@ -52,11 +52,16 @@ one decision engine.
 `merge_verdict` is a deterministic projection of `release_decision.decision`, so
 the two can never disagree.
 
-`agents-shipgate preflight --json` is a proactive routing surface for coding
-agents before edits. It reports protected surfaces, forbidden shortcut actions,
-required evidence for proposed high-risk capabilities, and policy/trust-root
-hashes. It is not a second gate; the release gate remains
-`release_decision.decision`.
+`agents-shipgate preflight --workspace . --plan - --json` is a proactive
+routing surface for coding agents before edits. It accepts a single
+`PreflightPlanV1` object with `changed_files[]`, optional `diff_text`,
+`capability_requests[]`, `host_permission_requests[]`, and
+`context.{agent,task}`. The emitted `PreflightResultV2` reports protected
+surfaces, forbidden shortcut actions, required evidence for proposed high-risk
+capabilities, host-grant drift when a host baseline is present, deterministic
+`signals[]`, `requires_verify`, `verification_command`, `allowed_next_commands[]`,
+and `plan_summary`. It is not a second gate; it must never be read as passed or
+mergeable. The release gate remains `release_decision.decision`.
 
 ## Read these first for release gating
 
