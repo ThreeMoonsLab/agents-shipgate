@@ -127,6 +127,16 @@
   "external_integration_surfaces": ["preflight", "capability_lock", "capability_lock_diff", "capability_standard", "governance_benchmark_catalog", "governance_benchmark_result"],
   "gating_signal": "release_decision.decision",
   "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
+  "check_run_policies": ["advisory", "blocked-fails", "require-mergeable"],
+  "github_action_pr_workflow": {
+    "recommended_inputs": {
+      "ci_mode": "advisory",
+      "diff_base": "target",
+      "check_annotations": "true",
+      "pr_comment": "true"
+    },
+    "branch_protection_check_run_policy": "require-mergeable"
+  },
   "applicability_values": ["verified", "not_applicable", "unknown"],
   "release_decisions": ["passed", "review_required", "insufficient_evidence", "blocked"],
   "merge_verdict_labels": {

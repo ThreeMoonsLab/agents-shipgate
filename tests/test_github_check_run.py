@@ -6,6 +6,7 @@ import pytest
 
 from scripts.github_check_run import (
     MAX_ANNOTATIONS,
+    annotations_from_pr_projection,
     annotations_from_sarif,
     build_check_run_payload,
     conclusion_for,
@@ -28,6 +29,42 @@ from scripts.github_check_run import (
 )
 def test_conclusion_mapping(verdict, expected):
     assert conclusion_for(verdict) == expected
+
+
+@pytest.mark.parametrize(
+    ("verdict", "expected"),
+    [
+        ("mergeable", "success"),
+        ("blocked", "failure"),
+        ("unknown", "failure"),
+        ("human_review_required", "neutral"),
+        ("insufficient_evidence", "neutral"),
+        ("future", "neutral"),
+    ],
+)
+def test_blocked_fails_conclusion_mapping(verdict, expected):
+    assert conclusion_for(verdict, policy="blocked-fails") == expected
+
+
+@pytest.mark.parametrize(
+    ("can_merge_without_human", "expected"),
+    [
+        (True, "success"),
+        ("true", "success"),
+        (False, "failure"),
+        ("false", "failure"),
+        (None, "failure"),
+    ],
+)
+def test_require_mergeable_conclusion_mapping(can_merge_without_human, expected):
+    assert (
+        conclusion_for(
+            "mergeable",
+            policy="require-mergeable",
+            can_merge_without_human=can_merge_without_human,
+        )
+        == expected
+    )
 
 
 def test_title_includes_blocker_count_when_blocked():
@@ -124,6 +161,68 @@ def test_payload_defaults_safe_when_artifacts_missing():
     assert payload["output"]["title"] == "merge_verdict: unknown"
     assert payload["output"]["annotations"] == []
     assert payload["output"]["summary"]
+
+
+def test_payload_uses_pr_projection_annotations_before_sarif():
+    report = {
+        "release_decision": {"blockers": [{"id": "F1"}]},
+        "findings": [
+            {
+                "id": "F1",
+                "check_id": "SHIP-ACTION-APPROVAL-REMOVED",
+                "title": "Approval removed",
+                "severity": "critical",
+                "recommendation": "Restore approval.",
+                "source": {"path": "api.yaml", "start_line": 12},
+            }
+        ],
+    }
+    verifier = {
+        "merge_verdict": "blocked",
+        "can_merge_without_human": False,
+        "release_decision": {"blockers": [{"id": "F1"}]},
+    }
+    sarif = _sarif([_result(uri="other.yaml", line=99)])
+
+    payload = build_check_run_payload(
+        verifier=verifier,
+        report=report,
+        sarif=sarif,
+        summary_markdown="blocked",
+    )
+
+    assert payload["conclusion"] == "failure"
+    assert payload["output"]["annotations"][0]["path"] == "api.yaml"
+    assert payload["output"]["annotations"][0]["title"] == "SHIP-ACTION-APPROVAL-REMOVED"
+
+
+def test_pr_projection_annotations_match_action_projection_shape():
+    report = {
+        "release_decision": {"review_items": [{"id": "F2"}]},
+        "findings": [
+            {
+                "id": "F2",
+                "check_id": "SHIP-POLICY-APPROVAL-MISSING",
+                "title": "Approval missing",
+                "severity": "high",
+                "recommendation": "Declare approval.",
+                "policy_evidence_source": {"path": "shipgate.yaml", "start_line": 20},
+            }
+        ],
+    }
+
+    annotations = annotations_from_pr_projection(report, {"merge_verdict": "blocked"})
+
+    assert annotations == [
+        {
+            "path": "shipgate.yaml",
+            "start_line": 20,
+            "end_line": 20,
+            "annotation_level": "failure",
+            "message": "Declare approval. Source: shipgate.yaml",
+            "title": "SHIP-POLICY-APPROVAL-MISSING",
+        }
+    ]
 
 
 def test_payload_is_json_serializable_and_deterministic():
