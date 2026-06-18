@@ -51,12 +51,15 @@ When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
 Default to advisory verification while adopting the gate.
 
-For local agent control, run:
+Before protected edits, run preflight and read `PreflightResultV2`:
 
   agents-shipgate preflight --workspace . --plan - --json
+
+For local agent control, run:
+
   shipgate check --agent cursor --workspace . --format agent-json
 
-Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`,
+Read the check stdout JSON only. It is `agent_result_v1`; switch on `decision`,
 `completion_allowed`, and `must_stop`, then follow `first_next_action`,
 `human_review`, `repair`, and `policy`. Do not infer a decision from prose.
 

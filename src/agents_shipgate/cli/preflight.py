@@ -160,7 +160,13 @@ def _read_capability_request(path: Path | None) -> CapabilityRequestV1 | None:
 
 
 def _read_plan(path: Path) -> PreflightPlanV1:
-    payload = _read_json_file_or_stdin(path, label="Preflight plan")
+    if str(path) == "-":
+        raw = "" if sys.stdin.isatty() else sys.stdin.read()
+        payload: Any = (
+            {} if not raw.strip() else _loads_json(raw, label="Preflight plan")
+        )
+    else:
+        payload = _read_json_file_or_stdin(path, label="Preflight plan")
     if not isinstance(payload, dict):
         raise InputParseError("Preflight plan JSON must be an object.")
     try:
@@ -185,6 +191,10 @@ def _read_base_preflight(path: Path | None) -> PreflightResultV1 | PreflightResu
 
 def _read_json_file_or_stdin(path: Path, *, label: str) -> Any:
     raw = sys.stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8")
+    return _loads_json(raw, label=label)
+
+
+def _loads_json(raw: str, *, label: str) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:

@@ -278,10 +278,12 @@ def build_preflight_result(
             head_hash=policy_hash,
         )
         trust_root_graph_diff = _graph_drift(base.trust_root_graph, graph)
-    host_grant_drift = _host_grant_drift_payload(
+    host_grant_drift, host_grant_drift_note = _host_grant_drift_payload(
         workspace=root,
         baseline=host_baseline,
     )
+    if host_grant_drift_note is not None:
+        notes = [*notes, host_grant_drift_note]
     signals = _sorted_signals(
         [
             *signals_for_protected_touches(touches),
@@ -299,11 +301,7 @@ def build_preflight_result(
     if requires_verify and not any(signal.kind == "verify_required" for signal in signals):
         signals = _sorted_signals([*signals, _verify_required_signal()])
 
-    first_next_action = _first_next_action(
-        touches=touches,
-        required_evidence=required_evidence,
-        signals=signals,
-    )
+    first_next_action = _first_next_action(signals=signals)
     allowed_next_commands = (
         [_VERIFY_COMMAND]
         if first_next_action.actor == "coding_agent"
@@ -889,23 +887,33 @@ def _host_grant_drift_payload(
     *,
     workspace: Path,
     baseline: Path | None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str | None]:
+    explicit_baseline = baseline is not None
     if baseline is None:
         baseline_path = workspace / DEFAULT_BASELINE_FILE
         baseline_display = DEFAULT_BASELINE_FILE.as_posix()
         if not baseline_path.is_file():
-            return None
+            return None, None
     else:
         baseline_path = baseline if baseline.is_absolute() else workspace / baseline
         baseline_display = str(baseline)
     try:
         baseline_payload = load_host_grants_baseline(baseline_path)
     except ValueError as exc:
+        if not explicit_baseline:
+            return (
+                None,
+                f"Host-grants baseline {baseline_display} could not be loaded; "
+                f"host-grant drift skipped: {exc}",
+            )
         raise ConfigError(str(exc)) from exc
-    return build_host_drift_payload(
-        baseline=baseline_payload,
-        inventory=host_audit_inventory(workspace),
-        baseline_file=baseline_display,
+    return (
+        build_host_drift_payload(
+            baseline=baseline_payload,
+            inventory=host_audit_inventory(workspace),
+            baseline_file=baseline_display,
+        ),
+        None,
     )
 
 
@@ -1099,11 +1107,8 @@ def _graph_drift(
 
 def _first_next_action(
     *,
-    touches: list[PreflightProtectedSurfaceTouch],
-    required_evidence: list[PreflightRequiredEvidence],
     signals: list[PreflightSignalV1],
 ) -> PreflightNextAction:
-    del touches, required_evidence
     human_signals = [signal for signal in signals if signal.actor == "human"]
     if human_signals:
         first = human_signals[0]

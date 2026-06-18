@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.preflight import _read_plan
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.host_grants import build_host_grants_baseline, host_audit_inventory
 from agents_shipgate.core.preflight import (
@@ -404,6 +406,48 @@ def test_cli_preflight_plan_stdin_routes_clean_docs_to_verify(tmp_path: Path) ->
     ]
 
 
+def test_cli_preflight_plan_empty_stdin_is_empty_plan(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(root),
+            "--plan",
+            "-",
+            "--json",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["changed_files"] == []
+    assert payload["requires_human_review"] is False
+    assert payload["requires_verify"] is False
+    assert payload["first_next_action"]["kind"] == "continue"
+
+
+def test_read_plan_tty_stdin_is_empty_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    class TtyStdin:
+        def isatty(self) -> bool:
+            return True
+
+        def read(self) -> str:
+            raise AssertionError("TTY plan stdin should not be read")
+
+    monkeypatch.setattr(sys, "stdin", TtyStdin())
+
+    plan = _read_plan(Path("-"))
+
+    assert plan.changed_files == []
+    assert plan.capability_requests == []
+    assert plan.host_permission_requests == []
+
+
 def test_cli_preflight_plan_file_rejects_legacy_flag_mix(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     plan = tmp_path / "plan.json"
@@ -458,6 +502,31 @@ def test_cli_preflight_reports_host_grant_drift_when_baseline_present(
     assert payload["host_grant_drift"]["has_drift"] is True
     assert payload["first_next_action"]["actor"] == "human"
     assert any(signal["kind"] == "host_grant_drift" for signal in payload["signals"])
+
+
+def test_cli_preflight_default_corrupt_host_baseline_warns_and_continues(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    baseline_path = root / ".agents-shipgate" / "host-grants.json"
+    baseline_path.parent.mkdir(parents=True)
+    baseline_path.write_text("{", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(root),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["host_grant_drift"] is None
+    assert any("host-grant drift skipped" in note for note in payload["notes"])
+    assert not any(signal["kind"] == "host_grant_drift" for signal in payload["signals"])
 
 
 def test_cli_preflight_explicit_missing_or_corrupt_host_baseline_fails(
