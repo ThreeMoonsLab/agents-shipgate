@@ -51,7 +51,7 @@ shipgate check --agent codex --workspace . --format agent-json
 shipgate check --agent claude-code --workspace . --format agent-json
 shipgate check --agent cursor --workspace . --format agent-json
 agents-shipgate verify --preview --json
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
@@ -65,8 +65,10 @@ infer a decision from prose.
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --json` or `agents-shipgate preflight
---changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`agents-shipgate preflight --workspace . --plan - --json` with a
+`PreflightPlanV1` object. Legacy shorthands such as
+`agents-shipgate preflight --changed-files changed.txt --json` remain available.
+If `requires_human_review` is `true` or
 `first_next_action.actor` is `human`, stop and route the change to a human.
 
 Before finishing an agent-related diff, run `shipgate check`. If
@@ -154,7 +156,7 @@ For agent tool-surface or release-policy changes, run:
 ```bash
 shipgate check --agent claude-code --workspace . --format agent-json
 agents-shipgate verify --preview --json
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
@@ -172,8 +174,10 @@ repair and rerun the command. If `human_review.required=true` or
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --json` or `agents-shipgate preflight
---changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`agents-shipgate preflight --workspace . --plan - --json` with a
+`PreflightPlanV1` object. Legacy shorthands such as
+`agents-shipgate preflight --changed-files changed.txt --json` remain available.
+If `requires_human_review` is `true` or
 `first_next_action.actor` is `human`, stop and route the change to a human.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
@@ -234,7 +238,7 @@ Default to advisory verification while adopting the gate.
 
 For local agent control, run:
 
-  agents-shipgate preflight --json
+  agents-shipgate preflight --workspace . --plan - --json
   shipgate check --agent cursor --workspace . --format agent-json
 
 Read the stdout JSON only. It is `agent_result_v1`; switch on `decision`,
@@ -250,8 +254,10 @@ result to a human.
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --json` or `agents-shipgate preflight
---changed-files changed.txt --json`. If `requires_human_review` is `true` or
+`agents-shipgate preflight --workspace . --plan - --json` with a
+`PreflightPlanV1` object. Legacy shorthands such as
+`agents-shipgate preflight --changed-files changed.txt --json` remain available.
+If `requires_human_review` is `true` or
 `first_next_action.actor` is `human`, stop and route the change to a human.
 
 For committed PR/CI verification, run `agents-shipgate verify --base

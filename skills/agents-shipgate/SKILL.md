@@ -53,7 +53,7 @@ Always:
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
    release gate.
-4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --json` or pass planned paths with `--changed-files`. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
+4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object. Legacy `--changed-files`/`--diff` shorthands remain available. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
 5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format agent-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches.
 6. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 7. Confirm with the user before any command that writes files (`init --write`, `baseline save`).

@@ -74,11 +74,43 @@ def test_mcp_preflight_handler_is_read_only(tmp_path: Path) -> None:
         ),
     )
 
-    assert payload["preflight_schema_version"] == "0.1"
+    assert payload["preflight_schema_version"] == "0.2"
     assert payload["requires_human_review"] is True
+    assert payload["requires_verify"] is True
     assert {
         touch["path"] for touch in payload["protected_surface_touches"]
     } >= {"shipgate.yaml", ".cursor/rules/agents-shipgate.mdc"}
+    assert any(signal["kind"] == "protected_surface_touch" for signal in payload["signals"])
+    assert _snapshot(workspace) == before
+
+
+def test_mcp_preflight_accepts_plan_without_writes(tmp_path: Path) -> None:
+    workspace = tmp_path / "wk"
+    shutil.copytree("samples/clean_read_only_agent", workspace)
+    before = _snapshot(workspace)
+
+    payload = shipgate_preflight(
+        workspace=str(workspace),
+        plan={
+            "schema_version": "preflight_plan_v1",
+            "changed_files": ["docs/readme.md"],
+            "host_permission_requests": [
+                {
+                    "host": "claude-code",
+                    "surface": "permissions.allow",
+                    "operation": "add",
+                    "path": ".claude/settings.json",
+                    "subject": "Write(*)",
+                    "requested_access": {"allow": ["Write(*)"]},
+                    "reason": "auto approve write tools",
+                }
+            ],
+        },
+    )
+
+    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["first_next_action"]["actor"] == "human"
+    assert any(signal["kind"] == "least_privilege" for signal in payload["signals"])
     assert _snapshot(workspace) == before
 
 

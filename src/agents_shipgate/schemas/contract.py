@@ -99,7 +99,9 @@ COMMANDS: dict[str, str] = {
         "shipgate check --agent claude-code --workspace . --format agent-json"
     ),
     "agent_check_cursor": "shipgate check --agent cursor --workspace . --format agent-json",
-    "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --json",
+    "preflight": (
+        "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"
+    ),
     "preview": "agents-shipgate verify --preview --json",
     "install_agent_workflow": (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
@@ -149,6 +151,7 @@ DO_NOT_AUTO_ASSERT: tuple[str, ...] = (
     "broad-scope",
     "prohibited-action",
     "runtime-trace",
+    "human-ack",
     "suppression",
     "waiver",
     "baseline",

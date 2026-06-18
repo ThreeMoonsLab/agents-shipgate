@@ -19,7 +19,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 4. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
 6. For local agent control, run `shipgate check --agent codex --workspace . --format agent-json` and read the stdout `agent_result_v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
-7. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --json` or pass the planned paths with `--changed-files`. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
+7. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object. Legacy `--changed-files`/`--diff` shorthands remain available. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
 8. For full PR verification, read `agents-shipgate-reports/agent-result.json` first, then `verifier.json` and `report.json` for reviewer detail; `report.json.release_decision.decision` remains the release gate.
 9. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
 10. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
@@ -27,7 +27,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 ## Fast Paths
 
 - CLI preflight: run `command -v agents-shipgate` and `agents-shipgate --version`. Continue only when the installed CLI is `>=0.13.0`; if it is missing or stale, ask the user to run `pipx install agents-shipgate` followed by `pipx upgrade agents-shipgate`, or `python -m pip install -U "agents-shipgate>=0.13"` when `pipx` is unavailable.
-- Protected-surface preflight: run `agents-shipgate preflight --workspace . --json` before touching trust roots; add `--changed-files changed.txt` or `--diff pr.diff` when you have concrete planned paths.
+- Protected-surface preflight: run `agents-shipgate preflight --workspace . --plan - --json` before touching trust roots; include `changed_files[]` or `diff_text` in the plan when you have concrete planned paths.
 - Agent-native check: run `shipgate check --agent codex --workspace . --format agent-json`; read only the JSON result for continue/repair/stop routing.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
 - Agent-related PR/CI diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.

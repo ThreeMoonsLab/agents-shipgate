@@ -131,13 +131,15 @@ Signal paths use dotted notation; `[]` denotes an array field.
 
 ### Preflight JSON fields (stable)
 
-`agents-shipgate preflight --json` is a proactive, static-only planning surface
-for coding agents. It does not inspect runtime tool calls, start an MCP server,
+`agents-shipgate preflight --workspace . --plan - --json` is the primary
+proactive, static-only planning surface for coding agents. Legacy shorthands
+such as `--changed-files`, `--diff`, and `--capability-request` remain
+compatible. Preflight does not inspect runtime tool calls, start an MCP server,
 or claim merge safety. `release_decision.decision` remains the only release gate.
 
-The stable top-level fields in `PreflightResultV1` are:
+The stable top-level fields in `PreflightResultV2` are:
 
-- `preflight_schema_version` — currently `"0.1"`.
+- `preflight_schema_version` — currently `"0.2"`.
 - `workspace` and `config` — resolved workspace and manifest path context.
 - `protected_surfaces[]` — canonical trust-root surfaces with `kind`, `pattern`,
   `scope_type`, `present`, and `present_paths`.
@@ -156,6 +158,14 @@ The stable top-level fields in `PreflightResultV1` are:
   `--base-preflight` is supplied.
 - `first_next_action` — routing hint for coding-agent vs human next action.
 - `notes[]` — non-gating diagnostics such as missing manifest context.
+- `signals[]` — deterministic rows with `id`, `kind`, `severity`, `actor`,
+  `subject`, `path`, `reason`, `recommendation`, and `related_command`.
+- `requires_verify`, `verification_command`, and `allowed_next_commands[]` —
+  verifier routing hints only; they are not merge verdicts.
+- `plan_summary` — deterministic counts for the supplied plan and resulting
+  signals.
+- `host_grant_drift` — optional host-grant drift payload when a host baseline
+  is present or explicitly supplied.
 
 ### JSON report fields (stable)
 

@@ -46,11 +46,11 @@ policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
 
 ```bash
-AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --plan - --json
 ```
 
-If you already have a path list or local diff, ask preflight about it before
-editing:
+Pass a `PreflightPlanV1` object on stdin. If you already have a path list or
+local diff and need legacy shorthands, ask preflight about them before editing:
 
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . \
@@ -106,7 +106,7 @@ release surfaces.
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
   --workspace . --base origin/main --head HEAD --json
-AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --plan - --json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json

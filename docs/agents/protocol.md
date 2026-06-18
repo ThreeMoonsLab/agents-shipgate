@@ -271,8 +271,9 @@ Input:
 
 `shipgate.check` output is exactly `agent_result_v1`.
 
-`shipgate.preflight` returns `PreflightResultV1` for protected-surface routing
-and high-risk capability evidence requests. `shipgate.explain` returns
+`shipgate.preflight` returns `PreflightResultV2`; prefer the `plan` argument
+with a `PreflightPlanV1` object for protected-surface routing, high-risk
+capability evidence requests, and host/MCP permission review. `shipgate.explain` returns
 deterministic check/finding explanation JSON. `shipgate.capabilities` returns
 capability lock or capability lock diff JSON. These are projections only; the
 release gate remains `report.json.release_decision.decision`.
