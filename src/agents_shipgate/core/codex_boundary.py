@@ -10,12 +10,13 @@ from typing import Any
 
 import yaml
 
-from agents_shipgate.schemas.agent_result_v1 import (
-    AgentResultDiagnostic,
-    AgentResultNextAction,
-    AgentResultRiskLevel,
-    AgentResultV1,
-    AgentResultViolatedRule,
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+    CodexBoundaryDiagnostic,
+    CodexBoundaryNextAction,
+    CodexBoundaryResultV1,
+    CodexBoundaryRiskLevel,
+    CodexBoundaryViolatedRule,
 )
 
 DEFAULT_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
@@ -23,7 +24,7 @@ DEFAULT_POLICY_VERSION = "1"
 
 _DECISION_RANK = {"allow": 0, "warn": 1, "require_review": 2, "block": 3}
 _RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-_RISK_BY_ACTION: dict[str, AgentResultRiskLevel] = {
+_RISK_BY_ACTION: dict[str, CodexBoundaryRiskLevel] = {
     "allow": "none",
     "warn": "low",
     "require_review": "medium",
@@ -147,6 +148,18 @@ _SHIPGATE_ACTION_RE = re.compile(
     r"^\s*(?:-\s*)?uses:\s+ThreeMoonsLab/agents-shipgate(?:@|\b)",
     re.IGNORECASE,
 )
+_SHIPGATE_LOCAL_ACTION_INPUTS = {
+    "baseline",
+    "ci_mode",
+    "config",
+    "diff_base",
+    "fail_on_merge_verdicts",
+    "fail_on_severities",
+    "format",
+    "pr_comment",
+    "upload_artifact",
+    "workspace",
+}
 _COMMAND_SKILL_RE = re.compile(
     r"(exec_command|write_stdin|apply_patch|shell|subprocess|python\s|node\s|"
     r"bash\s|sh\s|scripts?/|command:|cmd:|run:)",
@@ -217,7 +230,7 @@ class CodexBoundaryRule:
     check_id: str
     title: str
     action: str
-    risk_level: AgentResultRiskLevel
+    risk_level: CodexBoundaryRiskLevel
     recommendation: str
 
 
@@ -335,8 +348,8 @@ def evaluate_codex_boundary_result(
     policy_path: Path | None = None,
     trigger: dict[str, Any] | None = None,
     release_decision: dict[str, Any] | None = None,
-) -> AgentResultV1:
-    """Return the local Codex agent-result projection for a unified diff."""
+) -> CodexBoundaryResultV1:
+    """Return the local Codex boundary-result projection for a unified diff."""
 
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
@@ -345,13 +358,13 @@ def evaluate_codex_boundary_result(
         workspace=workspace,
         policy_path=policy_path or DEFAULT_POLICY_PATH,
     )
-    violations: list[AgentResultViolatedRule] = []
+    violations: list[CodexBoundaryViolatedRule] = []
     evaluated_files: list[dict[str, Any]] = []
 
     def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
         rule = policy.rules.get(rule_id) or DEFAULT_RULES[rule_id]
         violations.append(
-            AgentResultViolatedRule(
+            CodexBoundaryViolatedRule(
                 id=rule.id,
                 check_id=rule.check_id,
                 action=rule.action,  # type: ignore[arg-type]
@@ -396,7 +409,7 @@ def evaluate_codex_boundary_result(
         finding_fingerprints=finding_fingerprints,
         evaluated_files=evaluated_files,
     )
-    return AgentResultV1(
+    return CodexBoundaryResultV1(
         decision=decision,  # type: ignore[arg-type]
         risk_level=risk_level,
         audit_id=audit_id,
@@ -490,8 +503,8 @@ def load_codex_boundary_policy(
     *,
     workspace: Path,
     policy_path: Path,
-) -> tuple[CodexBoundaryPolicy, list[AgentResultDiagnostic]]:
-    diagnostics: list[AgentResultDiagnostic] = []
+) -> tuple[CodexBoundaryPolicy, list[CodexBoundaryDiagnostic]]:
+    diagnostics: list[CodexBoundaryDiagnostic] = []
     candidate = policy_path if policy_path.is_absolute() else workspace / policy_path
     data: dict[str, Any] | None = None
     if candidate.is_file():
@@ -501,7 +514,7 @@ def load_codex_boundary_policy(
                 data = loaded
         except (OSError, yaml.YAMLError) as exc:
             diagnostics.append(
-                AgentResultDiagnostic(
+                CodexBoundaryDiagnostic(
                     level="warning",
                     code="policy_load_failed",
                     message=f"Could not load Codex boundary policy: {exc}",
@@ -512,7 +525,7 @@ def load_codex_boundary_policy(
         data = _load_packaged_default_policy()
     else:
         diagnostics.append(
-            AgentResultDiagnostic(
+            CodexBoundaryDiagnostic(
                 level="warning",
                 code="policy_missing",
                 message="Codex boundary policy file was not found; using defaults.",
@@ -537,7 +550,7 @@ def load_codex_boundary_policy(
         if action not in _DECISION_RANK:
             action = "require_review"
         raw_risk = str(raw_rule.get("risk_level", base.risk_level))
-        risk: AgentResultRiskLevel = (
+        risk: CodexBoundaryRiskLevel = (
             raw_risk if raw_risk in _RISK_RANK else _RISK_BY_ACTION[action]
         )  # type: ignore[assignment]
         rules[rule_id] = CodexBoundaryRule(
@@ -955,7 +968,7 @@ def _evaluate_skill(diff_file: DiffFile, add) -> None:
 def _resolve_changed_file_text(
     workspace: Path,
     diff_file: DiffFile,
-    diagnostics: list[AgentResultDiagnostic],
+    diagnostics: list[CodexBoundaryDiagnostic],
 ) -> ResolvedFileText:
     path = diff_file.path
     if diff_file.is_deleted:
@@ -994,7 +1007,7 @@ def _resolve_changed_file_text(
     except OSError as exc:
         resolved = _unresolved_text("workspace_read_failed")
         diagnostics.append(
-            AgentResultDiagnostic(
+            CodexBoundaryDiagnostic(
                 level="warning",
                 code="content_source",
                 message=f"Could not read changed Codex boundary file: {exc}",
@@ -1060,8 +1073,8 @@ def _content_source_diagnostic(
     resolved: ResolvedFileText,
     *,
     level: str = "info",
-) -> AgentResultDiagnostic:
-    return AgentResultDiagnostic(
+) -> CodexBoundaryDiagnostic:
+    return CodexBoundaryDiagnostic(
         level=level,  # type: ignore[arg-type]
         code="content_source",
         message=f"Evaluated Codex boundary file from {resolved.source}.",
@@ -1220,7 +1233,7 @@ def _server_tool_names(server: dict[str, Any]) -> set[str]:
 
 
 def _decision_for(
-    violations: list[AgentResultViolatedRule],
+    violations: list[CodexBoundaryViolatedRule],
     *,
     release_decision: dict[str, Any] | None,
 ) -> str:
@@ -1240,14 +1253,14 @@ def _decision_for(
     return projection if _DECISION_RANK[projection] > _DECISION_RANK[decision] else decision
 
 
-def _risk_for(violations: list[AgentResultViolatedRule]) -> AgentResultRiskLevel:
+def _risk_for(violations: list[CodexBoundaryViolatedRule]) -> CodexBoundaryRiskLevel:
     if not violations:
         return "none"
     max_item = max(violations, key=lambda item: _RISK_RANK[item.risk_level])
     return max_item.risk_level
 
 
-def _summary_for(decision: str, violations: list[AgentResultViolatedRule]) -> str:
+def _summary_for(decision: str, violations: list[CodexBoundaryViolatedRule]) -> str:
     if decision == "allow":
         return "No Codex boundary changes require action."
     if decision == "warn":
@@ -1259,17 +1272,17 @@ def _summary_for(decision: str, violations: list[AgentResultViolatedRule]) -> st
 
 def _next_action_for(
     decision: str,
-    violations: list[AgentResultViolatedRule],
-) -> AgentResultNextAction:
+    violations: list[CodexBoundaryViolatedRule],
+) -> CodexBoundaryNextAction:
     if decision == "allow":
-        return AgentResultNextAction(
+        return CodexBoundaryNextAction(
             actor="coding_agent",
             kind="continue",
             command=None,
             why="No Codex boundary rule requires review or blocking.",
         )
     if decision == "warn":
-        return AgentResultNextAction(
+        return CodexBoundaryNextAction(
             actor="coding_agent",
             kind="warn",
             command=None,
@@ -1277,14 +1290,14 @@ def _next_action_for(
         )
     if decision == "require_review":
         first = violations[0].title if violations else "Codex boundary review required"
-        return AgentResultNextAction(
+        return CodexBoundaryNextAction(
             actor="human",
             kind="review",
             command=None,
             why=first,
         )
     first = violations[0].title if violations else "Codex boundary blocked"
-    return AgentResultNextAction(actor="human", kind="stop", command=None, why=first)
+    return CodexBoundaryNextAction(actor="human", kind="stop", command=None, why=first)
 
 
 def _audit_id(
@@ -1296,7 +1309,7 @@ def _audit_id(
     evaluated_files: list[dict[str, Any]],
 ) -> str:
     payload = {
-        "schema_version": "agent_result_v1",
+        "schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         "agent": "codex",
         "changed_files": changed_files,
         "diff": [
@@ -1327,7 +1340,7 @@ def _audit_id(
     return f"codex_boundary_{digest}"
 
 
-def _violation_fingerprint(item: AgentResultViolatedRule) -> str:
+def _violation_fingerprint(item: CodexBoundaryViolatedRule) -> str:
     payload = {
         "check_id": item.check_id,
         "path": item.path,
@@ -1342,8 +1355,8 @@ def _violation_fingerprint(item: AgentResultViolatedRule) -> str:
 
 
 def _dedupe_violations(
-    violations: list[AgentResultViolatedRule],
-) -> list[AgentResultViolatedRule]:
+    violations: list[CodexBoundaryViolatedRule],
+) -> list[CodexBoundaryViolatedRule]:
     by_key = {
         json.dumps(item.model_dump(mode="json"), sort_keys=True): item
         for item in violations
@@ -1438,10 +1451,44 @@ def _contains_weakening_term(value: str) -> bool:
 
 
 def _has_shipgate_gate_invocation(value: str) -> bool:
-    return any(
+    if any(
         _SHIPGATE_INVOCATION_RE.search(line) or _SHIPGATE_ACTION_RE.search(line)
         for line in value.splitlines()
-    )
+    ):
+        return True
+    try:
+        workflow = yaml.safe_load(value)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(workflow, dict):
+        return False
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, dict):
+        return False
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if _is_shipgate_action_step(step):
+                return True
+    return False
+
+
+def _is_shipgate_action_step(step: Any) -> bool:
+    if not isinstance(step, dict):
+        return False
+    uses = step.get("uses")
+    if isinstance(uses, str) and uses.startswith("ThreeMoonsLab/agents-shipgate"):
+        return True
+    if uses not in {".", "./"}:
+        return False
+    with_block = step.get("with")
+    if not isinstance(with_block, dict):
+        return False
+    return any(str(key) in _SHIPGATE_LOCAL_ACTION_INPUTS for key in with_block)
 
 
 def _is_codex_config_path(path: str) -> bool:

@@ -1,0 +1,69 @@
+{
+  "schema_version": "shipgate.codex_boundary_result/v1",
+  "agent": "codex",
+  "decision": "require_review",
+  "risk_level": "medium",
+  "audit_id": "codex_boundary_05d82c06e4374f06301a5d77",
+  "policy_version": "1",
+  "summary": "1 Codex boundary change(s) require human review.",
+  "changed_files": [
+    "AGENTS.md"
+  ],
+  "first_next_action": {
+    "actor": "human",
+    "kind": "review",
+    "why": "AGENTS.md removed a Shipgate requirement"
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "AGENTS.md removed a Shipgate requirement",
+      "path": "AGENTS.md",
+      "evidence": {
+        "kind": "shipgate_instruction_removed",
+        "deleted": false,
+        "removed_shipgate_lines": true,
+        "softened_shipgate_lines": false,
+        "removed_requirement_lines": true,
+        "replacement_requirement_lines": false
+      },
+      "recommendation": "Have a human confirm the agent instructions were not weakened."
+    }
+  ],
+  "diagnostics": [],
+  "trigger": {
+    "schema_version": "0.1",
+    "should_run": false,
+    "run_shipgate": false,
+    "skip": true,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": "skip_rule",
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+        "action": "skip_shipgate",
+        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
+        "command": null
+      }
+    ],
+    "changed_files": [
+      "AGENTS.md"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "none",
+      "command": null,
+      "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_e3eff6c19a8ab16d"
+  ]
+}

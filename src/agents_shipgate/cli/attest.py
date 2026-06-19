@@ -22,6 +22,7 @@ from typing import Any
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.core.errors import InputParseError
 
 ATTESTATION_SCHEMA_VERSION = "0.1"
@@ -60,6 +61,22 @@ def _attest_command(
         verifier = _load_json_object(source, "verifier.json")
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=3,
+            command="agents-shipgate attest",
+            next_action="rerun agents-shipgate verify to regenerate verifier.json",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate verify --workspace . --config shipgate.yaml --json",
+                    "why": "Regenerate verifier.json before deriving an attestation.",
+                    "expects": "agents-shipgate-reports/verifier.json",
+                }
+            ],
+            artifacts={"verifier_json": str(source)},
+        )
         raise typer.Exit(3) from exc
     report = _load_sibling_report(source, verifier)
     payload = build_attestation_payload(

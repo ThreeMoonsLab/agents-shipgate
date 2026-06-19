@@ -12,15 +12,26 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["2"] = "2"
+CONTRACT_VERSION: Literal["3"] = "3"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
+AGENT_READ_ORDER: tuple[str, ...] = (
+    "verifier.json.merge_verdict",
+    "verifier.json.agent_controller",
+    "verify-run.json",
+    "report.json.release_decision.decision",
+)
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "capability_lock",
     "capability_lock_diff",
@@ -85,6 +96,9 @@ class ContractPayload(BaseModel):
     cli_version: str
     report_schema_version: str
     packet_schema_version: str
+    verifier_schema_version: str
+    verify_run_schema_version: str
+    codex_boundary_result_schema_version: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
     capability_standard_version: str
@@ -92,6 +106,7 @@ class ContractPayload(BaseModel):
     governance_benchmark_result_schema_version: str
     external_integration_surfaces: list[str]
     gating_signal: str
+    agent_read_order: list[str]
     manual_review_signals: list[str]
 
 
@@ -104,11 +119,17 @@ def build_contract_payload() -> ContractPayload:
     packet_schema_version = EvidencePacket.model_fields[
         "packet_schema_version"
     ].default
+    verifier_schema_version = VerifierArtifact.model_fields[
+        "verifier_schema_version"
+    ].default
     return ContractPayload(
         contract_version=CONTRACT_VERSION,
         cli_version=__version__,
         report_schema_version=str(report_schema_version),
         packet_schema_version=str(packet_schema_version),
+        verifier_schema_version=str(verifier_schema_version),
+        verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
@@ -120,12 +141,14 @@ def build_contract_payload() -> ContractPayload:
         ),
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
+        agent_read_order=list(AGENT_READ_ORDER),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
     )
 
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AGENT_READ_ORDER",
     "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
     "MANUAL_REVIEW_SIGNALS",

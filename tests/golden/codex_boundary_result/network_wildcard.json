@@ -1,38 +1,34 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
-  "decision": "block",
-  "risk_level": "critical",
-  "audit_id": "codex_boundary_414a9d1fbe4b7c9ee6f657a0",
+  "decision": "require_review",
+  "risk_level": "high",
+  "audit_id": "codex_boundary_57bf5fbae08705ef58379900",
   "policy_version": "1",
-  "summary": "1 Codex boundary change(s) block local continuation.",
+  "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     ".codex/config.toml"
   ],
   "first_next_action": {
     "actor": "human",
-    "kind": "stop",
-    "why": "Codex MCP write tool is auto-approved"
+    "kind": "review",
+    "why": "Codex network profile allows a wildcard domain"
   },
   "violated_rules": [
     {
-      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
-      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
-      "action": "block",
-      "risk_level": "critical",
-      "title": "Codex MCP write tool is auto-approved",
+      "id": "CODEX-NETWORK-WILDCARD",
+      "check_id": "SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD",
+      "action": "require_review",
+      "risk_level": "high",
+      "title": "Codex network profile allows a wildcard domain",
       "path": ".codex/config.toml",
       "evidence": {
-        "kind": "mcp_default_auto_approve",
-        "server": "mcp_servers.filesystem",
-        "risky_tools": [
-          "write_file"
-        ],
-        "tool_names": [
-          "write_file"
-        ]
+        "kind": "network_domain_wildcard",
+        "profile": "workspace",
+        "domain": "*",
+        "value": "allow"
       },
-      "recommendation": "Do not auto-approve write/destructive MCP tools."
+      "recommendation": "Replace wildcard network access with explicit allowed domains."
     }
   ],
   "diagnostics": [
@@ -59,7 +55,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+        "command": "shipgate check --agent codex --diff <diff> --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -68,11 +64,11 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --diff <diff> --format agent-json",
+      "command": "shipgate check --agent codex --diff <diff> --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },
   "finding_fingerprints": [
-    "fp_71c94cd92ba68747"
+    "fp_97b6fa25c1f62073"
   ]
 }

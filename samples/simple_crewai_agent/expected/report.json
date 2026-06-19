@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.25",
+  "report_schema_version": "0.26",
   "run_id": "agents_shipgate_75f9c3e73779b880",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
@@ -418,8 +418,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "samples/simple_crewai_agent/expected/report.md",
+    "json": "samples/simple_crewai_agent/expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

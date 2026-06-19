@@ -172,7 +172,7 @@ See [`agent-contract-current.md`](agent-contract-current.md) §"Don't use for ne
 The Markdown is for humans. The JSON is the contract. Specifically:
 
 - Markdown headings, bullets, and emoji can change between minor releases.
-- The JSON shape is governed by the schema and frozen across `0.x.y` releases (see [`STABILITY.md`](../STABILITY.md)).
+- The JSON shape is governed by the schema and frozen across the current alpha contract line (see [`STABILITY.md`](../STABILITY.md)).
 
 If you need a one-line PR-comment summary, build it from `release_decision.reason` plus `summary.{critical_count, high_count}` — not by extracting prose from `report.md`.
 
@@ -214,7 +214,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.25` | `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.25.json`](report-schema.v0.25.json) |
+| Report | `0.26` | `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.26.json`](report-schema.v0.26.json) |
 | Packet | `0.7` | `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.7.json`](packet-schema.v0.7.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `1` | — | `agents-shipgate contract --json` |
@@ -225,7 +225,7 @@ To detect the version programmatically:
 version = report.get("report_schema_version", "0.6")  # pre-v0.7 reports may omit
 ```
 
-Frozen schemas are kept in `docs/` so older reports remain machine-validatable. See [`STABILITY.md`](../STABILITY.md) for the full guarantees on what fields are stable across `0.x` and what may change.
+Frozen schemas are kept in `docs/` so older reports remain machine-validatable. See [`STABILITY.md`](../STABILITY.md) for the full guarantees on what fields are stable across the current alpha contract line and what may change.
 
 ---
 
@@ -236,5 +236,5 @@ Frozen schemas are kept in `docs/` so older reports remain machine-validatable. 
 - [`autofix-policy.md`](autofix-policy.md) — mechanical patch policy and the four classes of findings.
 - [`agent-recipes.md`](agent-recipes.md) — verify-first PR commands and first-adoption helper flow.
 - [`diagnostics.md`](diagnostics.md) — full diagnostic-code catalog and `NextAction` ranking.
-- [`STABILITY.md`](../STABILITY.md) — what won't break across `0.x`.
+- [`STABILITY.md`](../STABILITY.md) — what won't break across the current alpha contract line.
 - [`AGENTS.md`](../AGENTS.md) Task 2 — one-paragraph version of this primer.

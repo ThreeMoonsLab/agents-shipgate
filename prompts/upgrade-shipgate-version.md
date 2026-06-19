@@ -51,13 +51,13 @@ Bump the agents-shipgate version pinned in CI and the development environment.
 
 ## Stability guarantees
 
-Per [`STABILITY.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md), within `0.x`:
+Per [`STABILITY.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md), within the current alpha contract line:
 
 - Existing check IDs do not change names or fingerprint algorithms.
 - Existing CLI flags do not break.
 - The JSON report's stable fields persist.
 
-So a `0.2.x → 0.3.x` upgrade should not silently break existing suppressions or baselines. If it does, that's a stability bug — file an issue.
+So an upgrade within the same alpha contract line should not silently break existing suppressions or baselines. If it does, that's a stability bug — file an issue.
 
 ## What may legitimately change
 

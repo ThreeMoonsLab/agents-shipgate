@@ -31,9 +31,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+- uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
   with:
-    shipgate_version: "0.11.0"
+    shipgate_version: "1.0.0a1"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
@@ -51,7 +51,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+  uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
@@ -75,14 +75,14 @@ findings can feed those fields through `findings[].blocks_release`.
 
 **Legacy (kept for v0.7 callers, baseline-blind):** `status`, `critical_count`, `high_count`, `medium_count`, `baseline_new_count`, `baseline_matched_count`, `baseline_resolved_count`, `report_json`, `report_markdown`, `report_sarif`, `exit_code`. New gates should use `decision` and `ci_would_fail` instead — `summary.status` flips to `release_blockers_detected` even on baseline-matched-only criticals, while `decision` correctly classifies them as `review_required`.
 
-Verifier artifacts: `verifier_json` points at `verifier.json`, and
-`pr_comment_markdown` points at the Markdown body the action posts to PRs.
+Verifier artifacts: `verifier_json` points at `verifier.json`,
+`verify_run_json` points at `verify-run.json`, `run_id` exposes the
+deterministic run identity, and `pr_comment_markdown` points at the Markdown
+body the action posts to PRs.
 The default PR comment style is `capability-review`: it leads with
 `merge_verdict`, then shows `can_merge_without_human`, top capability changes,
 required next steps, trust-root warnings, and artifact links. The underlying
-release gate remains `report.json.release_decision.decision`. For one minor
-release cycle, existing adopters can set `pr_comment_style: findings` to keep
-the v1 findings-oriented comment while updating downstream automation.
+release gate remains `report.json.release_decision.decision`.
 
 For PR review diffs, set `diff_base: target`. The action delegates to
 `agents-shipgate verify`, which never fetches. Use `fetch-depth: 0` on
@@ -93,15 +93,16 @@ records `merge_verdict: "unknown"`, skips the head-only scan, and exits 2.
 scans the checked-out workspace.
 Existing `diff_base` / `diff_from` workflows keep working.
 
-Rollout note for the verifier-cycle minor: the Action defaults are
-`verify_mode: verify` and `pr_comment_style: capability-review`. New outputs
-are additive and old outputs remain stable; keep using `decision` /
-`ci_would_fail` as CI gating outputs, and use `merge_verdict` /
-`can_merge_without_human` for PR-controller routing. The additive verifier
-outputs are:
+Rollout note for the v1.0 alpha contract: the Action defaults are
+`verify_mode: verify` and `pr_comment_style: capability-review`. Keep using
+`decision` / `ci_would_fail` as CI gating outputs, and use `merge_verdict`,
+`agent_controller_*`, and `can_merge_without_human` for PR-controller routing.
+The verifier outputs are:
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
-`merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
-`policy_weakened`, `capability_changes_added`,
+`merge_verdict`, `can_merge_without_human`, `agent_controller_must_stop`,
+`agent_controller_stop_reason`, `agent_controller_completion_allowed`,
+`verify_run_json`, `run_id`, `trust_root_touched`, `policy_weakened`,
+`capability_changes_added`,
 `capability_changes_modified`, and `capability_changes_removed`.
 The verifier flags mirror `verifier_summary`; the capability counts mirror
 `capability_change` (`modified` is `broadened + narrowed`).

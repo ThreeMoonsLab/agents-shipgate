@@ -62,7 +62,7 @@ CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
@@ -82,11 +82,11 @@ CONTEXT_WINDOW = 400  # ~one paragraph; tight enough that the original
                        # marker for hundreds of chars) would still fail.
 
 ACTION_PIN_PATTERN = re.compile(
-    r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)"
+    r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+(?:a\d+)?)"
 )
-PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
+PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+(?:a\d+)?)")
 SHIPGATE_VERSION_INPUT_PATTERN = re.compile(
-    r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"
+    r"shipgate_version:\s*['\"](\d+\.\d+\.\d+(?:a\d+)?)['\"]"
 )
 # Surfaces that name the *latest released* version inline (not as an
 # Action / pip / shipgate_version pin) and must move with the package
@@ -98,21 +98,21 @@ SHIPGATE_VERSION_INPUT_PATTERN = re.compile(
 VERSION_LITERAL_TARGETS = (
     (
         ".github/ISSUE_TEMPLATE/bug_report.yml",
-        re.compile(r"placeholder:\s*\"v(\d+\.\d+\.\d+)\""),
+        re.compile(r"placeholder:\s*\"v(\d+\.\d+\.\d+(?:a\d+)?)\""),
     ),
     (
         "docs/distribution.md",
         re.compile(
-            r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"
+            r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+(?:a\d+)?)`"
         ),
     ),
     (
         "docs/faq.md",
-        re.compile(r"v(\d+\.\d+\.\d+) is the latest released version"),
+        re.compile(r"v(\d+\.\d+\.\d+(?:a\d+)?) is the latest released version"),
     ),
     (
         "ROADMAP.md",
-        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+)`"),
+        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+(?:a\d+)?)`"),
     ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
@@ -313,6 +313,15 @@ def test_public_surface_does_not_recommend_summary_status_for_gating(relpath):
             "baseline-blind / v0.7 compat' marker nearby. Lead with "
             "`release_decision.decision` for any new gating instruction."
         )
+
+
+@pytest.mark.parametrize("relpath", PUBLIC_SURFACES + ACTION_PIN_FILES)
+def test_public_surface_does_not_reference_agent_result_artifact(relpath):
+    """Contract v3 removed agent-result.json from verify. Public agent
+    surfaces must not route callers to that stale controller artifact."""
+    text = _read(relpath)
+    assert "agent-result.json" not in text
+    assert "`agent-result`" not in text
 
 
 def test_well_known_metadata_lists_packet_outputs():
@@ -522,7 +531,7 @@ def test_constants_match_contract_doc():
         r"Current packet schema:\s*`(\d+\.\d+)`", text
     )
     release_match = re.search(
-        r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text
+        r"Latest release:\s*`v(\d+\.\d+\.\d+(?:a\d+)?)`", text
     )
     assert report_match, (
         "docs/agent-contract-current.md must declare 'Current report "
@@ -580,7 +589,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     action_match = ACTION_PIN_PATTERN.search(action_pin)
     assert action_match, (
         f".well-known package.github_action {action_pin!r} does not "
-        "match the expected ThreeMoonsLab/agents-shipgate@vX.Y.Z form."
+        "match the expected ThreeMoonsLab/agents-shipgate@vX.Y.Z[aN] form."
     )
     assert action_match.group(1) == expected, (
         f".well-known package.github_action pins "
@@ -591,7 +600,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     # GitHub Action line must echo the package version.
     llms_text = _read("llms.txt")
     llms_release = re.search(
-        r"Latest public release:\s*v(\d+\.\d+\.\d+)", llms_text
+        r"Latest public release:\s*v(\d+\.\d+\.\d+(?:a\d+)?)", llms_text
     )
     assert llms_release, (
         "llms.txt must declare 'Latest public release: vX.Y.Z'."
@@ -613,7 +622,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     # docs/agent-contract-current.md
     contract_text = _read("docs/agent-contract-current.md")
     contract_release = re.search(
-        r"Latest release:\s*`v(\d+\.\d+\.\d+)`", contract_text
+        r"Latest release:\s*`v(\d+\.\d+\.\d+(?:a\d+)?)`", contract_text
     )
     assert contract_release and contract_release.group(1) == expected, (
         f"docs/agent-contract-current.md 'Latest release' must be "
@@ -1360,13 +1369,14 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert data.get("static_scan_fixture_run") == (
         "agents-shipgate fixture run support_refund_agent"
     )
-    assert data.get("verifier_read_order", [])[:5] == [
-        "merge_verdict",
-        "can_merge_without_human",
-        "first_next_action",
-        "fix_task",
-        "capability_review.top_changes",
+    expected_agent_read_order = [
+        "verifier.json.merge_verdict",
+        "verifier.json.agent_controller",
+        "verify-run.json",
+        "report.json.release_decision.decision",
     ]
+    assert data.get("agent_read_order") == expected_agent_read_order
+    assert data.get("verifier_read_order") == expected_agent_read_order
 
     recommended_topics = data.get("recommended_github_topics", [])
     for topic in (

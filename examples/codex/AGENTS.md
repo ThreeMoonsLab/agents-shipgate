@@ -6,7 +6,7 @@ workflow, run:
 
 ```bash
 git diff --no-ext-diff --unified=0 HEAD > /tmp/codex.diff
-shipgate check --agent codex --diff /tmp/codex.diff --format agent-json
+shipgate check --agent codex --diff /tmp/codex.diff --format codex-boundary-json
 ```
 
 Read stdout as JSON only. Use `decision` as the local next-action signal:
@@ -18,4 +18,3 @@ Read stdout as JSON only. Use `decision` as the local next-action signal:
 
 Do not weaken `shipgate.yaml`, the Shipgate workflow, AGENTS.md, skills, hooks,
 policies, baselines, waivers, or suppressions to make the local check pass.
-

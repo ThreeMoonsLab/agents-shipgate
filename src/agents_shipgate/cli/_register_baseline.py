@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.checks.baseline_integrity import has_hash_mismatch
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.scan.path_helpers import _resolve_audit_log_path
 from agents_shipgate.config.loader import load_manifest
@@ -53,9 +54,39 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(2) from exc
         except InputParseError as exc:
             typer.echo(f"Input parsing error: {exc}", err=True)
+            emit_agent_mode_error(
+                "input_parse_error",
+                message=str(exc),
+                exit_code=3,
+                command="agents-shipgate baseline verify",
+                next_action="check the --baseline and --audit-log paths",
+                next_actions=[
+                    {
+                        "kind": "review",
+                        "path": str(baseline),
+                        "why": "Baseline file could not be loaded or parsed.",
+                        "expects": "baseline JSON",
+                    }
+                ],
+            )
             raise typer.Exit(3) from exc
         except AgentsShipgateError as exc:
             typer.echo(f"Agents Shipgate error: {exc}", err=True)
+            emit_agent_mode_error(
+                "other_error",
+                message=str(exc),
+                exit_code=4,
+                command="agents-shipgate baseline verify",
+                next_action="rerun baseline verify with --verbose",
+                next_actions=[
+                    {
+                        "kind": "command",
+                        "command": "agents-shipgate baseline verify --verbose --json",
+                        "why": "Surface the baseline verification failure.",
+                        "expects": "debug logging",
+                    }
+                ],
+            )
             raise typer.Exit(4) from exc
         typer.echo(f"Wrote {out}")
         typer.echo(f"Findings saved: {len(baseline.findings)}")
@@ -149,6 +180,21 @@ def register(app: typer.Typer) -> None:
                         f"{issue.title}"
                     )
         if strict and has_hash_mismatch(issues):
+            emit_agent_mode_error(
+                "baseline_integrity_failure",
+                message="Baseline integrity mismatch detected.",
+                exit_code=BASELINE_INTEGRITY_EXIT_CODE,
+                command="agents-shipgate baseline verify",
+                next_action="route baseline changes to human review",
+                next_actions=[
+                    {
+                        "kind": "review",
+                        "path": str(baseline),
+                        "why": "Strict baseline verification found a hash mismatch.",
+                        "expects": "human review of baseline provenance",
+                    }
+                ],
+            )
             raise typer.Exit(BASELINE_INTEGRITY_EXIT_CODE)
 
     app.add_typer(baseline_app, name="baseline")

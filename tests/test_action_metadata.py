@@ -37,20 +37,19 @@ def test_action_has_marketplace_metadata_and_outputs():
         "baseline_new_count",
         "report_json",
         "verifier_json",
+        "verify_run_json",
+        "run_id",
         "pr_comment_markdown",
-        "agent_result_json",
         "exit_code",
-        "agent_decision",
-        "risk_level",
-        "audit_id",
-        "required_reviewers",
-        "policy_snapshot_sha256",
         "should_run",
         "trigger_action",
         "trigger_rule_ids",
         "verifier_verdict",
         "merge_verdict",
         "can_merge_without_human",
+        "agent_controller_must_stop",
+        "agent_controller_stop_reason",
+        "agent_controller_completion_allowed",
         "trust_root_touched",
         "policy_weakened",
         "capability_changes_added",
@@ -61,7 +60,7 @@ def test_action_has_marketplace_metadata_and_outputs():
         "Verifier convenience verdict. Prefer `decision`"
     )
     assert data["inputs"]["verify_mode"]["default"] == "verify"
-    assert data["inputs"]["fail_on_decisions"]["default"] == ""
+    assert data["inputs"]["fail_on_merge_verdicts"]["default"] == ""
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
 
@@ -80,6 +79,11 @@ def test_action_exposes_verifier_merge_outputs():
         "can_merge_without_human",
         "trust_root_touched",
         "policy_weakened",
+        "verify_run_json",
+        "run_id",
+        "agent_controller_must_stop",
+        "agent_controller_stop_reason",
+        "agent_controller_completion_allowed",
         "capability_changes_added",
         "capability_changes_modified",
         "capability_changes_removed",
@@ -106,9 +110,9 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "VERIFY_MODE: ${{ inputs.verify_mode }}" in text
     assert "INPUT_HEAD_REF: ${{ inputs.head_ref }}" in text
     assert "PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}" in text
-    assert "fail_on_decisions" in text
-    assert "Apply Agents Shipgate decision policy" in text
-    assert "decision_policy_exit_code" in text
+    assert "fail_on_merge_verdicts" in text
+    assert "Apply Agents Shipgate merge verdict policy" in text
+    assert "merge_verdict_policy_exit_code" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text
@@ -132,9 +136,9 @@ def test_action_step_summary_leads_with_release_decision():
     assert "scripts/github_action_outputs.py" in text
     assert "GITHUB_STEP_SUMMARY" in script
     assert "## Agents Shipgate" in script
-    assert "Decision:" in script
-    assert "Risk:" in script
-    assert "Audit ID:" in script
+    assert "Merge verdict:" in script
+    assert "Can merge without human:" in script
+    assert "Run ID:" in script
     assert "Blockers:" in script
     assert "Review items:" in script
     assert "would_fail_ci=" in script

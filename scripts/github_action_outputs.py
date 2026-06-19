@@ -7,6 +7,13 @@ from typing import Any
 
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+MERGE_VERDICTS = {
+    "blocked",
+    "human_review_required",
+    "insufficient_evidence",
+    "unknown",
+    "mergeable",
+}
 
 
 def clean(value: object) -> str:
@@ -39,13 +46,22 @@ def trigger_action(trigger: dict[str, Any]) -> str:
     return ""
 
 
-def decision_policy_exit_code(agent_decision: str, fail_on_decisions: str) -> int:
-    """Exit 20 when the compact agent decision matches the opt-in policy."""
-    normalized = _normalize_decision_token(agent_decision)
+def merge_verdict_policy_exit_code(
+    merge_verdict: str,
+    fail_on_merge_verdicts: str,
+) -> int:
+    """Exit 20 when the merge verdict matches the opt-in policy."""
+    normalized = _normalize_merge_verdict_token(merge_verdict)
     if not normalized:
         return 0
-    for raw in fail_on_decisions.split(","):
-        if _normalize_decision_token(raw) == normalized:
+    for raw in fail_on_merge_verdicts.split(","):
+        token = _normalize_merge_verdict_token(raw)
+        if not token:
+            continue
+        if token not in MERGE_VERDICTS:
+            allowed = ", ".join(sorted(MERGE_VERDICTS))
+            raise ValueError(f"unsupported merge verdict {raw!r}; expected one of {allowed}")
+        if token == normalized:
             return 20
     return 0
 
@@ -55,12 +71,12 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     report_markdown = output_dir / "report.md"
     report_sarif = output_dir / "report.sarif"
     verifier_json = output_dir / "verifier.json"
+    verify_run_json = output_dir / "verify-run.json"
     pr_comment_markdown = output_dir / "pr-comment.md"
-    agent_result_json = output_dir / "agent-result.json"
 
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
-    agent_result = _load_json(agent_result_json)
+    verify_run = _load_json(verify_run_json)
     summary = payload.get("summary") or {}
     baseline = payload.get("baseline") or {}
     adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
@@ -88,6 +104,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     merge_verdict = verifier_payload.get("merge_verdict") or _merge_verdict(
         verifier_verdict
     )
+    agent_controller = verifier_payload.get("agent_controller") or {}
 
     return {
         "status": summary.get("status", ""),
@@ -103,8 +120,9 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "report_markdown": report_markdown,
         "report_sarif": report_sarif,
         "verifier_json": verifier_json,
+        "verify_run_json": verify_run_json,
+        "run_id": verify_run.get("run_id", ""),
         "pr_comment_markdown": pr_comment_markdown,
-        "agent_result_json": agent_result_json,
         "decision": release_decision.get("decision", ""),
         "blocker_count": len(release_decision.get("blockers") or []),
         "review_item_count": len(release_decision.get("review_items") or []),
@@ -128,16 +146,18 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "can_merge_without_human": str(
             bool(verifier_payload.get("can_merge_without_human"))
         ).lower(),
+        "agent_controller_must_stop": str(
+            bool(agent_controller.get("must_stop"))
+        ).lower(),
+        "agent_controller_stop_reason": agent_controller.get("stop_reason") or "",
+        "agent_controller_completion_allowed": str(
+            bool(agent_controller.get("completion_allowed"))
+        ).lower(),
         "trust_root_touched": str(trust_root_touched).lower(),
         "policy_weakened": str(policy_weakened).lower(),
         "capability_changes_added": capability_added,
         "capability_changes_modified": capability_modified,
         "capability_changes_removed": capability_removed,
-        "agent_decision": agent_result.get("decision", ""),
-        "risk_level": agent_result.get("risk_level", ""),
-        "audit_id": agent_result.get("audit_id", ""),
-        "required_reviewers": ",".join(_string_list(agent_result.get("required_reviewers"))),
-        "policy_snapshot_sha256": agent_result.get("policy_snapshot_sha256", ""),
     }
 
 
@@ -147,7 +167,8 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
         return
 
     payload = _load_json(output_dir / "report.json")
-    agent_result = _load_json(output_dir / "agent-result.json")
+    verifier_payload = _load_json(output_dir / "verifier.json")
+    verify_run = _load_json(output_dir / "verify-run.json")
     release_decision = payload.get("release_decision") or {}
     summary = payload.get("summary") or {}
     fail_policy = release_decision.get("fail_policy") or {}
@@ -161,19 +182,25 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
     would_fail_ci = str(bool(fail_policy.get("would_fail_ci"))).lower()
     with open(step_summary, "a", encoding="utf-8") as summary_file:
         summary_file.write("## Agents Shipgate\n\n")
-        if agent_result:
+        if verifier_payload:
             summary_file.write(
-                f"- Decision: `{clean(agent_result.get('decision'))}`\n"
+                f"- Merge verdict: `{clean(verifier_payload.get('merge_verdict'))}`\n"
             )
             summary_file.write(
-                f"- Risk: `{clean(agent_result.get('risk_level'))}`\n"
+                "- Can merge without human: "
+                f"`{bool_clean(verifier_payload.get('can_merge_without_human'))}`\n"
             )
-            summary_file.write(
-                f"- Audit ID: `{clean(agent_result.get('audit_id'))}`\n"
-            )
-            reviewers = ",".join(_string_list(agent_result.get("required_reviewers")))
-            if reviewers:
-                summary_file.write(f"- Required reviewers: `{clean(reviewers)}`\n")
+            controller = verifier_payload.get("agent_controller") or {}
+            if controller:
+                summary_file.write(
+                    f"- Agent must stop: `{bool_clean(controller.get('must_stop'))}`\n"
+                )
+                if controller.get("stop_reason"):
+                    summary_file.write(
+                        f"- Stop reason: `{clean(controller.get('stop_reason'))}`\n"
+                    )
+        if verify_run.get("run_id"):
+            summary_file.write(f"- Run ID: `{clean(verify_run.get('run_id'))}`\n")
         if release_decision:
             summary_file.write(
                 f"- Release gate: `{clean(release_decision.get('decision'))}`\n"
@@ -261,13 +288,7 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if str(item)]
-
-
-def _normalize_decision_token(value: object) -> str:
+def _normalize_merge_verdict_token(value: object) -> str:
     return str(value or "").strip().lower().replace(" ", "")
 
 

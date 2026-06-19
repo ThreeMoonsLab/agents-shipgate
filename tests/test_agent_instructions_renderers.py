@@ -40,13 +40,13 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "ec2c3378a8a73e7b259664170fdcd33fa3242f9adb3c9b83b0ae616609fa6c4a"
+        "9ad773e105a2871b4039b7a287c20f9aceaed5abd208245cc284773b4766175a"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "ea3c37cfbbd42c40d164abfe21d468a3a5550d5384125f94a53c947dea6b4b2a"
+        "62092f168f05cca7492224fe5bf3772c50a63129a6f77a8f94f166661951a5a2"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "9cf6fdf60f45032635482ff96c64684af5f84ef9c10977e6d36e7d1c856d07e9"
+        "b17876bfafdfa08c84728b4f396bc6ba755a1052ef9d1d60ffd750fd7ce959a3"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -58,33 +58,33 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "3e5c320b57c57ce91d5dcdf2b584d71c229cb5b046bda944b68dc2056693ec6a"
+        "3a42ae0d22e46b58de3d40b300ca76bee6120f3bde3f779926ae824c16a25c65"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
     ),
     ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": (
-        "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
+        "0412c0eab5b63fabb11a17bfad94bcfd22df9dc28f90557fc97a389009e0cdf5"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
         "0c939414da7900b8f03f2a743e0f6b8f4d96f409c1d5cde038e27a98318bf486"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "a8aa3f577af73534cdb529fd4f5d34c08522181225a2eddee70099c5a8ef4191"
+        "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "ba127bfa1f47e00b78b7b8d463857496dbd2594615b7f223bd4d7c0c572aa7b6"
+        "cfaf434ee2880123e2f3fb18c2f0b8473ddf70141819d6df152c97d1e901078a"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "584546244c7e6aa559606aa4dbb1c050b3539aa6e371c38239382796733a39b1"
+        "61f27394abcd81f04d040a92729c3a715a2cd893005142edb658796248081ec5"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3e7bd6a3a882f5e52c0fc4f215c5589149f8eb24eeef0ea054854f03f0f050de"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da"
+        "16894ce679eb55c69213070775cb265f0775ad7ff1cd08091a5c57627950871b"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -258,8 +258,8 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate --version" in skill
     assert "pipx upgrade agents-shipgate" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "Require `agents-shipgate >=0.11.0`" in recipes
-    assert 'python -m pip install -U "agents-shipgate>=0.11"' in recipes
+    assert "Require `agents-shipgate >=1.0.0a1`" in recipes
+    assert 'python -m pip install -U "agents-shipgate>=1.0.0a1"' in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

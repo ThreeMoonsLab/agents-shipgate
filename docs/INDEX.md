@@ -28,8 +28,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.25.json`](report-schema.v0.25.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.25"`, adding opt-in capability-linked local trace/provenance evidence while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.26.json`](report-schema.v0.26.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.26"`, adding `loaded_policy_packs[].sha256` while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
+- [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — JSON Schema for deterministic `verify-run.json` reproducibility artifacts emitted by `agents-shipgate verify`
+- [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — JSON Schema for the local Codex boundary result emitted by `agents-shipgate check`
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — JSON Schema for local policy-pack YAML files, including legacy match syntax and optional `match.capability` selectors
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
@@ -44,6 +46,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`privacy.md`](privacy.md), [`terms.md`](terms.md), and [`report-sensitive-fields.json`](report-sensitive-fields.json) — Codex plugin privacy/terms, redaction behavior, and report sensitive-field inventory
 - [`agent-action-guide.md`](agent-action-guide.md) — per-category recipe for what to do with a finding (canonical fix per check category, last-resort suppression rules)
 - [`upstream-integrations.md`](upstream-integrations.md) — per-framework 60-second drop-in for adding Shipgate to an existing project (OpenAI Agents SDK, LangChain, CrewAI, ADK, MCP-only, OpenAPI-only, OpenAI Messages API, Anthropic Messages API)
+- [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
 - [`report-schema.v0.24.json`](report-schema.v0.24.json) — frozen v0.24 reference schema; pre-v0.25 reports validate against this
 - [`report-schema.v0.23.json`](report-schema.v0.23.json) — frozen v0.23 reference schema; pre-v0.24 reports validate against this
 - [`report-schema.v0.22.json`](report-schema.v0.22.json) — frozen v0.22 reference schema; pre-v0.23 reports validate against this
@@ -104,7 +107,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — framework-by-framework references to the smallest working manifest
 - [`../AGENTS.md`](../AGENTS.md) — agent-facing instructions
 - [`../CLAUDE.md`](../CLAUDE.md) — Claude Code-specific notes
-- [`../STABILITY.md`](../STABILITY.md) — what won't break across `0.x`
+- [`../STABILITY.md`](../STABILITY.md) — what won't break across the current alpha contract line
 - [`../prompts/`](../prompts/) — reusable prompts
 - [`../llms.txt`](../llms.txt) — AI-readable project summary
 - [`ai-search-summary.md`](ai-search-summary.md) — prose companion to `llms.txt`

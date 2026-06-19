@@ -22,7 +22,7 @@ the rules to the changed file list.
    - **Local repo** (already adopted Shipgate): read `docs/triggers.json` directly.
    - **Remote** (target repo without Shipgate): fetch
      `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`.
-   - The catalog has `schema_version: "0.1"` and is stable for `0.x`.
+   - The catalog has `schema_version: "0.1"` and is stable for the current alpha contract line.
 
 3. **Apply the rules.** Two equivalent options:
 
@@ -78,7 +78,7 @@ the rules to the changed file list.
    - If `run_shipgate: true` and Shipgate is **not** installed: install
      it (`pipx install agents-shipgate`) and run `detect`. If the user
      prefers a zero-install first step, point them at the GitHub Action
-     (`ThreeMoonsLab/agents-shipgate@v0.11.0`) instead.
+     (`ThreeMoonsLab/agents-shipgate@v1.0.0a1`) instead.
    - If `run_shipgate: false` and `dry_run_recommended: true`: propose
      a non-mutating scan only — never propose `init --write` based on a
      dry-run match alone. Phrase it as "X may have shifted the tool

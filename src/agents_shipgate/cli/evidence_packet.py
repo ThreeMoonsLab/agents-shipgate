@@ -30,6 +30,7 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
@@ -84,12 +85,42 @@ def evidence_packet(
         payload = from_path.read_text(encoding="utf-8")
     except OSError as exc:
         typer.echo(f"Cannot read input at {from_path}: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=2,
+            command="agents-shipgate evidence-packet",
+            next_action="point --from at a readable packet.json or report.json",
+            next_actions=[
+                {
+                    "kind": "review",
+                    "path": str(from_path),
+                    "why": "The input artifact could not be read.",
+                    "expects": "readable packet.json or report.json",
+                }
+            ],
+        )
         raise typer.Exit(2) from exc
 
     try:
         packet = _load_packet_or_report(payload)
     except PacketSchemaError as exc:
         typer.echo(f"Invalid input: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=2,
+            command="agents-shipgate evidence-packet",
+            next_action="rerun agents-shipgate scan to regenerate packet.json",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate scan -c shipgate.yaml",
+                    "why": "Regenerate a current packet/report artifact.",
+                    "expects": "agents-shipgate-reports/packet.json",
+                }
+            ],
+        )
         raise typer.Exit(2) from exc
 
     if json_output:
@@ -153,10 +184,40 @@ def _parse_formats(value: str) -> set[str]:
             f"expected a subset of {expected}",
             err=True,
         )
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=f"Unsupported --format value(s): {sorted(invalid)}",
+            exit_code=2,
+            command="agents-shipgate evidence-packet",
+            next_action=f"use --format with a subset of {expected}",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json --format md,json,html",
+                    "why": "Use the supported renderer set.",
+                    "expects": "packet render artifacts",
+                }
+            ],
+        )
         raise typer.Exit(2)
     if not parts:
         typer.echo(
             f"--format must contain at least one of {expected}", err=True
+        )
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=f"--format must contain at least one of {expected}",
+            exit_code=2,
+            command="agents-shipgate evidence-packet",
+            next_action=f"use --format with a subset of {expected}",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate evidence-packet --from agents-shipgate-reports/packet.json --format md,json,html",
+                    "why": "Use the supported renderer set.",
+                    "expects": "packet render artifacts",
+                }
+            ],
         )
         raise typer.Exit(2)
     return parts

@@ -2,16 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "0.1",
   "name": "agents-shipgate-errors",
-  "description": "Machine-readable enumeration of error kinds emitted by `agents-shipgate` when `AGENTS_SHIPGATE_AGENT_MODE=1` is set. Coding agents fetch this file to pre-load the recovery vocabulary instead of pattern-matching on prose. The catalog is stable for `0.x`: error-kind ids will not change in minor versions, and additions are pinned by the public-surface contract test against AGENTS.md and the codebase.",
+  "description": "Machine-readable enumeration of error kinds emitted by `agents-shipgate` when `AGENTS_SHIPGATE_AGENT_MODE=1` is set. Coding agents fetch this file to pre-load the recovery vocabulary instead of pattern-matching on prose. The catalog is stable for the current alpha contract line: error-kind ids will not change without a contract bump, and additions are pinned by the public-surface contract test against AGENTS.md and the codebase.",
   "agent_mode_env_var": "AGENTS_SHIPGATE_AGENT_MODE",
   "agent_mode_truthy_values": ["1", "true", "yes", "on"],
-  "stderr_format": "Single JSON line, one object per emitted error. Always carries an `error` field naming the kind plus `next_action` (single-string back-compat) and `next_actions` (ranked array). Additional fields per kind are command-dependent and may be absent when they are not relevant.",
+  "stderr_format": "Single JSON line, one object per emitted error. Agent-facing commands should carry `error`, `message`, `exit_code`, `command`, `next_action`, `next_actions`, and may include `diagnostics` and `artifacts` when relevant. Additional fields per kind are command-dependent and may be absent when they are not relevant.",
   "exit_codes": {
     "0": "pass (advisory mode, or strict-no-blockers)",
-    "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch)",
+    "2": "configuration, catalog lookup, patch-payload error, or verify ref inspection failure (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch, verify_ref_error)",
     "3": "input parse error (input_parse_error)",
     "4": "other agents-shipgate error (other_error, internal_error)",
     "5": "apply-patches containment violation (covered by other_error in agent mode)",
+    "6": "baseline integrity failure (baseline_integrity_failure)",
     "20": "strict-mode gate failure"
   },
   "errors": [
@@ -40,6 +41,14 @@
       "recovery_hint": "Follow `next_actions[]`. For scan/doctor tool-source failures, run `agents-shipgate doctor -c shipgate.yaml --json` to inspect `unresolved_sources[]`. For report-consuming commands, inspect `source_report` when present (or the `--from` path in the message) and regenerate a current `report.json` if needed."
     },
     {
+      "id": "verify_ref_error",
+      "description": "`verify` or `trigger` could not inspect the requested base/head git refs before a scan could run.",
+      "exit_code": 2,
+      "typical_cause": "The base ref was not fetched in CI, the head ref does not exist locally, or git diff/archive failed for the supplied refs.",
+      "additional_fields": ["message", "exit_code", "command", "diagnostics", "next_action", "next_actions", "artifacts"],
+      "recovery_hint": "Make the requested refs available locally, for example by using `actions/checkout` with `fetch-depth: 0` or fetching the base branch explicitly, then rerun `agents-shipgate verify --base <base> --head <head> --json`."
+    },
+    {
       "id": "unknown_check_id",
       "description": "`explain <CHECK_ID>` was called with an id that doesn't exist in the loaded catalog.",
       "exit_code": 2,
@@ -62,6 +71,14 @@
       "typical_cause": "`--from` points at a missing/non-JSON file, the report is too old (pre-v0.6), the scan omitted `--suggest-patches`, or the report was hand-edited.",
       "additional_fields": ["message", "next_action", "next_actions"],
       "recovery_hint": "Verify `--from` points at a readable report.json, then re-run the scan with `--suggest-patches` to regenerate a valid patch payload."
+    },
+    {
+      "id": "baseline_integrity_failure",
+      "description": "`baseline verify --strict` detected a baseline integrity finding and exited with the standalone baseline-integrity failure code.",
+      "exit_code": 6,
+      "typical_cause": "The baseline hash does not match its audit log, the audit log is missing or malformed, or the baseline contains stale/expired entries.",
+      "additional_fields": ["message", "exit_code", "command", "next_action", "next_actions", "artifacts"],
+      "recovery_hint": "Inspect the baseline verifier JSON or audit log, then restore the expected baseline/audit pair or regenerate the baseline through the documented `baseline save` flow after review."
     },
     {
       "id": "other_error",

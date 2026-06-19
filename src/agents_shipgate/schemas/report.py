@@ -456,6 +456,7 @@ class LoadedPolicyPack(BaseModel):
     version: str | None = None
     path: str
     rule_count: int
+    sha256: str | None = None
 
 
 class AgentSummaryAction(BaseModel):
@@ -746,7 +747,9 @@ class ReadinessReport(BaseModel):
     # linked to capability facts. Runtime trace evidence is declared
     # local audit metadata only; it is not live collection and it is not
     # part of the static capability lock envelope.
-    report_schema_version: str = "0.25"
+    # v0.26: additive local hash metadata for loaded policy packs so
+    # verify-run reproducibility can pin the declarative policy inputs.
+    report_schema_version: str = "0.26"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

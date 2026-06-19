@@ -1,9 +1,9 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_58b07db582271d53bb309c19",
+  "audit_id": "codex_boundary_b4a98fb0362cb304ed7358bb",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [

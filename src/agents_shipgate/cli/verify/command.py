@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli._helpers import _parse_fail_on
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 
@@ -167,17 +168,75 @@ def verify(
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
+        kind = "verify_ref_error" if _looks_like_ref_error(str(exc)) else "config_error"
+        emit_agent_mode_error(
+            kind,
+            message=str(exc),
+            exit_code=2,
+            command="agents-shipgate verify",
+            next_action=_verify_next_action(kind),
+            next_actions=_verify_next_actions(kind),
+            artifacts=_verify_artifact_hints(out),
+        )
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=3,
+            command="agents-shipgate verify",
+            next_action="agents-shipgate doctor -c shipgate.yaml --json",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate doctor -c shipgate.yaml --json",
+                    "why": "Inspect unresolved sources before rerunning verify.",
+                    "expects": "diagnostics and unresolved_sources",
+                }
+            ],
+            artifacts=_verify_artifact_hints(out),
+        )
         raise typer.Exit(3) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            command="agents-shipgate verify",
+            next_action="rerun verify with --verbose",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate verify --verbose --json",
+                    "why": "Surface the underlying application-layer failure.",
+                    "expects": "debug logging plus verifier artifacts when writable",
+                }
+            ],
+            artifacts=_verify_artifact_hints(out),
+        )
         raise typer.Exit(4) from exc
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:
             logger.exception("unhandled exception")
         typer.echo(f"Internal error: {exc}", err=True)
+        emit_agent_mode_error(
+            "internal_error",
+            message=str(exc),
+            exit_code=4,
+            command="agents-shipgate verify",
+            next_action="rerun verify with --verbose and file a bug if it repeats",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate verify --verbose --json",
+                    "why": "Capture a traceback for the unexpected verifier failure.",
+                    "expects": "debug logging",
+                }
+            ],
+            artifacts=_verify_artifact_hints(out),
+        )
         raise typer.Exit(4) from exc
 
     if stdout_format == "json":
@@ -211,6 +270,52 @@ def _parse_pr_comment_style(value: str) -> str:
     if normalized in {"findings", "v1-findings", "legacy"}:
         return "findings"
     raise ConfigError("--pr-comment-style must be capability-review or findings")
+
+
+def _looks_like_ref_error(message: str) -> bool:
+    lowered = message.lower()
+    return "ref" in lowered and ("locally" in lowered or "head" in lowered)
+
+
+def _verify_next_action(kind: str) -> str:
+    if kind == "verify_ref_error":
+        return "fetch the missing base/head ref, then rerun agents-shipgate verify"
+    return "agents-shipgate doctor -c shipgate.yaml --json"
+
+
+def _verify_next_actions(kind: str) -> list[dict[str, str]]:
+    if kind == "verify_ref_error":
+        return [
+            {
+                "kind": "command",
+                "command": "git fetch --all --prune",
+                "why": "Make the base/head refs available locally; verify never fetches.",
+                "expects": "local refs become resolvable",
+            },
+            {
+                "kind": "command",
+                "command": "agents-shipgate verify --workspace . --config shipgate.yaml --json",
+                "why": "Rerun verifier after refs are available.",
+                "expects": "verifier.json and verify-run.json",
+            },
+        ]
+    return [
+        {
+            "kind": "command",
+            "command": "agents-shipgate doctor -c shipgate.yaml --json",
+            "why": "Inspect manifest/config diagnostics before rerunning verify.",
+            "expects": "diagnostics and next_actions",
+        }
+    ]
+
+
+def _verify_artifact_hints(out: Path | None) -> dict[str, str]:
+    out_dir = out or Path("agents-shipgate-reports")
+    return {
+        "verifier_json": str(out_dir / "verifier.json"),
+        "verify_run_json": str(out_dir / "verify-run.json"),
+        "report_json": str(out_dir / "report.json"),
+    }
 
 
 __all__ = ["verify"]

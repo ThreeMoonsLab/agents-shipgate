@@ -5,9 +5,9 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli.agent_result import (
-    agent_result_json,
-    build_codex_agent_result,
+from agents_shipgate.cli.codex_boundary_result import (
+    build_codex_boundary_result,
+    codex_boundary_result_json,
 )
 from agents_shipgate.core.codex_boundary import DEFAULT_POLICY_PATH
 
@@ -28,9 +28,9 @@ def check(
         ),
     ),
     format_: str = typer.Option(
-        "agent-json",
+        "codex-boundary-json",
         "--format",
-        help="Output format. Phase 1 supports only agent-json.",
+        help="Output format. Supports codex-boundary-json.",
     ),
     workspace: Path = typer.Option(
         Path("."),
@@ -54,8 +54,8 @@ def check(
     if agent != "codex":
         typer.echo("--agent must be 'codex' in Phase 1.", err=True)
         raise typer.Exit(2)
-    if format_ != "agent-json":
-        typer.echo("--format must be 'agent-json' in Phase 1.", err=True)
+    if format_ != "codex-boundary-json":
+        typer.echo("--format must be 'codex-boundary-json'.", err=True)
         raise typer.Exit(2)
     try:
         diff_text = sys.stdin.read() if diff == "-" else Path(diff).read_text(encoding="utf-8")
@@ -63,10 +63,10 @@ def check(
         typer.echo(f"Could not read --diff input: {exc}", err=True)
         raise typer.Exit(2) from exc
 
-    result = build_codex_agent_result(
+    result = build_codex_boundary_result(
         workspace=workspace,
         diff_text=diff_text,
         config=config,
         policy=policy,
     )
-    typer.echo(agent_result_json(result))
+    typer.echo(codex_boundary_result_json(result))

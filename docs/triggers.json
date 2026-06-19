@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "0.1",
   "name": "agents-shipgate-triggers",
-  "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent that has not yet adopted Shipgate can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate detect`. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
+  "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent that has not yet adopted Shipgate can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate detect`. Stable for the current alpha contract line: rule IDs, predicate vocabulary, and action enum will not change without a contract bump.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
   "documentation_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md",
   "default_command": "agents-shipgate detect --workspace . --json",
@@ -75,7 +75,7 @@
       },
       "action": "run_shipgate",
       "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-      "command": "shipgate check --agent codex --diff <diff> --format agent-json"
+      "command": "shipgate check --agent codex --diff <diff> --format codex-boundary-json"
     },
     {
       "id": "TRIGGER-CODEX-PLUGIN-CHANGED",

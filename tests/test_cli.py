@@ -18,6 +18,9 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     EXTERNAL_INTEGRATION_SURFACES,
@@ -31,6 +34,8 @@ from agents_shipgate.schemas.governance_benchmark import (
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
+from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
 runner = CliRunner()
 
@@ -50,7 +55,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.11.0" in result.output
+    assert f"Agents Shipgate {__version__}" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -150,7 +155,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.11.0"
+    assert result.output.strip() == f"Agents Shipgate {__version__}"
 
 
 def test_cli_contract_json_outputs_runtime_contract():
@@ -164,6 +169,9 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version",
         "report_schema_version",
         "packet_schema_version",
+        "verifier_schema_version",
+        "verify_run_schema_version",
+        "codex_boundary_result_schema_version",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
         "capability_standard_version",
@@ -171,6 +179,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "governance_benchmark_result_schema_version",
         "external_integration_surfaces",
         "gating_signal",
+        "agent_read_order",
         "manual_review_signals",
     ]
     assert payload == {
@@ -182,6 +191,11 @@ def test_cli_contract_json_outputs_runtime_contract():
         "packet_schema_version": str(
             EvidencePacket.model_fields["packet_schema_version"].default
         ),
+        "verifier_schema_version": str(
+            VerifierArtifact.model_fields["verifier_schema_version"].default
+        ),
+        "verify_run_schema_version": VERIFY_RUN_SCHEMA_VERSION,
+        "codex_boundary_result_schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         "capability_standard_version": CAPABILITY_STANDARD_VERSION,
@@ -193,6 +207,12 @@ def test_cli_contract_json_outputs_runtime_contract():
         ),
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),
         "gating_signal": GATING_SIGNAL,
+        "agent_read_order": [
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
     }
 

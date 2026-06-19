@@ -9,12 +9,12 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool** — you need `>=0.11.0`, since the `agents-shipgate verify` step this prompt relies on only ships in 0.11.0+:
+1. **Install the tool** — you need `>=1.0.0a1`, since the `agents-shipgate verify` step this prompt relies on only ships in 1.0.0a1+:
    ```bash
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    ```
-   A plain `pipx install` is a no-op when an older build is already installed, so the follow-up `pipx upgrade` brings a stale copy current. If `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=0.11"` and verify with `agents-shipgate --version`.
+   A plain `pipx install` is a no-op when an older build is already installed, so the follow-up `pipx upgrade` brings a stale copy current. If `pipx` is unavailable, use `python -m pip install -U "agents-shipgate>=1.0.0a1"` and verify with `agents-shipgate --version`.
 
 2. **Sanity-check the install** before touching the user's code:
    ```bash

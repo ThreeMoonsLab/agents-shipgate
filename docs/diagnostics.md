@@ -1,10 +1,9 @@
 # Ranked Next-Action Diagnostics
 
-`agents-shipgate detect`, `doctor`, and structured errors emit a
+`agents-shipgate detect`, `doctor`, and agent-mode structured errors emit a
 `diagnostics[]` and `next_actions[]` block alongside the existing
-`next_action: str` field. A coding-agent caller can read the rank-1
-action and route to the next command without consulting human-facing
-docs.
+`next_action: str` field. A coding-agent caller can read the rank-1 action and
+route to the next command without consulting human-facing docs.
 
 Diagnostics describe conditions; the catalog itself does not pick exit
 codes. A diagnostic with `severity: "block"` flags a blocking *condition*
@@ -62,6 +61,27 @@ agent-mode error JSON is the rank-1 action projected to a single string:
 
 This keeps `next_action` string-typed even for negative-control
 diagnostics where no command should run.
+
+Agent-mode error JSON (`AGENTS_SHIPGATE_AGENT_MODE=1`) uses the standard
+envelope below wherever the command can route the failure:
+
+```json
+{
+  "error": "input_parse_error",
+  "message": "...",
+  "exit_code": 3,
+  "command": "agents-shipgate verify --workspace . --config shipgate.yaml",
+  "next_action": "agents-shipgate doctor -c shipgate.yaml --json",
+  "next_actions": [ NextAction ],
+  "diagnostics": [],
+  "artifacts": {}
+}
+```
+
+`diagnostics` and `artifacts` are optional. The standardized envelope is used by
+`verify`, `trigger`, `attest`, `evidence-packet`, `capability`, and
+`baseline verify`, in addition to the older scan/init/doctor/explain/apply
+paths. Error kind metadata lives in [`errors.json`](errors.json).
 
 ## Catalog
 
@@ -130,7 +150,8 @@ Diagnostics are emitted in three places:
 2. Each `doctor --json` payload — per-manifest diagnostics.
 3. `AGENTS_SHIPGATE_AGENT_MODE=1` stderr error JSON — alongside the
    existing `error` and `next_action` fields, errors now also carry
-   `next_actions: list[NextAction]`.
+   `message`, `exit_code`, `command`, and `next_actions: list[NextAction]`;
+   some commands add `diagnostics` and `artifacts`.
 
 Diagnostics are *not* added to `report.json` (the v0.9 schema is
 unchanged). Per-finding remediation already has its own v0.7 fields

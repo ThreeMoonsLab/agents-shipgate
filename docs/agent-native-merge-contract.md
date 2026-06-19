@@ -139,6 +139,18 @@ protected* — never a new way to decide.
 - **Prevents:** "we think a human approved that refund tool last quarter" with
   no record to point at.
 
+### Reproducibility Envelope — *what exactly was verified?*
+
+- **Guarantee:** a verifier run has a deterministic identity and enough local
+  input hashes for audit/reproduction without adding another gate.
+- **Implements it:** `verify-run.json` with
+  `schema_version: "shipgate.verify_run/v1"` and deterministic `run_id`.
+- **Agent reads:** after `verifier.json.merge_verdict` and
+  `verifier.json.agent_controller`, read `verify-run.json.run_id` and
+  `verify-run.json.inputs.policy_packs[]` when handing off to CI or review.
+- **Prevents:** ambiguous "I ran Shipgate" claims where refs, policy packs, or
+  artifact hashes cannot be tied back to the run.
+
 ## The agent control loop
 
 The four imperative questions collapse into one block,
@@ -158,10 +170,10 @@ contradict the gate.
 
 | Reader | Read first | Source of truth |
 | --- | --- | --- |
-| Coding agent (controller) | `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
+| Coding agent (controller) | `verifier.json.merge_verdict` → `agent_controller` → `verify-run.json` | `release_decision.decision` |
 | Human reviewer | `pr-comment.md` | `release_decision.decision` |
 | CI gate implementer | `report.json.release_decision.decision` | same |
 | Discovery (agents/search) | [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) | — |
 
 Field-level contract: [`agent-contract-current.md`](agent-contract-current.md).
-Stability guarantees across `0.x`: [`../STABILITY.md`](../STABILITY.md).
+Stability guarantees for the current alpha contract line: [`../STABILITY.md`](../STABILITY.md).

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +64,7 @@ def load_policy_packs(
                 version=pack_file.version,
                 path=display_path,
                 rule_count=len(pack_file.rules),
+                sha256=_sha256_file(path),
             )
             loaded.append(pack)
             resolved_rules.extend(
@@ -144,3 +146,11 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
         return path.resolve().relative_to(base_dir.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"

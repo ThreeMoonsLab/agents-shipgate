@@ -119,7 +119,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.25"
+    assert report_payload["report_schema_version"] == "0.26"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -236,10 +236,13 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="2",
+        contract_version="3",
         cli_version="0.0.0",
-        report_schema_version="0.17",
-        packet_schema_version="0.6",
+        report_schema_version="0.26",
+        packet_schema_version="0.7",
+        verifier_schema_version="0.1",
+        verify_run_schema_version="shipgate.verify_run/v1",
+        codex_boundary_result_schema_version="shipgate.codex_boundary_result/v1",
         capability_lock_schema_version="0.2",
         capability_lock_diff_schema_version="0.3",
         capability_standard_version="0.1",
@@ -247,12 +250,21 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         governance_benchmark_result_schema_version="0.2",
         external_integration_surfaces=[],
         gating_signal="release_decision.decision",
+        agent_read_order=[
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         manual_review_signals=[],
     ).model_dump(mode="json") == {
-        "contract_version": "2",
+        "contract_version": "3",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.17",
-        "packet_schema_version": "0.6",
+        "report_schema_version": "0.26",
+        "packet_schema_version": "0.7",
+        "verifier_schema_version": "0.1",
+        "verify_run_schema_version": "shipgate.verify_run/v1",
+        "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
         "capability_lock_schema_version": "0.2",
         "capability_lock_diff_schema_version": "0.3",
         "capability_standard_version": "0.1",
@@ -260,6 +272,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "governance_benchmark_result_schema_version": "0.2",
         "external_integration_surfaces": [],
         "gating_signal": "release_decision.decision",
+        "agent_read_order": [
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         "manual_review_signals": [],
     }
 

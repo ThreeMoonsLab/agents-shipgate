@@ -72,11 +72,20 @@ def test_verify_trigger_skip_writes_lightweight_artifacts(tmp_path: Path) -> Non
     assert payload["head_status"] == "skipped"
     assert payload["trigger"]["run_shipgate"] is False
     verifier_json = repo / "agents-shipgate-reports" / "verifier.json"
+    verify_run_json = repo / "agents-shipgate-reports" / "verify-run.json"
     pr_comment = repo / "agents-shipgate-reports" / "pr-comment.md"
     assert verifier_json.is_file()
+    assert verify_run_json.is_file()
     assert pr_comment.is_file()
+    assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
     assert "report_json" not in payload["artifacts"]
+    assert "verify_run_json" in payload["artifacts"]
+    run_payload = json.loads(verify_run_json.read_text(encoding="utf-8"))
+    assert run_payload["schema_version"] == "shipgate.verify_run/v1"
+    assert run_payload["outcome"]["head_status"] == "skipped"
+    assert run_payload["outcome"]["merge_verdict"] == "mergeable"
+    assert run_payload["artifacts"]["verifier_json"]["sha256"].startswith("sha256:")
     assert payload["base_status"] == "skipped"
 
 
@@ -116,6 +125,8 @@ def test_verify_missing_base_without_manifest_is_unknown_not_mergeable(
     assert payload["merge_verdict"] == "unknown"
     assert payload["can_merge_without_human"] is False
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
+    assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
+    assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
 
 
 def test_verify_non_git_workspace_exits_config_error(tmp_path: Path) -> None:
@@ -347,10 +358,9 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate result: block" in comment
-    assert "Decision: `block`" in comment
-    assert "Risk: `" in comment
-    assert "Audit ID: `sg_audit_" in comment
+    assert "## Agents Shipgate result: blocked" in comment
+    assert "Merge verdict: `blocked`" in comment
+    assert "Can merge without human: `false`" in comment
     assert "Headline: This PR adds a refund action without approval evidence" in comment
     assert "Release gate: `blocked`" in comment
     assert "Reason: test decision" in comment
@@ -386,10 +396,10 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "## Agents Shipgate result: require_review" in comment
-    assert "Decision: `require_review`" in comment
+    assert "## Agents Shipgate result: human_review_required" in comment
+    assert "Merge verdict: `human_review_required`" in comment
     assert "Release gate: `review_required`" in comment
-    assert "Decision: `review_required`" not in comment
+    assert "Merge verdict: `review_required`" not in comment
     assert "Reason: test decision" in comment
 
 
@@ -410,7 +420,7 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
 
     comment = render_pr_comment(verifier, report=report)
 
-    assert "\n\n\nDecision:" not in comment
+    assert "\n\n\nMerge verdict:" not in comment
 
 
 def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
@@ -426,8 +436,8 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
 
     comment = render_pr_comment(verifier, report=None)
 
-    assert "## Agents Shipgate result: require_review" in comment
-    assert "Decision: `require_review`" in comment
+    assert "## Agents Shipgate result: unknown" in comment
+    assert "Merge verdict: `unknown`" in comment
     assert "## Agents Shipgate: mergeable" not in comment
     assert "Head scan did not produce a report" in comment
 
@@ -616,6 +626,11 @@ def test_verify_head_strict_gate_exit_is_authoritative(
 
     assert result.exit_code == 20
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
+    verify_run = repo / "agents-shipgate-reports" / "verify-run.json"
+    assert verify_run.is_file()
+    assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
+    run_payload = json.loads(verify_run.read_text(encoding="utf-8"))
+    assert run_payload["outcome"]["exit_code"] == 20
 
 
 @pytest.mark.parametrize(
@@ -741,6 +756,16 @@ def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> N
     assert payload["merge_verdict"] == "unknown"
     assert "init" in payload["first_next_action"]["command"]
     assert (workspace / "agents-shipgate-reports" / "verifier.json").is_file()
+    verify_run = workspace / "agents-shipgate-reports" / "verify-run.json"
+    assert verify_run.is_file()
+    assert not (workspace / "agents-shipgate-reports" / "agent-result.json").exists()
+    first_run = json.loads(verify_run.read_text(encoding="utf-8"))
+    result_again = runner.invoke(
+        app, ["verify", "--workspace", str(workspace), "--preview", "--format", "json"]
+    )
+    assert result_again.exit_code == 0
+    second_run = json.loads(verify_run.read_text(encoding="utf-8"))
+    assert first_run["run_id"] == second_run["run_id"]
     assert not (workspace / "shipgate.yaml").exists()
 
 

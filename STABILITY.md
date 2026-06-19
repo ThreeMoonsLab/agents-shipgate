@@ -1,16 +1,25 @@
-# Stability Contract · 0.x
+# Stability Contract · 1.0.0-alpha
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.
 
+`1.0.0a1` starts a deliberate alpha contract line. It intentionally breaks the
+older `0.x` promise where needed to remove competing agent-controller artifacts:
+`agents-shipgate verify` now writes `verifier.json` as the single controller
+object for coding agents and no longer writes `agent-result.json`. The local
+`agents-shipgate check` command remains a Codex boundary helper, but its schema
+is explicitly `shipgate.codex_boundary_result/v1` and is not the `verify`
+contract.
+
 ---
 
-## What WILL NOT change in 0.x
+## What WILL NOT change in the 1.0 alpha line
 
 ### CLI command surface
 
-These commands and flags are stable across all `0.x.y` releases. They will only change in a major version bump (`1.0.0`):
+These commands and flags are stable across the `1.0.0a*` contract line unless a
+later alpha explicitly bumps `contract_version` and documents the break here:
 
 | Command | Stable flags |
 |---|---|
@@ -72,6 +81,10 @@ Stable JSON fields:
   `ReadinessReport`.
 - `packet_schema_version` — current packet schema version from
   `EvidencePacket`.
+- `verifier_schema_version` — current `verifier.json` schema version.
+- `verify_run_schema_version` — current `verify-run.json` schema identifier.
+- `codex_boundary_result_schema_version` — current local Codex boundary-result
+  schema identifier.
 - `capability_lock_schema_version` — current stable capability lock schema
   emitted by `agents-shipgate capability export`.
 - `capability_lock_diff_schema_version` — current stable semantic diff schema
@@ -84,6 +97,9 @@ Stable JSON fields:
 - `external_integration_surfaces[]` — stable non-gating integration and
   research surfaces exposed by the contract.
 - `gating_signal` — always `release_decision.decision` in this contract.
+- `agent_read_order[]` — stable controller read order for autonomous coding
+  agents: `verifier.json.merge_verdict`, `verifier.json.agent_controller`,
+  `verify-run.json`, then `report.json.release_decision.decision`.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
 
@@ -128,6 +144,9 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present (defaults to `[]` for legacy reports loaded via `explain-finding`). Exactly one row per `report.findings` entry, including suppressed findings, so the audit set is exhaustive over the full findings list. `category` enum: `blocker | review_item | excluded`. `rule` enum: `policy_block_new | severity_block_new | policy_baseline_accepted | severity_baseline_accepted | review_required | sub_threshold | suppressed`. The (rule, category) pairs the gate can produce are exhaustively documented in [Release decision truth table](#release-decision-truth-table) below — reading the contribution rule is sufficient to predict the outcome for that finding without re-deriving the decision logic. The audit cannot disagree with `release_decision.{blockers,review_items}[]`: the same classification powers both. Adding `contribution_rules` does not change any existing behavior — `decision`, `blockers[]`, `review_items[]`, `fail_policy.exit_code`, and strict-mode exit codes are byte-identical to v0.16.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
+- `loaded_policy_packs[].{id, path, sha256, rule_count}` (v0.26+) — local
+  policy-pack provenance. `sha256` is the content hash of the loaded pack and is
+  also copied into `verify-run.json.inputs.policy_packs[]` for reproducibility.
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
 - `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5; `dynamic_default_not_supported` added v0.18) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | dynamic_default_not_supported | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`. `dynamic_default_not_supported` (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True` — plugins have no path to wire into `core/dynamic_defaults.py`'s aggregator, so a swing check would never receive a manifest-effective default and would be silently bypassable.
 - `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2.
@@ -177,7 +196,7 @@ check's floor.
 overrides whose application crosses a severity tier boundary as a
 downgrade. Stable shape: `{check_id, reason, expires?}`. Within-tier
 downgrades (e.g., medium → low) and any upgrade never require ack.
-Tiers (stable within `0.x`): `critical / high / medium-low`. Expired
+Tiers (stable within the current alpha contract line): `critical / high / medium-low`. Expired
 ack entries are a manifest config error.
 
 **Dynamic-severity check classes** (v0.17+; formalized v0.18). Catalog
@@ -512,7 +531,7 @@ the entry was added:
   "severity": "high",
   "title": "…",
   "provenance": {
-    "scanner_version": "0.11.0",
+    "scanner_version": "1.0.0a1",
     "run_id": "agents_shipgate_…",
     "recorded_at": "2026-05-15T14:23:00Z",
     "reason": null,
@@ -597,21 +616,25 @@ base manifest or base scan is unavailable, verify records `base_status`, disable
 diff enrichment, and leaves the head release decision and exit code unchanged.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
-`verifier.json`, and `pr-comment.md`. `verify` intentionally requests packet
-JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
-the human PR surface. Use `agents-shipgate scan` when you want the manifest's
-full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
+`verifier.json`, `verify-run.json`, and `pr-comment.md`. `verify` intentionally
+requests packet JSON only, regardless of manifest `output.packet.formats`;
+`pr-comment.md` is the human PR surface. Use `agents-shipgate scan` when you
+want the manifest's full packet renderer set (`packet.md`, `packet.html`, or
+`packet.pdf`). `verify` does not write `agent-result.json`; `verifier.json` is
+the single controller object for coding agents.
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check: it
-runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with
+runs no scan, requires no manifest, exits 0, and emits a `verifier.json` plus
+`verify-run.json` when the output directory can be created. The verifier has
 `mode: "preview"` and a `first_next_action` carrying the next recommended
 action. That action may be `none` for irrelevant diffs, `detect`/`init` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
 `verifier.json` is governed by [`docs/verifier-schema.v0.1.json`](docs/verifier-schema.v0.1.json)
-(`verifier_schema_version` stays `"0.1"` within `0.x`; minor field additions are
-additive). It remains an orchestration artifact: `release_decision.decision` in
+(`verifier_schema_version` stays `"0.1"` in this alpha line; minor field
+additions are additive). It remains an orchestration artifact:
+`release_decision.decision` in
 `report.json` is still the only release gate, and every verifier field is either
 a mirror or a deterministic projection of report data. Stable additive fields a
 consumer may read:
@@ -664,10 +687,22 @@ consumer may read:
 `head_status`, `base_ref`, `head_ref`, `changed_files`, `base_notes`, the full
 embedded `release_decision`, and an `artifacts` map
 (`{verifier_json, pr_comment, report_json, report_markdown, report_sarif,
-packet_json}`). The corresponding GitHub Action outputs are `merge_verdict`,
-`can_merge_without_human`, `trust_root_touched`, and
-`capability_changes_{added,modified,removed}`; the original `decision`,
-`blocker_count`, `review_item_count`, and `ci_would_fail` outputs are preserved.
+packet_json, verify_run_json}`). The corresponding GitHub Action outputs are
+`verifier_json`, `verify_run_json`, `run_id`, `merge_verdict`,
+`can_merge_without_human`, `agent_controller_must_stop`,
+`agent_controller_stop_reason`, `agent_controller_completion_allowed`,
+`trust_root_touched`, and `capability_changes_{added,modified,removed}`; the
+original `decision`, `blocker_count`, `review_item_count`, and `ci_would_fail`
+outputs are preserved.
+
+`verify-run.json` is governed by
+[`docs/verify-run-schema.v1.json`](docs/verify-run-schema.v1.json) with
+`schema_version: "shipgate.verify_run/v1"`. It records the deterministic run
+identity and reproducibility inputs for `verify`: subject refs and tree SHAs,
+config/baseline/policy-pack hashes, plugin and heuristic flags, fail policy,
+outcome, and artifact references. It carries no wall-clock timestamps. `run_id`
+is a stable `sha256:` hash over normalized `tool`, `subject`, `inputs`, and
+`outcome`, excluding artifact hashes.
 
 Successful base reports are cached under git metadata
 (`git rev-parse --git-path agents-shipgate/base-scans/...`), not under the
@@ -726,12 +761,12 @@ Diff remains explanatory only.
 
 ### Release Evidence Packet (v0.7)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json). v0.7 adds capability-linked local trace evidence summary and trace refs under `human_in_the_loop`. v0.6 stays as the frozen reference at [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets validate against it. v0.6 added the top-level `evidence_matrix` section and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance on top of v0.5. Within `0.x`:
+`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json). v0.7 adds capability-linked local trace evidence summary and trace refs under `human_in_the_loop`. v0.6 stays as the frozen reference at [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets validate against it. v0.6 added the top-level `evidence_matrix` section and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance on top of v0.5. Within the current alpha contract line:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
 - `evidence_matrix.rows[]` is a compact, packet-only review summary derived from public `report.json` fields. It never contributes to `release_decision`, CI exit behavior, severity, suppression, baseline matching, or `agent_summary`; its blocker and review-item references are copied from `release_decision`.
-- The 13 `evidence_matrix.rows[].domain` identities are stable within `0.x`. Adding source paths or check mappings is additive; removing a row, renaming a domain, or dropping an existing check/source mapping requires a packet schema bump.
+- The 13 `evidence_matrix.rows[].domain` identities are stable within the current alpha contract line. Adding source paths or check mappings is additive; removing a row, renaming a domain, or dropping an existing check/source mapping requires a packet schema bump.
 - `human_in_the_loop.runtime_control_disclaimer` is always present and applies to covered and gap states: local HITL evidence is not runtime-enforcement proof.
 - `human_in_the_loop.source_provenance[]` is deterministic, local-only provenance for validation evidence when available. Packets rebuilt from `report.json` may set `provenance_mode: "unavailable"` when no finding-level provenance survived.
 - `human_in_the_loop.capability_trace_summary` and `human_in_the_loop.capability_trace_refs` are deterministic audit metadata for declared local trace artifacts. They do not prove runtime enforcement and never contribute to the packet verdict.
@@ -861,7 +896,7 @@ to share. Current v0.1 fields:
 
 ### Agent-skill paths
 
-The following paths are part of the public agent surface and will not move within `0.x`:
+The following paths are part of the public agent surface and will not move within the current alpha contract line:
 
 - [`prompts/`](prompts/) — task-shaped recipes, individual filenames are stable
 - [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md) — Claude Code `/shipgate` slash command
@@ -914,9 +949,9 @@ If you need stability guarantees beyond what's listed here, please open an issue
 
 We follow [SemVer](https://semver.org/) loosely:
 
-- **Patch** (`0.5.x`): bug fixes only. No new features, no breaking changes.
-- **Minor** (`0.x.0`): new features (new checks, new input loaders, new flags). Adheres to this contract.
-- **Major** (`1.0.0`): may break the contract. Will be announced with a migration guide.
+- **Alpha patch** (`1.0.0aN`): bug fixes, contract-tightening additions, and explicitly documented alpha cleanup.
+- **Stable patch/minor** (`1.x.y` after the alpha line): follows the contract current at that stable release.
+- **Major** (`2.0.0`): may break the contract. Will be announced with a migration guide.
 
 The current version is in [`pyproject.toml`](pyproject.toml). Changelog is in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-from agents_shipgate.ci.agent_result import AgentResult, build_agent_result
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
@@ -28,19 +27,15 @@ def render_pr_comment(
     *,
     report: ReadinessReport | None,
     style: str = "capability-review",
-    agent_result: AgentResult | None = None,
 ) -> str:
-    agent_result = agent_result or build_agent_result(verifier=verifier, report=report)
     if style == "findings":
         return _render_findings_comment(
             verifier,
             report=report,
-            agent_result=agent_result,
         )
     return _render_capability_review_comment(
         verifier,
         report=report,
-        agent_result=agent_result,
     )
 
 
@@ -48,10 +43,9 @@ def _render_capability_review_comment(
     verifier: VerifierArtifact,
     *,
     report: ReadinessReport | None,
-    agent_result: AgentResult,
 ) -> str:
-    lines = [STICKY_MARKER, f"## Agents Shipgate result: {agent_result.decision}"]
-    lines.extend(_agent_result_lead(agent_result))
+    lines = [STICKY_MARKER, f"## Agents Shipgate result: {verifier.merge_verdict}"]
+    lines.extend(_verifier_lead(verifier))
     headline = _headline(verifier, report)
     if headline:
         lines.extend(["", f"Headline: {_escape(headline)}"])
@@ -98,10 +92,9 @@ def _render_findings_comment(
     verifier: VerifierArtifact,
     *,
     report: ReadinessReport | None,
-    agent_result: AgentResult,
 ) -> str:
-    lines = [STICKY_MARKER, f"## Agents Shipgate result: {agent_result.decision}"]
-    lines.extend(_agent_result_lead(agent_result))
+    lines = [STICKY_MARKER, f"## Agents Shipgate result: {verifier.merge_verdict}"]
+    lines.extend(_verifier_lead(verifier))
     lines.append("")
     lines.append(f"Trigger: {_escape(verifier.trigger.get('rationale') or 'not evaluated')}")
     if verifier.base_status != "not_requested":
@@ -162,16 +155,18 @@ def _visible_verdict(verifier: VerifierArtifact) -> str:
     return verifier.merge_verdict
 
 
-def _agent_result_lead(agent_result: AgentResult) -> list[str]:
+def _verifier_lead(verifier: VerifierArtifact) -> list[str]:
     lines = [
         "",
-        f"Decision: `{agent_result.decision}`",
-        f"Risk: `{agent_result.risk_level}`",
-        f"Audit ID: `{agent_result.audit_id}`",
+        f"Merge verdict: `{verifier.merge_verdict}`",
+        f"Can merge without human: `{str(verifier.can_merge_without_human).lower()}`",
     ]
-    if agent_result.required_reviewers:
-        reviewers = ", ".join(f"`{reviewer}`" for reviewer in agent_result.required_reviewers)
-        lines.append(f"Required reviewers: {reviewers}")
+    if verifier.decision:
+        lines.append(f"Release gate: `{verifier.decision}`")
+    human_review = verifier.human_review
+    if human_review is not None and human_review.required:
+        why = human_review.why or "Human review required before merge."
+        lines.append(f"Human review: `{_escape(why)}`")
     return lines
 
 
@@ -378,7 +373,7 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
             "report_sarif",
             "packet_json",
             "verifier_json",
-            "agent_result_json",
+            "verify_run_json",
         ):
             if key in artifacts:
                 lines.append(f"- `{artifacts[key]}`")
@@ -392,7 +387,7 @@ def _artifact_lines(verifier: VerifierArtifact, *, links: bool = True) -> list[s
         "report_sarif",
         "packet_json",
         "verifier_json",
-        "agent_result_json",
+        "verify_run_json",
         "pr_comment",
     ):
         if key in artifacts:

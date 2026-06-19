@@ -80,6 +80,9 @@ checks:
         "name": "Org Release Policy",
         "version": "1.0",
         "path": "org-pack.yaml",
+        "sha256": (
+            "sha256:e9ab16a2a1c3f881b1e12a092063576ff6fa0332e5c27a5bfccf64162568cad8"
+        ),
         "rule_count": 1,
     }
     finding = next(item for item in report.findings if item.check_id == "ORG-HIGH-RISK-OWNER-MISSING")

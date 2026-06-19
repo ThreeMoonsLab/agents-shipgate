@@ -23,12 +23,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.11.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
-          shipgate_version: '0.11.0'
+          shipgate_version: '1.0.0a1'
 ```
 
 To post PR comments, set:
@@ -73,17 +73,22 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
+| `verify_run_json` | Path to `verify-run.json`. |
+| `run_id` | Deterministic `sha256:` run id from `verify-run.json`. |
+| `agent_controller_must_stop` | `true` when `verifier.json.agent_controller.must_stop` requires the agent to stop. |
+| `agent_controller_stop_reason` | Stop reason from `verifier.json.agent_controller.stop_reason`, when present. |
+| `agent_controller_completion_allowed` | `true` when `verifier.json.agent_controller.completion_allowed` permits the agent to claim completion. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
 
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
-packet JSON, verifier JSON, and PR-comment Markdown artifacts. It intentionally
-emits `packet.json` only for the packet; `pr-comment.md` is the human PR
-surface. Read `verifier.json` first for `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, and
-`capability_review.top_changes`; read `report.json.release_decision.decision`
-for the gate. Verify never fetches; use `fetch-depth: 0` on checkout or fetch
-the base ref before the action when `diff_base: target` is set. An explicit
+packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown artifacts.
+It intentionally emits `packet.json` only for the packet; `pr-comment.md` is the
+human PR surface. Read `verifier.json.merge_verdict` and
+`verifier.json.agent_controller` first, then `verify-run.json` for
+reproducibility, and `report.json.release_decision.decision` for the underlying
+gate. Verify never fetches; use `fetch-depth: 0` on checkout or fetch the base
+ref before the action when `diff_base: target` is set. An explicit
 `head_ref` is scanned from an isolated archive; without it, the checked-out
 workspace is scanned. Upload `report.sarif` to GitHub code scanning from your
 workflow if you want SARIF annotations.
@@ -157,7 +162,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.11.0"
+    - python -m pip install "agents-shipgate==1.0.0a1"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -189,7 +194,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.11.0"
+      - run: python -m pip install "agents-shipgate==1.0.0a1"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -218,7 +223,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.11.0
+    rev: v1.0.0a1
     hooks:
       - id: agents-shipgate
 ```

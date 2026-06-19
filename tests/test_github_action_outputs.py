@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from scripts.github_action_outputs import (
-    decision_policy_exit_code,
     extract_outputs,
+    merge_verdict_policy_exit_code,
     trigger_action,
 )
 
@@ -89,6 +89,13 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
         output_dir / "verifier.json",
         {
             "head_status": "succeeded",
+            "merge_verdict": "blocked",
+            "can_merge_without_human": False,
+            "agent_controller": {
+                "must_stop": True,
+                "stop_reason": "blocked_findings",
+                "completion_allowed": False,
+            },
             "trigger": {
                 "should_run": True,
                 "matched_rules": [{"id": "manifest-present"}, {"id": "tools"}],
@@ -102,6 +109,7 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
             },
         },
     )
+    _write_json(output_dir / "verify-run.json", {"run_id": "sha256:abc"})
 
     outputs = extract_outputs(output_dir)
 
@@ -116,6 +124,11 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
     assert outputs["capability_changes_removed"] == 1
     assert outputs["trust_root_touched"] == "true"
     assert outputs["policy_weakened"] == "false"
+    assert outputs["verify_run_json"] == output_dir / "verify-run.json"
+    assert outputs["run_id"] == "sha256:abc"
+    assert outputs["agent_controller_must_stop"] == "true"
+    assert outputs["agent_controller_stop_reason"] == "blocked_findings"
+    assert outputs["agent_controller_completion_allowed"] == "false"
 
 
 def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
@@ -147,7 +160,7 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     assert outputs["policy_weakened"] == "true"
 
 
-def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
+def test_action_outputs_include_verify_run_and_controller_fields(tmp_path: Path) -> None:
     output_dir = tmp_path / "agents-shipgate-reports"
     output_dir.mkdir()
     _write_json(
@@ -162,33 +175,47 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
             },
         },
     )
-    _write_json(output_dir / "verifier.json", {"head_status": "succeeded"})
     _write_json(
-        output_dir / "agent-result.json",
+        output_dir / "verifier.json",
         {
-            "decision": "require_review",
-            "risk_level": "high",
-            "audit_id": "sg_audit_abc",
-            "required_reviewers": ["security", "agent-platform"],
-            "policy_snapshot_sha256": "b" * 64,
+            "head_status": "succeeded",
+            "merge_verdict": "mergeable",
+            "can_merge_without_human": True,
+            "agent_controller": {
+                "must_stop": False,
+                "stop_reason": None,
+                "completion_allowed": True,
+            },
         },
     )
+    _write_json(output_dir / "verify-run.json", {"run_id": "sha256:def"})
 
     outputs = extract_outputs(output_dir)
 
-    assert outputs["agent_result_json"] == output_dir / "agent-result.json"
-    assert outputs["agent_decision"] == "require_review"
-    assert outputs["risk_level"] == "high"
-    assert outputs["audit_id"] == "sg_audit_abc"
-    assert outputs["required_reviewers"] == "security,agent-platform"
-    assert outputs["policy_snapshot_sha256"] == "b" * 64
+    assert outputs["verify_run_json"] == output_dir / "verify-run.json"
+    assert outputs["run_id"] == "sha256:def"
+    assert outputs["merge_verdict"] == "mergeable"
+    assert outputs["can_merge_without_human"] == "true"
+    assert outputs["agent_controller_must_stop"] == "false"
+    assert outputs["agent_controller_stop_reason"] == ""
+    assert outputs["agent_controller_completion_allowed"] == "true"
 
 
-def test_decision_policy_exit_code_is_opt_in() -> None:
-    assert decision_policy_exit_code("block", "") == 0
-    assert decision_policy_exit_code("block", "block") == 20
-    assert decision_policy_exit_code("require_review", "block") == 0
-    assert decision_policy_exit_code("require_review", "block, require_review") == 20
+def test_merge_verdict_policy_exit_code_is_opt_in() -> None:
+    assert merge_verdict_policy_exit_code("blocked", "") == 0
+    assert merge_verdict_policy_exit_code("blocked", "blocked") == 20
+    assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
+    assert (
+        merge_verdict_policy_exit_code(
+            "human_review_required",
+            "blocked, human_review_required",
+        )
+        == 20
+    )
+    assert merge_verdict_policy_exit_code("insufficient_evidence", "unknown") == 0
+    assert merge_verdict_policy_exit_code("unknown", "unknown") == 20
+    with pytest.raises(ValueError, match="unsupported merge verdict"):
+        merge_verdict_policy_exit_code("blocked", "block")
 
 
 def _write_json(path: Path, payload: dict) -> None:

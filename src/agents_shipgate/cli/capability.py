@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.scan.inputs import _load_inputs
 from agents_shipgate.cli.scan.prepare import _prepare_scan
 from agents_shipgate.cli.scan.tools_agent import _build_tools_and_agent
@@ -78,12 +79,57 @@ def capability_export(
             _write_text(report_out, rendered)
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
+        emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            exit_code=2,
+            command="agents-shipgate capability export",
+            next_action="agents-shipgate doctor -c shipgate.yaml --json",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate doctor -c shipgate.yaml --json",
+                    "why": "Inspect manifest diagnostics before exporting a capability lock.",
+                    "expects": "diagnostics and next_actions",
+                }
+            ],
+        )
         raise typer.Exit(2) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=3,
+            command="agents-shipgate capability export",
+            next_action="agents-shipgate doctor -c shipgate.yaml --json",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate doctor -c shipgate.yaml --json",
+                    "why": "Inspect unresolved sources before exporting a capability lock.",
+                    "expects": "diagnostics and unresolved_sources",
+                }
+            ],
+        )
         raise typer.Exit(3) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            command="agents-shipgate capability export",
+            next_action="rerun capability export with --verbose",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate capability export --verbose --json",
+                    "why": "Surface the application-layer capability export failure.",
+                    "expects": "debug logging",
+                }
+            ],
+        )
         raise typer.Exit(4) from exc
 
     if json_output:
@@ -137,9 +183,45 @@ def capability_diff(
             _write_text(out, rendered)
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error(
+            "input_parse_error",
+            message=str(exc),
+            exit_code=3,
+            command="agents-shipgate capability diff",
+            next_action="verify --base and --head point at capability lock JSON files",
+            next_actions=[
+                {
+                    "kind": "review",
+                    "path": str(base),
+                    "why": "Base capability lock could not be loaded or parsed.",
+                    "expects": "capabilities.lock.json",
+                },
+                {
+                    "kind": "review",
+                    "path": str(head),
+                    "why": "Head capability lock could not be loaded or parsed.",
+                    "expects": "capabilities.lock.json",
+                },
+            ],
+        )
         raise typer.Exit(3) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            command="agents-shipgate capability diff",
+            next_action="rerun capability diff with valid lock artifacts",
+            next_actions=[
+                {
+                    "kind": "command",
+                    "command": "agents-shipgate capability export -c shipgate.yaml --json",
+                    "why": "Regenerate the current capability lock before diffing.",
+                    "expects": "capability lock JSON",
+                }
+            ],
+        )
         raise typer.Exit(4) from exc
 
     if json_output or out is None:

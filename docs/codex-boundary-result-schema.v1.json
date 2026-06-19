@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "AgentResultDiagnostic": {
+    "CodexBoundaryDiagnostic": {
       "additionalProperties": false,
       "properties": {
         "code": {
@@ -38,10 +38,10 @@
         "code",
         "message"
       ],
-      "title": "AgentResultDiagnostic",
+      "title": "CodexBoundaryDiagnostic",
       "type": "object"
     },
-    "AgentResultNextAction": {
+    "CodexBoundaryNextAction": {
       "additionalProperties": false,
       "properties": {
         "actor": {
@@ -85,10 +85,10 @@
         "kind",
         "why"
       ],
-      "title": "AgentResultNextAction",
+      "title": "CodexBoundaryNextAction",
       "type": "object"
     },
-    "AgentResultViolatedRule": {
+    "CodexBoundaryViolatedRule": {
       "additionalProperties": false,
       "properties": {
         "action": {
@@ -154,14 +154,14 @@
         "title",
         "recommendation"
       ],
-      "title": "AgentResultViolatedRule",
+      "title": "CodexBoundaryViolatedRule",
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "JSON Schema for shipgate check --format agent-json. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
+  "description": "JSON Schema for shipgate check --format codex-boundary-json. Generated from agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. Do not edit by hand.",
   "properties": {
     "agent": {
       "const": "codex",
@@ -192,7 +192,7 @@
     },
     "diagnostics": {
       "items": {
-        "$ref": "#/$defs/AgentResultDiagnostic"
+        "$ref": "#/$defs/CodexBoundaryDiagnostic"
       },
       "title": "Diagnostics",
       "type": "array"
@@ -205,7 +205,7 @@
       "type": "array"
     },
     "first_next_action": {
-      "$ref": "#/$defs/AgentResultNextAction"
+      "$ref": "#/$defs/CodexBoundaryNextAction"
     },
     "policy_version": {
       "title": "Policy Version",
@@ -236,8 +236,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "agent_result_v1",
-      "default": "agent_result_v1",
+      "const": "shipgate.codex_boundary_result/v1",
+      "default": "shipgate.codex_boundary_result/v1",
       "title": "Schema Version",
       "type": "string"
     },
@@ -260,7 +260,7 @@
     },
     "violated_rules": {
       "items": {
-        "$ref": "#/$defs/AgentResultViolatedRule"
+        "$ref": "#/$defs/CodexBoundaryViolatedRule"
       },
       "title": "Violated Rules",
       "type": "array"
@@ -274,6 +274,6 @@
     "summary",
     "first_next_action"
   ],
-  "title": "Agents Shipgate Agent Result v1",
+  "title": "Agents Shipgate Codex Boundary Result v1",
   "type": "object"
 }

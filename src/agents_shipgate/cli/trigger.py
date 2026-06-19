@@ -25,6 +25,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.triggers import (
     _git_diff_context,
     evaluate,
@@ -133,6 +134,21 @@ def trigger(
                 "checkout, or pass --changed-files / --diff instead.",
                 err=True,
             )
+            emit_agent_mode_error(
+                "verify_ref_error",
+                message=str(exc),
+                exit_code=2,
+                command="agents-shipgate trigger",
+                next_action="pass --changed-files/--diff or fetch the requested refs",
+                next_actions=[
+                    {
+                        "kind": "command",
+                        "command": "agents-shipgate trigger --changed-files changed.txt --diff pr.diff --json",
+                        "why": "Evaluate the trigger without relying on local git refs.",
+                        "expects": "trigger JSON verdict",
+                    }
+                ],
+            )
             raise typer.Exit(2) from exc
     else:
         try:
@@ -145,6 +161,21 @@ def trigger(
                 f"Could not read trigger input file: {exc}. Check the "
                 "--changed-files / --diff path.",
                 err=True,
+            )
+            emit_agent_mode_error(
+                "input_parse_error",
+                message=str(exc),
+                exit_code=2,
+                command="agents-shipgate trigger",
+                next_action="check the --changed-files / --diff paths and rerun",
+                next_actions=[
+                    {
+                        "kind": "edit",
+                        "path": str(changed_files or diff or ""),
+                        "why": "Trigger input file could not be read.",
+                        "expects": "readable local input file",
+                    }
+                ],
             )
             raise typer.Exit(2) from exc
 
@@ -162,6 +193,21 @@ def trigger(
                 f"--detect-json could not be read: {exc}. Check the path "
                 "and that it holds `agents-shipgate detect --json` output.",
                 err=True,
+            )
+            emit_agent_mode_error(
+                "input_parse_error",
+                message=str(exc),
+                exit_code=2,
+                command="agents-shipgate trigger",
+                next_action="regenerate detect JSON or omit --detect-json",
+                next_actions=[
+                    {
+                        "kind": "command",
+                        "command": "agents-shipgate detect --workspace . --json",
+                        "why": "Regenerate the detect payload consumed by trigger.",
+                        "expects": "detect JSON",
+                    }
+                ],
             )
             raise typer.Exit(2) from exc
 
