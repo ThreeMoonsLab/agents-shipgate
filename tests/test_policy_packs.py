@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -80,6 +81,10 @@ checks:
         "name": "Org Release Policy",
         "version": "1.0",
         "path": "org-pack.yaml",
+        "source": None,
+        "sha256": None,
+        "sha256_status": "unpinned",
+        "owner": None,
         "rule_count": 1,
     }
     finding = next(item for item in report.findings if item.check_id == "ORG-HIGH-RISK-OWNER-MISSING")
@@ -95,6 +100,79 @@ checks:
     assert "Loaded Policy Packs" in markdown
     sarif = (tmp_path / "reports" / "report.sarif").read_text(encoding="utf-8")
     assert "ORG-HIGH-RISK-OWNER-MISSING" not in sarif
+
+
+def test_policy_pack_org_metadata_and_pin_are_reported(tmp_path):
+    _write_openapi(tmp_path)
+    pack_text = """
+id: org-release
+name: Org Release Policy
+version: "3.0"
+owner: agent-platform
+rules:
+  - id: ORG-ROUTED-REFUND-RULE
+    title: Refund rule routed to security
+    category: org_policy
+    severity: high
+    recommendation: Route to security before release.
+    owner: security
+    reviewers: [agent-platform]
+    approval:
+      required: true
+      teams: [security]
+      min_approvals: 1
+    match:
+      risk_tags: [financial_action]
+      source_types: [openapi]
+"""
+    (tmp_path / "org-pack.yaml").write_text(pack_text, encoding="utf-8")
+    digest = hashlib.sha256((tmp_path / "org-pack.yaml").read_bytes()).hexdigest()
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + f"""
+organization:
+  id: acme
+  teams:
+    agent-platform:
+      reviewers: ["@acme/agent-platform"]
+    security:
+      reviewers: ["@acme/security"]
+checks:
+  policy_packs:
+    - id: org-release
+      path: org-pack.yaml
+      source: github.com/acme/shipgate-policies@v3
+      sha256: {digest}
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert report.loaded_policy_packs[0].model_dump(mode="json") == {
+        "id": "org-release",
+        "name": "Org Release Policy",
+        "version": "3.0",
+        "path": "org-pack.yaml",
+        "source": "github.com/acme/shipgate-policies@v3",
+        "sha256": digest,
+        "sha256_status": "verified",
+        "owner": "agent-platform",
+        "rule_count": 1,
+    }
+    finding = next(
+        item for item in report.findings if item.check_id == "ORG-ROUTED-REFUND-RULE"
+    )
+    assert finding.evidence["policy_pack_source"] == "github.com/acme/shipgate-policies@v3"
+    assert finding.evidence["policy_pack_sha256"] == digest
+    assert finding.evidence["policy_pack_sha256_status"] == "verified"
+    assert finding.evidence["policy_owner"] == "security"
+    assert finding.evidence["policy_reviewers"] == ["agent-platform"]
 
 
 def test_cli_policy_pack_override_and_parameter_predicate(tmp_path):
@@ -443,6 +521,45 @@ checks:
         run_scan(config_path=tmp_path / "shipgate.yaml", output_dir=tmp_path / "reports")
 
 
+def test_policy_pack_unknown_org_team_reference_is_rejected(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "org-pack.yaml").write_text(
+        """
+name: Routed Pack
+rules:
+  - id: ORG-UNKNOWN-TEAM
+    severity: high
+    recommendation: Route to a known team.
+    owner: payments
+    match:
+      source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+organization:
+  id: acme
+  teams:
+    security:
+      reviewers: ["@acme/security"]
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="unknown organization team 'payments'"):
+        run_scan(
+            config_path=tmp_path / "shipgate.yaml",
+            output_dir=tmp_path / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+        )
+
+
 def test_optional_missing_policy_pack_warns(tmp_path):
     _write_openapi(tmp_path)
     (tmp_path / "shipgate.yaml").write_text(
@@ -735,8 +852,6 @@ checks:
 
 
 def test_sha256_pin_accepts_matching_pack(tmp_path):
-    import hashlib
-
     _write_openapi(tmp_path)
     pack_text = """
 name: Pinned Pack

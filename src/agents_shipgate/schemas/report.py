@@ -491,6 +491,10 @@ class LoadedPolicyPack(BaseModel):
     name: str
     version: str | None = None
     path: str
+    source: str | None = None
+    sha256: str | None = None
+    sha256_status: Literal["unpinned", "verified"] = "unpinned"
+    owner: str | None = None
     rule_count: int
 
 

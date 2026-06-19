@@ -116,6 +116,14 @@ inputs:
     required: false
     default: ""
     description: Optional Agents Shipgate PyPI version to install. Empty installs this action source.
+  attestation:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/attestation.json from verifier.json/report.json.
+  registry_repo_label:
+    required: false
+    default: ""
+    description: Optional repository label copied into attestation org context.
 
 outputs:
   # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
@@ -177,6 +185,9 @@ outputs:
   capability_lock_diff_json:
     description: Path to generated capability lock diff JSON when base and head locks are available.
     value: ${{ steps.report_outputs.outputs.capability_lock_diff_json }}
+  attestation_json:
+    description: Path to generated release attestation JSON when attestation is true.
+    value: ${{ steps.report_outputs.outputs.attestation_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -364,6 +375,30 @@ runs:
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
+
+    - name: Build Agents Shipgate attestation
+      if: ${{ always() && inputs.attestation == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+        REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}
+      run: |
+        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+          args=(
+            attest
+            --from "${OUTPUT_DIR}/verifier.json"
+            --out "${OUTPUT_DIR}/attestation.json"
+            --config "${CONFIG}"
+            --ci-context github-actions
+          )
+          if [ -n "${REGISTRY_REPO_LABEL}" ]; then
+            args+=(--repo "${REGISTRY_REPO_LABEL}")
+          fi
+          agents-shipgate "${args[@]}"
+        else
+          echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
+        fi
 
     - name: Emit Agents Shipgate annotations
       if: ${{ always() && inputs.check_annotations == 'true' }}

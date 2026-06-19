@@ -7,6 +7,7 @@ from agents_shipgate.schemas.manifest._artifacts import ArtifactPathConfig
 
 class PolicyPackConfig(ArtifactPathConfig):
     id: str | None = None
+    source: str | None = None
     # v0.2 (org distribution): optional content pin. When set, the pack
     # file's SHA-256 must match or the scan fails with a config error
     # (optional packs degrade to a warning). Pin shared/org packs that are

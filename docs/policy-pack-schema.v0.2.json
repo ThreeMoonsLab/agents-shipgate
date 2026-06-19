@@ -1,5 +1,37 @@
 {
   "$defs": {
+    "PolicyPackApproval": {
+      "additionalProperties": false,
+      "properties": {
+        "min_approvals": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Approvals"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "teams": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Teams",
+          "type": "array"
+        }
+      },
+      "title": "PolicyPackApproval",
+      "type": "object"
+    },
     "PolicyPackCapabilityMatch": {
       "additionalProperties": false,
       "properties": {
@@ -247,6 +279,18 @@
           "default": null,
           "title": "Name"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "rules": {
           "items": {
             "$ref": "#/$defs/PolicyPackRule"
@@ -484,6 +528,17 @@
     "PolicyPackRule": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyPackApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "block": {
           "default": false,
           "title": "Block",
@@ -523,9 +578,28 @@
         "match": {
           "$ref": "#/$defs/PolicyPackMatch"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "recommendation": {
           "title": "Recommendation",
           "type": "string"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
         },
         "severity": {
           "enum": [

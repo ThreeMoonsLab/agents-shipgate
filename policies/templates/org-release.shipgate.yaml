@@ -1,0 +1,17 @@
+name: Org Release Policy
+version: "1.0"
+owner: agent-platform
+rules:
+  - id: ORG-HIGH-RISK-OWNER-MISSING
+    title: High-risk capability must have an owner
+    category: org_policy
+    severity: high
+    block: false
+    confidence: high
+    owner: agent-platform
+    reviewers: [security]
+    recommendation: Assign an owning team before production release.
+    match:
+      capability:
+        high_risk: true
+        missing_owner: true

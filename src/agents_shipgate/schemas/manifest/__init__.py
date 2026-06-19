@@ -60,6 +60,12 @@ from agents_shipgate.schemas.manifest.human_ack import HumanAckDeclaration
 from agents_shipgate.schemas.manifest.langchain import LangChainConfig
 from agents_shipgate.schemas.manifest.n8n import N8nConfig
 from agents_shipgate.schemas.manifest.openai_api import OpenAIApiConfig
+from agents_shipgate.schemas.manifest.organization import (
+    OrganizationAuditConfig,
+    OrganizationConfig,
+    OrganizationExceptionPolicyConfig,
+    OrganizationTeamConfig,
+)
 from agents_shipgate.schemas.manifest.output import (
     OutputConfig,
     PacketOutputConfig,
@@ -143,6 +149,11 @@ __all__ = [
     "NamedArtifactPathConfig",
     # openai_api
     "OpenAIApiConfig",
+    # organization
+    "OrganizationAuditConfig",
+    "OrganizationConfig",
+    "OrganizationExceptionPolicyConfig",
+    "OrganizationTeamConfig",
     # output
     "OutputConfig",
     # severity_overrides

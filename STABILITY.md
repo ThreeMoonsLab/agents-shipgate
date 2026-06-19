@@ -873,17 +873,18 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json). It
-records the verdict, the report-derived capability delta, the declared
-`human_ack` state, a policy-snapshot hash, content hashes of the verify
-artifacts, and capability lock/diff hash bindings when verify emitted those
-artifacts. It carries no wall-clock timestamp — it is content-addressed by git
-SHAs and artifact hashes, so re-deriving from the same inputs is byte-identical.
-It does not gate; `release_decision.decision` remains the only gate. Current
-v0.2 fields:
+[`docs/attestation-schema.v0.3.json`](docs/attestation-schema.v0.3.json). It
+records the verdict, the report-derived capability delta, optional local
+organization/CI context, detailed declared `human_ack` entries, a
+policy-snapshot hash, content hashes of the verify artifacts, and capability
+lock/diff hash bindings when verify emitted those artifacts. It carries no
+wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
+so re-deriving from the same inputs is byte-identical. It does not gate;
+`release_decision.decision` remains the only gate. Current v0.3 fields:
 
 - `attestation_schema_version`
 - `cli_version`
+- `org` (`org_id`, `repo`, `service`, `tier`, `pr_number`, `workflow_run_id`, `actor`, `merge_sha`)
 - `source_verifier`
 - `redacted`
 - `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
@@ -891,7 +892,7 @@ v0.2 fields:
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
 - `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `capability_count`)
 - `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
-- `human_ack` (`required`, `satisfied`, `outstanding`)
+- `human_ack` (`required`, `satisfied`, `outstanding`, `acks`)
 - `policy_snapshot_sha256`
 - `artifact_sha256`
 

@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 
@@ -42,6 +44,24 @@ def _attest_command(
         "--redact/--no-redact",
         help="Reduce local artifact paths to filenames.",
     ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        help="Optional shipgate.yaml to copy organization metadata from.",
+    ),
+    org_id: str | None = typer.Option(None, "--org-id"),
+    repo: str | None = typer.Option(None, "--repo"),
+    service: str | None = typer.Option(None, "--service"),
+    tier: str | None = typer.Option(None, "--tier"),
+    pr_number: str | None = typer.Option(None, "--pr-number"),
+    workflow_run_id: str | None = typer.Option(None, "--workflow-run-id"),
+    actor: str | None = typer.Option(None, "--actor"),
+    merge_sha: str | None = typer.Option(None, "--merge-sha"),
+    ci_context: str | None = typer.Option(
+        None,
+        "--ci-context",
+        help="Optional CI context provider. Supported: github-actions.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -61,8 +81,26 @@ def _attest_command(
         typer.echo(f"Input parsing error: {exc}", err=True)
         raise typer.Exit(3) from exc
     report = _load_sibling_report(source, verifier)
+    org_context = _org_context_from_inputs(
+        config=config,
+        explicit={
+            "org_id": org_id,
+            "repo": repo,
+            "service": service,
+            "tier": tier,
+            "pr_number": pr_number,
+            "workflow_run_id": workflow_run_id,
+            "actor": actor,
+            "merge_sha": merge_sha,
+        },
+        ci_context=ci_context,
+    )
     payload = build_attestation_payload(
-        verifier, source=source, redacted=redact, report=report
+        verifier,
+        source=source,
+        redacted=redact,
+        report=report,
+        org_context=org_context,
     )
     rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
@@ -81,6 +119,7 @@ def build_attestation_payload(
     source: Path,
     redacted: bool,
     report: dict[str, Any] | None = None,
+    org_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project a verify run onto a deterministic attestation dict.
 
@@ -96,10 +135,12 @@ def build_attestation_payload(
     report = report or {}
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
+    org_context = _clean_org_context(org_context or {})
 
     return {
         "attestation_schema_version": ATTESTATION_SCHEMA_VERSION,
         "cli_version": __version__,
+        "org": org_context,
         "source_verifier": source.name if redacted else str(source),
         "redacted": redacted,
         "base_ref": verifier.get("base_ref"),
@@ -138,6 +179,7 @@ def build_attestation_payload(
             # ``None`` when no report.json was available to confirm it.
             "satisfied": human_ack.get("satisfied"),
             "outstanding": _str_list(human_ack.get("outstanding")),
+            "acks": _human_ack_entries(human_ack.get("acks")),
         },
         "policy_snapshot_sha256": (
             _canonical_sha256(effective_policy) if effective_policy is not None else None
@@ -172,6 +214,112 @@ def _load_sibling_report(
         return _load_json_object(candidate, "report.json")
     except InputParseError:
         return None
+
+
+def _org_context_from_inputs(
+    *,
+    config: Path | None,
+    explicit: dict[str, str | None],
+    ci_context: str | None,
+) -> dict[str, str | None]:
+    context: dict[str, str | None] = {}
+    if config is not None and config.is_file():
+        try:
+            manifest = load_manifest(config)
+        except Exception:
+            manifest = None
+        if manifest is not None and manifest.organization is not None:
+            context.update(
+                {
+                    "org_id": manifest.organization.id,
+                    "repo": manifest.organization.repo,
+                    "service": manifest.organization.service,
+                    "tier": manifest.organization.tier,
+                }
+            )
+    if ci_context:
+        if ci_context != "github-actions":
+            raise typer.BadParameter(
+                "unsupported ci context; supported value: github-actions",
+                param_hint="--ci-context",
+            )
+        repo = os.environ.get("GITHUB_REPOSITORY")
+        run_id = os.environ.get("GITHUB_RUN_ID")
+        actor = os.environ.get("GITHUB_ACTOR")
+        event_name = os.environ.get("GITHUB_EVENT_NAME")
+        ref = os.environ.get("GITHUB_SHA")
+        pr = _github_event_pr_number()
+        context.update(
+            {
+                "repo": repo,
+                "workflow_run_id": run_id,
+                "actor": actor,
+                "merge_sha": ref,
+                "pr_number": pr if event_name == "pull_request" else explicit.get("pr_number"),
+            }
+        )
+    context.update({key: value for key, value in explicit.items() if value is not None})
+    return _clean_org_context(context)
+
+
+def _github_event_pr_number() -> str | None:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return None
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    pr = payload.get("pull_request") if isinstance(payload, dict) else None
+    number = pr.get("number") if isinstance(pr, dict) else None
+    return str(number) if number is not None else None
+
+
+def _clean_org_context(context: dict[str, Any]) -> dict[str, str | None]:
+    keys = (
+        "org_id",
+        "repo",
+        "service",
+        "tier",
+        "pr_number",
+        "workflow_run_id",
+        "actor",
+        "merge_sha",
+    )
+    return {key: _clean_str(context.get(key)) for key in keys}
+
+
+def _human_ack_entries(value: Any) -> list[dict[str, str | None]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, str | None]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "owner": _clean_str(item.get("owner")),
+                "reason": _clean_str(item.get("reason")),
+                "affected_surface": _clean_str(item.get("affected_surface")),
+                "expires": _clean_str(item.get("expires")),
+                "source": _clean_str(item.get("source")),
+            }
+        )
+    return sorted(
+        out,
+        key=lambda item: (
+            item.get("affected_surface") or "",
+            item.get("owner") or "",
+            item.get("reason") or "",
+        ),
+    )
+
+
+def _clean_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped or None
 
 
 def _artifact_hashes(artifacts: Any, *, base_dir: Path) -> dict[str, str]:

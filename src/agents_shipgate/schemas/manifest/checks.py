@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -21,14 +22,24 @@ class SuppressionConfig(BaseModel):
 
     check_id: str
     tool: str | None = None
+    owner: str | None = None
     reason: str
+    expires: date | None = None
 
     @field_validator("reason")
     @classmethod
     def reason_required(cls, value: str) -> str:
         if not value or not value.strip():
             raise ValueError("suppression reason is required")
-        return value
+        return value.strip()
+
+    @field_validator("owner")
+    @classmethod
+    def _owner_non_empty(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class ChecksConfig(BaseModel):

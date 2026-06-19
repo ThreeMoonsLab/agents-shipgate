@@ -18,6 +18,7 @@ from agents_shipgate.schemas.manifest.human_ack import HumanAckDeclaration
 from agents_shipgate.schemas.manifest.langchain import LangChainConfig
 from agents_shipgate.schemas.manifest.n8n import N8nConfig
 from agents_shipgate.schemas.manifest.openai_api import OpenAIApiConfig
+from agents_shipgate.schemas.manifest.organization import OrganizationConfig
 from agents_shipgate.schemas.manifest.output import OutputConfig
 from agents_shipgate.schemas.manifest.permissions import PermissionsConfig
 from agents_shipgate.schemas.manifest.policies import PoliciesConfig
@@ -55,6 +56,7 @@ class AgentsShipgateManifest(BaseModel):
     ci: CiConfig = Field(default_factory=CiConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+    organization: OrganizationConfig | None = None
     # v0.22 (verifier cycle): declared human acknowledgements of trust-root
     # weakening (roadmap §5.4). Empty by default. Each entry is *declared*
     # evidence — never inferred — and editing this list in shipgate.yaml is

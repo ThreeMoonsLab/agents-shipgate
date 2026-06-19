@@ -520,7 +520,8 @@ Newer commands (stable intent, flags may still evolve):
 |---|---|
 | `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
 | `agents-shipgate mcp-serve` | Local read-only stdio MCP server (`[mcp]` extra) exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
-| `agents-shipgate registry` | `ingest --attestation <file>` / `query` — local capability-release ledger over attestations. |
+| `agents-shipgate org status` | Local organization governance projection over exception hygiene, policy-pack pins, host-grant drift, and registry readiness; `--json` available and governance violations exit `20`. |
+| `agents-shipgate registry` | `ingest --attestation <file>` / `query` / `report --bypass` — local capability-release ledger over attestations. |
 | `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |
 
 ### Release Evidence Packet (v0.7)

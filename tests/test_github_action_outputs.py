@@ -188,6 +188,7 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
         outputs["capability_lock_diff_json"]
         == output_dir / "capability-lock-diff.json"
     )
+    assert outputs["attestation_json"] == output_dir / "attestation.json"
     assert outputs["agent_decision"] == "require_review"
     assert outputs["risk_level"] == "high"
     assert outputs["audit_id"] == "sg_audit_abc"
