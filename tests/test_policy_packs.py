@@ -173,6 +173,10 @@ checks:
     assert finding.evidence["policy_pack_sha256_status"] == "verified"
     assert finding.evidence["policy_owner"] == "security"
     assert finding.evidence["policy_reviewers"] == ["agent-platform"]
+    assert finding.evidence["policy_approval_required"] is True
+    assert finding.evidence["policy_approval_teams"] == ["security"]
+    assert finding.evidence["policy_approval_min_approvals"] == 1
+    assert finding.evidence["policy_approval_enforced"] is False
 
 
 def test_cli_policy_pack_override_and_parameter_predicate(tmp_path):

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.26",
+  "report_schema_version": "0.27",
   "run_id": "agents_shipgate_785cc45e038e4687",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {

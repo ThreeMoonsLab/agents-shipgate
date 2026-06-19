@@ -42,7 +42,10 @@ def _attest_command(
     redact: bool = typer.Option(
         True,
         "--redact/--no-redact",
-        help="Reduce local artifact paths to filenames.",
+        help=(
+            "Reduce local artifact paths to filenames. Does not remove "
+            "explicit org/CI identity fields."
+        ),
     ),
     config: Path | None = typer.Option(
         None,

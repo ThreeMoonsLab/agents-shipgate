@@ -43,12 +43,21 @@ class RegistryRowV1(BaseModel):
     artifact_sha256: dict[str, str] = Field(default_factory=dict)
 
 
+class RegistrySkippedRowV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    line: int = Field(ge=1)
+    reason: str
+
+
 class RegistryQueryResultV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     registry_schema_version: Literal["0.2"] = REGISTRY_SCHEMA_VERSION
     registry: str
     count: int
+    skipped_count: int = 0
+    skipped_rows: list[RegistrySkippedRowV1] = Field(default_factory=list)
     rows: list[RegistryRowV1] = Field(default_factory=list)
 
 
@@ -58,6 +67,8 @@ class RegistryBypassReportV1(BaseModel):
     registry_schema_version: Literal["0.2"] = REGISTRY_SCHEMA_VERSION
     registry: str
     bypass_count: int
+    skipped_count: int = 0
+    skipped_rows: list[RegistrySkippedRowV1] = Field(default_factory=list)
     rows: list[RegistryRowV1] = Field(default_factory=list)
 
 
@@ -66,4 +77,5 @@ __all__ = [
     "RegistryBypassReportV1",
     "RegistryQueryResultV1",
     "RegistryRowV1",
+    "RegistrySkippedRowV1",
 ]

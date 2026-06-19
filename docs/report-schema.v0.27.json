@@ -2970,6 +2970,18 @@
           "title": "Name",
           "type": "string"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "path": {
           "title": "Path",
           "type": "string"
@@ -2977,6 +2989,39 @@
         "rule_count": {
           "title": "Rule Count",
           "type": "integer"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "sha256_status": {
+          "default": "unpinned",
+          "enum": [
+            "unpinned",
+            "verified"
+          ],
+          "title": "Sha256 Status",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
         },
         "version": {
           "anyOf": [
@@ -5296,7 +5341,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.26.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.27.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "description": "JSON Schema for the Agents Shipgate Tool-Use Readiness Report. Generated from agents_shipgate.schemas.report.ReadinessReport with post-processing to preserve the v0.5 public contract. Do not edit by hand.",
@@ -5561,7 +5606,7 @@
       "$ref": "#/$defs/ReleaseDecision"
     },
     "report_schema_version": {
-      "const": "0.26"
+      "const": "0.27"
     },
     "reviewer_summary": {
       "$ref": "#/$defs/ReviewerSummary"
@@ -5658,6 +5703,6 @@
     "tool_surface_facts",
     "verifier_summary"
   ],
-  "title": "Agents Shipgate Readiness Report v0.26",
+  "title": "Agents Shipgate Readiness Report v0.27",
   "type": "object"
 }

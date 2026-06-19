@@ -63,9 +63,11 @@ approval:
   min_approvals: 1
 ```
 
-These fields do not change rule matching or release decisions. They are
-reviewer/audit metadata and are validated against `organization.teams` when
-teams are declared.
+These fields do not change rule matching, approval enforcement, or release
+decisions. They are reviewer/audit routing metadata and are validated against
+`organization.teams` when teams are declared. Shipgate does not call GitHub or
+verify whether those approvals happened; use deterministic predicates and
+`block: true` for release gating.
 
 Starter packs live in [`../policies/templates/`](../policies/templates/).
 
@@ -116,7 +118,16 @@ agents-shipgate registry report --bypass --json
 ```
 
 The bypass report lists rows where `merge_verdict != "mergeable"` and the
-attestation does not carry satisfied human acknowledgement.
+attestation does not carry satisfied human acknowledgement. It exits `0` by
+default so scheduled jobs can archive the report; pass `--fail-on-bypass` when
+CI should exit `20` if `bypass_count > 0`. Both `registry query --json` and
+`registry report --bypass --json` include `skipped_count` and `skipped_rows[]`
+for malformed ledger lines.
+
+`attest --redact` is path-scoped. It shortens local artifact paths, but it does
+not remove explicit organization or CI identity fields such as `org.repo`,
+`org.actor`, `org.workflow_run_id`, or `org.merge_sha`. Omit `--ci-context` or
+the corresponding explicit flags when those identities should not be recorded.
 
 ## GitHub Actions
 

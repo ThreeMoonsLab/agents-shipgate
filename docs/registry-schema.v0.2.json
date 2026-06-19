@@ -337,6 +337,26 @@
       ],
       "title": "RegistryRowV1",
       "type": "object"
+    },
+    "RegistrySkippedRowV1": {
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "reason"
+      ],
+      "title": "RegistrySkippedRowV1",
+      "type": "object"
     }
   },
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.2.json",
@@ -363,6 +383,18 @@
         "$ref": "#/$defs/RegistryRowV1"
       },
       "title": "Rows",
+      "type": "array"
+    },
+    "skipped_count": {
+      "default": 0,
+      "title": "Skipped Count",
+      "type": "integer"
+    },
+    "skipped_rows": {
+      "items": {
+        "$ref": "#/$defs/RegistrySkippedRowV1"
+      },
+      "title": "Skipped Rows",
       "type": "array"
     }
   },

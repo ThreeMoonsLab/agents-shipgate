@@ -209,6 +209,56 @@ def test_bypass_report_excludes_mergeable_and_acknowledged_rows(tmp_path: Path) 
     assert payload["bypass_count"] == 1
     assert payload["rows"][0]["repo"] == "org/a"
     assert payload["rows"][0]["merge_verdict"] == "blocked"
+    assert payload["skipped_count"] == 0
+
+
+def test_query_reports_malformed_registry_rows(tmp_path: Path) -> None:
+    ledger = _ingest(tmp_path, _attestation_v03("blocked"), "org/a")
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write("{not valid json}\n")
+        handle.write("[]\n")
+
+    result = runner.invoke(
+        app,
+        ["registry", "query", "--registry", str(ledger), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["count"] == 1
+    assert payload["skipped_count"] == 2
+    invalid_json_reason = (
+        "invalid_json: Expecting property name enclosed in double quotes"
+    )
+    assert payload["skipped_rows"] == [
+        {"line": 2, "reason": invalid_json_reason},
+        {"line": 3, "reason": "row must be a JSON object"},
+    ]
+
+
+def test_bypass_report_can_fail_ci_on_bypass_rows(tmp_path: Path) -> None:
+    ledger = _ingest(tmp_path, _attestation_v03("blocked", ack_satisfied=None), "org/a")
+
+    default_result = runner.invoke(
+        app,
+        ["registry", "report", "--bypass", "--registry", str(ledger), "--json"],
+    )
+    assert default_result.exit_code == 0, default_result.output
+
+    failing_result = runner.invoke(
+        app,
+        [
+            "registry",
+            "report",
+            "--bypass",
+            "--fail-on-bypass",
+            "--registry",
+            str(ledger),
+            "--json",
+        ],
+    )
+    assert failing_result.exit_code == 20, failing_result.output
+    assert json.loads(failing_result.output)["bypass_count"] == 1
 
 
 def test_ingest_rejects_non_attestation(tmp_path: Path) -> None:

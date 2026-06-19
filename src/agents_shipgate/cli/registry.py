@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate.schemas.registry import (
     REGISTRY_SCHEMA_VERSION,
     RegistryBypassReportV1,
     RegistryQueryResultV1,
     RegistryRowV1,
+    RegistrySkippedRowV1,
 )
 
 DEFAULT_REGISTRY_PATH = Path(".agents-shipgate/registry.jsonl")
@@ -37,6 +40,12 @@ registry_app = typer.Typer(
     help="Local capability-release ledger built from attestations.",
     no_args_is_help=True,
 )
+
+
+@dataclass(frozen=True)
+class LoadedRegistry:
+    rows: list[RegistryRowV1]
+    skipped: list[RegistrySkippedRowV1]
 
 
 def _row_from_attestation(
@@ -97,26 +106,53 @@ def _row_id(row: dict[str, Any]) -> str:
     ).hexdigest()[:16]
 
 
-def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
+def _load_registry(registry_path: Path) -> LoadedRegistry:
     if not registry_path.is_file():
-        return []
+        return LoadedRegistry(rows=[], skipped=[])
     rows: list[RegistryRowV1] = []
-    for line in registry_path.read_text(encoding="utf-8").splitlines():
+    skipped: list[RegistrySkippedRowV1] = []
+    for line_number, line in enumerate(
+        registry_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         line = line.strip()
         if not line:
             continue
         try:
             loaded = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason=f"invalid_json: {exc.msg}",
+                )
+            )
             continue
-        if isinstance(loaded, dict):
-            row = _coerce_row(loaded)
-            if row is not None:
-                rows.append(row)
-    return rows
+        if not isinstance(loaded, dict):
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason="row must be a JSON object",
+                )
+            )
+            continue
+        try:
+            rows.append(_coerce_row(loaded))
+        except ValidationError as exc:
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason=f"schema_validation_error: {exc.errors()[0]['msg']}",
+                )
+            )
+    return LoadedRegistry(rows=rows, skipped=skipped)
 
 
-def _coerce_row(value: dict[str, Any]) -> RegistryRowV1 | None:
+def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
+    """Back-compat helper for internal callers that only need valid rows."""
+    return _load_registry(registry_path).rows
+
+
+def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
     if "row_id" not in value:
         value = {**value, "row_id": _row_id(value)}
     human_ack = value.get("human_ack") or {}
@@ -130,10 +166,7 @@ def _coerce_row(value: dict[str, Any]) -> RegistryRowV1 | None:
         value["human_ack_outstanding"] = [
             str(item) for item in human_ack.get("outstanding") or []
         ]
-    try:
-        return RegistryRowV1.model_validate(value)
-    except Exception:
-        return None
+    return RegistryRowV1.model_validate(value)
 
 
 @registry_app.command("ingest")
@@ -200,9 +233,9 @@ def registry_query(
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Query the ledger: which capability shipped, under which verdict."""
-    rows = _load_rows(registry)
+    loaded = _load_registry(registry)
     selected = []
-    for row in rows:
+    for row in loaded.rows:
         if repo and row.repo != repo:
             continue
         if verdict and row.merge_verdict != verdict:
@@ -217,11 +250,18 @@ def registry_query(
         payload = RegistryQueryResultV1(
             registry=str(registry),
             count=len(selected),
+            skipped_count=len(loaded.skipped),
+            skipped_rows=loaded.skipped,
             rows=selected,
         )
         typer.echo(payload.model_dump_json(indent=2))
         return
     typer.echo(f"{len(selected)} attestation row(s) in {registry}")
+    if loaded.skipped:
+        typer.echo(
+            f"Skipped {len(loaded.skipped)} malformed registry row(s).",
+            err=True,
+        )
     for row in selected:
         flags = []
         if row.trust_root_touched:
@@ -249,28 +289,45 @@ def registry_report(
         ),
     ),
     json_output: bool = typer.Option(False, "--json"),
+    fail_on_bypass: bool = typer.Option(
+        False,
+        "--fail-on-bypass",
+        help="Exit 20 when --bypass finds at least one row.",
+    ),
 ) -> None:
     """Emit derived registry reports. Currently supports --bypass."""
     if not bypass:
         typer.echo("Nothing to report: pass --bypass.", err=True)
         raise typer.Exit(2)
+    loaded = _load_registry(registry)
     rows = [
         row
-        for row in _load_rows(registry)
+        for row in loaded.rows
         if row.merge_verdict != "mergeable" and row.human_ack_satisfied is not True
     ]
     rows.sort(key=lambda row: row.row_id)
     payload = RegistryBypassReportV1(
         registry=str(registry),
         bypass_count=len(rows),
+        skipped_count=len(loaded.skipped),
+        skipped_rows=loaded.skipped,
         rows=rows,
     )
     if json_output:
         typer.echo(payload.model_dump_json(indent=2))
+        if fail_on_bypass and payload.bypass_count > 0:
+            raise typer.Exit(20)
         return
     typer.echo(f"{payload.bypass_count} possible bypass row(s) in {registry}")
+    if loaded.skipped:
+        typer.echo(
+            f"Skipped {len(loaded.skipped)} malformed registry row(s).",
+            err=True,
+        )
     for row in payload.rows:
         typer.echo(
             f"- {row.row_id} repo={row.repo or '—'} verdict={row.merge_verdict} "
             f"human_ack_satisfied={row.human_ack_satisfied}"
         )
+    if fail_on_bypass and payload.bypass_count > 0:
+        raise typer.Exit(20)

@@ -76,9 +76,29 @@ class PolicyPackMatch(BaseModel):
 class PolicyPackApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    required: bool = False
-    teams: list[str] = Field(default_factory=list)
-    min_approvals: int | None = Field(default=None, ge=1)
+    required: bool = Field(
+        default=False,
+        description=(
+            "Routing/audit metadata only. Shipgate validates team references "
+            "but does not verify external approvals or change release gating "
+            "from this field."
+        ),
+    )
+    teams: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Organization team names for approval routing metadata. They are "
+            "not checked against GitHub or any external approval system."
+        ),
+    )
+    min_approvals: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Requested human approval count for routing/audit metadata only; "
+            "not enforced by the deterministic rule engine."
+        ),
+    )
 
     @field_validator("teams")
     @classmethod
@@ -106,7 +126,14 @@ class PolicyPackRule(BaseModel):
     match: PolicyPackMatch
     owner: str | None = None
     reviewers: list[str] = Field(default_factory=list)
-    approval: PolicyPackApproval | None = None
+    approval: PolicyPackApproval | None = Field(
+        default=None,
+        description=(
+            "Optional non-enforcing approval routing metadata. Rule matching "
+            "and release decisions continue to use deterministic predicates "
+            "and the rule's severity/block fields."
+        ),
+    )
 
     @field_validator("owner")
     @classmethod

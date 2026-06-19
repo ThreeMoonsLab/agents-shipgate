@@ -105,6 +105,22 @@ def run_policy_pack_rules(
                     "policy_pack_sha256_status": resolved.pack.sha256_status,
                     "policy_owner": resolved.rule.owner or resolved.pack.owner,
                     "policy_reviewers": resolved.rule.reviewers,
+                    "policy_approval_required": (
+                        resolved.rule.approval.required
+                        if resolved.rule.approval is not None
+                        else False
+                    ),
+                    "policy_approval_teams": (
+                        resolved.rule.approval.teams
+                        if resolved.rule.approval is not None
+                        else []
+                    ),
+                    "policy_approval_min_approvals": (
+                        resolved.rule.approval.min_approvals
+                        if resolved.rule.approval is not None
+                        else None
+                    ),
+                    "policy_approval_enforced": False,
                 },
             )
             if match is None:

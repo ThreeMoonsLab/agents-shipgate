@@ -34,7 +34,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.26.json`](report-schema.v0.26.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.26"`, adding structured `evidence_gaps[]` remediation rows and the advisory `suggested-inventory.json` artifact while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.27.json`](report-schema.v0.27.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata on `loaded_policy_packs[]` while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — JSON Schema for local policy-pack YAML files (current; adds `all_of`/`any_of`/`none_of` combinators, `maximum_above`/`minimum_below` parameter bounds, and the manifest-side `sha256` pack pin)
