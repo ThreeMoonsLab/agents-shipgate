@@ -16,6 +16,7 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with merge-relevant line annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
 | [`11-fail-on-insufficient-evidence.yml`](11-fail-on-insufficient-evidence.yml) | Evidence policy: fail when static evidence is too weak to gate confidently. |
 | [`12-host-grant-drift.yml`](12-host-grant-drift.yml) | Scheduled drift gate: fail when current coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes) no longer match the acknowledged `.agents-shipgate/host-grants.json` baseline. Catches authority changes that land outside PR review. |
+| [`13-org-governance.yml`](13-org-governance.yml) | Scheduled organization governance gate: exception hygiene, policy-pack pinning, and host-grant drift. Does not create a second release verdict. |
 
 ## Permissions
 

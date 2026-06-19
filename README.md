@@ -505,9 +505,9 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
 - **`agents-shipgate mcp-serve`** (`[mcp]` extra) — read-only stdio MCP server exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities` for agents without comfortable shell access. It is static-only and not a general MCP permission broker. See [`docs/mcp-server.md`](docs/mcp-server.md).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing (current; emitted reports carry `report_schema_version: "0.26"`, preflight emits `preflight_schema_version: "0.2"`). v0.26 adds structured evidence gaps (`release_decision.evidence_coverage.evidence_gaps[]`) plus the advisory `suggested-inventory.json` skeleton; gate behavior is unchanged. Read `release_decision.decision` for release gating, `agent_summary.first_recommended_action` for the next agent step, and `reviewer_summary.first_recommended_surface` for the human-review entry point. The per-version additive history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing (current; emitted reports carry `report_schema_version: "0.27"`, preflight emits `preflight_schema_version: "0.2"`). v0.27 adds policy-pack distribution metadata (`loaded_policy_packs[].{source,sha256,sha256_status,owner}`) over v0.26's structured evidence gaps; gate behavior is unchanged. Read `release_decision.decision` for release gating, `agent_summary.first_recommended_action` for the next agent step, and `reviewer_summary.first_recommended_surface` for the human-review entry point. The per-version additive history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
 - **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability` and, in PR workflows, by `agents-shipgate verify`; non-gating and separate from `report.json`.
-- **[`docs/attestation-schema.v0.2.json`](docs/attestation-schema.v0.2.json)** — deterministic local attestation schema; v0.2 binds verifier artifacts plus capability lock/diff hashes when present.
+- **[`docs/attestation-schema.v0.3.json`](docs/attestation-schema.v0.3.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/registry-schema.v0.2.json`](docs/registry-schema.v0.2.json)** — deterministic local attestation, organization governance, and append-only registry schemas for multi-repo governance.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 
@@ -597,7 +597,7 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
 - It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.26"` (additive structured evidence gaps over v0.25's opt-in local trace/provenance evidence) while preserving the stable payload contract documented in the report schema.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.27"` (additive policy-pack distribution metadata over v0.26's structured evidence gaps) while preserving the stable payload contract documented in the report schema.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -639,12 +639,13 @@ readers and AI search ingest.
 - [The 5-minute mental model](docs/mental-model.md)
 - [MCP and host-permission governance](docs/mcp-governance.md)
 - [MCP server mode](docs/mcp-server.md)
+- [Organizational governance](docs/organization.md)
 - [Tool-Use Readiness release gate category](docs/category.md)
 - [Manifest v0.1](docs/manifest-v0.1.md)
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.26](docs/report-schema.v0.26.json)
+- [JSON report schema v0.27](docs/report-schema.v0.27.json)
 - [Capability standard](docs/capability-standard.md)
 - [Capability lock schema v0.2](docs/capability-lock-schema.v0.2.json)
 - [Capability lock diff schema v0.3](docs/capability-lock-diff-schema.v0.3.json)

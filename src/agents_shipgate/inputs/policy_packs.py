@@ -52,11 +52,12 @@ def load_policy_packs(
     for config in configs:
         try:
             path = resolve_input_path(base_dir, config.path)
-            _verify_pack_pin(path, config)
+            sha256, sha256_status = _verify_pack_pin(path, config)
             data = load_structured_file(path)
             if not isinstance(data, dict):
                 raise ConfigError(f"Policy pack must contain a YAML object: {config.path}")
             pack_file = PolicyPackFile.model_validate(data)
+            _validate_policy_pack_team_refs(manifest, pack_file, config.path)
             pack_id = config.id or pack_file.id or path.stem
             display_path = _relative_display_path(path, base_dir)
             pack = LoadedPolicyPack(
@@ -64,6 +65,10 @@ def load_policy_packs(
                 name=pack_file.name or pack_id,
                 version=pack_file.version,
                 path=display_path,
+                source=config.source,
+                sha256=sha256,
+                sha256_status=sha256_status,
+                owner=pack_file.owner,
                 rule_count=len(pack_file.rules),
             )
             loaded.append(pack)
@@ -95,6 +100,27 @@ def run_policy_pack_rules(
                 base_evidence={
                     "policy_pack": resolved.pack.id,
                     "policy_pack_path": resolved.pack.path,
+                    "policy_pack_source": resolved.pack.source,
+                    "policy_pack_sha256": resolved.pack.sha256,
+                    "policy_pack_sha256_status": resolved.pack.sha256_status,
+                    "policy_owner": resolved.rule.owner or resolved.pack.owner,
+                    "policy_reviewers": resolved.rule.reviewers,
+                    "policy_approval_required": (
+                        resolved.rule.approval.required
+                        if resolved.rule.approval is not None
+                        else False
+                    ),
+                    "policy_approval_teams": (
+                        resolved.rule.approval.teams
+                        if resolved.rule.approval is not None
+                        else []
+                    ),
+                    "policy_approval_min_approvals": (
+                        resolved.rule.approval.min_approvals
+                        if resolved.rule.approval is not None
+                        else None
+                    ),
+                    "policy_approval_enforced": False,
                 },
             )
             if match is None:
@@ -123,11 +149,13 @@ def run_policy_pack_rules(
     return findings
 
 
-def _verify_pack_pin(path: Path, config: PolicyPackConfig) -> None:
+def _verify_pack_pin(
+    path: Path, config: PolicyPackConfig
+) -> tuple[str | None, str]:
     """v0.2: enforce the optional sha256 content pin on shared packs."""
     pinned = (config.sha256 or "").strip().lower()
     if not pinned:
-        return
+        return None, "unpinned"
     try:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as exc:
@@ -141,6 +169,34 @@ def _verify_pack_pin(path: Path, config: PolicyPackConfig) -> None:
             "it was pinned; re-review the pack and update the pin, or restore "
             "the pinned content."
         )
+    return digest, "verified"
+
+
+def _validate_policy_pack_team_refs(
+    manifest: AgentsShipgateManifest,
+    pack_file: PolicyPackFile,
+    pack_path: str,
+) -> None:
+    org = getattr(manifest, "organization", None)
+    if org is None or not org.teams:
+        return
+    known = set(org.teams)
+
+    def check(ref: str | None, *, rule_id: str, field: str) -> None:
+        if ref is not None and ref not in known:
+            raise ConfigError(
+                f"Policy pack {pack_path!r} rule {rule_id!r} references "
+                f"unknown organization team {ref!r} in {field}; known teams: "
+                f"{', '.join(sorted(known))}."
+            )
+
+    for rule in pack_file.rules:
+        check(rule.owner, rule_id=rule.id, field="owner")
+        for reviewer in rule.reviewers:
+            check(reviewer, rule_id=rule.id, field="reviewers")
+        if rule.approval is not None:
+            for team in rule.approval.teams:
+                check(team, rule_id=rule.id, field="approval.teams")
 
 
 def _validate_rule_ids(rules: list[ResolvedPolicyPackRule]) -> None:

@@ -491,6 +491,10 @@ class LoadedPolicyPack(BaseModel):
     name: str
     version: str | None = None
     path: str
+    source: str | None = None
+    sha256: str | None = None
+    sha256_status: Literal["unpinned", "verified"] = "unpinned"
+    owner: str | None = None
     rule_count: int
 
 
@@ -787,7 +791,10 @@ class ReadinessReport(BaseModel):
     # actionable remediation row per low-confidence tool / source
     # warning, plus the advisory ``suggested-inventory.json`` artifact.
     # Pure projection of existing counts; gate behavior unchanged.
-    report_schema_version: str = "0.26"
+    # v0.27: additive policy-pack distribution metadata on
+    # ``loaded_policy_packs[]`` (source, sha256, sha256_status, owner).
+    # The release gate is unchanged; this is org-governance audit metadata.
+    report_schema_version: str = "0.27"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

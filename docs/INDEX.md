@@ -11,6 +11,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`hosted-plane-design.md`](hosted-plane-design.md) — design boundary for a future optional hosted product over local attestations/registry rows; the gate stays local
 - [`mcp-governance.md`](mcp-governance.md) — the two MCP surfaces (agent tool exports vs coding-agent host grants) and the `SHIP-HOST-BOUNDARY-*` checks
 - [`mcp-server.md`](mcp-server.md) — optional local MCP server mode (`mcp-serve`): read-only `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`
+- [`organization.md`](organization.md) — local-first organizational governance: policy-pack pins, exception hygiene, host-grant drift, attestations, and registry reporting
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
@@ -33,12 +34,16 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.26.json`](report-schema.v0.26.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.26"`, adding structured `evidence_gaps[]` remediation rows and the advisory `suggested-inventory.json` artifact while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.27.json`](report-schema.v0.27.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata on `loaded_policy_packs[]` while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — JSON Schema for local policy-pack YAML files (current; adds `all_of`/`any_of`/`none_of` combinators, `maximum_above`/`minimum_below` parameter bounds, and the manifest-side `sha256` pack pin)
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — frozen v0.1 reference schema for the flat match syntax
-- [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; binds verifier artifacts plus capability lock/diff hashes when available
+- [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds optional local org/CI context and detailed human acknowledgements
+- [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
+- [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — JSON Schema for `agents-shipgate registry query --json` and `registry report --bypass --json`
+- [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
 - [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — stable JSON Schema for semantic capability-lock diff artifacts emitted by `agents-shipgate capability diff`; non-gating and not part of `report.json`

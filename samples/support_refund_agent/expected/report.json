@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.26",
+  "report_schema_version": "0.27",
   "run_id": "agents_shipgate_33cced54c422d1e8",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -1717,7 +1717,7 @@
       {
         "kind": "suppression",
         "key": "SHIP-SCHEMA-BROAD-FREE-TEXT:support.search_kb",
-        "value_hash": "e18375f35e6bf45d",
+        "value_hash": "b579fdfa54a957f7",
         "summary": "Search query intentionally accepts free text."
       }
     ]

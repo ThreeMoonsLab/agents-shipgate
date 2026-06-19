@@ -24,6 +24,12 @@ Writes / verifies:
 - docs/preflight-schema.v0.2.json
                                 (from agents_shipgate.schemas.preflight.
                                  PreflightResultV2)
+- docs/org-governance-schema.v0.1.json
+                                (from agents_shipgate.schemas.org_governance.
+                                 OrgGovernanceStatusV1)
+- docs/registry-schema.v0.2.json
+                                (from agents_shipgate.schemas.registry.
+                                 RegistryQueryResultV1)
 - docs/capability-lock-schema.v0.2.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1423,6 +1429,56 @@ def build_attestation_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_org_governance_schema() -> tuple[Path, str]:
+    """Generate the organization governance status schema."""
+
+    from agents_shipgate.schemas.org_governance import (
+        ORG_GOVERNANCE_SCHEMA_VERSION,
+        OrgGovernanceStatusV1,
+    )
+
+    schema = OrgGovernanceStatusV1.model_json_schema()
+    minor = ORG_GOVERNANCE_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/org-governance-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Organization Governance Status v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate org status --json. This is an "
+        "organization governance projection over local artifacts, not a "
+        "release verdict; release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"org-governance-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_registry_schema() -> tuple[Path, str]:
+    """Generate the local attestation registry schema."""
+
+    from agents_shipgate.schemas.registry import (
+        REGISTRY_SCHEMA_VERSION,
+        RegistryQueryResultV1,
+    )
+
+    schema = RegistryQueryResultV1.model_json_schema()
+    minor = REGISTRY_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/registry-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Local Attestation Registry v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate registry query --json. Rows are "
+        "local, append-only projections of deterministic attestations. The "
+        "registry does not produce release verdicts."
+    )
+    target = DOCS / f"registry-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1437,6 +1493,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
     ("attestation", build_attestation_schema),
+    ("org_governance", build_org_governance_schema),
+    ("registry", build_registry_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )

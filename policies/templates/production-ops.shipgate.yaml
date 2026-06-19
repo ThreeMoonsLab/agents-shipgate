@@ -1,0 +1,17 @@
+name: Production Operations Policy
+version: "1.0"
+owner: agent-platform
+rules:
+  - id: ORG-PROD-OPS-ROLLBACK
+    title: Production operation requires rollback evidence
+    category: org_policy
+    severity: high
+    block: true
+    confidence: high
+    owner: agent-platform
+    reviewers: [security]
+    recommendation: Add rollback/runbook evidence before shipping production operations.
+    match:
+      capability:
+        effects: [production_operation]
+        high_risk: true

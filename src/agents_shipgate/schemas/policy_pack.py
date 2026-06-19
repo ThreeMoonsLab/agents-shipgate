@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 
 from agents_shipgate.schemas.common import Confidence, Severity
 from agents_shipgate.schemas.surfaces import ActionEffect
@@ -73,6 +73,45 @@ class PolicyPackMatch(BaseModel):
     none_of: list[PolicyPackMatch] = Field(default_factory=list)
 
 
+class PolicyPackApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required: bool = Field(
+        default=False,
+        description=(
+            "Routing/audit metadata only. Shipgate validates team references "
+            "but does not verify external approvals or change release gating "
+            "from this field."
+        ),
+    )
+    teams: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Organization team names for approval routing metadata. They are "
+            "not checked against GitHub or any external approval system."
+        ),
+    )
+    min_approvals: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Requested human approval count for routing/audit metadata only; "
+            "not enforced by the deterministic rule engine."
+        ),
+    )
+
+    @field_validator("teams")
+    @classmethod
+    def _teams_non_empty(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for team in value:
+            clean = team.strip()
+            if not clean:
+                raise ValueError("policy-pack approval teams must be non-empty")
+            out.append(clean)
+        return out
+
+
 class PolicyPackRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -85,6 +124,37 @@ class PolicyPackRule(BaseModel):
     confidence: Confidence = "medium"
     recommendation: str
     match: PolicyPackMatch
+    owner: str | None = None
+    reviewers: list[str] = Field(default_factory=list)
+    approval: PolicyPackApproval | None = Field(
+        default=None,
+        description=(
+            "Optional non-enforcing approval routing metadata. Rule matching "
+            "and release decisions continue to use deterministic predicates "
+            "and the rule's severity/block fields."
+        ),
+    )
+
+    @field_validator("owner")
+    @classmethod
+    def _owner_non_empty(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        if not clean:
+            raise ValueError("policy-pack rule owner must be non-empty when set")
+        return clean
+
+    @field_validator("reviewers")
+    @classmethod
+    def _reviewers_non_empty(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for reviewer in value:
+            clean = reviewer.strip()
+            if not clean:
+                raise ValueError("policy-pack rule reviewers must be non-empty")
+            out.append(clean)
+        return out
 
 
 class PolicyPackFile(BaseModel):
@@ -93,7 +163,18 @@ class PolicyPackFile(BaseModel):
     id: str | None = None
     name: str | None = None
     version: str | None = None
+    owner: str | None = None
     rules: list[PolicyPackRule]
+
+    @field_validator("owner")
+    @classmethod
+    def _owner_non_empty(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        if not clean:
+            raise ValueError("policy-pack owner must be non-empty when set")
+        return clean
 
 
 class PolicyPackArtifactV1(RootModel[PolicyPackFile]):

@@ -43,6 +43,7 @@ def test_action_has_marketplace_metadata_and_outputs():
         "capability_lock_json",
         "base_capability_lock_json",
         "capability_lock_diff_json",
+        "attestation_json",
         "exit_code",
         "agent_decision",
         "risk_level",
@@ -74,6 +75,8 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert data["inputs"]["check_run_name"]["default"] == "Agents Shipgate"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
+    assert data["inputs"]["attestation"]["default"] == "false"
+    assert data["inputs"]["registry_repo_label"]["default"] == ""
 
 
 def test_action_exposes_verifier_merge_outputs():
@@ -127,6 +130,10 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "agent-result.json did not expose an agent decision" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
+    assert "Build Agents Shipgate attestation" in text
+    assert "inputs.attestation == 'true'" in text
+    assert "--ci-context github-actions" in text
+    assert "REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}" in text
     assert "CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}" in text
     assert "verify" in text
     assert "scan" in text

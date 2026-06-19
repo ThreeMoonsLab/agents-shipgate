@@ -385,7 +385,6 @@ def test_cli_scan_help_hides_deferred_flags():
 HIDDEN_TOP_LEVEL_COMMANDS = {
     "evidence-packet",
     "feedback",
-    "registry",
     "scenario",
     "skill",
 }
@@ -396,6 +395,8 @@ VISIBLE_CORE_COMMANDS = {
     "init",
     "scan",
     "audit",
+    "org",
+    "registry",
     "doctor",
     "self-check",
     "fixture",  # the README 60-second demo leads with `fixture run`

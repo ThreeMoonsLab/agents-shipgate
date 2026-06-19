@@ -1,0 +1,22 @@
+name: Payments Release Policy
+version: "1.0"
+owner: agent-platform
+rules:
+  - id: ORG-PAYMENTS-APPROVAL-IDEMPOTENCY
+    title: Financial write capability requires approval and idempotency
+    category: org_policy
+    severity: critical
+    block: true
+    confidence: high
+    owner: agent-platform
+    reviewers: [security]
+    approval:
+      required: true
+      teams: [agent-platform]
+      min_approvals: 1
+    recommendation: Declare approval and idempotency evidence or keep the payment capability out of release.
+    match:
+      capability:
+        financial: true
+        missing_approval_policy: true
+        missing_idempotency_policy: true

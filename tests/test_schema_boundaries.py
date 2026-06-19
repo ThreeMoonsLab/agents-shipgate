@@ -91,6 +91,15 @@ def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() 
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
 
 
+def test_frozen_v026_report_schema_does_not_backport_v027_policy_pack_metadata() -> None:
+    v26 = _loaded_policy_pack_properties("0.26")
+    v27 = _loaded_policy_pack_properties("0.27")
+    v27_fields = {"source", "sha256", "sha256_status", "owner"}
+
+    assert v27_fields.isdisjoint(v26)
+    assert v27_fields.issubset(v27)
+
+
 def _report_schema_action_fact_properties(version: str) -> set[str]:
     schema = json.loads(
         (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
@@ -98,6 +107,15 @@ def _report_schema_action_fact_properties(version: str) -> set[str]:
         )
     )
     return set(schema["$defs"]["ActionFact"]["properties"])
+
+
+def _loaded_policy_pack_properties(version: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"]["LoadedPolicyPack"]["properties"])
 
 
 def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:
@@ -138,7 +156,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.26"
+    assert report_payload["report_schema_version"] == "0.27"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",

@@ -1,0 +1,33 @@
+# Scheduled organization governance gate.
+#
+# This workflow checks exception hygiene, policy-pack pinning, and host-grant
+# drift using only local repository artifacts. It does not create a second
+# release verdict; PR merge decisions still come from
+# report.json.release_decision.decision in the verifier workflow.
+
+name: Agents Shipgate (org governance)
+
+on:
+  schedule:
+    - cron: "31 6 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  org-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install agents-shipgate (pinned)
+        run: python -m pip install "agents-shipgate==0.13.0"
+
+      - name: Evaluate organization governance
+        run: agents-shipgate org status --config shipgate.yaml --json

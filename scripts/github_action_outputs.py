@@ -63,6 +63,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     capability_lock_json = output_dir / "capabilities.lock.json"
     base_capability_lock_json = output_dir / "base.capabilities.lock.json"
     capability_lock_diff_json = output_dir / "capability-lock-diff.json"
+    attestation_json = output_dir / "attestation.json"
 
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
@@ -115,6 +116,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "capability_lock_json": capability_lock_json,
         "base_capability_lock_json": base_capability_lock_json,
         "capability_lock_diff_json": capability_lock_diff_json,
+        "attestation_json": attestation_json,
         "decision": release_decision.get("decision", ""),
         "blocker_count": len(release_decision.get("blockers") or []),
         "review_item_count": len(release_decision.get("review_items") or []),

@@ -18,12 +18,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
-REGISTRY_SCHEMA_VERSION = "0.1"
+from agents_shipgate.schemas.registry import (
+    REGISTRY_SCHEMA_VERSION,
+    RegistryBypassReportV1,
+    RegistryQueryResultV1,
+    RegistryRowV1,
+    RegistrySkippedRowV1,
+)
+
 DEFAULT_REGISTRY_PATH = Path(".agents-shipgate/registry.jsonl")
 
 registry_app = typer.Typer(
@@ -33,15 +42,31 @@ registry_app = typer.Typer(
 )
 
 
+@dataclass(frozen=True)
+class LoadedRegistry:
+    rows: list[RegistryRowV1]
+    skipped: list[RegistrySkippedRowV1]
+
+
 def _row_from_attestation(
     attestation: dict[str, Any], *, repo: str | None
-) -> dict[str, Any]:
+) -> RegistryRowV1:
     verdict = attestation.get("verdict") or {}
     capability = attestation.get("capability") or {}
     human_ack = attestation.get("human_ack") or {}
+    org = attestation.get("org") or {}
+    human_ack_required = human_ack.get("required")
+    human_ack_satisfied = human_ack.get("satisfied")
     row = {
         "registry_schema_version": REGISTRY_SCHEMA_VERSION,
-        "repo": repo or "",
+        "repo": repo or org.get("repo") or "",
+        "org_id": org.get("org_id"),
+        "service": org.get("service"),
+        "tier": org.get("tier"),
+        "pr_number": org.get("pr_number"),
+        "workflow_run_id": org.get("workflow_run_id"),
+        "actor": org.get("actor"),
+        "merge_sha": org.get("merge_sha"),
         "attestation_schema_version": attestation.get("attestation_schema_version"),
         "cli_version": attestation.get("cli_version"),
         "base_ref": attestation.get("base_ref"),
@@ -57,31 +82,91 @@ def _row_from_attestation(
         "capability_change_ids": sorted(capability.get("change_ids") or []),
         "trust_root_touched": capability.get("trust_root_touched"),
         "policy_weakened": capability.get("policy_weakened"),
+        "human_ack_required": (
+            human_ack_required if isinstance(human_ack_required, bool) else None
+        ),
+        "human_ack_satisfied": (
+            human_ack_satisfied if isinstance(human_ack_satisfied, bool) else None
+        ),
+        "human_ack_outstanding": [
+            str(item) for item in human_ack.get("outstanding") or []
+        ],
         "human_ack": human_ack,
         "policy_snapshot_sha256": attestation.get("policy_snapshot_sha256"),
         "artifact_sha256": attestation.get("artifact_sha256"),
     }
-    row["row_id"] = "att_" + hashlib.sha256(
-        json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    row["row_id"] = _row_id(row)
+    return RegistryRowV1.model_validate(row)
+
+
+def _row_id(row: dict[str, Any]) -> str:
+    payload = {key: value for key, value in row.items() if key != "row_id"}
+    return "att_" + hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
-    return row
 
 
-def _load_rows(registry_path: Path) -> list[dict[str, Any]]:
+def _load_registry(registry_path: Path) -> LoadedRegistry:
     if not registry_path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in registry_path.read_text(encoding="utf-8").splitlines():
+        return LoadedRegistry(rows=[], skipped=[])
+    rows: list[RegistryRowV1] = []
+    skipped: list[RegistrySkippedRowV1] = []
+    for line_number, line in enumerate(
+        registry_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         line = line.strip()
         if not line:
             continue
         try:
             loaded = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason=f"invalid_json: {exc.msg}",
+                )
+            )
             continue
-        if isinstance(loaded, dict):
-            rows.append(loaded)
-    return rows
+        if not isinstance(loaded, dict):
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason="row must be a JSON object",
+                )
+            )
+            continue
+        try:
+            rows.append(_coerce_row(loaded))
+        except ValidationError as exc:
+            skipped.append(
+                RegistrySkippedRowV1(
+                    line=line_number,
+                    reason=f"schema_validation_error: {exc.errors()[0]['msg']}",
+                )
+            )
+    return LoadedRegistry(rows=rows, skipped=skipped)
+
+
+def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
+    """Back-compat helper for internal callers that only need valid rows."""
+    return _load_registry(registry_path).rows
+
+
+def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
+    if "row_id" not in value:
+        value = {**value, "row_id": _row_id(value)}
+    human_ack = value.get("human_ack") or {}
+    if "human_ack_required" not in value and isinstance(human_ack, dict):
+        required = human_ack.get("required")
+        value["human_ack_required"] = required if isinstance(required, bool) else None
+    if "human_ack_satisfied" not in value and isinstance(human_ack, dict):
+        satisfied = human_ack.get("satisfied")
+        value["human_ack_satisfied"] = satisfied if isinstance(satisfied, bool) else None
+    if "human_ack_outstanding" not in value and isinstance(human_ack, dict):
+        value["human_ack_outstanding"] = [
+            str(item) for item in human_ack.get("outstanding") or []
+        ]
+    return RegistryRowV1.model_validate(value)
 
 
 @registry_app.command("ingest")
@@ -119,15 +204,15 @@ def registry_ingest(
     row = _row_from_attestation(data, repo=repo)
     existing = _load_rows(registry)
     status = "exists"
-    if all(item.get("row_id") != row["row_id"] for item in existing):
+    if all(item.row_id != row.row_id for item in existing):
         registry.parent.mkdir(parents=True, exist_ok=True)
         with registry.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            handle.write(json.dumps(row.model_dump(mode="json"), sort_keys=True) + "\n")
         status = "ingested"
     if json_output:
-        typer.echo(json.dumps({"status": status, "row_id": row["row_id"]}))
+        typer.echo(json.dumps({"status": status, "row_id": row.row_id}))
     else:
-        typer.echo(f"{status}: {row['row_id']} → {registry}")
+        typer.echo(f"{status}: {row.row_id} → {registry}")
 
 
 @registry_app.command("query")
@@ -148,41 +233,101 @@ def registry_query(
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Query the ledger: which capability shipped, under which verdict."""
-    rows = _load_rows(registry)
+    loaded = _load_registry(registry)
     selected = []
-    for row in rows:
-        if repo and row.get("repo") != repo:
+    for row in loaded.rows:
+        if repo and row.repo != repo:
             continue
-        if verdict and row.get("merge_verdict") != verdict:
+        if verdict and row.merge_verdict != verdict:
             continue
-        if capability_id and capability_id not in (
-            row.get("capability_change_ids") or []
-        ):
+        if capability_id and capability_id not in row.capability_change_ids:
             continue
-        if trust_root_touched and row.get("trust_root_touched") is not True:
+        if trust_root_touched and row.trust_root_touched is not True:
             continue
         selected.append(row)
-    selected.sort(key=lambda row: str(row.get("row_id")))
+    selected.sort(key=lambda row: row.row_id)
     if json_output:
-        typer.echo(
-            json.dumps(
-                {"registry": str(registry), "count": len(selected), "rows": selected},
-                indent=2,
-                sort_keys=True,
-            )
+        payload = RegistryQueryResultV1(
+            registry=str(registry),
+            count=len(selected),
+            skipped_count=len(loaded.skipped),
+            skipped_rows=loaded.skipped,
+            rows=selected,
         )
+        typer.echo(payload.model_dump_json(indent=2))
         return
     typer.echo(f"{len(selected)} attestation row(s) in {registry}")
+    if loaded.skipped:
+        typer.echo(
+            f"Skipped {len(loaded.skipped)} malformed registry row(s).",
+            err=True,
+        )
     for row in selected:
         flags = []
-        if row.get("trust_root_touched"):
+        if row.trust_root_touched:
             flags.append("trust-root")
-        if row.get("policy_weakened"):
+        if row.policy_weakened:
             flags.append("policy-weakened")
         suffix = f" [{', '.join(flags)}]" if flags else ""
         typer.echo(
-            f"- {row.get('row_id')} repo={row.get('repo') or '—'} "
-            f"verdict={row.get('merge_verdict')} "
-            f"+{row.get('capability_added', 0)}/~{row.get('capability_modified', 0)}"
-            f"/-{row.get('capability_removed', 0)}{suffix}"
+            f"- {row.row_id} repo={row.repo or '—'} "
+            f"verdict={row.merge_verdict} "
+            f"+{row.capability_added or 0}/~{row.capability_modified or 0}"
+            f"/-{row.capability_removed or 0}{suffix}"
         )
+
+
+@registry_app.command("report")
+def registry_report(
+    registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
+    bypass: bool = typer.Option(
+        False,
+        "--bypass",
+        help=(
+            "Report merges whose merge_verdict was not mergeable and whose "
+            "attestation does not carry satisfied human acknowledgement."
+        ),
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    fail_on_bypass: bool = typer.Option(
+        False,
+        "--fail-on-bypass",
+        help="Exit 20 when --bypass finds at least one row.",
+    ),
+) -> None:
+    """Emit derived registry reports. Currently supports --bypass."""
+    if not bypass:
+        typer.echo("Nothing to report: pass --bypass.", err=True)
+        raise typer.Exit(2)
+    loaded = _load_registry(registry)
+    rows = [
+        row
+        for row in loaded.rows
+        if row.merge_verdict != "mergeable" and row.human_ack_satisfied is not True
+    ]
+    rows.sort(key=lambda row: row.row_id)
+    payload = RegistryBypassReportV1(
+        registry=str(registry),
+        bypass_count=len(rows),
+        skipped_count=len(loaded.skipped),
+        skipped_rows=loaded.skipped,
+        rows=rows,
+    )
+    if json_output:
+        typer.echo(payload.model_dump_json(indent=2))
+        if fail_on_bypass and payload.bypass_count > 0:
+            raise typer.Exit(20)
+        return
+    typer.echo(f"{payload.bypass_count} possible bypass row(s) in {registry}")
+    if loaded.skipped:
+        typer.echo(
+            f"Skipped {len(loaded.skipped)} malformed registry row(s).",
+            err=True,
+        )
+    for row in payload.rows:
+        typer.echo(
+            f"- {row.row_id} repo={row.repo or '—'} verdict={row.merge_verdict} "
+            f"human_ack_satisfied={row.human_ack_satisfied}"
+        )
+    if fail_on_bypass and payload.bypass_count > 0:
+        raise typer.Exit(20)
