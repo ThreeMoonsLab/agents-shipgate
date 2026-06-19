@@ -1,6 +1,6 @@
 # Design Partner Verifier Pilot
 
-Use this runbook to get three design partners through the v0.13.0 verifier
+Use this runbook to get three design partners through the v1.0.0a1 verifier
 loop on one real or sanitized AI-generated agent PR each.
 
 ## Goal
@@ -73,7 +73,7 @@ success path.
 ## Pilot Commands
 
 Run these from the target repo root. The `verify` and `feedback` commands
-require agents-shipgate >=0.13.0, so the block leads with `pipx install`
+require Agents Shipgate contract v5 or newer, so the block leads with `pipx install`
 then `pipx upgrade`: a plain `pipx install` is a no-op when an older build
 is already installed, and the follow-up `pipx upgrade` brings a stale copy
 current. If `pipx` is unavailable, use
@@ -125,8 +125,8 @@ Paste this into the partner's coding agent from the target repo root:
 Add Agents Shipgate as an advisory verifier for this AI-generated
 agent-capability PR.
 
-Use the v0.13.0 verifier-first path:
-1. Install or upgrade agents-shipgate (the pilot needs >=0.13.0):
+Use the v1.0.0a1 verifier-first path:
+1. Install or upgrade agents-shipgate (the pilot needs contract v5 or newer):
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    A plain pipx install is a no-op when an older build is already installed,

@@ -30,7 +30,7 @@ different audience and can never disagree with it.
 | `report.md` | **human release reviewer** | release review | Yes — same content as report.json, prose-shaped |
 | `report.sarif` | **GitHub code scanning** | Security tab / annotations | Yes unless you use code scanning |
 | `packet.{md,json,html}` | **GRC / security reviewer** | formal release evidence | Yes for day-to-day PRs |
-| `agent-result.json` | **PR controllers / bots** | compact allow/warn/review/block routing | Yes unless you build automation |
+| `verify-run.json` | **agents, CI, auditors** | reproducibility and input identity | Yes for casual human review; no for deterministic reruns |
 | `suggested-inventory.json` | **whoever fixes `insufficient_evidence`** | when evidence gaps exist | Yes when confidence is high |
 | capability lock / diff | **external integrations, research** | cross-repo capability tracking | Yes — never gates |
 | attestation | **release record keepers** | after merge | Yes — durable record, not a gate |

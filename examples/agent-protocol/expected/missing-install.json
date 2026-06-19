@@ -1,5 +1,5 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
@@ -52,7 +52,7 @@
   ],
   "agent_repair_instructions": [
     "Install Agents Shipgate with pipx install agents-shipgate.",
-    "Rerun shipgate check --agent codex --workspace . --format agent-json."
+    "Rerun shipgate check --agent codex --workspace . --format codex-boundary-json."
   ],
   "diagnostics": [
     {

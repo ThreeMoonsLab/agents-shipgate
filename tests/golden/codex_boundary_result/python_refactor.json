@@ -1,16 +1,16 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "codex_boundary_805d1774b771bfd9aca7d3cb",
+  "audit_id": "codex_boundary_4b4217d51dae2d62707707b0",
   "policy_version": "1",
   "summary": "No Codex boundary changes require action.",
   "changed_files": [

@@ -23,12 +23,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
-          shipgate_version: '0.13.0'
+          shipgate_version: '1.0.0a1'
 ```
 
 To post PR comments, set:
@@ -50,17 +50,18 @@ with:
   policy_packs: policies/org-release.yaml,policies/security.yaml
 ```
 
-To make the compact agent decision load-bearing in CI, configure
-`fail_on_decisions`. Recommended values are `block` or
-`block,require_review`:
+To make the verifier merge verdict load-bearing in CI, configure
+`fail_on_merge_verdicts`. The recommended agent-PR policy is either to
+block only `blocked`, or to require `can_merge_without_human == true` in a
+separate workflow step:
 
 ```yaml
 with:
-  fail_on_decisions: block
+  fail_on_merge_verdicts: blocked
 ```
 
 This is opt-in. When configured, the action fails closed if the installed
-`agents-shipgate` package does not emit `agent-result.json`, so pinned older
+`agents-shipgate` package does not emit `verifier.json`, so pinned older
 versions should be upgraded before enabling the input.
 
 Action outputs:
@@ -68,13 +69,11 @@ Action outputs:
 | Output | Meaning |
 | --- | --- |
 | `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Use this as the CI gating signal.** Switch on the value with a `review_required` fallback for unknown future values. |
-| `agent_decision` | Compact `agent_result_v1` projection (`allow`, `warn`, `require_review`, or `block`) from `agent-result.json`. Used by `fail_on_decisions` when configured. |
-| `risk_level` | Compact risk level from `agent-result.json` (`none`, `low`, `medium`, `high`, or `critical`). |
-| `audit_id` | Stable audit id from `agent-result.json`. |
-| `required_reviewers` | Comma-separated deterministic reviewer roles from `agent-result.json`. |
-| `policy_snapshot_sha256` | SHA-256 of the effective policy snapshot used by `agent-result.json`, when available. |
-| `merge_verdict` | PR/controller projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Use it for reviewer and coding-agent routing, not as a second gate. |
+| `merge_verdict` | PR/controller projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Used by `fail_on_merge_verdicts` when configured; this is a controller projection, not a second release gate. |
 | `can_merge_without_human` | `true` only when the verifier projection says no human authority gap remains. Use for strict authority workflows after the advisory result is understood. |
+| `agent_controller_must_stop` | `true` when `verifier.json.agent_controller.must_stop` tells a coding agent to stop. |
+| `agent_controller_stop_reason` | Deterministic stop reason from `verifier.json.agent_controller.stop_reason`, when present. |
+| `agent_controller_completion_allowed` | `true` when `verifier.json.agent_controller.completion_allowed` allows the agent to claim completion. |
 | `blocker_count` | Number of blockers in `release_decision.blockers`. v0.8+. |
 | `review_item_count` | Number of review items in `release_decision.review_items`. v0.8+. |
 | `ci_would_fail` | `true`/`false` — whether the active fail policy would fail CI. v0.8+. |
@@ -91,17 +90,19 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
-| `agent_result_json` | Path to `agent-result.json`, which validates against [`agent-result-schema.v1.json`](agent-result-schema.v1.json). |
+| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v1.json`](verify-run-schema.v1.json). |
+| `run_id` | Stable verify-run input identity from `verify-run.json.run_id`. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
 
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
-packet JSON, verifier JSON, `agent-result.json`, and PR-comment Markdown
+packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown
 artifacts. It intentionally emits `packet.json` only for the packet;
 `pr-comment.md` is the human PR surface. Read `verifier.json` first for `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, and
-`capability_review.top_changes`; read `report.json.release_decision.decision`
-for the gate. Verify never fetches; use `fetch-depth: 0` on checkout or fetch
+`can_merge_without_human`, `agent_controller`, `first_next_action`, and
+`capability_review.top_changes`; read `verify-run.json` for reproducibility
+metadata; read `report.json.release_decision.decision` for the gate.
+Verify never fetches; use `fetch-depth: 0` on checkout or fetch
 the base ref before the action when `diff_base: target` is set. An explicit
 `head_ref` is scanned from an isolated archive; without it, the checked-out
 workspace is scanned. Upload `report.sarif` to GitHub code scanning from your
@@ -179,7 +180,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install "agents-shipgate==0.13.0"
+    - python -m pip install --pre "agents-shipgate==1.0.0a1"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -211,7 +212,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install "agents-shipgate==0.13.0"
+      - run: python -m pip install --pre "agents-shipgate==1.0.0a1"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -256,7 +257,8 @@ pip install 'agents-shipgate[mcp]'
 }
 ```
 
-Tools: `shipgate.check` (caller-provided diff to `agent_result_v1`),
+Tools: `shipgate.check` (caller-provided diff to
+`shipgate.codex_boundary_result/v1`),
 `shipgate.preflight` (protected surfaces, required evidence, and policy/trust
 root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
 `shipgate.capabilities` (capability lock export or diff). The server is
@@ -273,7 +275,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v0.13.0
+    rev: v1.0.0a1
     hooks:
       - id: agents-shipgate
 ```

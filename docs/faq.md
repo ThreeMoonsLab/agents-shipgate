@@ -137,7 +137,7 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v0.13.0 is the latest released version. The manifest schema is stable
+v1.0.0a1 is the current alpha contract version. The manifest schema is stable
 across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 

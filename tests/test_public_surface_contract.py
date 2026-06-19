@@ -59,7 +59,7 @@ CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
@@ -76,14 +76,15 @@ CONTEXT_WINDOW = 400  # ~one paragraph; tight enough that the original
 # stale `.claude/commands/shipgate.md` (no legacy
 # marker for hundreds of chars) would still fail.
 
-ACTION_PIN_PATTERN = re.compile(r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)")
-PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
+VERSION_RE = r"\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?"
+ACTION_PIN_PATTERN = re.compile(rf"ThreeMoonsLab/agents-shipgate@v({VERSION_RE})")
+PIP_PIN_PATTERN = re.compile(rf"agents-shipgate==({VERSION_RE})")
 # Zero-install runner pin recommended by the agent-facing install
 # snippets: ``uvx agents-shipgate@X.Y.Z``. The ``@v`` GitHub Action form
 # is NOT matched (a digit must follow ``@``), nor is the ``==`` pip form,
 # so this guards the uvx literal specifically.
-UVX_PIN_PATTERN = re.compile(r"agents-shipgate@(\d+\.\d+\.\d+)")
-SHIPGATE_VERSION_INPUT_PATTERN = re.compile(r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]")
+UVX_PIN_PATTERN = re.compile(rf"agents-shipgate@({VERSION_RE})")
+SHIPGATE_VERSION_INPUT_PATTERN = re.compile(rf"shipgate_version:\s*['\"]({VERSION_RE})['\"]")
 # Surfaces that name the *latest released* version inline (not as an
 # Action / pip / shipgate_version pin) and must move with the package
 # version on every bump. Each entry is a (path, regex) pair where the
@@ -94,19 +95,19 @@ SHIPGATE_VERSION_INPUT_PATTERN = re.compile(r"shipgate_version:\s*['\"](\d+\.\d+
 VERSION_LITERAL_TARGETS = (
     (
         ".github/ISSUE_TEMPLATE/bug_report.yml",
-        re.compile(r"placeholder:\s*\"v(\d+\.\d+\.\d+)\""),
+        re.compile(rf"placeholder:\s*\"v({VERSION_RE})\""),
     ),
     (
         "docs/distribution.md",
-        re.compile(r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"),
+        re.compile(rf"Pinned GitHub Action release tags[^\n]*?including\s+`v({VERSION_RE})`"),
     ),
     (
         "docs/faq.md",
-        re.compile(r"v(\d+\.\d+\.\d+) is the latest released version"),
+        re.compile(rf"v({VERSION_RE}) is the current alpha contract version"),
     ),
     (
         "ROADMAP.md",
-        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+)`"),
+        re.compile(rf"Latest release:\s*`v({VERSION_RE})`"),
     ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
@@ -348,13 +349,22 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("agent_result_schema_version") == contract["agent_result_schema_version"]
     assert data.get("agent_result_schema_path") == contract["agent_result_schema_path"]
     assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
+    assert data.get("verifier_schema_version") == contract["verifier_schema_version"]
+    assert data.get("verify_run_schema_version") == contract["verify_run_schema_version"]
+    assert data.get("codex_boundary_result_schema_version") == (
+        contract["codex_boundary_result_schema_version"]
+    )
+    assert data.get("agent_read_order") == contract["agent_read_order"]
+    assert data.get("verifier_read_order") == contract["verifier_read_order"]
     commands = data.get("commands", {})
     assert commands.get("agent_check_codex") == contract["commands"]["agent_check_codex"]
     assert commands.get("agent_check_claude_code") == (
         contract["commands"]["agent_check_claude_code"]
     )
     assert commands.get("agent_check_cursor") == contract["commands"]["agent_check_cursor"]
-    assert data.get("artifacts", {}).get("local_contract") == (".shipgate/agent-contract.json")
+    artifacts = data.get("artifacts", {})
+    assert artifacts.get("local_contract") == (".shipgate/agent-contract.json")
+    assert artifacts.get("verify_run") == contract["artifacts"]["verify_run"]
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (
         f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; got {report_url!r}."
@@ -403,6 +413,11 @@ def test_well_known_metadata_lists_packet_outputs():
     ), (
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
+    )
+    assert "verify_run" in schemas and "verify-run-schema.v1.json" in schemas["verify_run"]
+    assert (
+        "codex_boundary_result" in schemas
+        and "codex-boundary-result-schema.v1.json" in schemas["codex_boundary_result"]
     )
 
 
@@ -531,7 +546,7 @@ def test_constants_match_contract_doc():
     text = _read("docs/agent-contract-current.md")
     report_match = re.search(r"Current report schema:\s*`(\d+\.\d+)`", text)
     packet_match = re.search(r"Current packet schema:\s*`(\d+\.\d+)`", text)
-    release_match = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text)
+    release_match = re.search(rf"Latest release:\s*`v({VERSION_RE})`", text)
     assert report_match, (
         "docs/agent-contract-current.md must declare 'Current report "
         "schema: `X.Y`' so the test constants can be cross-checked."
@@ -594,7 +609,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     # llms.txt — both the "Latest public release" line and the
     # GitHub Action line must echo the package version.
     llms_text = _read("llms.txt")
-    llms_release = re.search(r"Latest public release:\s*v(\d+\.\d+\.\d+)", llms_text)
+    llms_release = re.search(rf"Latest public release:\s*v({VERSION_RE})", llms_text)
     assert llms_release, "llms.txt must declare 'Latest public release: vX.Y.Z'."
     assert llms_release.group(1) == expected, (
         f"llms.txt 'Latest public release' is "
@@ -611,7 +626,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
 
     # docs/agent-contract-current.md
     contract_text = _read("docs/agent-contract-current.md")
-    contract_release = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", contract_text)
+    contract_release = re.search(rf"Latest release:\s*`v({VERSION_RE})`", contract_text)
     assert contract_release and contract_release.group(1) == expected, (
         f"docs/agent-contract-current.md 'Latest release' must be `v{expected}`."
     )

@@ -12,8 +12,8 @@ from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "codex_boundary"
-GOLDEN = ROOT / "tests" / "golden" / "agent_result"
-SCHEMA = ROOT / "docs" / "agent-result-schema.v1.json"
+GOLDEN = ROOT / "tests" / "golden" / "codex_boundary_result"
+SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v1.json"
 
 runner = CliRunner()
 
@@ -33,7 +33,7 @@ CASES = {
 }
 
 
-def test_codex_check_agent_json_golden_outputs(tmp_path: Path) -> None:
+def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
     validator = Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
     for case, (decision, rule_ids) in CASES.items():
         result = runner.invoke(
@@ -45,7 +45,7 @@ def test_codex_check_agent_json_golden_outputs(tmp_path: Path) -> None:
                 "--diff",
                 str(CORPUS / f"{case}.diff"),
                 "--format",
-                "agent-json",
+                "codex-boundary-json",
             ],
         )
 
@@ -66,7 +66,7 @@ def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
         "--diff",
         str(CORPUS / "network_wildcard.diff"),
         "--format",
-        "agent-json",
+        "codex-boundary-json",
     ]
     first = json.loads(runner.invoke(app, args).output)
     second = json.loads(runner.invoke(app, args).output)
@@ -257,7 +257,7 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
             "--diff",
             "-",
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
         input=diff_text,
     )
@@ -277,7 +277,7 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
             "--head",
             "HEAD",
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
@@ -302,7 +302,7 @@ def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) ->
             "--diff",
             str(CORPUS / "malformed_toml.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
@@ -626,7 +626,7 @@ index 1111111..2222222 100644
 @@ -7,2 +7,3 @@
            config: shipgate.yaml
            ci_mode: advisory
-+          fail_on_decisions: block
++          fail_on_merge_verdicts: blocked
 """
 
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
@@ -787,7 +787,7 @@ index 1111111..2222222 100644
     assert [item.id for item in result.violated_rules] == ["CODEX-NETWORK-EXPANDED"]
 
 
-def test_agent_result_never_contradicts_release_decision(tmp_path: Path) -> None:
+def test_codex_boundary_result_never_contradicts_release_decision(tmp_path: Path) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=(CORPUS / "docs_only.diff").read_text(encoding="utf-8"),

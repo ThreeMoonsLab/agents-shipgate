@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 
 AGENT_MODE_ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
@@ -34,9 +35,39 @@ def is_agent_mode(env: Mapping[str, str] | None = None) -> bool:
     return any(source.get(hint) for hint in AGENT_ENV_HINTS)
 
 
-def emit_agent_mode_error(error_kind: str, **fields: object) -> None:
+def emit_agent_mode_error(
+    error_kind: str,
+    *,
+    message: object | None = None,
+    exit_code: int | None = None,
+    command: str | None = None,
+    next_action: object | None = None,
+    next_actions: object | None = None,
+    diagnostics: object | None = None,
+    artifacts: object | None = None,
+    **fields: object,
+) -> None:
     """Emit a structured one-line error for coding-agent callers."""
     if not is_agent_mode():
         return
-    payload = {"error": error_kind, **fields}
+    payload: dict[str, object] = {"error": error_kind}
+    if message is not None:
+        payload["message"] = str(message)
+    if exit_code is not None:
+        payload["exit_code"] = exit_code
+    payload["command"] = command or _command_string()
+    if next_action is not None:
+        payload["next_action"] = next_action
+    if next_actions is not None:
+        payload["next_actions"] = next_actions
+    if diagnostics is not None:
+        payload["diagnostics"] = diagnostics
+    if artifacts is not None:
+        payload["artifacts"] = artifacts
+    payload.update(fields)
     print(json.dumps(payload, default=str), file=sys.stderr)
+
+
+def _command_string() -> str:
+    argv = [Path(sys.argv[0]).name, *sys.argv[1:]]
+    return " ".join(argv)

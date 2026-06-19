@@ -5,10 +5,10 @@ For the normative agent protocol, use [codex.md](codex.md) and
 [protocol.md](protocol.md). The canonical Codex control command is:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `agent_result_v1` and switch on `decision`,
+Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
 `repair`, and `policy`. Do not infer a local control decision from prose.
 
@@ -77,22 +77,16 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate --version` reports `0.13.0` or newer:
+`agents-shipgate contract --json` reports contract v5 or newer:
 
 ```bash
 pipx install agents-shipgate
 pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
 agents-shipgate --version
+agents-shipgate contract --json
 ```
 
-If `pipx` is unavailable, use:
-
-```bash
-python -m pip install -U "agents-shipgate>=0.13"
-agents-shipgate --version
-```
-
-When `$agents-shipgate` runs and the CLI is missing or older than 0.13.0,
+When `$agents-shipgate` runs and the CLI is missing or older than contract v5,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -114,7 +108,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate --version` reports `0.13.0` or newer.
+- `agents-shipgate contract --json` reports contract v5 or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -179,7 +173,7 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require `agents-shipgate >=0.13.0`, then
+   Codex should load the plugin skill, require contract v5 or newer, then
    read `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`;
    it then reads `agents-shipgate-reports/report.json` for
    `release_decision.decision`.
@@ -190,8 +184,8 @@ Open Codex in the project and run these checks:
    Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
-   `shipgate check --agent codex --workspace . --format agent-json` and parse
-   `agent_result_v1`; run
+   `shipgate check --agent codex --workspace . --format codex-boundary-json`
+   and parse `shipgate.codex_boundary_result/v1`; run
    `agents-shipgate preflight --workspace . --plan - --json` before
    protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`

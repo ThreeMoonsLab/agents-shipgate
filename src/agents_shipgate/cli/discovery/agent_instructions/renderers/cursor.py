@@ -57,9 +57,10 @@ Before protected edits, run preflight and read `PreflightResultV2`:
 
 For local agent control, run:
 
-  shipgate check --agent cursor --workspace . --format agent-json
+  shipgate check --agent cursor --workspace . --format codex-boundary-json
 
-Read the check stdout JSON only. It is `agent_result_v1`; switch on `decision`,
+Read the check stdout JSON only. It is
+`shipgate.codex_boundary_result/v1`; switch on `decision`,
 `completion_allowed`, and `must_stop`, then follow `first_next_action`,
 `human_review`, `repair`, and `policy`. Do not infer a decision from prose.
 
@@ -80,10 +81,11 @@ If `requires_human_review` is `true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-result.json` first, then
-`agents-shipgate-reports/verifier.json` for `merge_verdict` and
-`agents-shipgate-reports/report.json.release_decision.decision` for the release
-gate.
+fetches. Read `agents-shipgate-reports/verifier.json` first for
+`merge_verdict`, `can_merge_without_human`, and `agent_controller`; then read
+`agents-shipgate-reports/verify-run.json` for reproducibility metadata and
+`agents-shipgate-reports/report.json.release_decision.decision` for the
+release gate.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate import __version__
-from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import (
@@ -40,6 +39,14 @@ from agents_shipgate.schemas.verifier import (
     VerifierNextAction,
     applicability_for,
     merge_verdict_for,
+)
+from agents_shipgate.schemas.verify_run import (
+    VerifyRunArtifactRef,
+    VerifyRunInputs,
+    VerifyRunOutcome,
+    VerifyRunPolicyPack,
+    VerifyRunSubject,
+    build_verify_run_artifact,
 )
 from agents_shipgate.triggers import evaluate
 
@@ -100,8 +107,8 @@ def run_verify(
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     verifier_path = out_dir / "verifier.json"
+    verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
-    agent_result_path = out_dir / "agent-result.json"
 
     changed_files: list[str] = []
     diff_text = ""
@@ -201,9 +208,16 @@ def run_verify(
         _write_artifacts(
             verifier,
             verifier_path,
+            verify_run_path,
             pr_comment_path,
-            agent_result_path,
             report=None,
+            git_root=git_root,
+            config_path=config_path,
+            baseline_path=baseline_path,
+            policy_pack_paths=policy_pack_paths or [],
+            plugins_enabled=plugins_enabled,
+            no_heuristics=no_heuristics,
+            fail_on=fail_on,
             pr_comment_style=pr_comment_style,
         )
         return verifier, None, 2
@@ -232,9 +246,16 @@ def run_verify(
         _write_artifacts(
             verifier,
             verifier_path,
+            verify_run_path,
             pr_comment_path,
-            agent_result_path,
             report=None,
+            git_root=git_root,
+            config_path=config_path,
+            baseline_path=baseline_path,
+            policy_pack_paths=policy_pack_paths or [],
+            plugins_enabled=plugins_enabled,
+            no_heuristics=no_heuristics,
+            fail_on=fail_on,
             pr_comment_style=pr_comment_style,
         )
         return verifier, None, 0
@@ -374,9 +395,16 @@ def run_verify(
                 _write_artifacts(
                     verifier,
                     verifier_path,
+                    verify_run_path,
                     pr_comment_path,
-                    agent_result_path,
                     report=report,
+                    git_root=git_root,
+                    config_path=config_path,
+                    baseline_path=baseline_path,
+                    policy_pack_paths=policy_pack_paths or [],
+                    plugins_enabled=plugins_enabled,
+                    no_heuristics=no_heuristics,
+                    fail_on=fail_on,
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
                 )
@@ -970,8 +998,8 @@ def _artifact_paths(
 ) -> dict[str, str]:
     candidates = {
         "verifier_json": out_dir / "verifier.json",
+        "verify_run_json": out_dir / "verify-run.json",
         "pr_comment": out_dir / "pr-comment.md",
-        "agent_result_json": out_dir / "agent-result.json",
     }
     if include_scan_artifacts:
         candidates = {
@@ -988,33 +1016,37 @@ def _artifact_paths(
     return {
         key: _display_path(path.resolve(), git_root)
         for key, path in candidates.items()
-        if key in {"verifier_json", "pr_comment", "agent_result_json"} or path.exists()
+        if key in {"verifier_json", "verify_run_json", "pr_comment"} or path.exists()
     }
 
 
 def _write_artifacts(
     verifier: VerifierArtifact,
     verifier_path: Path,
+    verify_run_path: Path,
     pr_comment_path: Path,
-    agent_result_path: Path,
     *,
     report: ReadinessReport | None,
+    git_root: Path,
+    config_path: Path,
+    baseline_path: Path | None,
+    policy_pack_paths: list[Path],
+    plugins_enabled: bool | None,
+    no_heuristics: bool,
+    fail_on: list[str] | None,
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
-    agent_result = build_agent_result(verifier=verifier, report=report)
     verifier_path.write_text(
         json.dumps(verifier.model_dump(mode="json"), indent=2),
         encoding="utf-8",
     )
-    write_agent_result(agent_result, agent_result_path)
     pr_comment_path.write_text(
         render_pr_comment(
             verifier,
             report=report,
             style=pr_comment_style,
-            agent_result=agent_result,
             capability_lock_diff=capability_lock_diff,
         ),
         encoding="utf-8",
@@ -1023,6 +1055,126 @@ def _write_artifacts(
     # in-memory report can still produce the canonical public payload.
     if report is not None:
         report_json_payload(report)
+    _write_verify_run_artifact(
+        verifier=verifier,
+        report=report,
+        path=verify_run_path,
+        git_root=git_root,
+        config_path=config_path,
+        baseline_path=baseline_path,
+        policy_pack_paths=policy_pack_paths,
+        plugins_enabled=plugins_enabled,
+        no_heuristics=no_heuristics,
+        fail_on=fail_on,
+    )
+
+
+def _write_verify_run_artifact(
+    *,
+    verifier: VerifierArtifact,
+    report: ReadinessReport | None,
+    path: Path,
+    git_root: Path,
+    config_path: Path,
+    baseline_path: Path | None,
+    policy_pack_paths: list[Path],
+    plugins_enabled: bool | None,
+    no_heuristics: bool,
+    fail_on: list[str] | None,
+) -> None:
+    subject = VerifyRunSubject(
+        workspace=".",
+        config=_display_path(config_path.resolve(), git_root),
+        base_ref=verifier.base_ref,
+        head_ref=verifier.head_ref,
+        base_tree_sha=verifier.base_tree_sha,
+        head_tree_sha=verifier.head_tree_sha,
+    )
+    inputs = VerifyRunInputs(
+        config_sha256=_sha256_file(config_path),
+        baseline_sha256=_sha256_file(baseline_path) if baseline_path is not None else None,
+        policy_packs=_verify_run_policy_packs(
+            report=report,
+            policy_pack_paths=policy_pack_paths,
+            git_root=git_root,
+        ),
+        plugins_enabled=plugins_enabled,
+        no_heuristics=no_heuristics,
+        ci_mode=verifier.mode,
+        fail_on=list(fail_on or []),
+    )
+    outcome = VerifyRunOutcome(
+        exit_code=verifier.head_exit_code,
+        base_status=verifier.base_status,
+        head_status=verifier.head_status,
+        decision=verifier.decision,
+        merge_verdict=verifier.merge_verdict,
+        can_merge_without_human=verifier.can_merge_without_human,
+    )
+    artifact = build_verify_run_artifact(
+        subject=subject,
+        inputs=inputs,
+        outcome=outcome,
+        artifacts=_verify_run_artifact_refs(verifier, git_root=git_root),
+    )
+    path.write_text(
+        json.dumps(artifact.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _verify_run_policy_packs(
+    *,
+    report: ReadinessReport | None,
+    policy_pack_paths: list[Path],
+    git_root: Path,
+) -> list[VerifyRunPolicyPack]:
+    if report is not None and report.loaded_policy_packs:
+        return [
+            VerifyRunPolicyPack(
+                id=pack.id,
+                name=pack.name,
+                version=pack.version,
+                path=pack.path,
+                sha256=pack.sha256,
+                rule_count=pack.rule_count,
+            )
+            for pack in report.loaded_policy_packs
+        ]
+    return [
+        VerifyRunPolicyPack(
+            path=_display_path(path.resolve(), git_root),
+            sha256=_sha256_file(path),
+        )
+        for path in policy_pack_paths
+    ]
+
+
+def _verify_run_artifact_refs(
+    verifier: VerifierArtifact,
+    *,
+    git_root: Path,
+) -> dict[str, VerifyRunArtifactRef]:
+    refs: dict[str, VerifyRunArtifactRef] = {}
+    for key, value in sorted(verifier.artifacts.items()):
+        if key == "verify_run_json":
+            continue
+        artifact_path = _resolve_under_workspace(git_root, Path(value))
+        refs[key] = VerifyRunArtifactRef(
+            path=value,
+            sha256=_sha256_file(artifact_path),
+        )
+    return refs
+
+
+def _sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _write_capability_review_artifacts(
@@ -1197,8 +1349,8 @@ def run_preview(
     out_dir = _resolve_under_workspace(root, out or DEFAULT_OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     verifier_path = out_dir / "verifier.json"
+    verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
-    agent_result_path = out_dir / "agent-result.json"
     manifest_present = config_path.exists()
 
     changed_files: list[str] = []
@@ -1315,16 +1467,23 @@ def run_preview(
         first_next_action=next_action,
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),
+            "verify_run_json": _display_path(verify_run_path.resolve(), root),
             "pr_comment": _display_path(pr_comment_path.resolve(), root),
-            "agent_result_json": _display_path(agent_result_path.resolve(), root),
         },
     )
     _write_artifacts(
         verifier,
         verifier_path,
+        verify_run_path,
         pr_comment_path,
-        agent_result_path,
         report=None,
+        git_root=root,
+        config_path=config_path,
+        baseline_path=None,
+        policy_pack_paths=[],
+        plugins_enabled=None,
+        no_heuristics=False,
+        fail_on=None,
         pr_comment_style=pr_comment_style,
     )
     return verifier, None, 0

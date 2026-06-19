@@ -22,8 +22,12 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "default_paths",
         "commands",
         "artifacts",
+        "agent_read_order",
         "verifier_read_order",
         "gating_signal",
+        "verifier_schema_version",
+        "verify_run_schema_version",
+        "codex_boundary_result_schema_version",
         "agent_result_schema_version",
         "agent_result_schema_path",
         "agent_result_control_fields",
@@ -39,17 +43,30 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
     assert payload["commands"]["agent_check_codex"] == (
-        "shipgate check --agent codex --workspace . --format agent-json"
+        "shipgate check --agent codex --workspace . --format codex-boundary-json"
     )
     assert payload["commands"]["agent_check_claude_code"] == (
-        "shipgate check --agent claude-code --workspace . --format agent-json"
+        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
     )
     assert payload["commands"]["agent_check_cursor"] == (
-        "shipgate check --agent cursor --workspace . --format agent-json"
+        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
     )
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
+    assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
+    assert payload["agent_read_order"] == [
+        "verifier.json.merge_verdict",
+        "verifier.json.agent_controller",
+        "verify-run.json",
+        "report.json.release_decision.decision",
+    ]
     assert payload["verifier_read_order"][0] == "merge_verdict"
     assert payload["gating_signal"] == GATING_SIGNAL
+    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
+    assert (
+        payload["codex_boundary_result_schema_version"]
+        == "shipgate.codex_boundary_result/v1"
+    )
     assert payload["agent_result_schema_version"] == "agent_result_v1"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
     assert payload["agent_result_control_fields"] == [

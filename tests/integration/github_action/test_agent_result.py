@@ -27,7 +27,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierCapabilityReview,
     VerifierFixTask,
 )
-from scripts.github_action_outputs import decision_policy_exit_code, extract_outputs
+from scripts.github_action_outputs import extract_outputs, merge_verdict_policy_exit_code
 
 
 def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(tmp_path: Path):
@@ -66,8 +66,8 @@ def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(t
     assert reread["affected_files"][0]["path"] == ".codex/config.toml"
     assert reread["affected_files"][0]["start_line"] == 12
     assert reread["required_reviewers"] == ["agent-platform", "security"]
-    assert decision_policy_exit_code("block", "block") == 20
-    assert decision_policy_exit_code("require_review", "block") == 0
+    assert merge_verdict_policy_exit_code("blocked", "blocked") == 20
+    assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
 
 
 def test_reviewer_routing_does_not_match_ci_inside_words():
@@ -111,13 +111,17 @@ def test_require_review_trust_root_change_posts_reviewer_list():
     )
 
     result = build_agent_result(verifier=verifier, report=report)
-    comment = render_pr_comment(verifier, report=report, agent_result=result)
+    comment = render_pr_comment(verifier, report=report)
 
     assert result.decision == "require_review"
     assert result.required_reviewers == ["agent-platform"]
-    assert "Required reviewers: `agent-platform`" in comment
-    assert decision_policy_exit_code("require_review", "block,require_review") == 20
-    assert decision_policy_exit_code("require_review", "block") == 0
+    assert "Merge verdict: `human_review_required`" in comment
+    assert "Trust root touched: `true`" in comment
+    assert merge_verdict_policy_exit_code(
+        "human_review_required",
+        "blocked,human_review_required",
+    ) == 20
+    assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
 
 
 def test_allow_comment_is_concise_and_has_no_contradictory_decision():
@@ -125,12 +129,13 @@ def test_allow_comment_is_concise_and_has_no_contradictory_decision():
     verifier = _verifier(report, merge_verdict="mergeable", can_merge=True)
 
     result = build_agent_result(verifier=verifier, report=report)
-    comment = render_pr_comment(verifier, report=report, agent_result=result)
+    comment = render_pr_comment(verifier, report=report)
 
     assert result.decision == "allow"
     assert result.risk_level == "none"
     assert result.required_reviewers == []
-    assert "Agent decision: `allow`" in comment
+    assert "Merge verdict: `mergeable`" in comment
+    assert "Can merge without human: `true`" in comment
     assert "Release gate: `passed`" in comment
     assert "Decision: `passed`" not in comment
     assert "Required reviewers:" not in comment
@@ -271,7 +276,7 @@ def test_sarif_uses_policy_rule_id_and_preserves_check_id_and_location():
     assert result["locations"][0]["physicalLocation"]["region"]["startLine"] == 42
 
 
-def test_action_output_extraction_preserves_existing_fields_and_adds_agent_result(
+def test_action_output_extraction_preserves_existing_fields_and_adds_verify_run(
     tmp_path: Path,
 ):
     output_dir = tmp_path / "agents-shipgate-reports"
@@ -299,18 +304,17 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_agent_resul
             "head_status": "succeeded",
             "merge_verdict": "mergeable",
             "can_merge_without_human": True,
+            "agent_controller": {
+                "must_stop": False,
+                "completion_allowed": True,
+                "stop_reason": None,
+            },
             "trigger": {"should_run": True, "matched_rules": [{"id": "manifest"}]},
         },
     )
     _write_json(
-        output_dir / "agent-result.json",
-        {
-            "decision": "allow",
-            "risk_level": "low",
-            "audit_id": "sg_audit_test",
-            "required_reviewers": [],
-            "policy_snapshot_sha256": "a" * 64,
-        },
+        output_dir / "verify-run.json",
+        {"run_id": "sha256:" + "a" * 64},
     )
 
     outputs = extract_outputs(output_dir)
@@ -318,7 +322,8 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_agent_resul
     assert outputs["status"] == "clean"
     assert outputs["decision"] == "passed"
     assert outputs["report_json"] == output_dir / "report.json"
-    assert outputs["agent_result_json"] == output_dir / "agent-result.json"
+    assert outputs["verify_run_json"] == output_dir / "verify-run.json"
+    assert outputs["run_id"] == "sha256:" + "a" * 64
     assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
     assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
     assert (
@@ -329,10 +334,9 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_agent_resul
         outputs["capability_lock_diff_json"]
         == output_dir / "capability-lock-diff.json"
     )
-    assert outputs["agent_decision"] == "allow"
-    assert outputs["risk_level"] == "low"
-    assert outputs["audit_id"] == "sg_audit_test"
-    assert outputs["policy_snapshot_sha256"] == "a" * 64
+    assert outputs["merge_verdict"] == "mergeable"
+    assert outputs["can_merge_without_human"] == "true"
+    assert outputs["agent_controller_completion_allowed"] == "true"
 
 
 def _report(
@@ -413,7 +417,7 @@ def _verifier(
             "report_json": "agents-shipgate-reports/report.json",
             "report_sarif": "agents-shipgate-reports/report.sarif",
             "verifier_json": "agents-shipgate-reports/verifier.json",
-            "agent_result_json": "agents-shipgate-reports/agent-result.json",
+            "verify_run_json": "agents-shipgate-reports/verify-run.json",
             "pr_comment": "agents-shipgate-reports/pr-comment.md",
         },
     )

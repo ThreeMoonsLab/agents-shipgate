@@ -19,10 +19,12 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
+    AGENT_READ_ORDER,
     AGENT_RESULT_CONTROL_FIELDS,
     AGENT_RESULT_SCHEMA_PATH,
     AGENT_RESULT_SCHEMA_VERSION,
     ARTIFACTS,
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
     COMMANDS,
     CONTRACT_VERSION,
     DEFAULT_PATHS,
@@ -33,6 +35,7 @@ from agents_shipgate.schemas.contract import (
     MERGE_VERDICTS,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
+    VERIFY_RUN_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
@@ -42,6 +45,7 @@ from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 runner = CliRunner()
 
@@ -61,7 +65,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.13.0" in result.output
+    assert f"Agents Shipgate {__version__}" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -213,7 +217,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.13.0"
+    assert result.output.strip() == f"Agents Shipgate {__version__}"
 
 
 def test_cli_contract_json_outputs_runtime_contract():
@@ -227,6 +231,9 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version",
         "report_schema_version",
         "packet_schema_version",
+        "verifier_schema_version",
+        "verify_run_schema_version",
+        "codex_boundary_result_schema_version",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
         "preflight_schema_version",
@@ -242,6 +249,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "commands",
         "default_paths",
         "artifacts",
+        "agent_read_order",
         "verifier_read_order",
         "merge_verdicts",
         "release_decisions",
@@ -252,6 +260,11 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version": __version__,
         "report_schema_version": str(ReadinessReport.model_fields["report_schema_version"].default),
         "packet_schema_version": str(EvidencePacket.model_fields["packet_schema_version"].default),
+        "verifier_schema_version": str(
+            VerifierArtifact.model_fields["verifier_schema_version"].default
+        ),
+        "verify_run_schema_version": VERIFY_RUN_SCHEMA_VERSION,
+        "codex_boundary_result_schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         "preflight_schema_version": PREFLIGHT_SCHEMA_VERSION,
@@ -269,6 +282,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "commands": dict(COMMANDS),
         "default_paths": dict(DEFAULT_PATHS),
         "artifacts": dict(ARTIFACTS),
+        "agent_read_order": list(AGENT_READ_ORDER),
         "verifier_read_order": list(VERIFIER_READ_ORDER),
         "merge_verdicts": list(MERGE_VERDICTS),
         "release_decisions": list(RELEASE_DECISIONS),

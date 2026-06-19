@@ -37,7 +37,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata on `loaded_policy_packs[]` while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json` emitted by `agents-shipgate verify`
+- [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json`, the primary coding-agent controller artifact emitted by `agents-shipgate verify`
+- [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
+- [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — JSON Schema for `shipgate check --format codex-boundary-json`
+- [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — JSON Schema for local policy-pack YAML files (current; adds `all_of`/`any_of`/`none_of` combinators, `maximum_above`/`minimum_below` parameter bounds, and the manifest-side `sha256` pack pin)
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — frozen v0.1 reference schema for the flat match syntax
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds optional local org/CI context and detailed human acknowledgements

@@ -16,7 +16,7 @@ Public scan artifacts are redacted by default before they are written:
 - Release Evidence Packet outputs (`packet.json`, `packet.md`, `packet.html`,
   and `packet.pdf` when PDF support is installed)
 - Verify artifacts derived from the redacted report and verifier projections:
-  `verifier.json`, `agent-result.json`, and `pr-comment.md`
+  `verifier.json`, `verify-run.json`, and `pr-comment.md`
 - GitHub step summaries
 - `explain-finding` output loaded from an existing `report.json`
 - JSON logs under `AGENTS_SHIPGATE_LOG_FORMAT=json`
@@ -33,6 +33,15 @@ the redaction layer ran, names the redaction rules and sensitive-field inventory
 versions, lists output surfaces covered by the scan, and records aggregate
 redaction counts by structural path. The audit never includes original values or
 hashes/verifiers of original values.
+
+`verify-run.json` is a reproducibility artifact, not a secret scanner or raw
+input dump. It records local path metadata plus SHA-256 hashes for the manifest,
+baseline file when supplied, loaded policy packs, and emitted artifacts. Those
+hashes are intended to prove byte identity for local verification inputs and
+outputs; they are not redaction hashes of sensitive field values. Report v0.27
+also includes `loaded_policy_packs[].sha256` as part of policy-pack
+distribution metadata for organization audit; `verify-run.json` copies the
+loaded pack hashes into the run-input provenance when they are available.
 
 Audit paths are structural summaries, not exact JSONPath selectors. Simple object
 keys are preserved, while complex dotted or colon-separated map keys may be

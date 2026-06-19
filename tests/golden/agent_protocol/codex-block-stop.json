@@ -1,9 +1,9 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"

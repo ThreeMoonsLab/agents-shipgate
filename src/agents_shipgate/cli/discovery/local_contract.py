@@ -8,10 +8,12 @@ from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.contract import (
+    AGENT_READ_ORDER,
     AGENT_RESULT_CONTROL_FIELDS,
     AGENT_RESULT_SCHEMA_PATH,
     AGENT_RESULT_SCHEMA_VERSION,
     ARTIFACTS,
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
     COMMANDS,
     CONTRACT_VERSION,
     DEFAULT_PATHS,
@@ -20,7 +22,9 @@ from agents_shipgate.schemas.contract import (
     MERGE_VERDICTS,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
+    VERIFY_RUN_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 LOCAL_CONTRACT_SCHEMA_VERSION = "1"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
@@ -37,8 +41,12 @@ class LocalAgentContract(BaseModel):
     default_paths: dict[str, str]
     commands: dict[str, str]
     artifacts: dict[str, str]
+    agent_read_order: list[str]
     verifier_read_order: list[str]
     gating_signal: str
+    verifier_schema_version: str
+    verify_run_schema_version: str
+    codex_boundary_result_schema_version: str
     agent_result_schema_version: str
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
@@ -57,8 +65,14 @@ def build_local_agent_contract() -> LocalAgentContract:
         default_paths=dict(DEFAULT_PATHS),
         commands=dict(COMMANDS),
         artifacts=dict(ARTIFACTS),
+        agent_read_order=list(AGENT_READ_ORDER),
         verifier_read_order=list(VERIFIER_READ_ORDER),
         gating_signal=GATING_SIGNAL,
+        verifier_schema_version=str(
+            VerifierArtifact.model_fields["verifier_schema_version"].default
+        ),
+        verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),

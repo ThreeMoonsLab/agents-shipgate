@@ -1,41 +1,36 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
-  "decision": "require_review",
-  "risk_level": "medium",
-  "audit_id": "codex_boundary_ece39747c448cced065154c5",
+  "decision": "allow",
+  "risk_level": "none",
+  "audit_id": "codex_boundary_ff3add534ca3d93b767ac67a",
   "policy_version": "1",
-  "summary": "1 Codex boundary change(s) require human review.",
+  "summary": "No Codex boundary changes require action.",
   "changed_files": [
-    "AGENTS.md"
+    "docs/readme.md"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
+  "completion_allowed": true,
+  "must_stop": false,
   "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "AGENTS.md removed a Shipgate requirement"
+    "actor": "coding_agent",
+    "kind": "continue",
+    "why": "No Codex boundary rule requires review or blocking."
   },
   "human_review": {
-    "required": true,
-    "why": "AGENTS.md removed a Shipgate requirement",
-    "required_reviewers": [
-      "agent-platform"
-    ]
+    "required": false,
+    "required_reviewers": []
   },
   "repair": {
-    "actor": "human",
+    "actor": "coding_agent",
     "safe_to_attempt": false,
-    "instructions": [
-      "Have a human confirm the agent instructions were not weakened."
-    ],
+    "instructions": [],
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
       "Do not lower severity or add a waiver just to pass the gate.",
@@ -53,40 +48,16 @@
       "packaged_default"
     ]
   },
-  "violated_rules": [
-    {
-      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-      "action": "require_review",
-      "risk_level": "medium",
-      "title": "AGENTS.md removed a Shipgate requirement",
-      "path": "AGENTS.md",
-      "evidence": {
-        "kind": "shipgate_instruction_removed",
-        "deleted": false,
-        "removed_shipgate_lines": true,
-        "softened_shipgate_lines": false,
-        "removed_requirement_lines": true,
-        "replacement_requirement_lines": false
-      },
-      "recommendation": "Have a human confirm the agent instructions were not weakened."
-    }
-  ],
+  "violated_rules": [],
   "affected_files": [
     {
-      "path": "AGENTS.md"
+      "path": "docs/readme.md"
     }
   ],
-  "required_reviewers": [
-    "agent-platform"
-  ],
-  "explanation": "1 Codex boundary change(s) require human review.",
-  "suggested_fixes": [
-    "Have a human confirm the agent instructions were not weakened."
-  ],
-  "agent_repair_instructions": [
-    "Have a human confirm the agent instructions were not weakened."
-  ],
+  "required_reviewers": [],
+  "explanation": "No Codex boundary changes require action.",
+  "suggested_fixes": [],
+  "agent_repair_instructions": [],
   "diagnostics": [],
   "trace": [
     {
@@ -95,7 +66,7 @@
     },
     {
       "step": "decision",
-      "summary": "Projected 1 violation(s) to require_review."
+      "summary": "Projected 0 violation(s) to allow."
     }
   ],
   "source_artifacts": {},
@@ -119,7 +90,7 @@
       }
     ],
     "changed_files": [
-      "AGENTS.md"
+      "docs/readme.md"
     ],
     "diff_tokens": [],
     "next_action": {
@@ -128,9 +99,7 @@
       "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
     }
   },
-  "finding_fingerprints": [
-    "fp_e3eff6c19a8ab16d"
-  ],
+  "finding_fingerprints": [],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
   "exit_code_hint": 0
 }

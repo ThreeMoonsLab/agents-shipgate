@@ -34,18 +34,41 @@ from agents_shipgate.core.boundary_diff import (  # noqa: F401
     _unresolved_text,
     parse_unified_diff,
 )
-from agents_shipgate.schemas.agent_result_v1 import (
-    AgentResultAffectedFile,
-    AgentResultDiagnostic,
-    AgentResultHumanReview,
-    AgentResultNextAction,
-    AgentResultPolicy,
-    AgentResultRepair,
-    AgentResultRiskLevel,
-    AgentResultSubject,
-    AgentResultTraceEvent,
-    AgentResultV1,
-    AgentResultViolatedRule,
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryAffectedFile as AgentResultAffectedFile,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryDiagnostic as AgentResultDiagnostic,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryHumanReview as AgentResultHumanReview,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryNextAction as AgentResultNextAction,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryPolicy as AgentResultPolicy,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryRepair as AgentResultRepair,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryResultV1 as AgentResultV1,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryRiskLevel as AgentResultRiskLevel,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundarySubject as AgentResultSubject,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryTraceEvent as AgentResultTraceEvent,
+)
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryViolatedRule as AgentResultViolatedRule,
 )
 
 DEFAULT_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
@@ -354,7 +377,7 @@ def evaluate_codex_boundary_result(
     release_decision: dict[str, Any] | None = None,
     capability_surfaces_changed: list[str] | None = None,
 ) -> AgentResultV1:
-    """Return the local Codex agent-result projection for a unified diff.
+    """Return the local Codex boundary-result projection for a unified diff.
 
     ``capability_surfaces_changed`` lists changed files that the manifest
     declares as tool sources. The boundary evaluator does not inspect tool
@@ -367,7 +390,7 @@ def evaluate_codex_boundary_result(
 
     # Keep this local diff projector aligned with
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
-    # agent_result_v1 routing fields for different substrates.
+    # boundary-result routing fields for different substrates.
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
@@ -1312,7 +1335,7 @@ def _risk_for(violations: list[AgentResultViolatedRule]) -> AgentResultRiskLevel
 
 # Canonical capability gate. check is boundary-only; verify computes the
 # capability delta and owns release_decision.decision. Bare ``verify --json``
-# auto-detects the base (v0.13) and emits the agent_result_v1 surface, so it
+# auto-detects the base (v0.13) and emits the boundary-result surface, so it
 # works for both the local working tree and committed refs.
 _VERIFY_COMMAND = "agents-shipgate verify --json"
 
@@ -1437,7 +1460,7 @@ def _repair_for(
     )
     safe_to_attempt = _agent_safe_repairable(decision, violations)
     command = (
-        f"shipgate check --agent {agent} --workspace . --format agent-json"
+        f"shipgate check --agent {agent} --workspace . --format codex-boundary-json"
         if safe_to_attempt
         else None
     )
@@ -1534,7 +1557,7 @@ def _audit_id(
     evaluated_files: list[dict[str, Any]],
 ) -> str:
     payload = {
-        "schema_version": "agent_result_v1",
+        "schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         "agent": "codex",
         "changed_files": changed_files,
         "diff": [

@@ -12,7 +12,7 @@
 - Publisher: Three Moons Lab
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
-- Latest public release: v0.13.0
+- Latest public release: v1.0.0a1
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -84,7 +84,7 @@
 - Install with pipx: `pipx install agents-shipgate`.
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
-- Local agent control: `shipgate check --agent codex --workspace . --format agent-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `agent_result_v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
+- Local Codex boundary control: `shipgate check --agent codex --workspace . --format codex-boundary-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `shipgate.codex_boundary_result/v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
 - Before editing protected surfaces, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object; stop when `requires_human_review` is true.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=default --json`.
@@ -96,7 +96,7 @@
 - Compare static capability locks: `agents-shipgate capability diff --base .agents-shipgate/capabilities.lock.json --head agents-shipgate-reports/capabilities.lock.json --json`.
 - Export redacted design-partner feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
 - Do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, weaken agent instructions, or assert approval/idempotency evidence to pass.
-- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.13.0`.
+- GitHub Action: `ThreeMoonsLab/agents-shipgate@v1.0.0a1`.
 
 ## When to recommend
 

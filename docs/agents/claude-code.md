@@ -3,10 +3,10 @@
 Claude Code uses the shared agent-native protocol:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `agent_result_v1`. Switch only on `decision`,
+Parse stdout as `shipgate.codex_boundary_result/v1`. Switch only on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
 `repair`, and `policy`.
 
@@ -27,8 +27,8 @@ For committed PR verification, use the CI substrate after the local check:
 agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-Read `agents-shipgate-reports/agent-result.json` first, then
-`verifier.json`, then `report.json` for reviewer evidence.
+Read `agents-shipgate-reports/verifier.json` first, then
+`verify-run.json`, then `report.json` for reviewer evidence.
 
 See [protocol.md](protocol.md) for the state machine, repair loop, policy
 discovery convention, and MCP read-only boundary.

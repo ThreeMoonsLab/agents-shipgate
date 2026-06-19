@@ -9,10 +9,10 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.mcp_server import shipgate_check
-from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = ROOT / "docs" / "agent-result-schema.v1.json"
+SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v1.json"
 GOLDEN = ROOT / "tests" / "golden" / "agent_protocol"
 EXAMPLES = ROOT / "examples" / "agent-protocol"
 
@@ -32,7 +32,7 @@ def test_agent_protocol_golden_fixtures_validate_schema() -> None:
     for path in sorted(GOLDEN.glob("*.json")) + sorted((EXAMPLES / "expected").glob("*.json")):
         payload = _load_json(path)
         validator.validate(payload)
-        AgentResultV1.model_validate(payload)
+        CodexBoundaryResultV1.model_validate(payload)
 
 
 def test_codex_block_stop_fixture_stops_for_human() -> None:
@@ -71,7 +71,7 @@ def test_policy_weakening_blocks_and_is_not_agent_repairable(tmp_path: Path) -> 
             "--diff",
             str(EXAMPLES / "diffs" / "block-stop.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
@@ -114,7 +114,7 @@ index 1111111..2222222 100644
                 "--diff",
                 "-",
                 "--format",
-                "agent-json",
+                "codex-boundary-json",
             ],
             input=diff_text,
         )
@@ -172,7 +172,7 @@ index 1111111..2222222 100644
             "--diff",
             "-",
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
         input=diff_text,
     )
@@ -195,7 +195,7 @@ def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> Non
             "--diff",
             str(EXAMPLES / "diffs" / "repair-before.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
     after = runner.invoke(
@@ -207,7 +207,7 @@ def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> Non
             "--diff",
             str(EXAMPLES / "diffs" / "repair-after.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
@@ -225,7 +225,7 @@ def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> Non
     assert after_payload["must_stop"] is False
 
 
-def test_check_diff_input_failure_emits_schema_valid_agent_result(tmp_path: Path) -> None:
+def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
@@ -237,16 +237,16 @@ def test_check_diff_input_failure_emits_schema_valid_agent_result(tmp_path: Path
             "--diff",
             str(tmp_path / "missing.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     _validator().validate(payload)
-    AgentResultV1.model_validate(payload)
+    CodexBoundaryResultV1.model_validate(payload)
     assert payload["agent"] == "claude-code"
-    assert payload["schema_version"] == "agent_result_v1"
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
     assert payload["decision"] == "block"
     assert payload["completion_allowed"] is False
     assert payload["must_stop"] is False
@@ -260,7 +260,7 @@ def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:
     payload = _load_json(GOLDEN / "missing-install.json")
 
     _validator().validate(payload)
-    AgentResultV1.model_validate(payload)
+    CodexBoundaryResultV1.model_validate(payload)
     assert payload["first_next_action"]["kind"] == "install"
     assert payload["first_next_action"]["command"] == "pipx install agents-shipgate"
     assert payload["completion_allowed"] is False
@@ -271,8 +271,8 @@ def test_stale_install_fixture_is_schema_valid_and_routes_to_upgrade() -> None:
     payload = _load_json(GOLDEN / "stale-install.json")
 
     _validator().validate(payload)
-    AgentResultV1.model_validate(payload)
-    # Reuses the install action kind (no agent_result_v1 schema churn); only the
+    CodexBoundaryResultV1.model_validate(payload)
+    # Reuses the install action kind; only the
     # command carries the upgrade. Stale binaries must fail closed, never green.
     assert payload["decision"] == "block"
     assert payload["first_next_action"]["kind"] == "install"
@@ -320,6 +320,6 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
 
     after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
     assert before == after
-    assert payload["schema_version"] == "agent_result_v1"
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "allow"
