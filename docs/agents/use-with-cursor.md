@@ -5,10 +5,10 @@ protocol, use [cursor.md](cursor.md) and [protocol.md](protocol.md). The
 canonical Cursor control command is:
 
 ```bash
-shipgate check --agent cursor --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `agent_result_v1` and switch on `decision`,
+Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
 `repair`, and `policy`. Do not infer a local control decision from prose.
 
@@ -83,7 +83,7 @@ CI gates, or `shipgate.yaml`, Cursor should run the local control check before
 treating the change as finished, then run `verify` for PR/reviewer evidence:
 
 ```bash
-shipgate check --agent cursor --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```

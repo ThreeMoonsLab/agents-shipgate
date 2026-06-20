@@ -221,7 +221,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 | Report | `0.27` | `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.27.json`](report-schema.v0.27.json) |
 | Packet | `0.7` | `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.7.json`](packet-schema.v0.7.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
-| CLI contract | `1` | — | `agents-shipgate contract --json` |
+| CLI contract | `5` | — | `agents-shipgate contract --json` |
 
 To detect the version programmatically:
 

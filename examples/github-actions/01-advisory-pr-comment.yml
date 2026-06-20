@@ -18,10 +18,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
         with:
           ci_mode: advisory
           diff_base: target
           check_annotations: 'true'
           pr_comment: 'true'
-          shipgate_version: '0.13.0'
+          shipgate_version: '1.0.0a1'

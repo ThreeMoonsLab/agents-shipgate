@@ -37,25 +37,24 @@ def test_action_has_marketplace_metadata_and_outputs():
         "baseline_new_count",
         "report_json",
         "verifier_json",
+        "verify_run_json",
+        "run_id",
         "pr_comment_markdown",
-        "agent_result_json",
         "check_annotations_json",
         "capability_lock_json",
         "base_capability_lock_json",
         "capability_lock_diff_json",
         "attestation_json",
         "exit_code",
-        "agent_decision",
-        "risk_level",
-        "audit_id",
-        "required_reviewers",
-        "policy_snapshot_sha256",
         "should_run",
         "trigger_action",
         "trigger_rule_ids",
         "verifier_verdict",
         "merge_verdict",
         "can_merge_without_human",
+        "agent_controller_must_stop",
+        "agent_controller_stop_reason",
+        "agent_controller_completion_allowed",
         "trust_root_touched",
         "policy_weakened",
         "capability_changes_added",
@@ -66,7 +65,8 @@ def test_action_has_marketplace_metadata_and_outputs():
         "Verifier convenience verdict. Prefer `decision`"
     )
     assert data["inputs"]["verify_mode"]["default"] == "verify"
-    assert data["inputs"]["fail_on_decisions"]["default"] == ""
+    assert data["inputs"]["fail_on_merge_verdicts"]["default"] == ""
+    assert "fail_on_decisions" not in data["inputs"]
     assert data["inputs"]["check_annotations"]["default"] == "true"
     assert data["inputs"]["check_annotation_limit"]["default"] == "50"
     assert data["inputs"]["check_run"]["default"] == "false"
@@ -121,13 +121,14 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}" in text
     assert "CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}" in text
     assert "scripts/github_action_annotations.py" in text
-    assert "fail_on_decisions" in text
-    assert "Apply Agents Shipgate decision policy" in text
-    assert "decision_policy_exit_code" in text
+    assert "fail_on_merge_verdicts" in text
+    assert "fail_on_decisions" not in text
+    assert "Apply Agents Shipgate merge verdict policy" in text
+    assert "merge_verdict_policy_exit_code" in text
     assert (
-        "if: ${{ always() && inputs.fail_on_decisions != '' }}" in text
+        "if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}" in text
     )
-    assert "agent-result.json did not expose an agent decision" in text
+    assert "verifier.json did not expose a merge verdict" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
     assert "Build Agents Shipgate attestation" in text
@@ -161,9 +162,9 @@ def test_action_step_summary_leads_with_verifier_merge_state():
     assert "Merge verdict:" in script
     assert "Can merge without human:" in script
     assert "First next action:" in script
-    assert "Decision:" in script
-    assert "Risk:" in script
-    assert "Audit ID:" in script
+    assert "Release gate:" in script
+    assert "Run ID:" in script
+    assert "Agent controller:" in script
     assert "Blockers:" in script
     assert "Review items:" in script
     assert "would_fail_ci=" in script

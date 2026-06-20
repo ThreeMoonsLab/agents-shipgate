@@ -29,7 +29,7 @@ def _snapshot(root: Path) -> list[str]:
     )
 
 
-def test_shipgate_check_returns_agent_result_without_writes(tmp_path: Path) -> None:
+def test_shipgate_check_returns_boundary_result_without_writes(tmp_path: Path) -> None:
     diff = """diff --git a/.codex/config.toml b/.codex/config.toml
 new file mode 100644
 index 0000000..1111111
@@ -51,7 +51,7 @@ index 0000000..1111111
 
     after = _snapshot(tmp_path)
     assert after == before
-    assert payload["schema_version"] == "agent_result_v1"
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "block"
     assert payload["first_next_action"]["kind"] in {"repair", "stop"}

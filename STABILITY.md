@@ -1,4 +1,4 @@
-# Stability Contract · 0.x
+# Stability Contract · 1.0.0-alpha
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -6,19 +6,61 @@ This document is the contract. If the runtime ever diverges from what's document
 
 ---
 
-## What WILL NOT change in 0.x
+<a id="migration-note-100-alpha"></a>
+
+## Migration Note 1.0.0 Alpha
+
+`1.0.0a1` starts a new alpha contract line on top of the `0.13.0`
+release. It deliberately cleans up overlapping agent-controller contracts
+instead of preserving every `0.x` surface.
+
+Breaking changes from the `0.x` line:
+
+- `agents-shipgate verify` no longer writes
+  `agents-shipgate-reports/agent-result.json`. Agents should read
+  `verifier.json` first, then `verify-run.json`, then
+  `report.json.release_decision.decision`.
+- `agents-shipgate verify --format agent` was removed. Use
+  `--format json` to print the full `VerifierArtifact`.
+- `shipgate check --format agent-json` was removed. Use
+  `shipgate check --format codex-boundary-json`; the output
+  `schema_version` is now `shipgate.codex_boundary_result/v1`.
+- The GitHub Action input `fail_on_decisions` was renamed to
+  `fail_on_merge_verdicts`, with values from
+  `blocked | human_review_required | insufficient_evidence | unknown |
+  mergeable`.
+- GitHub Action outputs derived only from `agent-result.json`
+  (`agent_result_json`, `agent_decision`, `risk_level`, `audit_id`,
+  `required_reviewers`, and `policy_snapshot_sha256`) were removed.
+  New outputs include `verify_run_json`, `run_id`,
+  `agent_controller_must_stop`, `agent_controller_stop_reason`, and
+  `agent_controller_completion_allowed`.
+- The runtime contract payload is now `contract_version: "5"`.
+  Report JSON remains `report_schema_version: "0.27"` from the current
+  `0.13.0` line; this alpha does not redefine that frozen report schema.
+  v0.27 includes policy-pack distribution metadata
+  (`loaded_policy_packs[].{source,sha256,sha256_status,owner}`) over
+  v0.26 evidence-gap rows and `suggested-inventory.json`.
+
+`report.json.release_decision.decision` remains the only release gate.
+`verifier.json.merge_verdict` is the controller projection for agents and
+PR automation; it is not a second release gate.
+
+## What WILL NOT change in the current alpha line
 
 ### CLI command surface
 
-These commands and flags are stable across all `0.x.y` releases. They will only change in a major version bump (`1.0.0`):
+These commands and flags are stable across the current `1.0.0a*`
+contract line. Future alpha versions may make deliberate breaking
+changes only by bumping `contract_version` and updating this file.
 
 | Command | Stable flags |
 |---|---|
 | `agents-shipgate scan` | `-c`, `--config`, `--out`, `--format`, `--ci-mode`, `--fail-on`, `--baseline`, `--diff-from`, `--changed-files`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--verbose`, `--workspace`, `--packet`/`--no-packet`, `--packet-format` |
-| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--no-base` (v0.13+), `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format` (`text`, `json`, and `agent` since v0.13), `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
+| `agents-shipgate verify` | `--workspace`, `--config`, `--base`, `--no-base`, `--head`, `--ci-mode`, `--fail-on`, `--baseline`, `--baseline-mode`, `--diff-from`, `--out`, `--format` (`text`, `json`), `--policy-pack`, `--no-plugins`, `--strict-plugins`, `--no-heuristics`, `--suggest-patches`, `--verbose` |
 | `agents-shipgate evidence-packet` | `--from`, `--out`, `--format`, `--json` |
 | `agents-shipgate scenario suggest` | `--from`, `--out` |
-| `shipgate check` | `--agent`, `--workspace`, `--format`, `--diff`, `--base`, `--head`, `--config`, `--policy` |
+| `shipgate check` | `--agent`, `--workspace`, `--format` (`codex-boundary-json`), `--diff`, `--base`, `--head`, `--config`, `--policy` |
 | `agents-shipgate init` | `--workspace`, `--write`, `--json`, `--claude-code` (v0.13+) |
 | `agents-shipgate doctor` | `-c`, `--config`, `--workspace`, `--json`, `--verbose` |
 | `agents-shipgate contract` | `--json` |
@@ -52,14 +94,22 @@ published so consumers can validate it, and any incompatible change must bump
 
 ### Agent-Native Protocol
 
-`shipgate check --format agent-json` emits `agent_result_v1`, the stable
-coding-agent control schema documented in
-[`docs/agents/protocol.md`](docs/agents/protocol.md) and generated at
-[`docs/agent-result-schema.v1.json`](docs/agent-result-schema.v1.json).
+`shipgate check --format codex-boundary-json` emits
+`shipgate.codex_boundary_result/v1`, the stable local Codex-boundary
+control schema generated at
+[`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json).
 Agents should act on `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `repair`, and `human_review`. Human approval, policy
 waivers, baselines, severity downgrades, suppressions, and trace evidence are
 not agent-repairable authority gaps.
+
+Full PR verification uses `agents-shipgate verify`. The single
+agent-controller artifact is
+`agents-shipgate-reports/verifier.json`; it leads with
+`merge_verdict`, `can_merge_without_human`, `agent_controller`,
+`first_next_action`, and `fix_task`. `verify-run.json` records stable run
+identity and input hashes for reproducibility. `report.json` remains the
+release-gate artifact.
 
 ### Exit codes
 
@@ -100,12 +150,22 @@ Stable JSON fields:
 - `external_integration_surfaces[]` — stable non-gating integration and
   research surfaces exposed by the contract.
 - `gating_signal` — always `release_decision.decision` in this contract.
-- `agent_result_schema_version` — local coding-agent control schema version
-  emitted by `shipgate check --format agent-json`.
+- `agent_result_schema_version` — legacy local-agent protocol schema retained
+  for compatibility with existing in-repo protocol and MCP surfaces. It is not
+  emitted by `agents-shipgate verify`.
 - `agent_result_schema_path` — checked-in JSON Schema path for that local
-  control object.
+  legacy control object.
 - `agent_result_control_fields[]` — ordered fields coding agents must switch on
-  before claiming completion.
+  when using the legacy local-agent protocol.
+- `verifier_schema_version` — schema version for
+  `agents-shipgate-reports/verifier.json`.
+- `verify_run_schema_version` — schema version for
+  `agents-shipgate-reports/verify-run.json`.
+- `codex_boundary_result_schema_version` — schema version emitted by
+  `shipgate check --format codex-boundary-json`.
+- `agent_read_order[]` — cross-artifact machine read order for coding agents:
+  `verifier.json.merge_verdict`, `verifier.json.agent_controller`,
+  `verify-run.json`, then `report.json.release_decision.decision`.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
 - `commands{}` — minimal stable commands for local `shipgate check` control,

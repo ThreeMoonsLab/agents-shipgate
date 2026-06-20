@@ -22,6 +22,12 @@ def register(app: typer.Typer) -> None:
         typer.echo(f"CLI version: {payload.cli_version}")
         typer.echo(f"Report schema version: {payload.report_schema_version}")
         typer.echo(f"Packet schema version: {payload.packet_schema_version}")
+        typer.echo(f"Verifier schema version: {payload.verifier_schema_version}")
+        typer.echo(f"Verify-run schema version: {payload.verify_run_schema_version}")
+        typer.echo(
+            "Codex boundary result schema version: "
+            f"{payload.codex_boundary_result_schema_version}"
+        )
         typer.echo(f"Capability lock schema version: {payload.capability_lock_schema_version}")
         typer.echo(
             f"Capability lock diff schema version: {payload.capability_lock_diff_schema_version}"
@@ -54,6 +60,9 @@ def register(app: typer.Typer) -> None:
         typer.echo("Artifacts:")
         for name, path in payload.artifacts.items():
             typer.echo(f"  {name}: {path}")
+        typer.echo("Agent read order:")
+        for field in payload.agent_read_order:
+            typer.echo(f"  {field}")
         typer.echo("Verifier read order:")
         for field in payload.verifier_read_order:
             typer.echo(f"  {field}")

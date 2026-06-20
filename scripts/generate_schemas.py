@@ -19,7 +19,8 @@ Writes / verifies:
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
 - docs/agent-result-schema.v1.json
-                                (from agents_shipgate.schemas.agent_result_v1.
+                                (legacy local-agent protocol schema from
+                                 agents_shipgate.schemas.agent_result_v1.
                                  AgentResultV1)
 - docs/preflight-schema.v0.2.json
                                 (from agents_shipgate.schemas.preflight.
@@ -1231,7 +1232,7 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
 
 
 def build_agent_result_schema() -> tuple[Path, str]:
-    """Generate docs/agent-result-schema.v1.json from AgentResultV1."""
+    """Generate the legacy local-agent protocol schema."""
 
     from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
 
@@ -1241,13 +1242,57 @@ def build_agent_result_schema() -> tuple[Path, str]:
         "main/docs/agent-result-schema.v1.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Agent Result v1"
+    schema["title"] = "Agents Shipgate Legacy Agent Result v1"
     schema["description"] = (
-        "JSON Schema for shipgate check --format agent-json and "
-        "agents-shipgate-reports/agent-result.json. Generated from "
+        "Legacy JSON Schema retained for existing local-agent protocol and "
+        "MCP consumers. It is not emitted by agents-shipgate verify and is "
+        "not the Codex boundary result contract. Generated from "
         "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
     )
     target = DOCS / "agent-result-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def build_codex_boundary_result_schema() -> tuple[Path, str]:
+    """Generate docs/codex-boundary-result-schema.v1.json."""
+
+    from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+
+    schema = CodexBoundaryResultV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/codex-boundary-result-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Codex Boundary Result v1"
+    schema["description"] = (
+        "JSON Schema for shipgate check --format codex-boundary-json. "
+        "Generated from "
+        "agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. "
+        "Do not edit by hand."
+    )
+    target = DOCS / "codex-boundary-result-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def build_verify_run_schema() -> tuple[Path, str]:
+    """Generate docs/verify-run-schema.v1.json."""
+
+    from agents_shipgate.schemas.verify_run import VerifyRunArtifact
+
+    schema = VerifyRunArtifact.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/verify-run-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Verify Run v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
+        "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
+        "edit by hand."
+    )
+    target = DOCS / "verify-run-schema.v1.json"
     return target, _canonical_json(schema)
 
 
@@ -1488,7 +1533,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("policy_pack", build_policy_pack_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
+    ("verify_run", build_verify_run_schema),
     ("agent_result", build_agent_result_schema),
+    ("codex_boundary_result", build_codex_boundary_result_schema),
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),

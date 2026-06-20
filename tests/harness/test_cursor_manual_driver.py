@@ -12,14 +12,19 @@ def test_cursor_manual_driver_replays_operator_captured_artifacts(tmp_path) -> N
     manual = artifacts / "manual"
     manual.mkdir(parents=True)
     manual.joinpath("transcript.jsonl").write_text(
-        json.dumps({"type": "tool_result", "output": '{"schema_version":"agent_result_v1"}'})
+        json.dumps(
+            {
+                "type": "tool_result",
+                "output": '{"schema_version":"shipgate.codex_boundary_result/v1"}',
+            }
+        )
         + "\n",
         encoding="utf-8",
     )
     manual.joinpath("commands.jsonl").write_text(
         json.dumps(
             {
-                "command": "shipgate check --agent cursor --workspace . --format agent-json",
+                "command": "shipgate check --agent cursor --workspace . --format codex-boundary-json",
                 "exit_code": 0,
             }
         )
@@ -31,7 +36,7 @@ def test_cursor_manual_driver_replays_operator_captured_artifacts(tmp_path) -> N
         encoding="utf-8",
     )
     manual.joinpath("summary.md").write_text(
-        "agent_result_v1 decision=allow must_stop=false\n",
+        "shipgate.codex_boundary_result/v1 decision=allow must_stop=false\n",
         encoding="utf-8",
     )
     manual.joinpath("final.diff").write_text("diff --git a/a b/a\n", encoding="utf-8")
@@ -54,7 +59,7 @@ def test_cursor_manual_driver_replays_operator_captured_artifacts(tmp_path) -> N
     assert result.degraded is False
     assert "decision=allow" in result.summary_text
     assert "diff --git" in result.final_diff
-    assert "agent_result_v1" in (raw / "transcript.jsonl").read_text(encoding="utf-8")
+    assert "shipgate.codex_boundary_result/v1" in (raw / "transcript.jsonl").read_text(encoding="utf-8")
     assert "shipgate check --agent cursor" in (raw / "commands.jsonl").read_text(
         encoding="utf-8"
     )

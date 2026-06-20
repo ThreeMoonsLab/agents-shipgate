@@ -6,7 +6,6 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.ci.agent_result import build_agent_result
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
@@ -82,18 +81,17 @@ def verify(
         None,
         "--format",
         help=(
-            "Verifier stdout format: text, json (full verifier artifact), or "
-            "agent (compact agent result). Defaults to text, or agent when a "
-            "coding-agent environment is detected. Scan artifacts are fixed."
+            "Verifier stdout format: text or json (full verifier artifact). "
+            "Defaults to text, or json when a coding-agent environment is "
+            "detected. Scan artifacts are fixed."
         ),
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help=(
-            "Shortcut for the coding-agent surface: --format agent for "
-            "verify runs, --format json for --preview (relevance data lives "
-            "in the trigger block, which the compact form omits)."
+            "Shortcut for the coding-agent surface: --format json. Emits the "
+            "full verifier controller artifact."
         ),
     ),
     ci_mode: str | None = typer.Option(
@@ -180,6 +178,7 @@ def verify(
         emit_agent_mode_error(
             "config_error",
             message=str(exc),
+            exit_code=2,
             next_action=guidance,
             next_actions=[
                 NextAction(
@@ -239,6 +238,7 @@ def verify(
         emit_agent_mode_error(
             "config_error",
             message=str(exc),
+            exit_code=2,
             next_action=flattened[0].to_legacy_string(),
             next_actions=[a.model_dump(mode="json") for a in flattened],
         )
@@ -252,6 +252,7 @@ def verify(
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
+            exit_code=3,
             next_action=guidance,
             next_actions=[
                 NextAction(
@@ -274,6 +275,7 @@ def verify(
         emit_agent_mode_error(
             "other_error",
             message=str(exc),
+            exit_code=4,
             next_action=guidance,
             next_actions=[
                 NextAction(kind="review", why=guidance).model_dump(mode="json")
@@ -284,16 +286,20 @@ def verify(
         if verbose:
             logger.exception("unhandled exception")
         typer.echo(f"Internal error: {exc}", err=True)
+        emit_agent_mode_error(
+            "internal_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=(
+                "Re-run with --verbose for a stack trace, then file an issue if "
+                "the error is not actionable."
+            ),
+        )
         raise typer.Exit(4) from exc
 
     _warn_if_reports_staged(workspace, out)
 
-    if stdout_format == "agent":
-        agent_result = build_agent_result(verifier=verifier, report=_report)
-        typer.echo(
-            json.dumps(agent_result.model_dump(mode="json"), indent=2, sort_keys=True)
-        )
-    elif stdout_format == "json":
+    if stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
     else:
         verdict = (
@@ -351,15 +357,12 @@ def _resolve_verify_format(
     """Resolve the stdout format from flags and the agent-mode environment.
 
     Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode
-    auto-detection > text. ``--json`` maps to the compact agent result for
-    verify runs but keeps the full verifier JSON for ``--preview``, whose
-    relevance answer lives in the ``trigger`` block that the compact form
-    omits. The same split applies when agent mode is auto-detected.
+    auto-detection > text.
     """
     if value is not None:
         return _parse_verify_format(value)
     if json_output or is_agent_mode():
-        return "json" if preview else "agent"
+        return "json"
     return "text"
 
 
@@ -370,8 +373,10 @@ def _parse_verify_format(value: str) -> str:
     if normalized == "json":
         return "json"
     if normalized == "agent":
-        return "agent"
-    raise ConfigError("--format must be text, json, or agent for verify")
+        raise ConfigError(
+            "--format agent was removed in the 1.0.0-alpha contract; use --format json"
+        )
+    raise ConfigError("--format must be text or json for verify")
 
 
 def _parse_pr_comment_style(value: str) -> str:

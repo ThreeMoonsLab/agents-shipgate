@@ -7,8 +7,8 @@ import pytest
 
 from scripts.github_action_outputs import (
     append_step_summary,
-    decision_policy_exit_code,
     extract_outputs,
+    merge_verdict_policy_exit_code,
     trigger_action,
 )
 
@@ -148,7 +148,7 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     assert outputs["policy_weakened"] == "true"
 
 
-def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
+def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path: Path) -> None:
     output_dir = tmp_path / "agents-shipgate-reports"
     output_dir.mkdir()
     _write_json(
@@ -163,21 +163,25 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
             },
         },
     )
-    _write_json(output_dir / "verifier.json", {"head_status": "succeeded"})
     _write_json(
-        output_dir / "agent-result.json",
+        output_dir / "verifier.json",
         {
-            "decision": "require_review",
-            "risk_level": "high",
-            "audit_id": "sg_audit_abc",
-            "required_reviewers": ["security", "agent-platform"],
-            "policy_snapshot_sha256": "b" * 64,
+            "head_status": "succeeded",
+            "merge_verdict": "human_review_required",
+            "can_merge_without_human": False,
+            "agent_controller": {
+                "must_stop": True,
+                "stop_reason": "human_review_required",
+                "completion_allowed": False,
+            },
         },
     )
+    _write_json(output_dir / "verify-run.json", {"run_id": "sha256:" + "a" * 64})
 
     outputs = extract_outputs(output_dir)
 
-    assert outputs["agent_result_json"] == output_dir / "agent-result.json"
+    assert outputs["verify_run_json"] == output_dir / "verify-run.json"
+    assert outputs["run_id"] == "sha256:" + "a" * 64
     assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
     assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
     assert (
@@ -189,11 +193,11 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
         == output_dir / "capability-lock-diff.json"
     )
     assert outputs["attestation_json"] == output_dir / "attestation.json"
-    assert outputs["agent_decision"] == "require_review"
-    assert outputs["risk_level"] == "high"
-    assert outputs["audit_id"] == "sg_audit_abc"
-    assert outputs["required_reviewers"] == "security,agent-platform"
-    assert outputs["policy_snapshot_sha256"] == "b" * 64
+    assert outputs["merge_verdict"] == "human_review_required"
+    assert outputs["can_merge_without_human"] == "false"
+    assert outputs["agent_controller_must_stop"] == "true"
+    assert outputs["agent_controller_stop_reason"] == "human_review_required"
+    assert outputs["agent_controller_completion_allowed"] == "false"
 
 
 def test_step_summary_leads_with_verifier_merge_state(
@@ -233,15 +237,22 @@ def test_step_summary_leads_with_verifier_merge_state(
     assert "Can merge without human: `false`" in text
     assert "First next action: `human/review`" in text
     assert f"Verifier JSON: `{output_dir / 'verifier.json'}`" in text
+    assert f"Verify-run JSON: `{output_dir / 'verify-run.json'}`" in text
     assert f"PR comment Markdown: `{output_dir / 'pr-comment.md'}`" in text
 
 
-def test_decision_policy_exit_code_is_opt_in() -> None:
-    assert decision_policy_exit_code("block", "") == 0
-    assert decision_policy_exit_code("block", "block") == 20
-    assert decision_policy_exit_code("require_review", "block") == 0
-    assert decision_policy_exit_code("require_review", "block, require_review") == 20
-    assert decision_policy_exit_code("", "block") == 21
+def test_merge_verdict_policy_exit_code_is_opt_in() -> None:
+    assert merge_verdict_policy_exit_code("blocked", "") == 0
+    assert merge_verdict_policy_exit_code("blocked", "blocked") == 20
+    assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
+    assert (
+        merge_verdict_policy_exit_code(
+            "human_review_required",
+            "blocked, human_review_required",
+        )
+        == 20
+    )
+    assert merge_verdict_policy_exit_code("", "blocked") == 21
 
 
 def _write_json(path: Path, payload: dict) -> None:

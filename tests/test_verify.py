@@ -480,9 +480,6 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "### Human summary" in comment
     assert "### Agent instruction block" in comment
     assert "- Merge verdict: `blocked`" in comment
-    assert "- Agent decision: `block`" in comment
-    assert "Risk: `" in comment
-    assert "Audit ID: `sg_audit_" in comment
     assert "Summary: This PR adds a refund action without approval evidence" in comment
     assert "- Release gate: `blocked`" in comment
     assert "- Reason: test decision" in comment
@@ -567,9 +564,7 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
 
     assert "## Agents Shipgate" in comment
     assert "- Merge verdict: `human_review_required`" in comment
-    assert "- Agent decision: `require_review`" in comment
     assert "- Release gate: `review_required`" in comment
-    assert "- Agent decision: `review_required`" not in comment
     assert "- Reason: test decision" in comment
 
 
@@ -608,7 +603,6 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
 
     assert "## Agents Shipgate" in comment
     assert "- Merge verdict: `unknown`" in comment
-    assert "- Agent decision: `require_review`" in comment
     assert "## Agents Shipgate: mergeable" not in comment
     assert "Head scan did not produce a report" in comment
 

@@ -6,37 +6,37 @@ local governance check before reporting an agent-capability change complete.
 Agents only need one command and one JSON schema:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
 Use `--agent claude-code` for Claude Code and `--agent cursor` for Cursor.
 The command writes no repo artifacts by default. It prints one JSON object to
-stdout: `agent_result_v1`.
+stdout: `shipgate.codex_boundary_result/v1`.
 
 `agents-shipgate verify` and `agents-shipgate-reports/report.json` remain the
 full CI and reviewer substrate. Coding agents should use them for committed PR
 verification and reviewer evidence, but their local control loop is
-`shipgate check` plus `agent_result_v1`.
+`shipgate check` plus `shipgate.codex_boundary_result/v1`.
 
 ## Command
 
 Default local check:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
 Committed diff check:
 
 ```bash
-shipgate check --agent codex --workspace . --base origin/main --head HEAD --format agent-json
+shipgate check --agent codex --workspace . --base origin/main --head HEAD --format codex-boundary-json
 ```
 
 Fixture or MCP-provided diff:
 
 ```bash
-shipgate check --agent codex --workspace . --diff change.diff --format agent-json
-shipgate check --agent codex --workspace . --diff - --format agent-json
+shipgate check --agent codex --workspace . --diff change.diff --format codex-boundary-json
+shipgate check --agent codex --workspace . --diff - --format codex-boundary-json
 ```
 
 The no-`--diff` form resolves a git diff locally. With no `--base` or `--head`,
@@ -48,7 +48,7 @@ for local work or provide both for committed refs. Shipgate never fetches refs.
 
 The stdout object has:
 
-- `schema_version: "agent_result_v1"`
+- `schema_version: "shipgate.codex_boundary_result/v1"`
 - `agent: "codex" | "claude-code" | "cursor"`
 - `decision: "allow" | "warn" | "block" | "require_review"`
 - `completion_allowed`
@@ -62,20 +62,19 @@ The stdout object has:
 - `exit_code_hint`
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
-The stable schema is `docs/agent-result-schema.v1.json`. In v0.13.0, `policy`
-is required for every in-tree producer under the existing `agent_result_v1`
-schema name; consumers that validate v0.12.0-era objects should update the
-schema with the package. `decision`, `completion_allowed`, `must_stop`,
+The stable schema is `docs/codex-boundary-result-schema.v1.json`. The
+`1.0.0-alpha` contract renamed this local boundary result away from the older
+generic `agent_result_v1` schema string. `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy` are the control
 signals. `risk_level` is explanatory and may differ between local-check and
 verifier projections for the same allowed decision.
 
-With `--format agent-json`, schema-valid results normally exit `0` even when
+With `--format codex-boundary-json`, schema-valid results normally exit `0` even when
 `decision` is `block` or `require_review`; wrappers must switch on
 `decision`, `completion_allowed`, and `must_stop`, not `$?`. Diff-input setup
 failures also return a `block` result with `exit_code_hint: 2`. Unsupported
 CLI shape errors such as an invalid `--agent` or `--format` still exit nonzero
-before an `agent_result_v1` object exists.
+before a boundary-result object exists.
 
 ## State Machine
 
@@ -109,7 +108,7 @@ Agents may repair only when all of these are true:
 - the repair does not violate `repair.forbidden_shortcuts`
 
 Every agent-safe repair must include a rerun command. After applying the
-repair, run that command and parse the next `agent_result_v1`. Completion is
+repair, run that command and parse the next boundary-result object. Completion is
 allowed only after a rerun returns `decision="allow"` or `decision="warn"`.
 
 Human-only authority gaps are never agent-repairable. Approval, confirmation,
@@ -184,12 +183,12 @@ Invalid explicit policy and unknown explicit policy fields fail closed to
 
 If the `shipgate` or `agents-shipgate` binary is unavailable, the agent cannot
 run the command that would produce JSON. In that one case, agent instructions
-must surface a schema-valid `agent_result_v1` object. Its routing fields must
+must surface a schema-valid boundary-result object. Its routing fields must
 look like:
 
 ```json
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "decision": "block",
   "first_next_action": {
     "actor": "coding_agent",
@@ -206,23 +205,23 @@ Shipgate JSON rather than agent-authored prose.
 
 ## Stale Install
 
-A binary that is present but older than the required `>=0.13.0` is the other
+A binary that is present but older than the required contract v5 is the other
 fail-safe case: a stale copy lingering on `PATH` can emit an outdated schema or
 lack the command this protocol expects (a plain `pipx install` is a no-op over
 an already-installed older build). Confirm the version first with
-`agents-shipgate --version`; if it is older than required, do not trust the
-stale binary's output. Surface a schema-valid `agent_result_v1` object that
-routes to an upgrade:
+`agents-shipgate --version` and `agents-shipgate contract --json`; if the
+contract is older than required, do not trust the stale binary's output.
+Surface a schema-valid boundary-result object that routes to an upgrade:
 
 ```json
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "decision": "block",
   "first_next_action": {
     "actor": "coding_agent",
     "kind": "install",
     "command": "pipx upgrade agents-shipgate",
-    "why": "Installed Agents Shipgate is older than the required >=0.13.0."
+    "why": "Installed Agents Shipgate is older than the required contract v5."
   }
 }
 ```
@@ -242,7 +241,7 @@ agents-shipgate self-check --json
 ```
 
 Self-check validates bundled fixtures, core CLI surfaces, and the
-`agent_result_v1` module import. It is diagnostic only; it is not a replacement
+legacy `agent_result_v1` module import. It is diagnostic only; it is not a replacement
 for `shipgate check` on the active diff.
 
 ## Optional MCP Tool
@@ -269,7 +268,7 @@ Input:
 }
 ```
 
-`shipgate.check` output is exactly `agent_result_v1`.
+`shipgate.check` output is exactly `shipgate.codex_boundary_result/v1`.
 
 `shipgate.preflight` returns `PreflightResultV2`; prefer the `plan` argument
 with a `PreflightPlanV1` object for protected-surface routing, high-risk

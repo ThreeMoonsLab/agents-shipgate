@@ -33,7 +33,7 @@ def shipgate_check(
     This function intentionally accepts diff text from the caller and does not
     shell out to git, write reports, apply patches, call tools, or touch the
     network. It is an adapter over the same local static evaluator used by
-    ``shipgate check --format agent-json``.
+    ``shipgate check --format codex-boundary-json``.
     """
 
     result = build_codex_agent_result(

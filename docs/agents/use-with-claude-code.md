@@ -5,10 +5,10 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 [protocol.md](protocol.md). The canonical Claude Code control command is:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `agent_result_v1` and switch on `decision`,
+Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
 `repair`, and `policy`. Do not infer a local control decision from prose.
 
@@ -126,7 +126,7 @@ gates, or `shipgate.yaml`, Claude Code should run the local control check before
 reporting the change as complete, then run `verify` for PR/reviewer evidence:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
 agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```

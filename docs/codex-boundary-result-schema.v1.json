@@ -466,10 +466,10 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Legacy JSON Schema retained for existing local-agent protocol and MCP consumers. It is not emitted by agents-shipgate verify and is not the Codex boundary result contract. Generated from agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand.",
+  "description": "JSON Schema for shipgate check --format codex-boundary-json. Generated from agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. Do not edit by hand.",
   "properties": {
     "affected_files": {
       "items": {
@@ -617,8 +617,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "agent_result_v1",
-      "default": "agent_result_v1",
+      "const": "shipgate.codex_boundary_result/v1",
+      "default": "shipgate.codex_boundary_result/v1",
       "title": "Schema Version",
       "type": "string"
     },
@@ -683,6 +683,6 @@
     "first_next_action",
     "policy"
   ],
-  "title": "Agents Shipgate Legacy Agent Result v1",
+  "title": "Agents Shipgate Codex Boundary Result v1",
   "type": "object"
 }

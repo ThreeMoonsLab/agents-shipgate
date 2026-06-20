@@ -99,18 +99,18 @@ Reports land at `agents-shipgate-reports/report.{md,json}`.
 change complete, run the local control loop and parse stdout JSON:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
-shipgate check --agent claude-code --workspace . --format agent-json
-shipgate check --agent cursor --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Read the single stdout object as `agent_result_v1`. Switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`; never infer a local-control decision from Markdown, PR
-comments, or prose. If `decision=allow` or `warn`, continue and summarize the
-result. If `first_next_action.kind=repair` and `repair.safe_to_attempt` is
-`true`, apply only that repair and rerun the command. If
-`human_review.required=true` or `must_stop=true`, stop and surface the JSON
+Read the single stdout object as `shipgate.codex_boundary_result/v1`. Switch on
+`decision`, `completion_allowed`, `must_stop`, `first_next_action`,
+`human_review`, `repair`, and `policy`; never infer a local-control decision
+from Markdown, PR comments, or prose. If `decision=allow` or `warn`, continue
+and summarize the result. If `first_next_action.kind=repair` and
+`repair.safe_to_attempt` is `true`, apply only that repair and rerun the
+command. If `human_review.required=true` or `must_stop=true`, stop and surface the JSON
 result to a human.
 
 **Before editing a protected release surface** — ask the proactive static
@@ -481,6 +481,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
 | Report schema (current) | [`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json) | `0.27` |
 | Report schema (v0.26 frozen reference) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
+| Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
+| Verify-run schema | [`docs/verify-run-schema.v1.json`](docs/verify-run-schema.v1.json) | `shipgate.verify_run/v1` |
+| Codex boundary result schema | [`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json) | `shipgate.codex_boundary_result/v1` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
@@ -973,26 +976,30 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v4 also exposes the local agent command spec:
-`commands{}`, `default_paths{}`, `artifacts{}`, `verifier_read_order[]`,
-`merge_verdicts[]`, `release_decisions[]`, `do_not_auto_assert[]`,
-`agent_result_schema_version`, `agent_result_schema_path`, and
-`agent_result_control_fields[]`. Downstream repos generated with
+Runtime contract v5 also exposes the local agent command spec:
+`commands{}`, `default_paths{}`, `artifacts{}`, `agent_read_order[]`,
+`verifier_read_order[]`, `merge_verdicts[]`, `release_decisions[]`,
+`do_not_auto_assert[]`, `verifier_schema_version`,
+`verify_run_schema_version`, `codex_boundary_result_schema_version`,
+and the legacy `agent_result_*` fields retained for older protocol consumers.
+Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v0.13.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `4`
+- Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Runtime contract: `5`
 - Current report schema: `0.27` — [`docs/report-schema.v0.27.json`](report-schema.v0.27.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
+- Current verify-run schema: `shipgate.verify_run/v1` — [`docs/verify-run-schema.v1.json`](verify-run-schema.v1.json)
+- Current Codex boundary result schema: `shipgate.codex_boundary_result/v1` — [`docs/codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json)
 - Current preflight schema: `0.2` — [`docs/preflight-schema.v0.2.json`](preflight-schema.v0.2.json)
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
-- Frozen-reference report schemas: [`v0.24`](report-schema.v0.24.json), [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: [`v0.26`](report-schema.v0.26.json), [`v0.25`](report-schema.v0.25.json), [`v0.24`](report-schema.v0.24.json), [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -1004,10 +1011,12 @@ one decision engine.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
   repair, or stop*. Read `agents-shipgate-reports/verifier.json`: lead with
-  `merge_verdict`, then read `agent_controller` for the imperative controls (see
-  "In `verifier.json`, read these additive fields" below).
-  `.well-known/agents-shipgate.json` → `verifier_read_order` is the
-  machine-readable form of this order.
+  `merge_verdict`, then read `agent_controller` for the imperative controls.
+  Then read `agents-shipgate-reports/verify-run.json` for reproducibility, and
+  finally `report.json.release_decision.decision` for the release gate.
+  `.well-known/agents-shipgate.json` → `agent_read_order` is the
+  machine-readable cross-artifact order. `verifier_read_order` remains the
+  intra-`verifier.json` field order.
 - **Gate / CI flow** — deciding pass/fail, or any raw `report.json` consumer.
   Read `agents-shipgate-reports/report.json` → `release_decision.decision` (the
   next section). `.well-known` → `gating_signal` names this signal.
@@ -1092,6 +1101,9 @@ New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immu
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
 For verifier-cycle PR workflows it also exposes additive outputs
 `should_run`, `trigger_action`, `trigger_rule_ids`, `verifier_verdict`,
+`verifier_json`, `verify_run_json`, `run_id`, `merge_verdict`,
+`can_merge_without_human`, `agent_controller_must_stop`,
+`agent_controller_stop_reason`, `agent_controller_completion_allowed`,
 `merge_verdict`, `can_merge_without_human`, `trust_root_touched`,
 `policy_weakened`, `capability_changes_added`,
 `capability_changes_modified`, and `capability_changes_removed`. These are
@@ -1133,6 +1145,14 @@ command for unconfigured repos, or an exact `verify` command for configured
 repos using the supplied workspace/config/base/head/out arguments. Use it as the
 first touch before a full scan. To evaluate just the run/skip trigger, run
 `agents-shipgate trigger --base origin/main --head HEAD --json`.
+
+`agents-shipgate verify` and `verify --preview` also write
+`agents-shipgate-reports/verify-run.json` whenever the output directory can be
+created. It carries `schema_version: "shipgate.verify_run/v1"`, a deterministic
+`run_id` over `{tool, subject, inputs}` (outcome and artifact hashes are carried
+separately), local input hashes (`config_sha256`, `baseline_sha256`,
+`policy_packs[].sha256`), the outcome projection, and artifact hashes for
+emitted files. It has no wall-clock timestamp and is not a second gate.
 
 In `agents-shipgate-reports/verifier.json`, read these additive fields
 (`verifier_schema_version` stays `"0.1"`; full schema
@@ -1208,7 +1228,9 @@ In `agents-shipgate-reports/verifier.json`, read these additive fields
 `artifacts.capability_lock_diff_json`, and
 `artifacts.capability_lock_diff_markdown` are review artifacts only; they do not
 change the gate. The matching GitHub Action outputs are `merge_verdict`,
-`can_merge_without_human`, `trust_root_touched`, and
+`can_merge_without_human`, `agent_controller_must_stop`,
+`agent_controller_stop_reason`, `agent_controller_completion_allowed`,
+`trust_root_touched`, and
 `capability_changes_{added,modified,removed}` (the original `decision`,
 `blocker_count`, `review_item_count`, `ci_would_fail` outputs are preserved). See
 [STABILITY.md §Verify Orchestrator](../STABILITY.md#verify-orchestrator) for the
@@ -1235,17 +1257,22 @@ is available, `base.capabilities.lock.json` plus `capability-lock-diff.json`.
 These artifacts are review/integration surfaces only and cannot introduce a
 second verdict.
 
-## Read this for coding-agent control
+## Read this for local boundary control
 
 `shipgate check --agent <codex|claude-code|cursor> --workspace . --format
-agent-json` is the canonical local coding-agent command. The command emits
-exactly one stdout JSON object using `schema_version: "agent_result_v1"` and the schema in
-[`agent-result-schema.v1.json`](agent-result-schema.v1.json).
+codex-boundary-json` is the local Codex boundary command. The command emits
+exactly one stdout JSON object using
+`schema_version: "shipgate.codex_boundary_result/v1"` and the schema in
+[`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json).
+The removed `--format agent-json` alias and `agent_result_v1` schema string are
+breaking 1.0.0-alpha changes; see [STABILITY.md](../STABILITY.md#migration-note-100-alpha).
 
 Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy`. Do not derive an agent
-decision from Markdown, PR comments, or natural language. `agents-shipgate
-verify` and `report.json` remain the full CI/reviewer substrate.
+decision from Markdown, PR comments, or natural language. Do not confuse this
+local boundary result with `agents-shipgate verify`: verify writes
+`verifier.json` and `verify-run.json`, and `report.json` remains the full
+CI/reviewer substrate.
 
 ## Read these for release review
 
@@ -1255,7 +1282,7 @@ work. `findings[].provenance_kind` is included there as a filter/review signal
 only; it never changes the release decision, severity, fingerprints, baselines,
 or CI exit behavior.
 
-Runtime contract `2` also exposes stable non-gating integration fields:
+Runtime contract `5` also exposes stable non-gating integration fields:
 `capability_lock_schema_version`, `capability_lock_diff_schema_version`,
 `capability_standard_version`,
 `governance_benchmark_catalog_schema_version`,
@@ -1379,7 +1406,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 ## Authoritative references
 
-- [STABILITY.md](../STABILITY.md) — full 0.x stability contract. Source of truth for everything above.
+- [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
 - [`docs/report-schema.v0.27.json`](report-schema.v0.27.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.

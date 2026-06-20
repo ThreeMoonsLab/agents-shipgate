@@ -1,41 +1,41 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
-  "decision": "require_review",
-  "risk_level": "medium",
-  "audit_id": "codex_boundary_86a7caf0aac1891d9d460fde",
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "codex_boundary_f32c52a6cb373ae08e04c5f2",
   "policy_version": "1",
-  "summary": "1 Codex boundary change(s) require human review.",
+  "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
     ".codex/config.toml"
   ],
   "completion_allowed": false,
-  "must_stop": true,
+  "must_stop": false,
   "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "Codex config could not be parsed"
+    "actor": "coding_agent",
+    "kind": "repair",
+    "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
+    "why": "Do not auto-approve write/destructive MCP tools."
   },
   "human_review": {
-    "required": true,
-    "why": "Codex config could not be parsed",
-    "required_reviewers": [
-      "agent-platform"
-    ]
+    "required": false,
+    "required_reviewers": []
   },
   "repair": {
-    "actor": "human",
-    "safe_to_attempt": false,
+    "actor": "coding_agent",
+    "safe_to_attempt": true,
     "instructions": [
-      "Fix the TOML or have a human review the Codex boundary change."
+      "Do not auto-approve write/destructive MCP tools.",
+      "Rerun: shipgate check --agent codex --workspace . --format codex-boundary-json"
     ],
+    "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
       "Do not lower severity or add a waiver just to pass the gate.",
@@ -55,17 +55,23 @@
   },
   "violated_rules": [
     {
-      "id": "CODEX-CONFIG-PARSE-FAILED",
-      "check_id": "SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED",
-      "action": "require_review",
-      "risk_level": "medium",
-      "title": "Codex config could not be parsed",
+      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
+      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Codex MCP write tool is auto-approved",
       "path": ".codex/config.toml",
       "evidence": {
-        "kind": "toml_parse_failed",
-        "error": "Expected ']' at the end of a table declaration (at line 1, column 31)"
+        "kind": "mcp_default_auto_approve",
+        "server": "mcp_servers.filesystem",
+        "risky_tools": [
+          "write_file"
+        ],
+        "tool_names": [
+          "write_file"
+        ]
       },
-      "recommendation": "Fix the TOML or have a human review the Codex boundary change."
+      "recommendation": "Do not auto-approve write/destructive MCP tools."
     }
   ],
   "affected_files": [
@@ -73,15 +79,13 @@
       "path": ".codex/config.toml"
     }
   ],
-  "required_reviewers": [
-    "agent-platform"
-  ],
-  "explanation": "1 Codex boundary change(s) require human review.",
+  "required_reviewers": [],
+  "explanation": "1 Codex boundary change(s) block local continuation.",
   "suggested_fixes": [
-    "Fix the TOML or have a human review the Codex boundary change."
+    "Do not auto-approve write/destructive MCP tools."
   ],
   "agent_repair_instructions": [
-    "Fix the TOML or have a human review the Codex boundary change."
+    "Do not auto-approve write/destructive MCP tools."
   ],
   "diagnostics": [
     {
@@ -98,7 +102,7 @@
     },
     {
       "step": "decision",
-      "summary": "Projected 1 violation(s) to require_review."
+      "summary": "Projected 1 violation(s) to block."
     }
   ],
   "source_artifacts": {},
@@ -118,7 +122,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -127,13 +131,13 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },
   "finding_fingerprints": [
-    "fp_86fb9b0faf6ca539"
+    "fp_71c94cd92ba68747"
   ],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0
+  "exit_code_hint": 20
 }

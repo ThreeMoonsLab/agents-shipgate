@@ -66,5 +66,6 @@ The static scan fixtures write:
 
 The JSON output is the stable contract for tools and coding agents. See
 [report-schema.v0.27.json](report-schema.v0.27.json) (current; emitted reports
-carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata over v0.26's structured evidence gaps;
-v0.23 frozen at [report-schema.v0.23.json](report-schema.v0.23.json)).
+carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata
+over v0.26 structured evidence gaps; v0.26 is frozen at
+[report-schema.v0.26.json](report-schema.v0.26.json)).

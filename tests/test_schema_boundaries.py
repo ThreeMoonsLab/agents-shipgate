@@ -86,9 +86,11 @@ def test_schemas_do_not_import_core_modules() -> None:
 def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() -> None:
     v25 = _report_schema_action_fact_properties("0.25")
     v26 = _report_schema_action_fact_properties("0.26")
+    v27 = _report_schema_action_fact_properties("0.27")
 
     assert ACTION_FACT_SOURCE_FIELDS.isdisjoint(v25)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
+    assert ACTION_FACT_SOURCE_FIELDS.issubset(v27)
 
 
 def test_frozen_v026_report_schema_does_not_backport_v027_policy_pack_metadata() -> None:
@@ -273,10 +275,13 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="4",
+        contract_version="5",
         cli_version="0.0.0",
-        report_schema_version="0.17",
+        report_schema_version="0.27",
         packet_schema_version="0.6",
+        verifier_schema_version="0.1",
+        verify_run_schema_version="shipgate.verify_run/v1",
+        codex_boundary_result_schema_version="shipgate.codex_boundary_result/v1",
         capability_lock_schema_version="0.2",
         capability_lock_diff_schema_version="0.3",
         preflight_schema_version="0.1",
@@ -291,16 +296,28 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         manual_review_signals=[],
         commands={"preview": "agents-shipgate verify --preview --json"},
         default_paths={"manifest": "shipgate.yaml"},
-        artifacts={"verifier": "agents-shipgate-reports/verifier.json"},
+        artifacts={
+            "verifier": "agents-shipgate-reports/verifier.json",
+            "verify_run": "agents-shipgate-reports/verify-run.json",
+        },
+        agent_read_order=[
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         verifier_read_order=["merge_verdict"],
         merge_verdicts=["mergeable", "blocked"],
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "4",
+        "contract_version": "5",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.17",
+        "report_schema_version": "0.27",
         "packet_schema_version": "0.6",
+        "verifier_schema_version": "0.1",
+        "verify_run_schema_version": "shipgate.verify_run/v1",
+        "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
         "capability_lock_schema_version": "0.2",
         "capability_lock_diff_schema_version": "0.3",
         "preflight_schema_version": "0.1",
@@ -315,7 +332,16 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "manual_review_signals": [],
         "commands": {"preview": "agents-shipgate verify --preview --json"},
         "default_paths": {"manifest": "shipgate.yaml"},
-        "artifacts": {"verifier": "agents-shipgate-reports/verifier.json"},
+        "artifacts": {
+            "verifier": "agents-shipgate-reports/verifier.json",
+            "verify_run": "agents-shipgate-reports/verify-run.json",
+        },
+        "agent_read_order": [
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         "verifier_read_order": ["merge_verdict"],
         "merge_verdicts": ["mergeable", "blocked"],
         "release_decisions": ["passed", "blocked"],

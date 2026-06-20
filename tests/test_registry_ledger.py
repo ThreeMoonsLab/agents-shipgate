@@ -13,7 +13,7 @@ runner = CliRunner()
 def _attestation(verdict: str = "blocked", change_ids: list[str] | None = None) -> dict:
     return {
         "attestation_schema_version": "0.1",
-        "cli_version": "0.13.0",
+        "cli_version": "1.0.0a1",
         "source_verifier": "agents-shipgate-reports/verifier.json",
         "redacted": True,
         "base_ref": "origin/main",

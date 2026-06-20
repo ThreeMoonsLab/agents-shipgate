@@ -12,6 +12,9 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
@@ -19,8 +22,10 @@ from agents_shipgate.schemas.governance_benchmark import (
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["4"] = "4"
+CONTRACT_VERSION: Literal["5"] = "5"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -94,11 +99,15 @@ DEFAULT_PATHS: dict[str, str] = {
     "local_contract": ".shipgate/agent-contract.json",
 }
 COMMANDS: dict[str, str] = {
-    "agent_check_codex": "shipgate check --agent codex --workspace . --format agent-json",
-    "agent_check_claude_code": (
-        "shipgate check --agent claude-code --workspace . --format agent-json"
+    "agent_check_codex": (
+        "shipgate check --agent codex --workspace . --format codex-boundary-json"
     ),
-    "agent_check_cursor": "shipgate check --agent cursor --workspace . --format agent-json",
+    "agent_check_claude_code": (
+        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+    ),
+    "agent_check_cursor": (
+        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+    ),
     "preflight": (
         "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"
     ),
@@ -117,11 +126,17 @@ COMMANDS: dict[str, str] = {
 }
 ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
+    "verify_run": "agents-shipgate-reports/verify-run.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
-    "agent_result": "agents-shipgate-reports/agent-result.json",
     "packet": "agents-shipgate-reports/packet.json",
 }
+AGENT_READ_ORDER: tuple[str, ...] = (
+    "verifier.json.merge_verdict",
+    "verifier.json.agent_controller",
+    "verify-run.json",
+    "report.json.release_decision.decision",
+)
 VERIFIER_READ_ORDER: tuple[str, ...] = (
     "merge_verdict",
     "can_merge_without_human",
@@ -169,6 +184,9 @@ class ContractPayload(BaseModel):
     cli_version: str
     report_schema_version: str
     packet_schema_version: str
+    verifier_schema_version: str
+    verify_run_schema_version: str
+    codex_boundary_result_schema_version: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
     preflight_schema_version: str
@@ -184,6 +202,7 @@ class ContractPayload(BaseModel):
     commands: dict[str, str]
     default_paths: dict[str, str]
     artifacts: dict[str, str]
+    agent_read_order: list[str]
     verifier_read_order: list[str]
     merge_verdicts: list[str]
     release_decisions: list[str]
@@ -195,11 +214,15 @@ def build_contract_payload() -> ContractPayload:
 
     report_schema_version = ReadinessReport.model_fields["report_schema_version"].default
     packet_schema_version = EvidencePacket.model_fields["packet_schema_version"].default
+    verifier_schema_version = VerifierArtifact.model_fields["verifier_schema_version"].default
     return ContractPayload(
         contract_version=CONTRACT_VERSION,
         cli_version=__version__,
         report_schema_version=str(report_schema_version),
         packet_schema_version=str(packet_schema_version),
+        verifier_schema_version=str(verifier_schema_version),
+        verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
@@ -215,6 +238,7 @@ def build_contract_payload() -> ContractPayload:
         commands=dict(COMMANDS),
         default_paths=dict(DEFAULT_PATHS),
         artifacts=dict(ARTIFACTS),
+        agent_read_order=list(AGENT_READ_ORDER),
         verifier_read_order=list(VERIFIER_READ_ORDER),
         merge_verdicts=list(MERGE_VERDICTS),
         release_decisions=list(RELEASE_DECISIONS),
@@ -227,7 +251,9 @@ __all__ = [
     "AGENT_RESULT_CONTROL_FIELDS",
     "AGENT_RESULT_SCHEMA_PATH",
     "AGENT_RESULT_SCHEMA_VERSION",
+    "AGENT_READ_ORDER",
     "ARTIFACTS",
+    "CODEX_BOUNDARY_RESULT_SCHEMA_VERSION",
     "COMMANDS",
     "DEFAULT_PATHS",
     "DO_NOT_AUTO_ASSERT",
@@ -237,6 +263,7 @@ __all__ = [
     "MERGE_VERDICTS",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",
+    "VERIFY_RUN_SCHEMA_VERSION",
     "VERIFIER_READ_ORDER",
     "ContractPayload",
     "build_contract_payload",

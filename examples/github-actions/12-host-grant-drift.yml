@@ -38,7 +38,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install agents-shipgate (pinned)
-        run: python -m pip install "agents-shipgate==0.13.0"
+        run: python -m pip install "agents-shipgate==1.0.0a1"
 
       - name: Compare host grants against the acknowledged baseline
         run: |

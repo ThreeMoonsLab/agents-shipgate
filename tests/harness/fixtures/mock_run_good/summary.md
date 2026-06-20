@@ -1,11 +1,11 @@
 # Shipgate run summary
 
 I ran `agents-shipgate detect`, `init --write --ci`, `doctor`, `scan`, and
-`shipgate check --agent codex --workspace . --format agent-json`, then
-`verify --format json`. I parsed the `agent_result_v1` stdout first and
+`shipgate check --agent codex --workspace . --format codex-boundary-json`, then
+`verify --format json`. I parsed the `shipgate.codex_boundary_result/v1` stdout first and
 switched on `decision`.
 
-- `agent_result_v1.decision`: `require_review`
+- `shipgate.codex_boundary_result/v1.decision`: `require_review`
 - `must_stop`: `false`
 - `first_next_action`: route to human review before claiming merge approval
 - `merge_verdict`: `human_review_required`

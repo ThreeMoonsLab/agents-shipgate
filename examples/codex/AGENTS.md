@@ -6,10 +6,11 @@ workflow, run:
 
 ```bash
 git diff --no-ext-diff --unified=0 HEAD > /tmp/codex.diff
-shipgate check --agent codex --diff /tmp/codex.diff --format agent-json
+shipgate check --agent codex --diff /tmp/codex.diff --format codex-boundary-json
 ```
 
-Read stdout as JSON only. Use `decision` as the local next-action signal:
+Read stdout as `shipgate.codex_boundary_result/v1` JSON only. Use `decision`
+as the local next-action signal:
 
 - `allow`: continue normally.
 - `warn`: continue and mention the warning.

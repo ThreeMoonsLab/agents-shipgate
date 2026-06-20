@@ -240,7 +240,7 @@ def test_package_version_is_current_release():
     """Guard against bumping schemas while leaving package metadata behind."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.13.0", (
+    assert agents_shipgate.__version__ == "1.0.0a1", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.13.0 for the current release"
+        "expected 1.0.0a1 for the current release"
     )

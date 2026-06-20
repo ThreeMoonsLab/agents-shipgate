@@ -10,7 +10,7 @@ from agents_shipgate.cli.agent_result import (
     build_codex_agent_result,
     git_diff_text,
 )
-from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
 
 
 def check(
@@ -29,9 +29,9 @@ def check(
         ),
     ),
     format_: str = typer.Option(
-        "agent-json",
+        "codex-boundary-json",
         "--format",
-        help="Output format. Supports agent-json.",
+        help="Output format. Supports codex-boundary-json.",
     ),
     workspace: Path = typer.Option(
         Path("."),
@@ -65,8 +65,15 @@ def check(
     if agent not in {"codex", "claude-code", "cursor"}:
         typer.echo("--agent must be one of: codex, claude-code, cursor.", err=True)
         raise typer.Exit(2)
-    if format_ != "agent-json":
-        typer.echo("--format must be 'agent-json'.", err=True)
+    if format_ == "agent-json":
+        typer.echo(
+            "--format agent-json was removed in the 1.0.0-alpha contract. "
+            "Use --format codex-boundary-json.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if format_ != "codex-boundary-json":
+        typer.echo("--format must be 'codex-boundary-json'.", err=True)
         raise typer.Exit(2)
     try:
         if diff == "-":
@@ -105,9 +112,9 @@ def _diff_input_error_result(
     base: str | None,
     head: str | None,
     error: str,
-) -> AgentResultV1:
+) -> CodexBoundaryResultV1:
     command = _rerun_command(agent=agent, diff=diff, base=base, head=head)
-    return AgentResultV1(
+    return CodexBoundaryResultV1(
         agent=agent,
         subject={
             "workspace": str(workspace),
@@ -183,5 +190,5 @@ def _rerun_command(
         parts.extend(["--diff", diff])
     elif base and head:
         parts.extend(["--base", base, "--head", head])
-    parts.extend(["--format", "agent-json"])
+    parts.extend(["--format", "codex-boundary-json"])
     return " ".join(parts)

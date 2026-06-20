@@ -115,9 +115,9 @@ def _transcript_line(payload: dict) -> str:
     return json.dumps(payload)
 
 
-def test_agent_check_detectors_pass_on_agent_result_summary(tmp_path: Path) -> None:
+def test_agent_check_detectors_pass_on_boundary_result_summary(tmp_path: Path) -> None:
     agent_result = {
-        "schema_version": "agent_result_v1",
+        "schema_version": "shipgate.codex_boundary_result/v1",
         "decision": "allow",
         "completion_allowed": True,
         "must_stop": False,
@@ -125,13 +125,15 @@ def test_agent_check_detectors_pass_on_agent_result_summary(tmp_path: Path) -> N
     art = _artifacts(
         tmp_path,
         commands_lines=[
-            _command_line("shipgate check --agent cursor --workspace . --format agent-json")
+            _command_line(
+                "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+            )
         ],
         transcript_lines=[
             _transcript_line({"type": "tool_result", "output": json.dumps(agent_result)})
         ],
         summary=(
-            "Parsed agent_result_v1: decision=allow, completion_allowed=true, "
+            "Parsed shipgate.codex_boundary_result/v1: decision=allow, completion_allowed=true, "
             "must_stop=false."
         ),
     )
@@ -210,14 +212,16 @@ def test_respects_preflight_human_route(tmp_path: Path) -> None:
 
 def test_respects_must_stop_requires_summary_routing(tmp_path: Path) -> None:
     agent_result = {
-        "schema_version": "agent_result_v1",
+        "schema_version": "shipgate.codex_boundary_result/v1",
         "decision": "require_review",
         "completion_allowed": False,
         "must_stop": True,
     }
     base = {
         "commands_lines": [
-            _command_line("shipgate check --agent codex --workspace . --format agent-json")
+            _command_line(
+                "shipgate check --agent codex --workspace . --format codex-boundary-json"
+            )
         ],
         "transcript_lines": [
             _transcript_line({"type": "tool_result", "output": json.dumps(agent_result)})
@@ -227,7 +231,7 @@ def test_respects_must_stop_requires_summary_routing(tmp_path: Path) -> None:
     good = _artifacts(
         tmp_path / "good",
         **base,
-        summary="agent_result_v1 decision=require_review; must_stop=true; human review required.",
+        summary="shipgate.codex_boundary_result/v1 decision=require_review; must_stop=true; human review required.",
     )
     bad = _artifacts(
         tmp_path / "bad",
@@ -237,7 +241,7 @@ def test_respects_must_stop_requires_summary_routing(tmp_path: Path) -> None:
     overclaim = _artifacts(
         tmp_path / "overclaim",
         **base,
-        summary="agent_result_v1 had must_stop=true, but I shipped anyway.",
+        summary="shipgate.codex_boundary_result/v1 had must_stop=true, but I shipped anyway.",
     )
 
     assert respects_must_stop(good).status == "pass"

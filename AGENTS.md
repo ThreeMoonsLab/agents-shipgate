@@ -74,18 +74,18 @@ Reports land at `agents-shipgate-reports/report.{md,json}`.
 change complete, run the local control loop and parse stdout JSON:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
-shipgate check --agent claude-code --workspace . --format agent-json
-shipgate check --agent cursor --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Read the single stdout object as `agent_result_v1`. Switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`; never infer a local-control decision from Markdown, PR
-comments, or prose. If `decision=allow` or `warn`, continue and summarize the
-result. If `first_next_action.kind=repair` and `repair.safe_to_attempt` is
-`true`, apply only that repair and rerun the command. If
-`human_review.required=true` or `must_stop=true`, stop and surface the JSON
+Read the single stdout object as `shipgate.codex_boundary_result/v1`. Switch on
+`decision`, `completion_allowed`, `must_stop`, `first_next_action`,
+`human_review`, `repair`, and `policy`; never infer a local-control decision
+from Markdown, PR comments, or prose. If `decision=allow` or `warn`, continue
+and summarize the result. If `first_next_action.kind=repair` and
+`repair.safe_to_attempt` is `true`, apply only that repair and rerun the
+command. If `human_review.required=true` or `must_stop=true`, stop and surface the JSON
 result to a human.
 
 **Before editing a protected release surface** — ask the proactive static
@@ -456,6 +456,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
 | Report schema (current) | [`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json) | `0.27` |
 | Report schema (v0.26 frozen reference) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
+| Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
+| Verify-run schema | [`docs/verify-run-schema.v1.json`](docs/verify-run-schema.v1.json) | `shipgate.verify_run/v1` |
+| Codex boundary result schema | [`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json) | `shipgate.codex_boundary_result/v1` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
