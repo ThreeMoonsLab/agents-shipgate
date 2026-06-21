@@ -170,6 +170,9 @@ outputs:
   verify_run_json:
     description: Path to verify-run.json.
     value: ${{ steps.report_outputs.outputs.verify_run_json }}
+  agent_handoff_json:
+    description: Path to agent-handoff.json.
+    value: ${{ steps.report_outputs.outputs.agent_handoff_json }}
   run_id:
     description: Deterministic verify-run input identity from verify-run.json.
     value: ${{ steps.report_outputs.outputs.run_id }}

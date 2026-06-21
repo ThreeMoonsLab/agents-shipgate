@@ -65,9 +65,10 @@ If `requires_human_review` is `true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/verifier.json` first for
-`merge_verdict`, `can_merge_without_human`, and `agent_controller`; then read
-`agents-shipgate-reports/verify-run.json` for reproducibility metadata and
+fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
+`agents-shipgate-reports/verifier.json` for detailed controller context,
+`agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
 

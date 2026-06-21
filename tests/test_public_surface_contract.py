@@ -351,11 +351,17 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
     assert data.get("verifier_schema_version") == contract["verifier_schema_version"]
     assert data.get("verify_run_schema_version") == contract["verify_run_schema_version"]
+    assert data.get("agent_handoff_schema_version") == contract["agent_handoff_schema_version"]
+    assert data.get("agent_handoff_schema_path") == contract["agent_handoff_schema_path"]
+    assert data.get("agent_handoff_artifact") == contract["agent_handoff_artifact"]
     assert data.get("codex_boundary_result_schema_version") == (
         contract["codex_boundary_result_schema_version"]
     )
     assert data.get("agent_read_order") == contract["agent_read_order"]
     assert data.get("verifier_read_order") == contract["verifier_read_order"]
+    assert data.get("agent_interface_operations") == contract["agent_interface_operations"]
+    assert data.get("exit_code_policy") == contract["exit_code_policy"]
+    assert data.get("mcp_tools") == contract["mcp_tools"]
     commands = data.get("commands", {})
     assert commands.get("agent_check_codex") == contract["commands"]["agent_check_codex"]
     assert commands.get("agent_check_claude_code") == (
@@ -365,6 +371,7 @@ def test_well_known_metadata_lists_packet_outputs():
     artifacts = data.get("artifacts", {})
     assert artifacts.get("local_contract") == (".shipgate/agent-contract.json")
     assert artifacts.get("verify_run") == contract["artifacts"]["verify_run"]
+    assert artifacts.get("agent_handoff") == contract["artifacts"]["agent_handoff"]
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (
         f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; got {report_url!r}."
@@ -416,6 +423,10 @@ def test_well_known_metadata_lists_packet_outputs():
     )
     assert "verify_run" in schemas and "verify-run-schema.v1.json" in schemas["verify_run"]
     assert (
+        "agent_handoff" in schemas
+        and "agent-handoff-schema.v1.json" in schemas["agent_handoff"]
+    )
+    assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v1.json" in schemas["codex_boundary_result"]
     )
@@ -458,6 +469,9 @@ def test_agent_contract_current_doc_is_canonical():
     assert "commands" in text and "verifier_read_order" in text, (
         "docs/agent-contract-current.md must mention the runtime contract's "
         "agent-operational command/read-order fields."
+    )
+    assert "agent-handoff.json" in text and "agent_handoff_schema_version" in text, (
+        "docs/agent-contract-current.md must document the v6 agent handoff artifact."
     )
     assert "findings[].provenance_kind" in MANUAL_REVIEW_SIGNALS
     assert "agents-shipgate findings" in text, (

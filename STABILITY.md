@@ -18,7 +18,7 @@ Breaking changes from the `0.x` line:
 
 - `agents-shipgate verify` no longer writes
   `agents-shipgate-reports/agent-result.json`. Agents should read
-  `verifier.json` first, then `verify-run.json`, then
+  `agent-handoff.json` first, then `verifier.json`, then `verify-run.json`, then
   `report.json.release_decision.decision`.
 - `agents-shipgate verify --format agent` was removed. Use
   `--format json` to print the full `VerifierArtifact`.
@@ -35,12 +35,19 @@ Breaking changes from the `0.x` line:
   New outputs include `verify_run_json`, `run_id`,
   `agent_controller_must_stop`, `agent_controller_stop_reason`, and
   `agent_controller_completion_allowed`.
-- The runtime contract payload is now `contract_version: "5"`.
+- The runtime contract payload is now `contract_version: "6"`.
   Report JSON remains `report_schema_version: "0.27"` from the current
   `0.13.0` line; this alpha does not redefine that frozen report schema.
   v0.27 includes policy-pack distribution metadata
   (`loaded_policy_packs[].{source,sha256,sha256_status,owner}`) over
   v0.26 evidence-gap rows and `suggested-inventory.json`.
+- `agents-shipgate verify` writes
+  `agents-shipgate-reports/agent-handoff.json`
+  (`shipgate.agent_handoff/v1`), a compact projection for coding agents. It
+  mirrors `report.json.release_decision.decision`,
+  `verifier.json.merge_verdict`, and
+  `verifier.json.agent_controller.completion_allowed`; it never computes a
+  second verdict.
 
 `report.json.release_decision.decision` remains the only release gate.
 `verifier.json.merge_verdict` is the controller projection for agents and
@@ -82,6 +89,7 @@ changes only by bumping `contract_version` and updating this file.
 | `agents-shipgate fixture verify` | `<name>` |
 | `agents-shipgate mcp-serve` | no stable flags |
 | `agents-shipgate self-check` | `--json` |
+| `agents-shipgate agent handoff` | `--from`, `--report`, `--verify-run`, `--out`, `--json` |
 
 ### Provisional CLI command surface
 
@@ -161,11 +169,23 @@ Stable JSON fields:
   `agents-shipgate-reports/verifier.json`.
 - `verify_run_schema_version` — schema version for
   `agents-shipgate-reports/verify-run.json`.
+- `agent_handoff_schema_version` — schema version for
+  `agents-shipgate-reports/agent-handoff.json`.
+- `agent_handoff_schema_path` — checked-in JSON Schema path for the handoff
+  artifact.
+- `agent_handoff_artifact` — default emitted handoff artifact path.
 - `codex_boundary_result_schema_version` — schema version emitted by
   `shipgate check --format codex-boundary-json`.
 - `agent_read_order[]` — cross-artifact machine read order for coding agents:
-  `verifier.json.merge_verdict`, `verifier.json.agent_controller`,
-  `verify-run.json`, then `report.json.release_decision.decision`.
+  `agent-handoff.json`, then `verifier.json.merge_verdict`,
+  `verifier.json.agent_controller`, `verify-run.json`, then
+  `report.json.release_decision.decision`.
+- `agent_interface_operations[]` — stable operation vocabulary for the
+  handoff artifact.
+- `exit_code_policy{}` — stable machine-readable exit-code meanings for
+  agent-facing commands.
+- `mcp_tools[]` — read-only MCP tool names exposed by `agents-shipgate
+  mcp-serve`.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
 - `commands{}` — minimal stable commands for local `shipgate check` control,
@@ -752,7 +772,8 @@ base manifest or base scan is unavailable, verify records `base_status`, disable
 diff enrichment, and leaves the head release decision and exit code unchanged.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
-`verifier.json`, and `pr-comment.md`. `verify` intentionally requests packet
+`verifier.json`, `verify-run.json`, `agent-handoff.json`, and `pr-comment.md`.
+`verify` intentionally requests packet
 JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
 the human PR surface. Use `agents-shipgate scan` when you want the manifest's
 full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
@@ -760,7 +781,8 @@ full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
 `agents-shipgate verify --preview --json` is a lightweight relevance check: it
 runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with
 `mode: "preview"` and a `first_next_action` carrying the next recommended
-action. That action may be `none` for irrelevant diffs, `detect`/`init` for
+action plus an `agent-handoff.json` with `operation: "verify_preview"` and no
+release decision. That action may be `none` for irrelevant diffs, `detect`/`init` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
@@ -899,8 +921,32 @@ Diff remains explanatory only.
 Fixture names listed by `agents-shipgate fixture list` are stable. Names will not be renamed. New fixtures may be added.
 
 `ai_generated_refund_pr` is the verify-native demo fixture. It creates a
-temporary base/head git history and writes `verifier.json`, `report.json`, and
-`pr-comment.md` for a blocked refund-capability PR.
+temporary base/head git history and writes `verifier.json`, `verify-run.json`,
+`agent-handoff.json`, `report.json`, and `pr-comment.md` for a blocked
+refund-capability PR.
+
+### Agent handoff artifact
+
+`agents-shipgate-reports/agent-handoff.json` is the preferred compact
+machine-readable handoff object for coding agents and CI agents. The current
+schema is
+[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json) with
+`schema_version: "shipgate.agent_handoff/v1"`.
+
+The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
+and `report.json`. It mirrors `release_decision.decision`,
+`verifier.json.merge_verdict`, and
+`verifier.json.agent_controller.completion_allowed`; construction fails if
+those mirrors disagree. It never computes a separate release verdict, does not
+contain LLM-generated prose, and does not replace
+`report.json.release_decision.decision` as the release gate.
+
+Use `agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json
+--report agents-shipgate-reports/report.json --verify-run
+agents-shipgate-reports/verify-run.json --json` to re-render the same artifact
+from existing local outputs. The command exits `0` when a valid handoff is
+emitted, `3` for missing or invalid input artifacts, and `4` for internal
+errors; it does not mirror the gate result.
 
 ### Feedback export
 

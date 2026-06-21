@@ -25,6 +25,11 @@ def register(app: typer.Typer) -> None:
         typer.echo(f"Verifier schema version: {payload.verifier_schema_version}")
         typer.echo(f"Verify-run schema version: {payload.verify_run_schema_version}")
         typer.echo(
+            f"Agent handoff schema version: {payload.agent_handoff_schema_version}"
+        )
+        typer.echo(f"Agent handoff schema path: {payload.agent_handoff_schema_path}")
+        typer.echo(f"Agent handoff artifact: {payload.agent_handoff_artifact}")
+        typer.echo(
             "Codex boundary result schema version: "
             f"{payload.codex_boundary_result_schema_version}"
         )
@@ -54,6 +59,15 @@ def register(app: typer.Typer) -> None:
         typer.echo("Manual review signals:")
         for signal in payload.manual_review_signals:
             typer.echo(f"  {signal}")
+        typer.echo("Agent interface operations:")
+        for operation in payload.agent_interface_operations:
+            typer.echo(f"  {operation}")
+        typer.echo("Exit code policy:")
+        for code, meaning in payload.exit_code_policy.items():
+            typer.echo(f"  {code}: {meaning}")
+        typer.echo("MCP tools:")
+        for tool in payload.mcp_tools:
+            typer.echo(f"  {tool}")
         typer.echo("Commands:")
         for name, command in payload.commands.items():
             typer.echo(f"  {name}: {command}")

@@ -15,6 +15,7 @@ from agents_shipgate.cli import (
     _register_list_checks,
     _register_scan,
 )
+from agents_shipgate.cli.agent_interface import agent_app
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
 from agents_shipgate.cli.attest import _attest_command
 from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
@@ -183,6 +184,7 @@ app.add_typer(feedback_app, name="feedback", hidden=True)
 app.add_typer(scenario_app, name="scenario", hidden=True)
 app.add_typer(skill_app, name="skill", hidden=True)
 app.add_typer(capability_app, name="capability")
+app.add_typer(agent_app, name="agent")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(org_app, name="org")
 app.add_typer(registry_app, name="registry")

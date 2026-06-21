@@ -74,6 +74,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     report_sarif = output_dir / "report.sarif"
     verifier_json = output_dir / "verifier.json"
     verify_run_json = output_dir / "verify-run.json"
+    agent_handoff_json = output_dir / "agent-handoff.json"
     pr_comment_markdown = output_dir / "pr-comment.md"
     check_annotations_json = output_dir / "check-annotations.json"
     capability_lock_json = output_dir / "capabilities.lock.json"
@@ -128,6 +129,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "report_sarif": report_sarif,
         "verifier_json": verifier_json,
         "verify_run_json": verify_run_json,
+        "agent_handoff_json": agent_handoff_json,
         "run_id": verify_run.get("run_id", ""),
         "pr_comment_markdown": pr_comment_markdown,
         "check_annotations_json": check_annotations_json,
@@ -301,6 +303,11 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
         if values.get("verify_run_json"):
             summary_file.write(
                 f"- Verify-run JSON: `{clean(values.get('verify_run_json'))}`\n"
+            )
+        if values.get("agent_handoff_json"):
+            summary_file.write(
+                "- Agent handoff JSON: "
+                f"`{clean(values.get('agent_handoff_json'))}`\n"
             )
         if values.get("pr_comment_markdown"):
             summary_file.write(

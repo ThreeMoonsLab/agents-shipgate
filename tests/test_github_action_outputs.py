@@ -181,6 +181,7 @@ def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path:
     outputs = extract_outputs(output_dir)
 
     assert outputs["verify_run_json"] == output_dir / "verify-run.json"
+    assert outputs["agent_handoff_json"] == output_dir / "agent-handoff.json"
     assert outputs["run_id"] == "sha256:" + "a" * 64
     assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
     assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
@@ -238,6 +239,7 @@ def test_step_summary_leads_with_verifier_merge_state(
     assert "First next action: `human/review`" in text
     assert f"Verifier JSON: `{output_dir / 'verifier.json'}`" in text
     assert f"Verify-run JSON: `{output_dir / 'verify-run.json'}`" in text
+    assert f"Agent handoff JSON: `{output_dir / 'agent-handoff.json'}`" in text
     assert f"PR comment Markdown: `{output_dir / 'pr-comment.md'}`" in text
 
 

@@ -15,6 +15,7 @@ from agents_shipgate.mcp_server import (
     shipgate_capabilities,
     shipgate_check,
     shipgate_explain,
+    shipgate_handoff,
     shipgate_preflight,
 )
 
@@ -138,6 +139,44 @@ def test_mcp_capabilities_handler_does_not_write_reports(tmp_path: Path) -> None
     assert _snapshot(workspace) == before
 
 
+def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "workspace": str(tmp_path),
+            "config": "shipgate.yaml",
+            "head_status": "succeeded",
+            "release_decision": {"decision": "passed", "blockers": [], "review_items": []},
+            "decision": "passed",
+            "merge_verdict": "mergeable",
+            "applicability": "verified",
+            "can_merge_without_human": True,
+            "agent_controller": {
+                "completion_allowed": True,
+                "must_stop": False,
+                "stop_reason": None,
+                "allowed_next_commands": [],
+                "forbidden_file_edits": [],
+                "forbidden_actions": [],
+            },
+            "artifacts": {
+                "verifier_json": str(output_dir / "verifier.json"),
+                "agent_handoff_json": str(output_dir / "agent-handoff.json"),
+            },
+        },
+    )
+    _write_json(output_dir / "verify-run.json", {"run_id": "sha256:" + "b" * 64})
+    before = _snapshot(tmp_path)
+
+    payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
+
+    assert payload["schema_version"] == "shipgate.agent_handoff/v1"
+    assert payload["gate"]["merge_verdict"] == "mergeable"
+    assert _snapshot(tmp_path) == before
+
+
 @pytest.mark.skipif(_HAS_MCP_SDK, reason="mcp extra installed; error path n/a")
 def test_build_server_without_sdk_raises_config_error() -> None:
     with pytest.raises(ConfigError, match=r"agents-shipgate\[mcp\]"):
@@ -155,5 +194,10 @@ def test_build_server_registers_read_only_tools() -> None:
         "shipgate.capabilities",
         "shipgate.check",
         "shipgate.explain",
+        "shipgate.handoff",
         "shipgate.preflight",
     }
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")

@@ -18,6 +18,12 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
+- docs/verify-run-schema.v1.json
+                                (from agents_shipgate.schemas.verify_run.
+                                 VerifyRunArtifact)
+- docs/agent-handoff-schema.v1.json
+                                (from agents_shipgate.schemas.agent_handoff.
+                                 AgentHandoffArtifact)
 - docs/agent-result-schema.v1.json
                                 (legacy local-agent protocol schema from
                                  agents_shipgate.schemas.agent_result_v1.
@@ -1296,6 +1302,29 @@ def build_verify_run_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_agent_handoff_schema() -> tuple[Path, str]:
+    """Generate docs/agent-handoff-schema.v1.json."""
+
+    from agents_shipgate.schemas.agent_handoff import AgentHandoffArtifact
+
+    schema = AgentHandoffArtifact.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/agent-handoff-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Handoff v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate-reports/agent-handoff.json. "
+        "Generated from "
+        "agents_shipgate.schemas.agent_handoff.AgentHandoffArtifact. It is "
+        "a compact projection for coding agents and does not gate releases; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / "agent-handoff-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
 def build_preflight_schema() -> tuple[Path, str]:
     """Generate docs/preflight-schema.v0.2.json from PreflightResultV2."""
 
@@ -1534,6 +1563,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
     ("verify_run", build_verify_run_schema),
+    ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
     ("codex_boundary_result", build_codex_boundary_result_schema),
     ("preflight", build_preflight_schema),

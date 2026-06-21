@@ -7,6 +7,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.agent_handoff import (
+    AGENT_HANDOFF_SCHEMA_PATH,
+    AGENT_HANDOFF_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
@@ -25,7 +29,7 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["5"] = "5"
+CONTRACT_VERSION: Literal["6"] = "6"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -41,6 +45,7 @@ AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "policy",
 )
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
+    "agent_handoff",
     "preflight",
     "capability_lock",
     "capability_lock_diff",
@@ -98,6 +103,26 @@ DEFAULT_PATHS: dict[str, str] = {
     "reports_dir": "agents-shipgate-reports",
     "local_contract": ".shipgate/agent-contract.json",
 }
+AGENT_INTERFACE_OPERATIONS: tuple[str, ...] = (
+    "verify_pr",
+    "verify_local",
+    "verify_preview",
+)
+EXIT_CODE_POLICY: dict[str, str] = {
+    "0": "command completed; inspect JSON verdict fields for release state",
+    "2": "configuration or CLI flag error",
+    "3": "input parse or missing artifact error",
+    "4": "other or internal error",
+    "6": "baseline integrity failure",
+    "20": "strict-mode gate failure or opt-in governance failure",
+}
+MCP_TOOLS: tuple[str, ...] = (
+    "shipgate.check",
+    "shipgate.preflight",
+    "shipgate.explain",
+    "shipgate.capabilities",
+    "shipgate.handoff",
+)
 COMMANDS: dict[str, str] = {
     "agent_check_codex": (
         "shipgate check --agent codex --workspace . --format codex-boundary-json"
@@ -122,16 +147,22 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
+    "agent_handoff": (
+        "agents-shipgate agent handoff --from "
+        "agents-shipgate-reports/verifier.json --json"
+    ),
     "contract": "agents-shipgate contract --json",
 }
 ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
     "verify_run": "agents-shipgate-reports/verify-run.json",
+    "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
 }
 AGENT_READ_ORDER: tuple[str, ...] = (
+    "agent-handoff.json",
     "verifier.json.merge_verdict",
     "verifier.json.agent_controller",
     "verify-run.json",
@@ -186,6 +217,9 @@ class ContractPayload(BaseModel):
     packet_schema_version: str
     verifier_schema_version: str
     verify_run_schema_version: str
+    agent_handoff_schema_version: str
+    agent_handoff_schema_path: str
+    agent_handoff_artifact: str
     codex_boundary_result_schema_version: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
@@ -199,6 +233,9 @@ class ContractPayload(BaseModel):
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
     manual_review_signals: list[str]
+    agent_interface_operations: list[str]
+    exit_code_policy: dict[str, str]
+    mcp_tools: list[str]
     commands: dict[str, str]
     default_paths: dict[str, str]
     artifacts: dict[str, str]
@@ -222,6 +259,9 @@ def build_contract_payload() -> ContractPayload:
         packet_schema_version=str(packet_schema_version),
         verifier_schema_version=str(verifier_schema_version),
         verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
+        agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
+        agent_handoff_artifact=ARTIFACTS["agent_handoff"],
         codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
@@ -235,6 +275,9 @@ def build_contract_payload() -> ContractPayload:
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
+        agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
+        exit_code_policy=dict(EXIT_CODE_POLICY),
+        mcp_tools=list(MCP_TOOLS),
         commands=dict(COMMANDS),
         default_paths=dict(DEFAULT_PATHS),
         artifacts=dict(ARTIFACTS),
@@ -252,15 +295,20 @@ __all__ = [
     "AGENT_RESULT_SCHEMA_PATH",
     "AGENT_RESULT_SCHEMA_VERSION",
     "AGENT_READ_ORDER",
+    "AGENT_HANDOFF_SCHEMA_PATH",
+    "AGENT_HANDOFF_SCHEMA_VERSION",
+    "AGENT_INTERFACE_OPERATIONS",
     "ARTIFACTS",
     "CODEX_BOUNDARY_RESULT_SCHEMA_VERSION",
     "COMMANDS",
     "DEFAULT_PATHS",
     "DO_NOT_AUTO_ASSERT",
+    "EXIT_CODE_POLICY",
     "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
     "MANUAL_REVIEW_SIGNALS",
     "MERGE_VERDICTS",
+    "MCP_TOOLS",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",
     "VERIFY_RUN_SCHEMA_VERSION",

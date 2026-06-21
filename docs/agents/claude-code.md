@@ -27,8 +27,9 @@ For committed PR verification, use the CI substrate after the local check:
 agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-Read `agents-shipgate-reports/verifier.json` first, then
-`verify-run.json`, then `report.json` for reviewer evidence.
+Read `agents-shipgate-reports/agent-handoff.json` first, then
+`verifier.json`, then `verify-run.json`, then `report.json` for reviewer
+evidence.
 
 See [protocol.md](protocol.md) for the state machine, repair loop, policy
 discovery convention, and MCP read-only boundary.
