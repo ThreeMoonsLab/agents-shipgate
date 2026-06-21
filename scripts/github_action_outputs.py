@@ -81,6 +81,9 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     base_capability_lock_json = output_dir / "base.capabilities.lock.json"
     capability_lock_diff_json = output_dir / "capability-lock-diff.json"
     attestation_json = output_dir / "attestation.json"
+    org_evidence_bundle_json = output_dir / "org-evidence-bundle.json"
+    host_grants_json = output_dir / "host-grants.json"
+    org_status_json = output_dir / "org-status.json"
 
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
@@ -137,6 +140,9 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "base_capability_lock_json": base_capability_lock_json,
         "capability_lock_diff_json": capability_lock_diff_json,
         "attestation_json": attestation_json,
+        "org_evidence_bundle_json": org_evidence_bundle_json,
+        "host_grants_json": host_grants_json,
+        "org_status_json": org_status_json,
         "decision": release_decision.get("decision", ""),
         "blocker_count": len(release_decision.get("blockers") or []),
         "review_item_count": len(release_decision.get("review_items") or []),
@@ -313,6 +319,23 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
             summary_file.write(
                 "- PR comment Markdown: "
                 f"`{clean(values.get('pr_comment_markdown'))}`\n"
+            )
+        if values.get("attestation_json"):
+            summary_file.write(
+                f"- Attestation JSON: `{clean(values.get('attestation_json'))}`\n"
+            )
+        if values.get("org_evidence_bundle_json"):
+            summary_file.write(
+                "- Org evidence bundle JSON: "
+                f"`{clean(values.get('org_evidence_bundle_json'))}`\n"
+            )
+        if values.get("host_grants_json"):
+            summary_file.write(
+                f"- Host grants JSON: `{clean(values.get('host_grants_json'))}`\n"
+            )
+        if values.get("org_status_json"):
+            summary_file.write(
+                f"- Org status JSON: `{clean(values.get('org_status_json'))}`\n"
             )
 
 

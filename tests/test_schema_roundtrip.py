@@ -182,6 +182,11 @@ def test_builders_are_pure(generator):
         generator.build_codex_boundary_result_schema,
         generator.build_verify_run_schema,
         generator.build_agent_handoff_schema,
+        generator.build_attestation_schema,
+        generator.build_org_governance_schema,
+        generator.build_org_evidence_bundle_schema,
+        generator.build_registry_schema,
+        generator.build_host_grants_inventory_schema,
     ):
         target_a, content_a = builder()
         target_b, content_b = builder()

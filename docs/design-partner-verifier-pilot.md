@@ -74,7 +74,7 @@ success path.
 ## Pilot Commands
 
 Run these from the target repo root. The `verify` and `feedback` commands
-require Agents Shipgate contract v6 or newer, so the block leads with `pipx install`
+require Agents Shipgate contract v7 or newer, so the block leads with `pipx install`
 then `pipx upgrade`: a plain `pipx install` is a no-op when an older build
 is already installed, and the follow-up `pipx upgrade` brings a stale copy
 current. If `pipx` is unavailable, use
@@ -127,7 +127,7 @@ Add Agents Shipgate as an advisory verifier for this AI-generated
 agent-capability PR.
 
 Use the v1.0.0a1 verifier-first path:
-1. Install or upgrade agents-shipgate (the pilot needs contract v6 or newer):
+1. Install or upgrade agents-shipgate (the pilot needs contract v7 or newer):
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    A plain pipx install is a no-op when an older build is already installed,

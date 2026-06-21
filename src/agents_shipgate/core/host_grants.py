@@ -40,6 +40,7 @@ CLAUDE_SETTINGS_FILES: tuple[str, ...] = (
 CODEX_FILES: tuple[str, ...] = (".codex/config.toml", ".codex/hooks.json")
 
 HOST_GRANTS_SCHEMA_VERSION = "0.1"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.1"
 DEFAULT_BASELINE_FILE = Path(".agents-shipgate/host-grants.json")
 
 _GRANT_CATEGORIES: tuple[tuple[str, tuple[str, ...] | None], ...] = (
@@ -56,6 +57,7 @@ def host_audit_inventory(workspace: Path) -> dict[str, Any]:
 
     root = workspace.resolve()
     inventory: dict[str, Any] = {
+        "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
         "workspace": str(root),
         "mcp_servers": [],
         "permission_rules": [],
@@ -597,6 +599,7 @@ def render_host_drift_markdown(payload: dict[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_BASELINE_FILE",
+    "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "HOST_GRANTS_SCHEMA_VERSION",
     "build_host_drift_payload",
     "build_host_grants_baseline",

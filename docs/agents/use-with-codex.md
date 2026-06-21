@@ -77,7 +77,7 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate contract --json` reports contract v6 or newer:
+`agents-shipgate contract --json` reports contract v7 or newer:
 
 ```bash
 pipx install agents-shipgate
@@ -86,7 +86,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than contract v6,
+When `$agents-shipgate` runs and the CLI is missing or older than contract v7,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -108,7 +108,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate contract --json` reports contract v6 or newer.
+- `agents-shipgate contract --json` reports contract v7 or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -173,7 +173,7 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require contract v6 or newer, then
+   Codex should load the plugin skill, require contract v7 or newer, then
    read `agents-shipgate-reports/agent-handoff.json` and lead with
    `gate.merge_verdict`; it then reads `agents-shipgate-reports/report.json`
    for `release_decision.decision`.

@@ -31,6 +31,9 @@ from agents_shipgate.schemas.registry import (
     RegistryQueryResultV1,
     RegistryRowV1,
     RegistrySkippedRowV1,
+    RegistrySummaryV1,
+    RegistryVerificationIssueV1,
+    RegistryVerificationResultV1,
 )
 
 DEFAULT_REGISTRY_PATH = Path(".agents-shipgate/registry.jsonl")
@@ -49,7 +52,11 @@ class LoadedRegistry:
 
 
 def _row_from_attestation(
-    attestation: dict[str, Any], *, repo: str | None
+    attestation: dict[str, Any],
+    *,
+    repo: str | None,
+    source_attestation_sha256: str | None = None,
+    previous_row: RegistryRowV1 | None = None,
 ) -> RegistryRowV1:
     verdict = attestation.get("verdict") or {}
     capability = attestation.get("capability") or {}
@@ -67,8 +74,16 @@ def _row_from_attestation(
         "workflow_run_id": org.get("workflow_run_id"),
         "actor": org.get("actor"),
         "merge_sha": org.get("merge_sha"),
+        "event_time": attestation.get("event_time"),
+        "source_url": attestation.get("source_url"),
+        "branch": attestation.get("branch"),
+        "base_sha": attestation.get("base_sha"),
+        "head_sha": attestation.get("head_sha"),
         "attestation_schema_version": attestation.get("attestation_schema_version"),
         "cli_version": attestation.get("cli_version"),
+        "run_id": attestation.get("run_id"),
+        "source_attestation_sha256": source_attestation_sha256,
+        "source_verify_run_sha256": attestation.get("verify_run_sha256"),
         "base_ref": attestation.get("base_ref"),
         "head_ref": attestation.get("head_ref"),
         "base_tree_sha": attestation.get("base_tree_sha"),
@@ -94,6 +109,20 @@ def _row_from_attestation(
         "human_ack": human_ack,
         "policy_snapshot_sha256": attestation.get("policy_snapshot_sha256"),
         "artifact_sha256": attestation.get("artifact_sha256"),
+        "capability_lock": attestation.get("capability_lock") or {},
+        "capability_diff": attestation.get("capability_diff"),
+        "policy_packs": sorted(
+            [item for item in attestation.get("policy_packs") or [] if isinstance(item, dict)],
+            key=lambda item: (
+                str(item.get("path") or ""),
+                str(item.get("id") or ""),
+                str(item.get("sha256") or ""),
+            ),
+        ),
+        "previous_row_id": previous_row.row_id if previous_row is not None else None,
+        "previous_row_sha256": (
+            _row_content_sha256(previous_row) if previous_row is not None else None
+        ),
     }
     row["row_id"] = _row_id(row)
     return RegistryRowV1.model_validate(row)
@@ -104,6 +133,16 @@ def _row_id(row: dict[str, Any]) -> str:
     return "att_" + hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
+
+
+def _row_content_sha256(row: RegistryRowV1) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            row.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _load_registry(registry_path: Path) -> LoadedRegistry:
@@ -153,6 +192,7 @@ def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
 
 
 def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
+    original_row_id = value.get("row_id")
     if "row_id" not in value:
         value = {**value, "row_id": _row_id(value)}
     human_ack = value.get("human_ack") or {}
@@ -166,7 +206,19 @@ def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
         value["human_ack_outstanding"] = [
             str(item) for item in human_ack.get("outstanding") or []
         ]
-    return RegistryRowV1.model_validate(value)
+    row = RegistryRowV1.model_validate(value)
+    if original_row_id is not None and original_row_id != row.row_id:
+        # Preserve malformed historical rows for query output; registry verify
+        # reports the mismatch without hiding the row from readers.
+        return row
+    return row
+
+
+def _last_row_for_repo(rows: list[RegistryRowV1], repo: str) -> RegistryRowV1 | None:
+    for row in reversed(rows):
+        if row.repo == repo:
+            return row
+    return None
 
 
 @registry_app.command("ingest")
@@ -190,7 +242,8 @@ def registry_ingest(
 ) -> None:
     """Append one attestation to the ledger. Idempotent by content."""
     try:
-        data = json.loads(attestation.read_text(encoding="utf-8"))
+        raw = attestation.read_bytes()
+        data = json.loads(raw)
     except (OSError, json.JSONDecodeError) as exc:
         typer.echo(f"Could not read attestation {attestation}: {exc}", err=True)
         raise typer.Exit(3) from exc
@@ -201,14 +254,30 @@ def registry_ingest(
             err=True,
         )
         raise typer.Exit(3)
-    row = _row_from_attestation(data, repo=repo)
     existing = _load_rows(registry)
-    status = "exists"
-    if all(item.row_id != row.row_id for item in existing):
+    source_attestation_sha256 = hashlib.sha256(raw).hexdigest()
+    prior = next(
+        (
+            item
+            for item in existing
+            if item.source_attestation_sha256 == source_attestation_sha256
+        ),
+        None,
+    )
+    if prior is not None:
+        status = "exists"
+        row = prior
+    else:
+        row = _row_from_attestation(
+            data,
+            repo=repo,
+            source_attestation_sha256=source_attestation_sha256,
+            previous_row=_last_row_for_repo(existing, repo or (data.get("org") or {}).get("repo") or ""),
+        )
+        status = "ingested"
         registry.parent.mkdir(parents=True, exist_ok=True)
         with registry.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row.model_dump(mode="json"), sort_keys=True) + "\n")
-        status = "ingested"
     if json_output:
         typer.echo(json.dumps({"status": status, "row_id": row.row_id}))
     else:
@@ -219,6 +288,10 @@ def registry_ingest(
 def registry_query(
     registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo label."),
+    org_id: str | None = typer.Option(None, "--org-id", help="Filter by organization id."),
+    service: str | None = typer.Option(None, "--service", help="Filter by service."),
+    tier: str | None = typer.Option(None, "--tier", help="Filter by tier."),
+    actor: str | None = typer.Option(None, "--actor", help="Filter by CI/merge actor."),
     verdict: str | None = typer.Option(
         None, "--verdict", help="Filter by merge_verdict."
     ),
@@ -230,6 +303,21 @@ def registry_query(
         "--trust-root-touched",
         help="Only rows where a trust root was touched.",
     ),
+    policy_weakened: bool = typer.Option(
+        False,
+        "--policy-weakened",
+        help="Only rows where policy was weakened.",
+    ),
+    human_ack_required: bool | None = typer.Option(
+        None,
+        "--human-ack-required/--human-ack-not-required",
+        help="Filter by whether human acknowledgement was required.",
+    ),
+    human_ack_satisfied: bool | None = typer.Option(
+        None,
+        "--human-ack-satisfied/--human-ack-not-satisfied",
+        help="Filter by whether human acknowledgement was satisfied.",
+    ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Query the ledger: which capability shipped, under which verdict."""
@@ -238,11 +326,25 @@ def registry_query(
     for row in loaded.rows:
         if repo and row.repo != repo:
             continue
+        if org_id and row.org_id != org_id:
+            continue
+        if service and row.service != service:
+            continue
+        if tier and row.tier != tier:
+            continue
+        if actor and row.actor != actor:
+            continue
         if verdict and row.merge_verdict != verdict:
             continue
         if capability_id and capability_id not in row.capability_change_ids:
             continue
         if trust_root_touched and row.trust_root_touched is not True:
+            continue
+        if policy_weakened and row.policy_weakened is not True:
+            continue
+        if human_ack_required is not None and row.human_ack_required is not human_ack_required:
+            continue
+        if human_ack_satisfied is not None and row.human_ack_satisfied is not human_ack_satisfied:
             continue
         selected.append(row)
     selected.sort(key=lambda row: row.row_id)
@@ -331,3 +433,172 @@ def registry_report(
         )
     if fail_on_bypass and payload.bypass_count > 0:
         raise typer.Exit(20)
+
+
+@registry_app.command("summary")
+def registry_summary(
+    registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Summarize the ledger for cross-repo governance reporting."""
+    loaded = _load_registry(registry)
+    payload = _registry_summary_payload(registry, loaded)
+    if json_output:
+        typer.echo(payload.model_dump_json(indent=2))
+        return
+    typer.echo(f"{payload.count} attestation row(s) in {registry}")
+    typer.echo(f"Bypass candidates: {payload.bypass_count}")
+    typer.echo(f"Trust-root touched: {payload.trust_root_touched_count}")
+    typer.echo(f"Policy weakened: {payload.policy_weakened_count}")
+    typer.echo(f"Human acknowledgement unsatisfied: {payload.human_ack_unsatisfied_count}")
+
+
+@registry_app.command("verify")
+def registry_verify(
+    registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
+    json_output: bool = typer.Option(False, "--json"),
+    fail_on_issue: bool = typer.Option(
+        False,
+        "--fail-on-issue",
+        help="Exit 20 when registry integrity issues are found.",
+    ),
+) -> None:
+    """Verify row ids and optional per-repo hash-chain links."""
+    loaded = _load_registry(registry)
+    payload = _registry_verify_payload(registry, loaded)
+    if json_output:
+        typer.echo(payload.model_dump_json(indent=2))
+        if fail_on_issue and not payload.ok:
+            raise typer.Exit(20)
+        return
+    if payload.ok:
+        typer.echo(f"Registry verified: {payload.row_count} row(s) in {registry}")
+    else:
+        typer.echo(f"Registry has {payload.issue_count} issue(s) in {registry}")
+        for issue in payload.issues:
+            row = issue.row_id or "unknown"
+            typer.echo(f"- {issue.kind}: {row} {issue.message}")
+    if payload.skipped_count:
+        typer.echo(f"Skipped {payload.skipped_count} malformed row(s).", err=True)
+    if fail_on_issue and not payload.ok:
+        raise typer.Exit(20)
+
+
+def _registry_summary_payload(
+    registry: Path,
+    loaded: LoadedRegistry,
+) -> RegistrySummaryV1:
+    rows = loaded.rows
+    return RegistrySummaryV1(
+        registry=str(registry),
+        count=len(rows),
+        skipped_count=len(loaded.skipped),
+        skipped_rows=loaded.skipped,
+        by_merge_verdict=_counts(row.merge_verdict for row in rows),
+        by_decision=_counts(row.decision for row in rows),
+        by_repo=_counts(row.repo for row in rows if row.repo),
+        by_service=_counts(row.service for row in rows),
+        by_tier=_counts(row.tier for row in rows),
+        bypass_count=sum(
+            1
+            for row in rows
+            if row.merge_verdict != "mergeable" and row.human_ack_satisfied is not True
+        ),
+        trust_root_touched_count=sum(1 for row in rows if row.trust_root_touched is True),
+        policy_weakened_count=sum(1 for row in rows if row.policy_weakened is True),
+        human_ack_required_count=sum(1 for row in rows if row.human_ack_required is True),
+        human_ack_unsatisfied_count=sum(
+            1
+            for row in rows
+            if row.human_ack_required is True and row.human_ack_satisfied is not True
+        ),
+        policy_pack_unverified_count=sum(
+            1
+            for row in rows
+            for pack in row.policy_packs
+            if isinstance(pack, dict)
+            and pack.get("status") not in {None, "verified"}
+        ),
+    )
+
+
+def _counts(values) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for value in values:
+        if value is None:
+            continue
+        key = str(value)
+        if not key:
+            continue
+        out[key] = out.get(key, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def _registry_verify_payload(
+    registry: Path,
+    loaded: LoadedRegistry,
+) -> RegistryVerificationResultV1:
+    issues: list[RegistryVerificationIssueV1] = []
+    seen_ids: set[str] = set()
+    last_by_repo: dict[str, RegistryRowV1] = {}
+    for row in loaded.rows:
+        expected = _row_id(row.model_dump(mode="json"))
+        if row.row_id != expected:
+            issues.append(
+                RegistryVerificationIssueV1(
+                    row_id=row.row_id,
+                    repo=row.repo,
+                    kind="row_id_mismatch",
+                    message=f"expected {expected}",
+                )
+            )
+        if row.row_id in seen_ids:
+            issues.append(
+                RegistryVerificationIssueV1(
+                    row_id=row.row_id,
+                    repo=row.repo,
+                    kind="duplicate_row_id",
+                    message="row_id appears more than once",
+                )
+            )
+        seen_ids.add(row.row_id)
+        previous = last_by_repo.get(row.repo)
+        if row.previous_row_id or row.previous_row_sha256:
+            if previous is None:
+                issues.append(
+                    RegistryVerificationIssueV1(
+                        row_id=row.row_id,
+                        repo=row.repo,
+                        kind="missing_previous_row",
+                        message="row carries a previous link but no prior row exists",
+                    )
+                )
+            elif row.previous_row_id != previous.row_id:
+                issues.append(
+                    RegistryVerificationIssueV1(
+                        row_id=row.row_id,
+                        repo=row.repo,
+                        kind="previous_row_id_mismatch",
+                        message=f"expected {previous.row_id}",
+                    )
+                )
+            elif row.previous_row_sha256 != _row_content_sha256(previous):
+                issues.append(
+                    RegistryVerificationIssueV1(
+                        row_id=row.row_id,
+                        repo=row.repo,
+                        kind="previous_row_sha256_mismatch",
+                        message="previous row hash does not match row content",
+                    )
+                )
+        last_by_repo[row.repo] = row
+    issue_count = len(issues) + len(loaded.skipped)
+    return RegistryVerificationResultV1(
+        registry=str(registry),
+        row_count=len(loaded.rows),
+        skipped_count=len(loaded.skipped),
+        skipped_rows=loaded.skipped,
+        issue_count=issue_count,
+        ok=issue_count == 0,
+        issues=issues,
+    )

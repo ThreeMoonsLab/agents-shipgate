@@ -124,6 +124,22 @@ inputs:
     required: false
     default: ""
     description: Optional repository label copied into attestation org context.
+  org_bundle:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/org-evidence-bundle.json for org/fleet aggregation.
+  host_audit:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/host-grants.json from audit --host.
+  org_status:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/org-status.json from org status.
+  registry_path:
+    required: false
+    default: ""
+    description: Optional registry path label embedded in org bundle metadata; never mutated by this action.
 
 outputs:
   # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
@@ -194,6 +210,15 @@ outputs:
   attestation_json:
     description: Path to generated release attestation JSON when attestation is true.
     value: ${{ steps.report_outputs.outputs.attestation_json }}
+  org_evidence_bundle_json:
+    description: Path to generated organization evidence bundle JSON when org_bundle is true.
+    value: ${{ steps.report_outputs.outputs.org_evidence_bundle_json }}
+  host_grants_json:
+    description: Path to generated host-grants inventory JSON when host_audit is true.
+    value: ${{ steps.report_outputs.outputs.host_grants_json }}
+  org_status_json:
+    description: Path to generated organization status JSON when org_status is true.
+    value: ${{ steps.report_outputs.outputs.org_status_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
@@ -367,15 +392,6 @@ runs:
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
-    - name: Extract Agents Shipgate outputs
-      id: report_outputs
-      if: ${{ always() }}
-      shell: bash
-      env:
-        OUTPUT_DIR: ${{ inputs.output_dir }}
-      run: |
-        python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
-
     - name: Build Agents Shipgate attestation
       if: ${{ always() && inputs.attestation == 'true' }}
       shell: bash
@@ -399,6 +415,71 @@ runs:
         else
           echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
         fi
+
+    - name: Build Agents Shipgate host audit
+      if: ${{ always() && inputs.host_audit == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        agents-shipgate audit --host --workspace "." --json \
+          --out "${OUTPUT_DIR}/host-grants.json" >/dev/null || \
+          echo "Agents Shipgate host audit failed; artifact skipped." >&2
+
+    - name: Build Agents Shipgate org status
+      if: ${{ always() && inputs.org_status == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        set +e
+        agents-shipgate org status --config "${CONFIG}" --workspace "." --json \
+          > "${OUTPUT_DIR}/org-status.json"
+        status_code=$?
+        set -e
+        if [ "${status_code}" != "0" ] && [ "${status_code}" != "20" ]; then
+          echo "Agents Shipgate org status failed with ${status_code}." >&2
+        fi
+
+    - name: Build Agents Shipgate org evidence bundle
+      if: ${{ always() && inputs.org_bundle == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+        REGISTRY_PATH: ${{ inputs.registry_path }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+          args=(
+            org
+            bundle
+            --config "${CONFIG}"
+            --workspace "."
+            --from "${OUTPUT_DIR}/verifier.json"
+            --out "${OUTPUT_DIR}/org-evidence-bundle.json"
+            --json
+          )
+          if [ -n "${REGISTRY_PATH}" ]; then
+            args+=(--registry "${REGISTRY_PATH}")
+          fi
+          agents-shipgate "${args[@]}" >/dev/null || \
+            echo "Agents Shipgate org evidence bundle failed; artifact skipped." >&2
+        else
+          echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
+        fi
+
+    - name: Extract Agents Shipgate outputs
+      id: report_outputs
+      if: ${{ always() }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      run: |
+        python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
 
     - name: Emit Agents Shipgate annotations
       if: ${{ always() && inputs.check_annotations == 'true' }}

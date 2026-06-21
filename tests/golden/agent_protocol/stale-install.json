@@ -20,7 +20,7 @@
     "actor": "coding_agent",
     "kind": "install",
     "command": "pipx upgrade agents-shipgate",
-    "why": "Installed Agents Shipgate is older than the required contract v6; a stale binary can emit an outdated schema or miss commands."
+    "why": "Installed Agents Shipgate is older than the required contract v7; a stale binary can emit an outdated schema or miss commands."
   },
   "human_review": {
     "required": false,
@@ -47,19 +47,19 @@
   "violated_rules": [],
   "affected_files": [],
   "required_reviewers": [],
-  "explanation": "Upgrade Agents Shipgate to contract v6, then rerun shipgate check.",
+  "explanation": "Upgrade Agents Shipgate to contract v7, then rerun shipgate check.",
   "suggested_fixes": [
-    "Install or upgrade agents-shipgate to contract v6"
+    "Install or upgrade agents-shipgate to contract v7"
   ],
   "agent_repair_instructions": [
-    "Install or upgrade Agents Shipgate, then confirm agents-shipgate contract --json reports contract_version >= 6.",
+    "Install or upgrade Agents Shipgate, then confirm agents-shipgate contract --json reports contract_version >= 7.",
     "Rerun shipgate check --agent codex --workspace . --format codex-boundary-json."
   ],
   "diagnostics": [
     {
       "level": "error",
       "code": "shipgate_stale_install",
-      "message": "The installed shipgate binary is older than the required contract v6."
+      "message": "The installed shipgate binary is older than the required contract v7."
     }
   ],
   "trace": [

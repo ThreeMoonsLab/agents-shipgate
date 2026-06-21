@@ -5,6 +5,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from agents_shipgate.core.baseline import load_baseline
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.host_grants import (
@@ -18,6 +20,7 @@ from agents_shipgate.schemas.org_governance import (
     ExceptionRecordV1,
     OrgGovernanceStatusV1,
     OrgGovernanceSummaryV1,
+    OrgPolicyPacksStatusV1,
     PolicyPackPinRecordV1,
 )
 
@@ -272,10 +275,13 @@ def policy_pack_pin_records(
         path = Path(config.path)
         resolved = path if path.is_absolute() else base_dir / path
         actual: str | None = None
+        metadata: dict[str, Any] = {}
         status = "unpinned"
         violations: list[str] = []
         try:
-            actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            raw = resolved.read_bytes()
+            actual = hashlib.sha256(raw).hexdigest()
+            metadata = _policy_pack_metadata(raw)
         except FileNotFoundError:
             status = "missing"
             violations.append("policy_pack_missing")
@@ -295,6 +301,10 @@ def policy_pack_pin_records(
         records.append(
             PolicyPackPinRecordV1(
                 id=config.id,
+                name=_clean(metadata.get("name")),
+                version=_clean(metadata.get("version")),
+                owner=_clean(metadata.get("owner")),
+                rule_count=metadata.get("rule_count"),
                 path=config.path,
                 source=config.source,
                 sha256=config.sha256,
@@ -304,6 +314,54 @@ def policy_pack_pin_records(
             )
         )
     return sorted(records, key=lambda item: (item.path, item.id or ""))
+
+
+def build_org_policy_packs_status(
+    *,
+    manifest: AgentsShipgateManifest,
+    config_path: Path,
+    workspace: Path,
+) -> OrgPolicyPacksStatusV1:
+    org = manifest.organization
+    records = policy_pack_pin_records(
+        manifest.checks.policy_packs,
+        base_dir=config_path.resolve().parent,
+        require_pin_for_sourced=org is not None,
+    )
+    violations: list[dict[str, str]] = []
+    for pack in records:
+        for violation in pack.violations:
+            violations.append(
+                {
+                    "kind": violation,
+                    "source": pack.path,
+                    "record_kind": "policy_pack",
+                    "subject": pack.id or pack.source or pack.path,
+                }
+            )
+    return OrgPolicyPacksStatusV1(
+        config=_display_path(config_path, workspace),
+        policy_pack_count=len(records),
+        policy_pack_violation_count=sum(len(pack.violations) for pack in records),
+        policy_packs=records,
+        violations=violations,
+    )
+
+
+def _policy_pack_metadata(raw: bytes) -> dict[str, Any]:
+    try:
+        data = yaml.safe_load(raw.decode("utf-8")) or {}
+    except (UnicodeDecodeError, yaml.YAMLError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    rules = data.get("rules")
+    return {
+        "name": data.get("name"),
+        "version": data.get("version"),
+        "owner": data.get("owner"),
+        "rule_count": len(rules) if isinstance(rules, list) else None,
+    }
 
 
 def host_grant_drift_payload(
@@ -418,6 +476,7 @@ def _display_path(path: Path, root: Path) -> str:
 __all__ = [
     "build_exception_records",
     "build_org_governance_status",
+    "build_org_policy_packs_status",
     "host_grant_drift_payload",
     "policy_pack_pin_records",
     "render_org_status_markdown",

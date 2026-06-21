@@ -16,6 +16,7 @@ from agents_shipgate.schemas.contract import (
     AGENT_RESULT_SCHEMA_PATH,
     AGENT_RESULT_SCHEMA_VERSION,
     ARTIFACTS,
+    ATTESTATION_SCHEMA_VERSION,
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
     COMMANDS,
     CONTRACT_VERSION,
@@ -23,8 +24,11 @@ from agents_shipgate.schemas.contract import (
     DO_NOT_AUTO_ASSERT,
     EXIT_CODE_POLICY,
     GATING_SIGNAL,
+    HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     MCP_TOOLS,
     MERGE_VERDICTS,
+    ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
     VERIFY_RUN_SCHEMA_VERSION,
@@ -55,6 +59,10 @@ class LocalAgentContract(BaseModel):
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
     codex_boundary_result_schema_version: str
+    attestation_schema_version: str
+    registry_schema_version: str
+    org_evidence_bundle_schema_version: str
+    host_grants_inventory_schema_version: str
     agent_result_schema_version: str
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
@@ -87,6 +95,10 @@ def build_local_agent_contract() -> LocalAgentContract:
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],
         codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+        attestation_schema_version=ATTESTATION_SCHEMA_VERSION,
+        registry_schema_version=REGISTRY_SCHEMA_VERSION,
+        org_evidence_bundle_schema_version=ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        host_grants_inventory_schema_version=HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),

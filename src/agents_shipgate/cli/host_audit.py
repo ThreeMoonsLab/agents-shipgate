@@ -9,6 +9,7 @@ import typer
 
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
+    HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HOST_GRANTS_SCHEMA_VERSION,
     build_host_drift_payload,
     build_host_grants_baseline,
@@ -63,6 +64,11 @@ def audit(
         "--json",
         help="Emit JSON instead of Markdown.",
     ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        help="Write the JSON payload to this path in addition to normal output.",
+    ),
 ) -> None:
     """Zero-config, read-only audits. Currently supports --host."""
 
@@ -106,6 +112,7 @@ def audit(
             "inventory_sha256": payload["inventory_sha256"],
             "status": status,
         }
+        _write_json_out(out, outcome)
         if json_output:
             typer.echo(json.dumps(outcome, indent=2, sort_keys=True))
         else:
@@ -128,21 +135,33 @@ def audit(
             baseline_file=str(baseline_file),
         )
         if json_output:
+            _write_json_out(out, payload)
             typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         else:
+            _write_json_out(out, payload)
             typer.echo(render_host_drift_markdown(payload), nl=False)
         if fail_on_drift and payload["has_drift"]:
             raise typer.Exit(20)
         return
 
     if json_output:
+        _write_json_out(out, inventory)
         typer.echo(json.dumps(inventory, indent=2, sort_keys=True))
         return
+    _write_json_out(out, inventory)
     typer.echo(render_host_audit_markdown(inventory), nl=False)
+
+
+def _write_json_out(out: Path | None, payload: dict) -> None:
+    if out is None:
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 __all__ = [
     "DEFAULT_BASELINE_FILE",
+    "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "HOST_GRANTS_SCHEMA_VERSION",
     "audit",
     "build_host_drift_payload",

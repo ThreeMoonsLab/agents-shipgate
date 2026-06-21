@@ -35,6 +35,10 @@ class PolicyPackPinRecordV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str | None = None
+    name: str | None = None
+    version: str | None = None
+    owner: str | None = None
+    rule_count: int | None = None
     path: str
     source: str | None = None
     sha256: str | None = None
@@ -69,11 +73,23 @@ class OrgGovernanceStatusV1(BaseModel):
     violations: list[dict[str, str]] = Field(default_factory=list)
 
 
+class OrgPolicyPacksStatusV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_governance_schema_version: Literal["0.1"] = ORG_GOVERNANCE_SCHEMA_VERSION
+    config: str
+    policy_pack_count: int = 0
+    policy_pack_violation_count: int = 0
+    policy_packs: list[PolicyPackPinRecordV1] = Field(default_factory=list)
+    violations: list[dict[str, str]] = Field(default_factory=list)
+
+
 __all__ = [
     "ORG_GOVERNANCE_SCHEMA_VERSION",
     "ExceptionKind",
     "ExceptionRecordV1",
     "OrgGovernanceStatusV1",
     "OrgGovernanceSummaryV1",
+    "OrgPolicyPacksStatusV1",
     "PolicyPackPinRecordV1",
 ]

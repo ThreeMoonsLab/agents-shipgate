@@ -94,6 +94,14 @@ To inventory host grants without a `shipgate.yaml` (for example, on a
 repo you are evaluating), see `agents-shipgate audit --host` — it reads
 the same host files and prints a one-page Markdown inventory without
 writing anything.
+For CI or fleet ingestion, emit the versioned JSON artifact:
+
+```bash
+agents-shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
+```
+
+The payload includes `host_grants_inventory_schema_version: "0.1"` and validates
+against [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json).
 
 ## Host-grant drift detection
 

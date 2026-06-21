@@ -1,0 +1,216 @@
+{
+  "$defs": {
+    "HostGrantsInventoryV1": {
+      "additionalProperties": false,
+      "description": "Versioned host-grant inventory emitted by ``agents-shipgate audit --host``.",
+      "properties": {
+        "codex_config_present": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Codex Config Present",
+          "type": "array"
+        },
+        "hooks": {
+          "items": {
+            "$ref": "#/$defs/HostHookGrantV1"
+          },
+          "title": "Hooks",
+          "type": "array"
+        },
+        "host_grants_inventory_schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Host Grants Inventory Schema Version",
+          "type": "string"
+        },
+        "mcp_servers": {
+          "items": {
+            "$ref": "#/$defs/HostMcpServerGrantV1"
+          },
+          "title": "Mcp Servers",
+          "type": "array"
+        },
+        "parse_warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parse Warnings",
+          "type": "array"
+        },
+        "permission_rules": {
+          "items": {
+            "$ref": "#/$defs/HostPermissionRuleGrantV1"
+          },
+          "title": "Permission Rules",
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowGrantV1"
+          },
+          "title": "Workflows",
+          "type": "array"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace"
+      ],
+      "title": "HostGrantsInventoryV1",
+      "type": "object"
+    },
+    "HostHookGrantV1": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "event": {
+          "title": "Event",
+          "type": "string"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "event",
+        "config_sha256"
+      ],
+      "title": "HostHookGrantV1",
+      "type": "object"
+    },
+    "HostMcpServerGrantV1": {
+      "additionalProperties": false,
+      "properties": {
+        "command_or_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Or Url"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "env_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Keys",
+          "type": "array"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "server": {
+          "title": "Server",
+          "type": "string"
+        },
+        "transport": {
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "file",
+        "server",
+        "transport",
+        "config_sha256"
+      ],
+      "title": "HostMcpServerGrantV1",
+      "type": "object"
+    },
+    "HostPermissionRuleGrantV1": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        },
+        "wildcard": {
+          "default": false,
+          "title": "Wildcard",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file",
+        "kind",
+        "rule"
+      ],
+      "title": "HostPermissionRuleGrantV1",
+      "type": "object"
+    },
+    "HostWorkflowGrantV1": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "pull_request_target": {
+          "default": false,
+          "title": "Pull Request Target",
+          "type": "boolean"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "write_all": {
+          "default": false,
+          "title": "Write All",
+          "type": "boolean"
+        },
+        "write_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Write Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "HostWorkflowGrantV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.1.json",
+  "$ref": "#/$defs/HostGrantsInventoryV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for agents-shipgate audit --host --json. The inventory summarizes local coding-agent host grants and does not gate releases.",
+  "title": "Agents Shipgate Host Grants Inventory v0.1"
+}

@@ -43,11 +43,15 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — JSON Schema for local policy-pack YAML files (current; adds `all_of`/`any_of`/`none_of` combinators, `maximum_above`/`minimum_below` parameter bounds, and the manifest-side `sha256` pack pin)
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — frozen v0.1 reference schema for the flat match syntax
-- [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds optional local org/CI context and detailed human acknowledgements
+- [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds verify-run binding, explicit CI event facts, capability-lock/diff summaries, and policy-pack pin records for cross-repo ledgers
 - [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
-- [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — JSON Schema for `agents-shipgate registry query --json` and `registry report --bypass --json`
+- [`org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
+- [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
+- [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — JSON Schema for `agents-shipgate audit --host --json`; versioned host MCP/permission/hook/workflow inventory
+- [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
+- [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
 - [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — stable JSON Schema for semantic capability-lock diff artifacts emitted by `agents-shipgate capability diff`; non-gating and not part of `report.json`
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — frozen experimental reference for old capability lock and diff artifacts; `capability diff` still accepts old lock inputs

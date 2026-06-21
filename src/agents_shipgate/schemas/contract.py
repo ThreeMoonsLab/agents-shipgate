@@ -11,6 +11,7 @@ from agents_shipgate.schemas.agent_handoff import (
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
@@ -23,13 +24,16 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.host_grants import HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
+from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["6"] = "6"
+CONTRACT_VERSION: Literal["7"] = "7"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -50,6 +54,11 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "capability_lock",
     "capability_lock_diff",
     "capability_standard",
+    "attestation",
+    "registry",
+    "org_governance",
+    "org_evidence_bundle",
+    "host_grants_inventory",
     "governance_benchmark_catalog",
     "governance_benchmark_result",
 )
@@ -151,6 +160,22 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate agent handoff --from "
         "agents-shipgate-reports/verifier.json --json"
     ),
+    "attest": (
+        "agents-shipgate attest --from agents-shipgate-reports/verifier.json "
+        "--out agents-shipgate-reports/attestation.json"
+    ),
+    "org_bundle": (
+        "agents-shipgate org bundle --config shipgate.yaml "
+        "--from agents-shipgate-reports/verifier.json "
+        "--out agents-shipgate-reports/org-evidence-bundle.json --json"
+    ),
+    "org_policy_packs": "agents-shipgate org policy-packs --config shipgate.yaml --json",
+    "registry_summary": "agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --json",
+    "registry_verify": "agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json",
+    "host_audit": (
+        "agents-shipgate audit --host --json --out "
+        "agents-shipgate-reports/host-grants.json"
+    ),
     "contract": "agents-shipgate contract --json",
 }
 ARTIFACTS: dict[str, str] = {
@@ -160,6 +185,11 @@ ARTIFACTS: dict[str, str] = {
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
+    "attestation": "agents-shipgate-reports/attestation.json",
+    "org_evidence_bundle": "agents-shipgate-reports/org-evidence-bundle.json",
+    "host_grants": "agents-shipgate-reports/host-grants.json",
+    "org_status": "agents-shipgate-reports/org-status.json",
+    "registry": ".agents-shipgate/registry.jsonl",
 }
 AGENT_READ_ORDER: tuple[str, ...] = (
     "agent-handoff.json",
@@ -227,6 +257,10 @@ class ContractPayload(BaseModel):
     capability_standard_version: str
     governance_benchmark_catalog_schema_version: str
     governance_benchmark_result_schema_version: str
+    attestation_schema_version: str
+    registry_schema_version: str
+    org_evidence_bundle_schema_version: str
+    host_grants_inventory_schema_version: str
     external_integration_surfaces: list[str]
     gating_signal: str
     agent_result_schema_version: str
@@ -269,6 +303,10 @@ def build_contract_payload() -> ContractPayload:
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         governance_benchmark_catalog_schema_version=(GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION),
         governance_benchmark_result_schema_version=(GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION),
+        attestation_schema_version=ATTESTATION_SCHEMA_VERSION,
+        registry_schema_version=REGISTRY_SCHEMA_VERSION,
+        org_evidence_bundle_schema_version=ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        host_grants_inventory_schema_version=HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
@@ -299,6 +337,7 @@ __all__ = [
     "AGENT_HANDOFF_SCHEMA_VERSION",
     "AGENT_INTERFACE_OPERATIONS",
     "ARTIFACTS",
+    "ATTESTATION_SCHEMA_VERSION",
     "CODEX_BOUNDARY_RESULT_SCHEMA_VERSION",
     "COMMANDS",
     "DEFAULT_PATHS",
@@ -306,9 +345,12 @@ __all__ = [
     "EXIT_CODE_POLICY",
     "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
+    "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "MANUAL_REVIEW_SIGNALS",
     "MERGE_VERDICTS",
     "MCP_TOOLS",
+    "ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION",
+    "REGISTRY_SCHEMA_VERSION",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",
     "VERIFY_RUN_SCHEMA_VERSION",

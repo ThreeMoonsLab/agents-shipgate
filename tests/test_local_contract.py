@@ -31,6 +31,10 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
         "codex_boundary_result_schema_version",
+        "attestation_schema_version",
+        "registry_schema_version",
+        "org_evidence_bundle_schema_version",
+        "host_grants_inventory_schema_version",
         "agent_result_schema_version",
         "agent_result_schema_path",
         "agent_result_control_fields",
@@ -78,6 +82,12 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         payload["codex_boundary_result_schema_version"]
         == "shipgate.codex_boundary_result/v1"
     )
+    assert payload["attestation_schema_version"] == "0.4"
+    assert payload["registry_schema_version"] == "0.3"
+    assert payload["org_evidence_bundle_schema_version"] == (
+        "shipgate.org_evidence_bundle/v1"
+    )
+    assert payload["host_grants_inventory_schema_version"] == "0.1"
     assert payload["agent_result_schema_version"] == "agent_result_v1"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
     assert payload["agent_result_control_fields"] == [

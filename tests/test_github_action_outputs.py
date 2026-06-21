@@ -194,6 +194,12 @@ def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path:
         == output_dir / "capability-lock-diff.json"
     )
     assert outputs["attestation_json"] == output_dir / "attestation.json"
+    assert (
+        outputs["org_evidence_bundle_json"]
+        == output_dir / "org-evidence-bundle.json"
+    )
+    assert outputs["host_grants_json"] == output_dir / "host-grants.json"
+    assert outputs["org_status_json"] == output_dir / "org-status.json"
     assert outputs["merge_verdict"] == "human_review_required"
     assert outputs["can_merge_without_human"] == "false"
     assert outputs["agent_controller_must_stop"] == "true"
@@ -238,6 +244,13 @@ def test_step_summary_leads_with_verifier_merge_state(
     assert "Can merge without human: `false`" in text
     assert "First next action: `human/review`" in text
     assert f"Verifier JSON: `{output_dir / 'verifier.json'}`" in text
+    assert f"Attestation JSON: `{output_dir / 'attestation.json'}`" in text
+    assert (
+        f"Org evidence bundle JSON: `{output_dir / 'org-evidence-bundle.json'}`"
+        in text
+    )
+    assert f"Host grants JSON: `{output_dir / 'host-grants.json'}`" in text
+    assert f"Org status JSON: `{output_dir / 'org-status.json'}`" in text
     assert f"Verify-run JSON: `{output_dir / 'verify-run.json'}`" in text
     assert f"Agent handoff JSON: `{output_dir / 'agent-handoff.json'}`" in text
     assert f"PR comment Markdown: `{output_dir / 'pr-comment.md'}`" in text

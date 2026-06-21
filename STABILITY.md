@@ -35,7 +35,7 @@ Breaking changes from the `0.x` line:
   New outputs include `verify_run_json`, `run_id`,
   `agent_controller_must_stop`, `agent_controller_stop_reason`, and
   `agent_controller_completion_allowed`.
-- The runtime contract payload is now `contract_version: "6"`.
+- The runtime contract payload is now `contract_version: "7"`.
   Report JSON remains `report_schema_version: "0.27"` from the current
   `0.13.0` line; this alpha does not redefine that frozen report schema.
   v0.27 includes policy-pack distribution metadata
@@ -79,6 +79,16 @@ changes only by bumping `contract_version` and updating this file.
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate capability export` | `--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`, `--json`, `--no-plugins`, `--verbose` |
 | `agents-shipgate capability diff` | `--base`, `--head`, `--out`, `--json` |
+| `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--json` |
+| `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
+| `agents-shipgate org policy-packs` | `--config`/`-c`, `--workspace`, `--json` |
+| `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
+| `agents-shipgate registry ingest` | `--attestation`, `--registry`, `--repo`, `--json` |
+| `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
+| `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
+| `agents-shipgate registry summary` | `--registry`, `--json` |
+| `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
+| `agents-shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out`, `--owner` (v0.13+), `--reason` (v0.13+), `--expires` (v0.13+), `--apply-to-existing` (v0.13+) |
 | `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |

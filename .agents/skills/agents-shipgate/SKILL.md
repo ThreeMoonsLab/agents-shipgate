@@ -15,7 +15,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 1. For relevance decisions, bootstrap, verifier runs, scanning, CI setup, finding fixes, false-positive triage, strict-mode promotion, or version upgrades, read `references/recipes.md`.
 2. For reading `report.json`, summarizing release decisions, or deciding what may be auto-applied, read `references/report-reading.md`.
-3. Before running Shipgate CLI commands, require a CLI whose `agents-shipgate contract --json` reports `contract_version: "6"` or newer: run `command -v agents-shipgate`, `agents-shipgate --version`, and `agents-shipgate contract --json`. If it is missing or stale, tell the user to install or upgrade `agents-shipgate`. The Codex plugin supplies workflows, not the scanner binary.
+3. Before running Shipgate CLI commands, require a CLI whose `agents-shipgate contract --json` reports `contract_version: "7"` or newer: run `command -v agents-shipgate`, `agents-shipgate --version`, and `agents-shipgate contract --json`. If it is missing or stale, tell the user to install or upgrade `agents-shipgate`. The Codex plugin supplies workflows, not the scanner binary.
 4. Set `AGENTS_SHIPGATE_AGENT_MODE=1` before running Shipgate commands so errors include structured `next_action` JSON.
 5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
 6. For local agent control, run `shipgate check --agent codex --workspace . --format codex-boundary-json` and read the stdout `shipgate.codex_boundary_result/v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
@@ -26,7 +26,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 
 ## Fast Paths
 
-- CLI preflight: run `command -v agents-shipgate`, `agents-shipgate --version`, and `agents-shipgate contract --json`. Continue only when the installed CLI reports `contract_version: "6"` or newer; if it is missing or stale, ask the user to install or upgrade `agents-shipgate`.
+- CLI preflight: run `command -v agents-shipgate`, `agents-shipgate --version`, and `agents-shipgate contract --json`. Continue only when the installed CLI reports `contract_version: "7"` or newer; if it is missing or stale, ask the user to install or upgrade `agents-shipgate`.
 - Protected-surface preflight: run `agents-shipgate preflight --workspace . --plan - --json` before touching trust roots; include `changed_files[]` or `diff_text` in the plan when you have concrete planned paths.
 - Agent-native check: run `shipgate check --agent codex --workspace . --format codex-boundary-json`; read only the JSON result for continue/repair/stop routing.
 - First adoption: run `agents-shipgate detect --workspace . --json`, then follow `references/recipes.md`.
