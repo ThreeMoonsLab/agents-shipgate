@@ -74,7 +74,7 @@ the rules to the changed file list.
      `uvx agents-shipgate@1.0.0a1 detect --workspace . --json` (or
      `pipx run agents-shipgate==1.0.0a1 ...`). Only fall back to a bare
      `agents-shipgate detect` once `agents-shipgate --version` confirms
-     contract v5 or newer. Then follow
+     contract v6 or newer. Then follow
      [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
      for the first-adoption helper flow, or point the user at the GitHub
      Action (`ThreeMoonsLab/agents-shipgate@v1.0.0a1`) if they prefer CI.

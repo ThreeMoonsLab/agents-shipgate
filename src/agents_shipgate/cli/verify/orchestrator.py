@@ -13,6 +13,7 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
     diff_capability_locks,
@@ -999,6 +1000,7 @@ def _artifact_paths(
     candidates = {
         "verifier_json": out_dir / "verifier.json",
         "verify_run_json": out_dir / "verify-run.json",
+        "agent_handoff_json": out_dir / "agent-handoff.json",
         "pr_comment": out_dir / "pr-comment.md",
     }
     if include_scan_artifacts:
@@ -1016,7 +1018,8 @@ def _artifact_paths(
     return {
         key: _display_path(path.resolve(), git_root)
         for key, path in candidates.items()
-        if key in {"verifier_json", "verify_run_json", "pr_comment"} or path.exists()
+        if key in {"verifier_json", "verify_run_json", "agent_handoff_json", "pr_comment"}
+        or path.exists()
     }
 
 
@@ -1055,7 +1058,7 @@ def _write_artifacts(
     # in-memory report can still produce the canonical public payload.
     if report is not None:
         report_json_payload(report)
-    _write_verify_run_artifact(
+    verify_run = _write_verify_run_artifact(
         verifier=verifier,
         report=report,
         path=verify_run_path,
@@ -1066,6 +1069,18 @@ def _write_artifacts(
         plugins_enabled=plugins_enabled,
         no_heuristics=no_heuristics,
         fail_on=fail_on,
+    )
+    # Fail closed if this projection ever disagrees with the verifier/report
+    # substrate. The handoff artifact is additive, but an inconsistent handoff
+    # would be worse than no handoff for an agent-native release gate.
+    handoff = build_agent_handoff(
+        verifier=verifier,
+        report=report,
+        verify_run=verify_run,
+    )
+    verifier_path.with_name("agent-handoff.json").write_text(
+        json.dumps(handoff.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
     )
 
 
@@ -1081,7 +1096,7 @@ def _write_verify_run_artifact(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     fail_on: list[str] | None,
-) -> None:
+) -> Any:
     subject = VerifyRunSubject(
         workspace=".",
         config=_display_path(config_path.resolve(), git_root),
@@ -1121,6 +1136,7 @@ def _write_verify_run_artifact(
         json.dumps(artifact.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    return artifact
 
 
 def _verify_run_policy_packs(
@@ -1350,6 +1366,7 @@ def run_preview(
     out_dir.mkdir(parents=True, exist_ok=True)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
+    agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
     manifest_present = config_path.exists()
 
@@ -1468,6 +1485,7 @@ def run_preview(
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),
             "verify_run_json": _display_path(verify_run_path.resolve(), root),
+            "agent_handoff_json": _display_path(agent_handoff_path.resolve(), root),
             "pr_comment": _display_path(pr_comment_path.resolve(), root),
         },
     )

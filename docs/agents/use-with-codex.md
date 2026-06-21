@@ -77,7 +77,7 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate contract --json` reports contract v5 or newer:
+`agents-shipgate contract --json` reports contract v6 or newer:
 
 ```bash
 pipx install agents-shipgate
@@ -86,7 +86,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than contract v5,
+When `$agents-shipgate` runs and the CLI is missing or older than contract v6,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -108,7 +108,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate contract --json` reports contract v5 or newer.
+- `agents-shipgate contract --json` reports contract v6 or newer.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -173,10 +173,10 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require contract v5 or newer, then
-   read `agents-shipgate-reports/verifier.json` and lead with `merge_verdict`;
-   it then reads `agents-shipgate-reports/report.json` for
-   `release_decision.decision`.
+   Codex should load the plugin skill, require contract v6 or newer, then
+   read `agents-shipgate-reports/agent-handoff.json` and lead with
+   `gate.merge_verdict`; it then reads `agents-shipgate-reports/report.json`
+   for `release_decision.decision`.
 2. Ask: "prepare this agent repo for production release and add appropriate
    CI preflight checks." Codex should use the AGENTS.md snippet or the
    `agents-shipgate` skill, run `agents-shipgate verify --preview --json` or
@@ -212,13 +212,14 @@ agents-shipgate verify --base origin/main --head HEAD --json
 If preflight returns `requires_human_review: true`, Codex must stop for a human
 before editing the protected surface or asserting missing high-risk evidence.
 
-Then read `agents-shipgate-reports/verifier.json` and **lead with
-`merge_verdict`** (`mergeable` / `human_review_required` /
+Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
+`gate.merge_verdict`** (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`). It is a deterministic
 projection of `release_decision.decision`, which remains the gate in
-`agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
-next to see the highest-signal tool/action access changes, and check
-`trust_root_touched`, `policy_weakened`, and `fix_task`.
+`agents-shipgate-reports/report.json`. Read
+`capability_review.top_changes[]` next to see the highest-signal tool/action
+access changes, and check `controller`, `next_action`, and `fix_task`. Use
+`verifier.json` only for detailed controller context.
 
 Codex must not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

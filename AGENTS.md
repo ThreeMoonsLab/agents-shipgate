@@ -118,11 +118,13 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local uncommitted verifier work, omit `--base`/`--head` so the working tree
-is scanned. Read `agents-shipgate-reports/verifier.json` first and lead with
-`merge_verdict`
+is scanned. Read `agents-shipgate-reports/agent-handoff.json` first and lead
+with `gate.merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
-unknown`), `can_merge_without_human`, `first_next_action`, `fix_task`, and
-`capability_review.top_changes[]`. Then read
+unknown`), `gate.can_merge_without_human`, `controller`, `next_action`,
+`fix_task`, and `capability_review.top_changes[]`. Fall back to
+`agents-shipgate-reports/verifier.json` only when the installed CLI contract is
+older than v6. Then read
 `agents-shipgate-reports/report.json.release_decision.decision`
 (`blocked | review_required | insufficient_evidence | passed`), which remains
 the release gate. Do not report completion while `merge_verdict` is `blocked`,
@@ -458,6 +460,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.26 frozen reference) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
 | Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
 | Verify-run schema | [`docs/verify-run-schema.v1.json`](docs/verify-run-schema.v1.json) | `shipgate.verify_run/v1` |
+| Agent handoff schema | [`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json) | `shipgate.agent_handoff/v1` |
 | Codex boundary result schema | [`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json) | `shipgate.codex_boundary_result/v1` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
@@ -517,13 +520,14 @@ Promised to not break in `0.x` minor versions. See [STABILITY.md](STABILITY.md) 
 | `agents-shipgate baseline status` | `--baseline`, `--as-of`, `--require-owner`, `--require-expiry`, `--max-age-days`, `--json` (gate flags exit `20` on violations) |
 | `agents-shipgate fixture` | `list`, `run`, `copy`, `verify` |
 | `agents-shipgate self-check` | `--json` |
+| `agents-shipgate agent handoff` | `--from`, `--report`, `--verify-run`, `--out`, `--json` |
 
 Newer commands (stable intent, flags may still evolve):
 
 | Command | Purpose |
 |---|---|
 | `agents-shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
-| `agents-shipgate mcp-serve` | Local read-only stdio MCP server (`[mcp]` extra) exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
+| `agents-shipgate mcp-serve` | Local read-only stdio MCP server (`[mcp]` extra) exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, `shipgate.capabilities`, and `shipgate.handoff`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
 | `agents-shipgate org status` | Local organization governance projection over exception hygiene, policy-pack pins, host-grant drift, and registry readiness; `--json` available and governance violations exit `20`. |
 | `agents-shipgate registry` | `ingest --attestation <file>` / `query` / `report --bypass` — local capability-release ledger over attestations. |
 | `agents-shipgate install-hooks` | Claude Code hooks: PreToolUse trust-root boundary (`ask`/`deny`), PostToolUse trigger nudge, Stop verify. |

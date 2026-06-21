@@ -26,10 +26,12 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
-`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, `fix_task`, and
-`capability_review.top_changes[]`. Then read
-`report.json.release_decision.decision`, which remains the only release gate.
+`agents-shipgate-reports/agent-handoff.json` first and lead with
+`gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
+`next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
+`verifier.json` only for older installed CLIs that do not report contract v6.
+Then read `report.json.release_decision.decision`, which remains the only
+release gate.
 
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex

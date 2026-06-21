@@ -205,7 +205,7 @@ Shipgate JSON rather than agent-authored prose.
 
 ## Stale Install
 
-A binary that is present but older than the required contract v5 is the other
+A binary that is present but older than the required contract v6 is the other
 fail-safe case: a stale copy lingering on `PATH` can emit an outdated schema or
 lack the command this protocol expects (a plain `pipx install` is a no-op over
 an already-installed older build). Confirm the version first with
@@ -221,7 +221,7 @@ Surface a schema-valid boundary-result object that routes to an upgrade:
     "actor": "coding_agent",
     "kind": "install",
     "command": "pipx upgrade agents-shipgate",
-    "why": "Installed Agents Shipgate is older than the required contract v5."
+    "why": "Installed Agents Shipgate is older than the required contract v6."
   }
 }
 ```
@@ -254,6 +254,7 @@ shipgate.check
 shipgate.preflight
 shipgate.explain
 shipgate.capabilities
+shipgate.handoff
 ```
 
 Input:
@@ -274,7 +275,9 @@ Input:
 with a `PreflightPlanV1` object for protected-surface routing, high-risk
 capability evidence requests, and host/MCP permission review. `shipgate.explain` returns
 deterministic check/finding explanation JSON. `shipgate.capabilities` returns
-capability lock or capability lock diff JSON. These are projections only; the
+capability lock or capability lock diff JSON. `shipgate.handoff` reads existing
+`verifier.json` / `report.json` / `verify-run.json` artifacts and returns exact
+`shipgate.agent_handoff/v1`. These are projections only; the
 release gate remains `report.json.release_decision.decision`.
 
 The MCP server is a static adapter only. It exposes no scan, verify,

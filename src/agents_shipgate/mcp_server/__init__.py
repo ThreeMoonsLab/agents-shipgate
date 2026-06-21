@@ -7,6 +7,7 @@ from agents_shipgate.mcp_server.server import (
     shipgate_capabilities,
     shipgate_check,
     shipgate_explain,
+    shipgate_handoff,
     shipgate_preflight,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "shipgate_capabilities",
     "shipgate_check",
     "shipgate_explain",
+    "shipgate_handoff",
     "shipgate_preflight",
 ]

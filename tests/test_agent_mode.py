@@ -214,7 +214,38 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
     assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
+    handoff_path = repo / "agents-shipgate-reports" / "agent-handoff.json"
+    assert handoff_path.is_file()
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v1"
+    assert handoff["operation"] == "verify_pr"
     assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
+
+
+def test_verify_preview_writes_agent_handoff(tmp_path: Path) -> None:
+    repo = _docs_only_repo(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    handoff = json.loads(
+        (repo / "agents-shipgate-reports" / "agent-handoff.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v1"
+    assert handoff["operation"] == "verify_preview"
+    assert handoff["gate"]["decision"] is None
+    assert handoff["controller"]["completion_allowed"] is False
 
 
 def test_verify_format_json_still_prints_full_verifier_artifact(

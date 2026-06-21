@@ -10,22 +10,26 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v5 also exposes the local agent command spec:
+Runtime contract v6 also exposes the local agent command spec:
 `commands{}`, `default_paths{}`, `artifacts{}`, `agent_read_order[]`,
 `verifier_read_order[]`, `merge_verdicts[]`, `release_decisions[]`,
 `do_not_auto_assert[]`, `verifier_schema_version`,
-`verify_run_schema_version`, `codex_boundary_result_schema_version`,
-and the legacy `agent_result_*` fields retained for older protocol consumers.
+`verify_run_schema_version`, `agent_handoff_schema_version`,
+`agent_handoff_schema_path`, `agent_handoff_artifact`,
+`codex_boundary_result_schema_version`, `agent_interface_operations[]`,
+`exit_code_policy`, `mcp_tools[]`, and the legacy `agent_result_*` fields
+retained for older protocol consumers.
 Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `5`
+- Runtime contract: `6`
 - Current report schema: `0.27` — [`docs/report-schema.v0.27.json`](report-schema.v0.27.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
 - Current verify-run schema: `shipgate.verify_run/v1` — [`docs/verify-run-schema.v1.json`](verify-run-schema.v1.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v1` — [`docs/agent-handoff-schema.v1.json`](agent-handoff-schema.v1.json)
 - Current Codex boundary result schema: `shipgate.codex_boundary_result/v1` — [`docs/codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json)
 - Current preflight schema: `0.2` — [`docs/preflight-schema.v0.2.json`](preflight-schema.v0.2.json)
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
@@ -44,10 +48,13 @@ reading. They are not two decisions — they are two entry points into the same
 one decision engine.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
-  repair, or stop*. Read `agents-shipgate-reports/verifier.json`: lead with
-  `merge_verdict`, then read `agent_controller` for the imperative controls.
-  Then read `agents-shipgate-reports/verify-run.json` for reproducibility, and
-  finally `report.json.release_decision.decision` for the release gate.
+  repair, or stop*. Prefer
+  `agents-shipgate-reports/agent-handoff.json` for the compact
+  `shipgate.agent_handoff/v1` view: lead with `gate.merge_verdict`, then read
+  `controller` for imperative controls and `reproducibility.run_id` for the
+  stable verify identity. `verifier.json` remains the authoritative controller
+  substrate and `verify-run.json` remains the reproducibility record; finally
+  confirm `report.json.release_decision.decision` for the release gate.
   `.well-known/agents-shipgate.json` → `agent_read_order` is the
   machine-readable cross-artifact order. `verifier_read_order` remains the
   intra-`verifier.json` field order.
@@ -153,8 +160,10 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-`verify` writes `verifier.json` and `pr-comment.md` alongside the head scan
-artifacts. After a successful head scan it also writes the head static
+`verify` writes `verifier.json`, `verify-run.json`, `agent-handoff.json`, and
+`pr-comment.md` alongside the head scan artifacts. `agent-handoff.json` is the
+compact coding-agent projection over the verifier, verify-run, and report
+artifacts; it does not gate independently. After a successful head scan it also writes the head static
 capability lock to `agents-shipgate-reports/capabilities.lock.json`. When
 `--base` is provided and the base scan can be materialized, verify writes
 `agents-shipgate-reports/base.capabilities.lock.json`,
@@ -187,6 +196,19 @@ created. It carries `schema_version: "shipgate.verify_run/v1"`, a deterministic
 separately), local input hashes (`config_sha256`, `baseline_sha256`,
 `policy_packs[].sha256`), the outcome projection, and artifact hashes for
 emitted files. It has no wall-clock timestamp and is not a second gate.
+
+`agents-shipgate-reports/agent-handoff.json` carries
+`schema_version: "shipgate.agent_handoff/v1"` and top-level sections
+`gate`, `controller`, `next_action`, `human_review`, `fix_task`, `blocked_by[]`,
+`remediation_plan[]`, `capability_review`, `reproducibility`, and `artifacts`.
+`gate.decision` mirrors `release_decision.decision`; `gate.merge_verdict`
+mirrors `verifier.json.merge_verdict`; and
+`controller.completion_allowed` mirrors `can_merge_without_human`. Re-render it
+from existing artifacts with:
+
+```bash
+agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
+```
 
 In `agents-shipgate-reports/verifier.json`, read these additive fields
 (`verifier_schema_version` stays `"0.1"`; full schema
@@ -305,8 +327,8 @@ Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy`. Do not derive an agent
 decision from Markdown, PR comments, or natural language. Do not confuse this
 local boundary result with `agents-shipgate verify`: verify writes
-`verifier.json` and `verify-run.json`, and `report.json` remains the full
-CI/reviewer substrate.
+`agent-handoff.json`, `verifier.json`, and `verify-run.json`, and
+`report.json` remains the full CI/reviewer substrate.
 
 ## Read these for release review
 
@@ -316,7 +338,10 @@ work. `findings[].provenance_kind` is included there as a filter/review signal
 only; it never changes the release decision, severity, fingerprints, baselines,
 or CI exit behavior.
 
-Runtime contract `5` also exposes stable non-gating integration fields:
+Runtime contract `6` also exposes stable non-gating integration fields:
+`agent_handoff_schema_version`, `agent_handoff_schema_path`,
+`agent_handoff_artifact`, `agent_interface_operations[]`, `exit_code_policy`,
+`mcp_tools[]`,
 `capability_lock_schema_version`, `capability_lock_diff_schema_version`,
 `capability_standard_version`,
 `governance_benchmark_catalog_schema_version`,

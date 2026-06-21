@@ -185,6 +185,7 @@ def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
     for key in (
         "verifier_json",
         "verify_run_json",
+        "agent_handoff_json",
         "report_json",
         "report_sarif",
         "packet_json",
@@ -221,6 +222,7 @@ def _agent_instruction_payload(
     compact: bool,
 ) -> dict[str, object]:
     verifier_json = verifier.artifacts.get("verifier_json")
+    handoff_json = verifier.artifacts.get("agent_handoff_json")
     fix_task = (
         verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
     )
@@ -232,15 +234,16 @@ def _agent_instruction_payload(
     if compact:
         if fix_task is not None:
             fix_task = _artifact_pointer(
-                verifier_json,
-                "fix_task omitted from PR comment size budget; read verifier.json.fix_task.",
+                handoff_json or verifier_json,
+                "fix_task omitted from PR comment size budget; read agent-handoff.json or verifier.json.fix_task.",
             )
         if agent_controller is not None:
             agent_controller = _artifact_pointer(
-                verifier_json,
-                "agent_controller omitted from PR comment size budget; read verifier.json.agent_controller.",
+                handoff_json or verifier_json,
+                "agent_controller omitted from PR comment size budget; read agent-handoff.json or verifier.json.agent_controller.",
             )
     payload = {
+        "agent_handoff": handoff_json,
         "merge_verdict": verifier.merge_verdict,
         "can_merge_without_human": verifier.can_merge_without_human,
         "first_next_action": (

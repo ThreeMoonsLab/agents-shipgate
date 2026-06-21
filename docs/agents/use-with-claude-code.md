@@ -135,13 +135,14 @@ If preflight returns `requires_human_review: true`, Claude Code must stop for a
 human before editing the protected surface or asserting missing high-risk
 evidence.
 
-Then read `agents-shipgate-reports/verifier.json` and **lead with
-`merge_verdict`** (`mergeable` / `human_review_required` /
+Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
+`gate.merge_verdict`** (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`) — a deterministic projection of
 `release_decision.decision`, which stays the gate in
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next for the highest-signal tool/action access changes, and check
-`trust_root_touched`, `policy_weakened`, and `fix_task`.
+`controller`, `next_action`, and `fix_task`. Use `verifier.json` only for
+detailed controller context.
 
 Do **not** claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

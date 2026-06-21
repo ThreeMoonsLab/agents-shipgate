@@ -143,6 +143,11 @@ protected* — never a new way to decide.
 
 The four imperative questions collapse into one block,
 `verifier.json.agent_controller`, which an autonomous agent can act on directly:
+`agents-shipgate-reports/agent-handoff.json` exposes the same controller block
+beside `gate`, `blocked_by[]`, `remediation_plan[]`, and verify-run
+reproducibility metadata for agents that want one compact artifact. It is a
+projection only; it cannot disagree with `verifier.json` or introduce a second
+verdict.
 
 1. `completion_allowed` is `true` → the capability-change task is done; merge.
 2. else `must_stop` is `true` → surface `user_message_template` and `stop_reason`
@@ -158,7 +163,7 @@ contradict the gate.
 
 | Reader | Read first | Source of truth |
 | --- | --- | --- |
-| Coding agent (controller) | `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
+| Coding agent (controller) | `agent-handoff.json.gate` → `controller`; fallback `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
 | Human reviewer | `pr-comment.md` | `release_decision.decision` |
 | CI gate implementer | `report.json.release_decision.decision` | same |
 | Discovery (agents/search) | [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) | — |

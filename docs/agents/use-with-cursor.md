@@ -137,7 +137,7 @@ Cursor must follow the same boundary as any other agent driving Shipgate:
 - **What it may do mechanically** — install, detect, init, doctor, scan, summarize, add advisory CI, apply high-confidence mechanical patches (`apply-patches --confidence high --apply`), add `agents-shipgate-reports/` to `.gitignore`.
 - **What it must not assert without human review** — approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime trace evidence.
 
-Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `verifier.json.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
+Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `agent-handoff.json.gate.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
 
 For the stable CLI / JSON contract, see [`STABILITY.md`](../../STABILITY.md).
 

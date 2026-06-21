@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.contract import (
+    AGENT_HANDOFF_SCHEMA_PATH,
+    AGENT_HANDOFF_SCHEMA_VERSION,
+    AGENT_INTERFACE_OPERATIONS,
     AGENT_READ_ORDER,
     AGENT_RESULT_CONTROL_FIELDS,
     AGENT_RESULT_SCHEMA_PATH,
@@ -18,7 +21,9 @@ from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
     DEFAULT_PATHS,
     DO_NOT_AUTO_ASSERT,
+    EXIT_CODE_POLICY,
     GATING_SIGNAL,
+    MCP_TOOLS,
     MERGE_VERDICTS,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
@@ -46,10 +51,16 @@ class LocalAgentContract(BaseModel):
     gating_signal: str
     verifier_schema_version: str
     verify_run_schema_version: str
+    agent_handoff_schema_version: str
+    agent_handoff_schema_path: str
+    agent_handoff_artifact: str
     codex_boundary_result_schema_version: str
     agent_result_schema_version: str
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
+    agent_interface_operations: list[str]
+    exit_code_policy: dict[str, str]
+    mcp_tools: list[str]
     merge_verdicts: list[str]
     release_decisions: list[str]
     do_not_auto_assert: list[str]
@@ -72,10 +83,16 @@ def build_local_agent_contract() -> LocalAgentContract:
             VerifierArtifact.model_fields["verifier_schema_version"].default
         ),
         verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
+        agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
+        agent_handoff_artifact=ARTIFACTS["agent_handoff"],
         codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
+        agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
+        exit_code_policy=dict(EXIT_CODE_POLICY),
+        mcp_tools=list(MCP_TOOLS),
         merge_verdicts=list(MERGE_VERDICTS),
         release_decisions=list(RELEASE_DECISIONS),
         do_not_auto_assert=list(DO_NOT_AUTO_ASSERT),

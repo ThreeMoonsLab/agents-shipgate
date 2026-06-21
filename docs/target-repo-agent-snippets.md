@@ -79,9 +79,10 @@ repair and rerun the command. If `human_review.required=true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/verifier.json` first for
-`merge_verdict`, `can_merge_without_human`, and `agent_controller`; then read
-`agents-shipgate-reports/verify-run.json` for reproducibility metadata and
+fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
+`agents-shipgate-reports/verifier.json` for detailed controller context,
+`agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
 
@@ -184,9 +185,10 @@ If `requires_human_review` is `true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/verifier.json` first for
-`merge_verdict`, `can_merge_without_human`, and `agent_controller`; then read
-`agents-shipgate-reports/verify-run.json` for reproducibility metadata and
+fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
+`agents-shipgate-reports/verifier.json` for detailed controller context,
+`agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
 
@@ -269,9 +271,10 @@ If `requires_human_review` is `true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/verifier.json` first for
-`merge_verdict`, `can_merge_without_human`, and `agent_controller`; then read
-`agents-shipgate-reports/verify-run.json` for reproducibility metadata and
+fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
+`agents-shipgate-reports/verifier.json` for detailed controller context,
+`agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
 
@@ -384,8 +387,8 @@ companion to the bootstrap snippets above:
 Before claiming completion on any PR that changes agent tools, MCP exports,
 OpenAPI specs, prompts, permissions, policies, CI gates, or shipgate.yaml, run:
 `agents-shipgate verify --base origin/main --head HEAD --json`. Read
-agents-shipgate-reports/verifier.json first: merge_verdict,
-can_merge_without_human, first_next_action, fix_task, and
+agents-shipgate-reports/agent-handoff.json first: gate.merge_verdict,
+gate.can_merge_without_human, controller, next_action, fix_task, and
 capability_review.top_changes. Then read report.json.release_decision.decision;
 it is the gate. Do not claim completion when merge_verdict is blocked,
 insufficient_evidence, or human_review_required unless the user has explicitly
