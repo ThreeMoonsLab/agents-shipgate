@@ -38,6 +38,7 @@ class VerifyRunPolicyPack(BaseModel):
     version: str | None = None
     path: str
     sha256: str | None = None
+    sha256_status: Literal["unpinned", "verified"] = "unpinned"
     rule_count: int | None = None
 
 

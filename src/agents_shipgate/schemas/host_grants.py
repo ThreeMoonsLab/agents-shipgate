@@ -66,7 +66,7 @@ class HostGrantsInventoryV1(BaseModel):
 class HostGrantsDriftV1(BaseModel):
     """Versioned drift payload emitted by ``audit --host --drift --json``."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     host_grants_schema_version: str
     baseline_file: str

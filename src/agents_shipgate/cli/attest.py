@@ -607,6 +607,7 @@ def _verify_run_policy_packs(verify_run: dict[str, Any]) -> list[dict[str, str |
                 "version": _clean_str(item.get("version")),
                 "path": _clean_str(item.get("path")),
                 "sha256": _clean_str(item.get("sha256")),
+                "status": _policy_pack_status(item),
                 "rule_count": (
                     int(item["rule_count"]) if isinstance(item.get("rule_count"), int) else None
                 ),
@@ -620,6 +621,13 @@ def _verify_run_policy_packs(verify_run: dict[str, Any]) -> list[dict[str, str |
             row.get("sha256") or "",
         ),
     )
+
+
+def _policy_pack_status(item: dict[str, Any]) -> str:
+    status = _clean_str(item.get("status")) or _clean_str(item.get("sha256_status"))
+    if status in {"verified", "unpinned", "mismatch", "missing", "unreadable"}:
+        return status
+    return "unpinned"
 
 
 def _change_ids(top_changes: Any) -> list[str]:

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from agents_shipgate.cli.attest import build_attestation_payload
 from agents_shipgate.cli.main import app
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import ConfigError
@@ -474,6 +475,34 @@ checks:
             },
         },
     )
+    verifier_payload = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
+    report_payload = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    verify_run_payload = json.loads(
+        (reports / "verify-run.json").read_text(encoding="utf-8")
+    )
+    attestation_payload = build_attestation_payload(
+        verifier_payload,
+        source=reports / "verifier.json",
+        redacted=True,
+        report=report_payload,
+        verify_run=verify_run_payload,
+        verify_run_sha256=hashlib.sha256(
+            (reports / "verify-run.json").read_bytes()
+        ).hexdigest(),
+        org_context={
+            "org_id": "acme",
+            "repo": "org/support",
+            "service": "support-agent",
+            "tier": "production",
+        },
+    )
+    attestation_rendered = json.dumps(
+        attestation_payload,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    (reports / "attestation.json").write_text(attestation_rendered, encoding="utf-8")
+    attestation_sha256 = hashlib.sha256(attestation_rendered.encode("utf-8")).hexdigest()
     out = reports / "org-evidence-bundle.json"
 
     result = runner.invoke(
@@ -503,10 +532,130 @@ checks:
     assert payload["attestation"]["run_id"] == "sha256:" + "a" * 64
     assert payload["registry_row"]["repo"] == "org/support"
     assert payload["registry_row"]["run_id"] == "sha256:" + "a" * 64
+    assert payload["registry_row"]["source_attestation_sha256"] == attestation_sha256
     assert payload["org_status"]["summary"]["policy_pack_count"] == 1
     assert payload["policy_packs"][0]["status"] == "verified"
     assert payload["host_grants"]["host_grants_inventory_schema_version"] == "0.1"
     assert payload["artifacts"]["verifier"]["sha256"]
+
+
+def test_org_bundle_accepts_v03_attestation_file(tmp_path: Path) -> None:
+    (tmp_path / "openapi.yaml").write_text("openapi: 3.0.0\ninfo: {}\npaths: {}\n")
+    manifest = _write_minimal_manifest(
+        tmp_path,
+        """
+organization:
+  id: acme
+  repo: org/support
+""",
+    )
+    reports = tmp_path / "agents-shipgate-reports"
+    reports.mkdir()
+    _write_json(
+        reports / "report.json",
+        {"release_decision": {"decision": "passed"}, "human_ack": {}},
+    )
+    _write_json(
+        reports / "verifier.json",
+        {
+            "base_ref": "origin/main",
+            "head_ref": "HEAD",
+            "mode": "advisory",
+            "merge_verdict": "mergeable",
+            "decision": "passed",
+            "applicability": "verified",
+            "can_merge_without_human": True,
+            "release_decision": {"decision": "passed"},
+            "human_review": {"required": False},
+            "capability_review": {
+                "added": 0,
+                "modified": 0,
+                "removed": 0,
+                "trust_root_touched": False,
+                "policy_weakened": False,
+                "top_changes": [],
+            },
+            "artifacts": {
+                "verifier_json": "verifier.json",
+                "report_json": "report.json",
+            },
+        },
+    )
+    v03_attestation = {
+        "attestation_schema_version": "0.3",
+        "cli_version": "1.0.0a1",
+        "org": {
+            "org_id": "acme",
+            "repo": "org/support",
+            "service": None,
+            "tier": None,
+            "pr_number": None,
+            "workflow_run_id": None,
+            "actor": None,
+            "merge_sha": None,
+        },
+        "source_verifier": "verifier.json",
+        "redacted": True,
+        "base_ref": "origin/main",
+        "head_ref": "HEAD",
+        "base_tree_sha": None,
+        "head_tree_sha": None,
+        "mode": "advisory",
+        "verdict": {
+            "merge_verdict": "mergeable",
+            "decision": "passed",
+            "applicability": "verified",
+            "can_merge_without_human": True,
+        },
+        "capability": {
+            "added": 0,
+            "modified": 0,
+            "removed": 0,
+            "trust_root_touched": False,
+            "policy_weakened": False,
+            "change_ids": [],
+        },
+        "capability_lock": {
+            "path": None,
+            "sha256": None,
+            "capability_lock_schema_version": None,
+            "semantic_capability_set_hash": None,
+            "evidence_set_hash": None,
+            "source_set_hash": None,
+            "capability_count": None,
+        },
+        "capability_diff": None,
+        "human_ack": {
+            "required": False,
+            "satisfied": None,
+            "outstanding": [],
+            "acks": [],
+        },
+        "policy_snapshot_sha256": None,
+        "artifact_sha256": {},
+    }
+    _write_json(reports / "attestation.json", v03_attestation)
+
+    result = runner.invoke(
+        app,
+        [
+            "org",
+            "bundle",
+            "--workspace",
+            str(tmp_path),
+            "--config",
+            str(manifest),
+            "--from",
+            str(reports / "verifier.json"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["attestation"]["attestation_schema_version"] == "0.4"
+    assert payload["attestation"]["run_id"] is None
+    assert payload["attestation"]["policy_packs"] == []
 
 
 def _write_json(path: Path, payload: dict) -> None:

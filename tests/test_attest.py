@@ -127,6 +127,7 @@ def test_verify_run_context_is_explicit_and_deterministic() -> None:
                     "version": "3",
                     "path": "vendor/org.yaml",
                     "sha256": "sha256:" + "b" * 64,
+                    "sha256_status": "verified",
                     "rule_count": 2,
                 }
             ]
@@ -162,6 +163,7 @@ def test_verify_run_context_is_explicit_and_deterministic() -> None:
             "version": "3",
             "path": "vendor/org.yaml",
             "sha256": "sha256:" + "b" * 64,
+            "status": "verified",
             "rule_count": 2,
         }
     ]

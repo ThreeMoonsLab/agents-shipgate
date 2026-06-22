@@ -79,16 +79,6 @@ changes only by bumping `contract_version` and updating this file.
 | `agents-shipgate bootstrap` | `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json` |
 | `agents-shipgate capability export` | `--config`/`-c`, `--out`, `--report-out`, `--report-copy`/`--no-report-copy`, `--json`, `--no-plugins`, `--verbose` |
 | `agents-shipgate capability diff` | `--base`, `--head`, `--out`, `--json` |
-| `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--json` |
-| `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
-| `agents-shipgate org policy-packs` | `--config`/`-c`, `--workspace`, `--json` |
-| `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
-| `agents-shipgate registry ingest` | `--attestation`, `--registry`, `--repo`, `--json` |
-| `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
-| `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
-| `agents-shipgate registry summary` | `--registry`, `--json` |
-| `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
-| `agents-shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
 | `agents-shipgate list-checks` | `--json`, `--no-plugins` |
 | `agents-shipgate baseline save` | `-c`, `--config`, `--out`, `--owner` (v0.13+), `--reason` (v0.13+), `--expires` (v0.13+), `--apply-to-existing` (v0.13+) |
 | `agents-shipgate baseline verify` (v0.11+) | `--baseline`, `--audit-log`, `--strict`, `--json`, `--verbose` |
@@ -102,6 +92,26 @@ changes only by bumping `contract_version` and updating this file.
 | `agents-shipgate agent handoff` | `--from`, `--report`, `--verify-run`, `--out`, `--json` |
 
 ### Provisional CLI command surface
+
+The org/fleet governance commands are preview surfaces in the current
+`1.0.0a*` line. They are documented, deterministic, local-only, and included in
+`agents-shipgate contract --json` / `.well-known/agents-shipgate.json` for
+design-partner discovery, but their flags and schemas are not stable
+command-contract commitments yet. They remain consumers of `verify` artifacts;
+`report.json.release_decision.decision` is still the only release gate.
+
+| Command | Preview flags |
+|---|---|
+| `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--json` |
+| `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
+| `agents-shipgate org policy-packs` | `--config`/`-c`, `--workspace`, `--json` |
+| `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
+| `agents-shipgate registry ingest` | `--attestation`, `--registry`, `--repo`, `--json` |
+| `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
+| `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
+| `agents-shipgate registry summary` | `--registry`, `--json` |
+| `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
+| `agents-shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
 
 `agents-shipgate feedback export` is introduced in v0.11 for design-partner
 feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
@@ -990,14 +1000,18 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.3.json`](docs/attestation-schema.v0.3.json). It
+[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json). It
 records the verdict, the report-derived capability delta, optional local
 organization/CI context, detailed declared `human_ack` entries, a
 policy-snapshot hash, content hashes of the verify artifacts, and capability
 lock/diff hash bindings when verify emitted those artifacts. It carries no
 wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
 so re-deriving from the same inputs is byte-identical. It does not gate;
-`release_decision.decision` remains the only gate. Current v0.3 fields:
+`release_decision.decision` remains the only gate. Current v0.4 fields:
+
+`org bundle` accepts a previously generated v0.3 attestation file by
+normalizing the new optional v0.4 fields to `null` / `[]` before validation.
+The emitted bundle still projects the normalized attestation as v0.4.
 
 With `--redact` (the default), `source_verifier`, capability lock/diff paths,
 and artifact paths are reduced to filenames. Redaction does not remove explicit
@@ -1010,6 +1024,8 @@ those identities should not be recorded.
 - `org` (`org_id`, `repo`, `service`, `tier`, `pr_number`, `workflow_run_id`, `actor`, `merge_sha`)
 - `source_verifier`
 - `redacted`
+- `run_id`, `verify_run_sha256`
+- `event_time`, `source_url`, `branch`, `base_sha`, `head_sha`
 - `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
 - `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
@@ -1017,6 +1033,7 @@ those identities should not be recorded.
 - `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
 - `human_ack` (`required`, `satisfied`, `outstanding`, `acks`)
 - `policy_snapshot_sha256`
+- `policy_packs[]` (`id`, `name`, `version`, `path`, `sha256`, `status`, `rule_count`)
 - `artifact_sha256`
 
 ### Capability Lock And Diff

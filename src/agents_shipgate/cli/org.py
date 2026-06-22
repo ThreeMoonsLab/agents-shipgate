@@ -232,7 +232,9 @@ def org_bundle(
             verify_run_sha256=_file_sha256(verify_run_path),
             org_context=_org_context_from_manifest(manifest),
         )
-    attestation_model = ReleaseAttestationV1.model_validate(attestation_payload)
+    attestation_model = ReleaseAttestationV1.model_validate(
+        _normalize_attestation_payload(attestation_payload)
+    )
     attestation_json = attestation_model.model_dump(mode="json")
     registry_row = _row_from_attestation(
         attestation_json,
@@ -241,7 +243,10 @@ def org_bundle(
             if manifest.organization is not None and manifest.organization.repo
             else None
         ),
-        source_attestation_sha256=_canonical_sha256(attestation_json),
+        source_attestation_sha256=_attestation_source_sha256(
+            attestation_path,
+            attestation_json,
+        ),
     )
     org_status_payload = build_org_governance_status(
         manifest=manifest,
@@ -352,6 +357,28 @@ def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
         return None
 
 
+def _normalize_attestation_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    version = payload.get("attestation_schema_version")
+    if version != "0.3":
+        return payload
+    upgraded = {
+        **payload,
+        "attestation_schema_version": "0.4",
+    }
+    for field in (
+        "run_id",
+        "verify_run_sha256",
+        "event_time",
+        "source_url",
+        "branch",
+        "base_sha",
+        "head_sha",
+    ):
+        upgraded.setdefault(field, None)
+    upgraded.setdefault("policy_packs", [])
+    return upgraded
+
+
 def _org_context_from_manifest(manifest) -> dict[str, str | None]:
     org = manifest.organization
     if org is None:
@@ -409,6 +436,13 @@ def _file_sha256(path: Path | None) -> str | None:
     if path is None or not path.is_file():
         return None
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _attestation_source_sha256(path: Path | None, payload: dict[str, Any]) -> str:
+    file_hash = _file_sha256(path)
+    if file_hash is not None:
+        return file_hash
+    return _canonical_sha256(payload)
 
 
 def _canonical_sha256(payload: dict[str, Any]) -> str:

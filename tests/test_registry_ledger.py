@@ -6,6 +6,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.registry import _row_id
+from agents_shipgate.schemas.registry import RegistryRowV1
 
 runner = CliRunner()
 
@@ -225,6 +227,7 @@ def test_ingest_writes_v03_rows_and_uses_attestation_org_repo(tmp_path: Path) ->
     assert row["base_sha"] == "3" * 40
     assert row["head_sha"] == "4" * 40
     assert row["source_attestation_sha256"]
+    assert row["row_id"] == _row_id(RegistryRowV1.model_validate(row))
     assert row["capability_lock"]["sha256"] == "5" * 64
     assert row["capability_diff"]["sha256"] == "6" * 64
     assert row["policy_packs"][0]["id"] == "org-release"
@@ -364,6 +367,7 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     assert summary_payload["trust_root_touched_count"] == 1
     assert summary_payload["policy_weakened_count"] == 0
     assert summary_payload["human_ack_unsatisfied_count"] == 1
+    assert summary_payload["policy_pack_unverified_count"] == 0
 
     verify = runner.invoke(
         app,
@@ -374,6 +378,21 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     assert verify_payload["registry_schema_version"] == "0.3"
     assert verify_payload["ok"] is True
     assert verify_payload["issue_count"] == 0
+
+
+def test_registry_summary_counts_unverified_policy_packs(tmp_path: Path) -> None:
+    attestation = _attestation_v03("blocked", repo="org/support", ack_satisfied=False)
+    attestation["policy_packs"][0]["status"] = "unpinned"
+    ledger = _ingest(tmp_path, attestation, "org/support")
+
+    result = runner.invoke(
+        app,
+        ["registry", "summary", "--registry", str(ledger), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["policy_pack_unverified_count"] == 1
 
 
 def test_ingest_rejects_non_attestation(tmp_path: Path) -> None:

@@ -128,11 +128,21 @@ def _row_from_attestation(
     return RegistryRowV1.model_validate(row)
 
 
-def _row_id(row: dict[str, Any]) -> str:
-    payload = {key: value for key, value in row.items() if key != "row_id"}
+def _row_id(row: dict[str, Any] | RegistryRowV1) -> str:
+    payload = _row_identity_payload(row)
     return "att_" + hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
+
+
+def _row_identity_payload(row: dict[str, Any] | RegistryRowV1) -> dict[str, Any]:
+    if isinstance(row, RegistryRowV1):
+        payload = row.model_dump(mode="json")
+    else:
+        pending = {**row, "row_id": str(row.get("row_id") or "att_pending")}
+        payload = RegistryRowV1.model_validate(pending).model_dump(mode="json")
+    payload.pop("row_id", None)
+    return payload
 
 
 def _row_content_sha256(row: RegistryRowV1) -> str:
@@ -192,9 +202,7 @@ def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
 
 
 def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
-    original_row_id = value.get("row_id")
-    if "row_id" not in value:
-        value = {**value, "row_id": _row_id(value)}
+    value = {**value}
     human_ack = value.get("human_ack") or {}
     if "human_ack_required" not in value and isinstance(human_ack, dict):
         required = human_ack.get("required")
@@ -206,11 +214,11 @@ def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
         value["human_ack_outstanding"] = [
             str(item) for item in human_ack.get("outstanding") or []
         ]
+    if "row_id" not in value:
+        value["row_id"] = _row_id(value)
     row = RegistryRowV1.model_validate(value)
-    if original_row_id is not None and original_row_id != row.row_id:
-        # Preserve malformed historical rows for query output; registry verify
-        # reports the mismatch without hiding the row from readers.
-        return row
+    # Preserve malformed historical rows for query output; registry verify
+    # reports any mismatch without hiding the row from readers.
     return row
 
 
@@ -240,7 +248,7 @@ def registry_ingest(
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Append one attestation to the ledger. Idempotent by content."""
+    """Append one attestation to the ledger. Idempotent by exact attestation bytes."""
     try:
         raw = attestation.read_bytes()
         data = json.loads(raw)
@@ -542,7 +550,7 @@ def _registry_verify_payload(
     seen_ids: set[str] = set()
     last_by_repo: dict[str, RegistryRowV1] = {}
     for row in loaded.rows:
-        expected = _row_id(row.model_dump(mode="json"))
+        expected = _row_id(row)
         if row.row_id != expected:
             issues.append(
                 RegistryVerificationIssueV1(
