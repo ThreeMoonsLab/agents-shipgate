@@ -376,16 +376,24 @@ def evaluate_codex_boundary_result(
     trigger: dict[str, Any] | None = None,
     release_decision: dict[str, Any] | None = None,
     capability_surfaces_changed: list[str] | None = None,
+    undeclared_capability_surfaces: list[str] | None = None,
 ) -> AgentResultV1:
     """Return the local Codex boundary-result projection for a unified diff.
 
-    ``capability_surfaces_changed`` lists changed files that the manifest
-    declares as tool sources. The boundary evaluator does not inspect tool
-    surfaces (only ``verify`` computes the capability delta), so when one
-    changed and the boundary result is otherwise a clean ``allow``, the
-    result is escalated to ``warn`` and routed to ``verify`` rather than
-    green-lighting a capability change ``check`` never evaluated. This keeps
-    ``check`` from disagreeing with the ``release_decision.decision`` gate.
+    The boundary evaluator does not inspect tool surfaces (only ``verify``
+    computes the capability delta), so a clean ``allow`` over a changed tool
+    surface is escalated to ``warn`` rather than green-lighting a capability
+    change ``check`` never evaluated. This keeps ``check`` from disagreeing
+    with the ``release_decision.decision`` gate. Two inputs drive it (both
+    pre-computed by ``build_codex_agent_result``):
+
+    - ``capability_surfaces_changed`` — changed files the manifest DECLARES as
+      tool sources. ``verify`` will gate these, so route to ``verify``.
+    - ``undeclared_capability_surfaces`` — changed files that ARE tool surfaces
+      but the manifest does not declare (or there is no manifest). ``verify``
+      cannot gate an undeclared surface, so route to declare-then-verify
+      (``detect``). Takes precedence when a diff changes both, since ``verify``
+      alone would miss the undeclared one.
     """
 
     # Keep this local diff projector aligned with
@@ -461,32 +469,17 @@ def evaluate_codex_boundary_result(
     # that touches a tool/capability surface would silently green-light a
     # capability change that only ``verify`` gates. Escalate to ``warn`` and
     # route onward. Gated on ``release_decision is None`` because a provided
-    # release decision means the full capability scan already ran.
-    #
-    # Two sub-cases:
-    #   * ``coverage_gap`` — the changed surface is one the manifest DECLARES as
-    #     a tool source, so ``verify`` will gate it: route straight to verify.
-    #   * ``undeclared_gap`` — the trigger flags the diff as a tool-surface
-    #     change but the manifest declares no matching source (or there is no
-    #     manifest), so ``verify`` cannot gate it yet: route to declare-then-
-    #     verify instead of a misleading clean ``verify`` over a surface it
-    #     never scans.
-    #
-    # The undeclared case requires a changed file the boundary evaluator does
-    # NOT itself inspect (``not is_boundary_path``): a clean ``allow`` over a
-    # purely Codex-local surface (``.codex/config.toml``, ``AGENTS.md``, the
-    # Shipgate workflow) is authoritative — ``check`` already evaluated it — so
-    # it is not a coverage gap. Same exclusion ``_declared_tool_surfaces_changed``
-    # applies to declared sources.
+    # release decision means the full capability scan already ran. The two
+    # surface lists are classified per-file upstream (declared vs undeclared);
+    # see the docstring. ``undeclared_gap`` is computed independently of the
+    # declared set and takes precedence so a mixed diff routes to
+    # declare-then-verify rather than a ``verify`` that misses the undeclared
+    # surface.
     boundary_clean_allow = decision == "allow" and release_decision is None
     coverage_surfaces = sorted(dict.fromkeys(capability_surfaces_changed or []))
+    undeclared_surfaces = sorted(dict.fromkeys(undeclared_capability_surfaces or []))
     coverage_gap = boundary_clean_allow and bool(coverage_surfaces)
-    undeclared_gap = (
-        boundary_clean_allow
-        and not coverage_surfaces
-        and _trigger_in_scope(trigger)
-        and any(not is_boundary_path(path) for path in changed_files)
-    )
+    undeclared_gap = boundary_clean_allow and bool(undeclared_surfaces)
     if coverage_gap or undeclared_gap:
         decision = "warn"
 
@@ -501,18 +494,18 @@ def evaluate_codex_boundary_result(
         finding_fingerprints=finding_fingerprints,
         evaluated_files=evaluated_files,
     )
-    if coverage_gap:
+    if undeclared_gap:
+        first_next_action = _undeclared_next_action()
+        summary = _undeclared_summary(undeclared_surfaces)
+        diagnostics = [*diagnostics, _undeclared_diagnostic(undeclared_surfaces)]
+        trace = [*_trace_for(policy, decision, violations), _undeclared_trace(undeclared_surfaces)]
+        suggested_fixes = [_DETECT_COMMAND, _VERIFY_COMMAND]
+    elif coverage_gap:
         first_next_action = _coverage_next_action()
         summary = _coverage_summary(coverage_surfaces)
         diagnostics = [*diagnostics, _coverage_diagnostic(coverage_surfaces)]
         trace = [*_trace_for(policy, decision, violations), _coverage_trace(coverage_surfaces)]
         suggested_fixes = [_VERIFY_COMMAND]
-    elif undeclared_gap:
-        first_next_action = _undeclared_next_action()
-        summary = _undeclared_summary()
-        diagnostics = [*diagnostics, _undeclared_diagnostic()]
-        trace = [*_trace_for(policy, decision, violations), _undeclared_trace()]
-        suggested_fixes = [_DETECT_COMMAND, _VERIFY_COMMAND]
     else:
         first_next_action = _next_action_for(decision, violations, repair)
         summary = _summary_for(decision, violations)
@@ -1370,26 +1363,6 @@ _VERIFY_COMMAND = "agents-shipgate verify --json"
 _DETECT_COMMAND = "agents-shipgate detect --json"
 
 
-def _trigger_in_scope(trigger: dict[str, Any] | None) -> bool:
-    """True when a CONTENT-driven trigger rule flags a tool/capability-surface change.
-
-    Keys on a matched rule whose ``action`` is ``run_shipgate`` — the
-    path/diff-driven tool-surface rules (MCP export, tool decorator, OpenAPI,
-    framework bump). Deliberately NOT the top-level ``run_shipgate`` boolean:
-    that is also ``True`` for the blanket ``force_run`` rule
-    (``TRIGGER-EXISTING-MANIFEST-PRESENT``), which fires on every diff in an
-    opted-in repo and would turn a docs-only edit into a coverage warn. ``None``
-    (a bare function call with no trigger context) is out of scope, so the
-    boundary evaluator keeps its prior behavior when called directly.
-    """
-    if not isinstance(trigger, dict):
-        return False
-    return any(
-        isinstance(rule, dict) and rule.get("action") == "run_shipgate"
-        for rule in trigger.get("matched_rules") or []
-    )
-
-
 def _undeclared_next_action() -> AgentResultNextAction:
     return AgentResultNextAction(
         actor="coding_agent",
@@ -1403,31 +1376,32 @@ def _undeclared_next_action() -> AgentResultNextAction:
     )
 
 
-def _undeclared_summary() -> str:
+def _undeclared_summary(surfaces: list[str]) -> str:
     return (
         "No Codex boundary rule fired, but the diff changes a tool/capability surface "
-        "that shipgate.yaml does not declare, so verify cannot gate it yet. Declare it "
-        "(detect or tool_sources) and run verify before reporting completion."
+        f"({', '.join(surfaces[:5])}) that shipgate.yaml does not declare, so verify "
+        "cannot gate it yet. Declare it (detect or tool_sources) and run verify before "
+        "reporting completion."
     )
 
 
-def _undeclared_diagnostic() -> AgentResultDiagnostic:
+def _undeclared_diagnostic(surfaces: list[str]) -> AgentResultDiagnostic:
     return AgentResultDiagnostic(
         level="warning",
         code="undeclared_capability_surface",
         message=(
-            "A changed tool/capability surface is not declared in shipgate.yaml; "
-            "check is boundary-only and verify only gates declared surfaces. Declare "
-            "the surface, then verify."
+            "Undeclared tool/capability surface(s) "
+            f"{', '.join(surfaces[:5])} changed; check is boundary-only and verify "
+            "only gates declared surfaces. Declare the surface, then verify."
         ),
     )
 
 
-def _undeclared_trace() -> AgentResultTraceEvent:
+def _undeclared_trace(surfaces: list[str]) -> AgentResultTraceEvent:
     return AgentResultTraceEvent(
         step="coverage",
         summary=(
-            "boundary_only: in-scope diff changes an undeclared tool surface; "
+            f"boundary_only: {len(surfaces)} undeclared tool surface(s) changed; "
             "routed to detect + verify."
         ),
     )

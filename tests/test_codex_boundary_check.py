@@ -246,38 +246,29 @@ def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> 
     assert result.decision == "allow"
 
 
-# --- Undeclared coverage gap: the trigger flags a tool-surface change the -----
-# manifest does not declare (or there is no manifest). verify cannot gate an
-# undeclared surface, so route to declare-then-verify rather than a clean allow.
+# --- Undeclared coverage gap: a changed file IS a tool surface but the --------
+# manifest does not declare it (or there is no manifest). verify only gates
+# declared surfaces, so route to declare-then-verify (detect) rather than a
+# clean allow or a verify that never scans it.
 
-# A trigger context where a content-driven tool-surface rule fired (what the
-# real trigger emits for an MCP/tool-export change), distinct from the blanket
-# manifest-present force_run rule.
-_SURFACE_TRIGGER = {
-    "run_shipgate": True,
-    "matched_rules": [
-        {"id": "TRIGGER-MCP-EXPORT-CHANGED", "action": "run_shipgate"}
-    ],
-}
-# Manifest-present force_run only: in scope for "run shipgate" but NOT a
-# tool-surface change, so it must not trip the undeclared coverage warn.
-_FORCE_RUN_TRIGGER = {
-    "run_shipgate": True,
-    "matched_rules": [
-        {"id": "TRIGGER-EXISTING-MANIFEST-PRESENT", "action": "force_run"}
-    ],
-}
+# A second changed file that is an *undeclared* tool surface (an OpenAPI spec),
+# used to exercise mixed declared+undeclared diffs (review finding P1).
+_MIXED_TOOL_SOURCE_DIFF = _TOOL_SOURCE_DIFF + (
+    "diff --git a/api/openapi.yaml b/api/openapi.yaml\n"
+    "--- a/api/openapi.yaml\n"
+    "+++ b/api/openapi.yaml\n"
+    "@@ -1 +1,2 @@\n"
+    " openapi: 3.0.0\n"
+    "+paths: {}\n"
+)
 
 
-def test_undeclared_tool_surface_in_scope_trigger_warns_and_routes_to_detect(
-    tmp_path: Path,
-) -> None:
+def test_undeclared_surface_warns_and_routes_to_detect(tmp_path: Path) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=_TOOL_SOURCE_DIFF,
         agent="claude-code",
-        trigger=_SURFACE_TRIGGER,
-        capability_surfaces_changed=None,
+        undeclared_capability_surfaces=["mcp-tools.json"],
     )
     payload = result.model_dump(mode="json", exclude_none=True)
     _validate(payload)
@@ -293,11 +284,30 @@ def test_undeclared_tool_surface_in_scope_trigger_warns_and_routes_to_detect(
     assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
 
 
+def test_mixed_declared_and_undeclared_routes_to_detect(tmp_path: Path) -> None:
+    # Review finding P1: a diff that changes BOTH a declared surface (verify
+    # gates it) and an undeclared one (verify does not) must route to detect —
+    # declare-then-verify — not a verify that silently misses the undeclared
+    # surface. Undeclared takes precedence over the declared coverage gap.
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_MIXED_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        capability_surfaces_changed=["mcp-tools.json"],
+        undeclared_capability_surfaces=["api/openapi.yaml"],
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
+    assert "api/openapi.yaml" in diag["message"]
+
+
 def test_no_manifest_capability_add_via_check_warns_and_routes_to_detect(
     tmp_path: Path,
 ) -> None:
     # End-to-end: empty workspace (no shipgate.yaml). build_codex_agent_result
-    # derives no declared surfaces, but the trigger flags the diff in scope.
+    # classifies mcp-tools.json as an undeclared tool surface.
     result = build_codex_agent_result(
         agent="claude-code",
         workspace=tmp_path,
@@ -332,38 +342,107 @@ def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
 
 
+def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
+    tmp_path: Path,
+) -> None:
+    # Review finding P1, end-to-end through build_codex_agent_result: manifest
+    # declares mcp-tools.json; the diff also adds an undeclared OpenAPI spec.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_MIXED_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
+    assert "api/openapi.yaml" in diag["message"]
+
+
+def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
+    # Review finding P2: editing shipgate.yaml in an opted-in repo fires a
+    # run_shipgate trigger rule (TRIGGER-SHIPGATE-MANIFEST) but is NOT a
+    # declarable tool source, so it must not be reported as an undeclared
+    # surface routed to detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/shipgate.yaml b/shipgate.yaml\n"
+        "--- a/shipgate.yaml\n"
+        "+++ b/shipgate.yaml\n"
+        "@@ -1 +1,2 @@\n"
+        ' version: "0.1"\n'
+        "+# touch\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert not any(
+        d["code"] == "undeclared_capability_surface" for d in payload.get("diagnostics", [])
+    )
+
+
+def test_prompts_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
+    # Review finding P2: a prompts/ edit fires TRIGGER-PROMPTS-OR-POLICIES but
+    # is not a declarable tool source — no undeclared-surface warn / detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/prompts/system.md b/prompts/system.md\n"
+        "--- a/prompts/system.md\n"
+        "+++ b/prompts/system.md\n"
+        "@@ -1 +1,2 @@\n"
+        " You are helpful.\n"
+        "+Be concise.\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
 def test_undeclared_gap_never_downgrades_a_block(tmp_path: Path) -> None:
-    # A real boundary block plus an in-scope trigger must stay blocked, not warn.
+    # A real boundary block plus an undeclared surface must stay blocked.
     block_diff = (CORPUS / "mcp_auto_approve_write.diff").read_text(encoding="utf-8")
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=block_diff,
         agent="claude-code",
-        trigger=_SURFACE_TRIGGER,
+        undeclared_capability_surfaces=["mcp-tools.json"],
     )
     assert result.decision == "block"
 
 
-def test_undeclared_gap_inactive_out_of_scope_or_when_release_decision_present(
+def test_undeclared_gap_inactive_without_signal_or_when_release_decision_present(
     tmp_path: Path,
 ) -> None:
-    # Manifest-present force_run is "in scope" overall but is NOT a tool-surface
-    # change, so it must keep the clean allow (the "no noise on docs" property).
-    force_run_only = evaluate_codex_boundary_result(
-        workspace=tmp_path,
-        diff_text=_TOOL_SOURCE_DIFF,
-        agent="claude-code",
-        trigger=_FORCE_RUN_TRIGGER,
-    )
-    assert force_run_only.decision == "allow"
-
-    # No trigger context at all (bare call) preserves legacy behavior.
-    no_trigger = evaluate_codex_boundary_result(
+    # No undeclared surfaces supplied (bare call) preserves the clean allow.
+    no_signal = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=_TOOL_SOURCE_DIFF,
         agent="claude-code",
     )
-    assert no_trigger.decision == "allow"
+    assert no_signal.decision == "allow"
 
     # A supplied release_decision means the full scan already ran; the
     # projection governs and the boundary-only heuristic stays out of it.
@@ -371,7 +450,7 @@ def test_undeclared_gap_inactive_out_of_scope_or_when_release_decision_present(
         workspace=tmp_path,
         diff_text=_TOOL_SOURCE_DIFF,
         agent="claude-code",
-        trigger=_SURFACE_TRIGGER,
+        undeclared_capability_surfaces=["mcp-tools.json"],
         release_decision={"decision": "passed", "reason": "clean"},
     )
     assert scanned.decision == "allow"
