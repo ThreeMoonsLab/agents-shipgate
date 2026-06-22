@@ -246,6 +246,137 @@ def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> 
     assert result.decision == "allow"
 
 
+# --- Undeclared coverage gap: the trigger flags a tool-surface change the -----
+# manifest does not declare (or there is no manifest). verify cannot gate an
+# undeclared surface, so route to declare-then-verify rather than a clean allow.
+
+# A trigger context where a content-driven tool-surface rule fired (what the
+# real trigger emits for an MCP/tool-export change), distinct from the blanket
+# manifest-present force_run rule.
+_SURFACE_TRIGGER = {
+    "run_shipgate": True,
+    "matched_rules": [
+        {"id": "TRIGGER-MCP-EXPORT-CHANGED", "action": "run_shipgate"}
+    ],
+}
+# Manifest-present force_run only: in scope for "run shipgate" but NOT a
+# tool-surface change, so it must not trip the undeclared coverage warn.
+_FORCE_RUN_TRIGGER = {
+    "run_shipgate": True,
+    "matched_rules": [
+        {"id": "TRIGGER-EXISTING-MANIFEST-PRESENT", "action": "force_run"}
+    ],
+}
+
+
+def test_undeclared_tool_surface_in_scope_trigger_warns_and_routes_to_detect(
+    tmp_path: Path,
+) -> None:
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        trigger=_SURFACE_TRIGGER,
+        capability_surfaces_changed=None,
+    )
+    payload = result.model_dump(mode="json", exclude_none=True)
+    _validate(payload)
+    # Was a bare allow before the fix; now a warn that routes to detect/declare.
+    assert payload["decision"] == "warn"
+    assert payload["completion_allowed"] is True
+    assert payload["must_stop"] is False
+    assert payload["first_next_action"]["kind"] == "warn"
+    assert payload["first_next_action"]["command"].startswith("agents-shipgate detect")
+    assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
+    assert any(t["step"] == "coverage" for t in payload["trace"])
+    assert payload["suggested_fixes"][0].startswith("agents-shipgate detect")
+    assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
+
+
+def test_no_manifest_capability_add_via_check_warns_and_routes_to_detect(
+    tmp_path: Path,
+) -> None:
+    # End-to-end: empty workspace (no shipgate.yaml). build_codex_agent_result
+    # derives no declared surfaces, but the trigger flags the diff in scope.
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+
+
+def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other(
+    tmp_path: Path,
+) -> None:
+    # Manifest exists but declares a *different* tool source than the changed
+    # file. The declared-coverage path does not match, so the undeclared path
+    # must catch it (and route to detect, not a verify that never scans it).
+    _write_manifest(
+        tmp_path,
+        "  - id: other\n    type: mcp\n    path: other-tools.json\n    trust: internal\n",
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
+
+
+def test_undeclared_gap_never_downgrades_a_block(tmp_path: Path) -> None:
+    # A real boundary block plus an in-scope trigger must stay blocked, not warn.
+    block_diff = (CORPUS / "mcp_auto_approve_write.diff").read_text(encoding="utf-8")
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=block_diff,
+        agent="claude-code",
+        trigger=_SURFACE_TRIGGER,
+    )
+    assert result.decision == "block"
+
+
+def test_undeclared_gap_inactive_out_of_scope_or_when_release_decision_present(
+    tmp_path: Path,
+) -> None:
+    # Manifest-present force_run is "in scope" overall but is NOT a tool-surface
+    # change, so it must keep the clean allow (the "no noise on docs" property).
+    force_run_only = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        trigger=_FORCE_RUN_TRIGGER,
+    )
+    assert force_run_only.decision == "allow"
+
+    # No trigger context at all (bare call) preserves legacy behavior.
+    no_trigger = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+    )
+    assert no_trigger.decision == "allow"
+
+    # A supplied release_decision means the full scan already ran; the
+    # projection governs and the boundary-only heuristic stays out of it.
+    scanned = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        trigger=_SURFACE_TRIGGER,
+        release_decision={"decision": "passed", "reason": "clean"},
+    )
+    assert scanned.decision == "allow"
+
+
 def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
     diff_text = (CORPUS / "docs_only.diff").read_text(encoding="utf-8")
     result = runner.invoke(
