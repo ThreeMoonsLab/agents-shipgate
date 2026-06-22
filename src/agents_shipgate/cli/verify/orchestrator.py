@@ -1153,6 +1153,7 @@ def _verify_run_policy_packs(
                 version=pack.version,
                 path=pack.path,
                 sha256=pack.sha256,
+                sha256_status=pack.sha256_status,
                 rule_count=pack.rule_count,
             )
             for pack in report.loaded_policy_packs
@@ -1161,6 +1162,7 @@ def _verify_run_policy_packs(
         VerifyRunPolicyPack(
             path=_display_path(path.resolve(), git_root),
             sha256=_sha256_file(path),
+            sha256_status="unpinned",
         )
         for path in policy_pack_paths
     ]

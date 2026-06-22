@@ -34,9 +34,15 @@ Writes / verifies:
 - docs/org-governance-schema.v0.1.json
                                 (from agents_shipgate.schemas.org_governance.
                                  OrgGovernanceStatusV1)
-- docs/registry-schema.v0.2.json
+- docs/org-evidence-bundle-schema.v1.json
+                                (from agents_shipgate.schemas.org_evidence_bundle.
+                                 OrgEvidenceBundleArtifactV1)
+- docs/registry-schema.v0.3.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
+- docs/host-grants-inventory-schema.v0.1.json
+                                (from agents_shipgate.schemas.host_grants.
+                                 HostGrantsInventoryArtifactV1)
 - docs/capability-lock-schema.v0.2.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1553,6 +1559,55 @@ def build_registry_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_org_evidence_bundle_schema() -> tuple[Path, str]:
+    """Generate the organization evidence bundle schema."""
+
+    from agents_shipgate.schemas.org_evidence_bundle import (
+        ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        OrgEvidenceBundleArtifactV1,
+    )
+
+    schema = OrgEvidenceBundleArtifactV1.model_json_schema()
+    version = ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION.rsplit("/", maxsplit=1)[-1]
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/org-evidence-bundle-schema.{version}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Organization Evidence Bundle v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate org bundle --json. This bundle "
+        "aggregates local deterministic artifacts for fleet reporting and "
+        "does not produce a release verdict."
+    )
+    target = DOCS / f"org-evidence-bundle-schema.{version}.json"
+    return target, _canonical_json(schema)
+
+
+def build_host_grants_inventory_schema() -> tuple[Path, str]:
+    """Generate the host-grants inventory schema."""
+
+    from agents_shipgate.schemas.host_grants import (
+        HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+        HostGrantsInventoryArtifactV1,
+    )
+
+    schema = HostGrantsInventoryArtifactV1.model_json_schema()
+    minor = HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/host-grants-inventory-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Host Grants Inventory v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate audit --host --json. The inventory "
+        "summarizes local coding-agent host grants and does not gate releases."
+    )
+    target = DOCS / f"host-grants-inventory-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1571,7 +1626,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("capability_lock_diff", build_capability_lock_diff_schema),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),
+    ("org_evidence_bundle", build_org_evidence_bundle_schema),
     ("registry", build_registry_schema),
+    ("host_grants_inventory", build_host_grants_inventory_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )

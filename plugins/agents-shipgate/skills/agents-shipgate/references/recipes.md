@@ -14,7 +14,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-Require `agents-shipgate contract --json` to report `contract_version: "6"` or
+Require `agents-shipgate contract --json` to report `contract_version: "7"` or
 newer. If the command is missing or the contract is older, ask the user to
 install or upgrade the CLI and rerun the task:
 
@@ -25,11 +25,11 @@ pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
 
 After installation, run `agents-shipgate --version` and
 `agents-shipgate contract --json` again. Do not continue to `detect`, `init`,
-`scan`, or `verify` until the CLI exists and reports contract v6 or newer.
+`scan`, or `verify` until the CLI exists and reports contract v7 or newer.
 
 A missing or stale binary is a `decision="block"` install action in the
 agent-native protocol, not a reason to proceed unverified. Until
-`agents-shipgate contract --json` confirms contract v6 or newer, do not report
+`agents-shipgate contract --json` confirms contract v7 or newer, do not report
 the task complete: surface the install/upgrade action and stop. Local boundary
 checks emit `shipgate.codex_boundary_result/v1`; legacy `agent_result_v1`
 fixtures are retained only for older protocol integrations.

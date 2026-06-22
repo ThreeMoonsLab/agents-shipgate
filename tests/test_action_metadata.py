@@ -45,6 +45,9 @@ def test_action_has_marketplace_metadata_and_outputs():
         "base_capability_lock_json",
         "capability_lock_diff_json",
         "attestation_json",
+        "org_evidence_bundle_json",
+        "host_grants_json",
+        "org_status_json",
         "exit_code",
         "should_run",
         "trigger_action",
@@ -77,6 +80,10 @@ def test_action_has_marketplace_metadata_and_outputs():
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
     assert data["inputs"]["attestation"]["default"] == "false"
     assert data["inputs"]["registry_repo_label"]["default"] == ""
+    assert data["inputs"]["org_bundle"]["default"] == "false"
+    assert data["inputs"]["host_audit"]["default"] == "false"
+    assert data["inputs"]["org_status"]["default"] == "false"
+    assert data["inputs"]["registry_path"]["default"] == ""
 
 
 def test_action_exposes_verifier_merge_outputs():
@@ -134,6 +141,13 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "Build Agents Shipgate attestation" in text
     assert "inputs.attestation == 'true'" in text
     assert "--ci-context github-actions" in text
+    assert "Build Agents Shipgate host audit" in text
+    assert "inputs.host_audit == 'true'" in text
+    assert "Build Agents Shipgate org status" in text
+    assert "inputs.org_status == 'true'" in text
+    assert "Build Agents Shipgate org evidence bundle" in text
+    assert "inputs.org_bundle == 'true'" in text
+    assert "REGISTRY_PATH: ${{ inputs.registry_path }}" in text
     assert "REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}" in text
     assert "CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}" in text
     assert "verify" in text

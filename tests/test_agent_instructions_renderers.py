@@ -51,10 +51,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "4db5c3f0a2f1c68fb726c5e5ec7439c985e373a29dfa6867f18b6e22c604be18"
+        "51f63536f13e251f922b325ba0d9b536ee698c0d12266b94e5961ad297de3ff5"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "e12413fb49e2b66ff7046a30d35eb0b00b8d2594e8d1b481432f7922e576196c"
+        "03df378c4dae05b0d7da558b3a7e868de4d1bcba5f55744615b1c2290a13879e"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -80,7 +80,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "76c060a91d342cd02bf2c2273bcbb919a120ab063ebb32aba9cde67d6f0c2d1b"
+        "d4c306638e8c269073e8bd8b1dcfc2dc642c7561a905ebd3be14c8a32a12699d"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -89,7 +89,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "16894ce679eb55c69213070775cb265f0775ad7ff1cd08091a5c57627950871b"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "d7779f4f2365c84727d02da770696a40490428a396e10d7a031b316f15ef849d"
+        "3e55caf7cde63334278d3843dd5b988e40519768d6d09019d1c74be650336085"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "ac1e4760ea72d4ff8e961484a1777c8a1392ac973e1812faaeee8ebc63470880"
@@ -164,7 +164,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "1"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "6"
+    assert payload["contract_version"] == "7"
     assert payload["verifier_schema_version"] == "0.1"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v1"
@@ -176,6 +176,12 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     )
     assert payload["agent_result_schema_version"] == "agent_result_v1"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
+    assert payload["attestation_schema_version"] == "0.4"
+    assert payload["registry_schema_version"] == "0.3"
+    assert payload["org_evidence_bundle_schema_version"] == (
+        "shipgate.org_evidence_bundle/v1"
+    )
+    assert payload["host_grants_inventory_schema_version"] == "0.1"
     assert payload["agent_result_control_fields"] == [
         "decision",
         "completion_allowed",
@@ -337,7 +343,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate contract --json" in skill
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert 'contract_version: "6"' in recipes
+    assert 'contract_version: "7"' in recipes
     assert "shipgate.codex_boundary_result/v1" in recipes
 
 

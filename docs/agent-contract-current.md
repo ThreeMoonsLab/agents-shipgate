@@ -10,13 +10,15 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v6 also exposes the local agent command spec:
+Runtime contract v7 also exposes the local agent command spec:
 `commands{}`, `default_paths{}`, `artifacts{}`, `agent_read_order[]`,
 `verifier_read_order[]`, `merge_verdicts[]`, `release_decisions[]`,
 `do_not_auto_assert[]`, `verifier_schema_version`,
 `verify_run_schema_version`, `agent_handoff_schema_version`,
 `agent_handoff_schema_path`, `agent_handoff_artifact`,
-`codex_boundary_result_schema_version`, `agent_interface_operations[]`,
+`codex_boundary_result_schema_version`, `attestation_schema_version`,
+`registry_schema_version`, `org_evidence_bundle_schema_version`,
+`host_grants_inventory_schema_version`, `agent_interface_operations[]`,
 `exit_code_policy`, `mcp_tools[]`, and the legacy `agent_result_*` fields
 retained for older protocol consumers.
 Downstream repos generated with
@@ -24,7 +26,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `6`
+- Runtime contract: `7`
 - Current report schema: `0.27` — [`docs/report-schema.v0.27.json`](report-schema.v0.27.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
@@ -35,6 +37,10 @@ Downstream repos generated with
 - Current capability standard: `0.1` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.2` — [`docs/capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Current capability lock diff schema: `0.3` — [`docs/capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
+- Current attestation schema: `0.4` — [`docs/attestation-schema.v0.4.json`](attestation-schema.v0.4.json)
+- Current registry schema: `0.3` — [`docs/registry-schema.v0.3.json`](registry-schema.v0.3.json)
+- Current org evidence bundle schema: `shipgate.org_evidence_bundle/v1` — [`docs/org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json)
+- Current host-grants inventory schema: `0.1` — [`docs/host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: [`v0.26`](report-schema.v0.26.json), [`v0.25`](report-schema.v0.25.json), [`v0.24`](report-schema.v0.24.json), [`v0.23`](report-schema.v0.23.json), [`v0.22`](report-schema.v0.22.json), [`v0.21`](report-schema.v0.21.json), [`v0.20`](report-schema.v0.20.json), [`v0.19`](report-schema.v0.19.json), [`v0.18`](report-schema.v0.18.json), [`v0.17`](report-schema.v0.17.json), [`v0.16`](report-schema.v0.16.json), [`v0.15`](report-schema.v0.15.json), [`v0.14`](report-schema.v0.14.json), [`v0.13`](report-schema.v0.13.json), [`v0.12`](report-schema.v0.12.json), [`v0.11`](report-schema.v0.11.json), [`v0.10`](report-schema.v0.10.json), [`v0.9`](report-schema.v0.9.json), [`v0.8`](report-schema.v0.8.json), [`v0.7`](report-schema.v0.7.json), [`v0.6`](report-schema.v0.6.json), older
@@ -152,6 +158,11 @@ review and routing aids only. `trust_root_touched` and `policy_weakened`
 mirror `verifier_summary`; the capability counts mirror
 `capability_change` (`modified` is `broadened + narrowed`). Keep using
 `decision` as the preferred gating output.
+
+When the action is asked to emit organization-governance artifacts, it also
+exposes `attestation_json`, `org_evidence_bundle_json`, `host_grants_json`, and
+`org_status_json` as artifact paths. These are ingestion and audit surfaces for
+platform teams; they never create a second verdict.
 
 For ongoing PR workflows, prefer:
 

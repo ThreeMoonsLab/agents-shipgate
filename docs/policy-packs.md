@@ -74,8 +74,9 @@ Supported legacy match fields:
 Parameter predicates support `name`, `names`, `types`, `missing_maximum`, and
 `required`.
 
-Phase 4 evaluates both legacy match fields and built-in policy checks through
-capability-policy subjects backed by deterministic `CapabilityFactV1` objects.
+Agents Shipgate evaluates both legacy match fields and built-in policy checks
+through capability-policy subjects backed by deterministic `CapabilityFactV1`
+objects.
 Existing pack behavior is preserved: top-level fields are ANDed together, list
 values are ORed within one field, and every parameter predicate must match at
 least one parameter.

@@ -29,7 +29,7 @@ make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
 `gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
 `next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
-`verifier.json` only for older installed CLIs that do not report contract v6.
+`verifier.json` only for older installed CLIs that do not report contract v7.
 Then read `report.json.release_decision.decision`, which remains the only
 release gate.
 

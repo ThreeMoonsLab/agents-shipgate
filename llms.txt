@@ -74,7 +74,10 @@
 - Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
 - Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.2.json
 - Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.3.json
-- Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.3.json
+- Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.4.json
+- Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.3.json
+- Org evidence bundle schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v1.json
+- Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.1.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
@@ -91,7 +94,7 @@
 - Before editing protected surfaces, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object; stop when `requires_human_review` is true.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=default --json`.
 - Verify an ongoing agent-capability PR before reporting it complete: `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`.
-- Read `agent-handoff.json` first: `gate.merge_verdict`, `gate.can_merge_without_human`, `controller`, `next_action`, `fix_task`, and `capability_review.top_changes`. Fall back to `verifier.json` only for installed CLIs older than contract v6. Then read `report.json.release_decision.decision`; it is the release gate.
+- Read `agent-handoff.json` first: `gate.merge_verdict`, `gate.can_merge_without_human`, `controller`, `next_action`, `fix_task`, and `capability_review.top_changes`. Fall back to `verifier.json` only for installed CLIs older than contract v7. Then read `report.json.release_decision.decision`; it is the release gate.
 - Run the verify-native demo fixture: `agents-shipgate fixture run ai_generated_refund_pr`.
 - Scan a static repo/report fixture when you need the lower-level report path: `agents-shipgate fixture run support_refund_agent`.
 - Export a stable static capability lock: `agents-shipgate capability export -c shipgate.yaml`.

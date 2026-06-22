@@ -14,7 +14,7 @@ from agents_shipgate.cli.main import app
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = json.loads(
-    (REPO_ROOT / "docs/attestation-schema.v0.3.json").read_text(encoding="utf-8")
+    (REPO_ROOT / "docs/attestation-schema.v0.4.json").read_text(encoding="utf-8")
 )
 
 
@@ -86,7 +86,10 @@ def test_build_attestation_core_fields() -> None:
         redacted=True,
         report=_report_payload(),
     )
-    assert att["attestation_schema_version"] == "0.3"
+    assert att["attestation_schema_version"] == "0.4"
+    assert att["run_id"] is None
+    assert att["verify_run_sha256"] is None
+    assert att["event_time"] is None
     assert att["org"] == {
         "org_id": None,
         "repo": None,
@@ -110,6 +113,61 @@ def test_build_attestation_core_fields() -> None:
     assert att["capability"]["change_ids"] == ["cap_a", "cap_b"]  # sorted, de-duped
     assert att["capability_lock"]["path"] is None
     assert att["capability_diff"] is None
+    assert att["policy_packs"] == []
+
+
+def test_verify_run_context_is_explicit_and_deterministic() -> None:
+    verify_run = {
+        "run_id": "sha256:" + "a" * 64,
+        "inputs": {
+            "policy_packs": [
+                {
+                    "id": "org",
+                    "name": "Org Release",
+                    "version": "3",
+                    "path": "vendor/org.yaml",
+                    "sha256": "sha256:" + "b" * 64,
+                    "sha256_status": "verified",
+                    "rule_count": 2,
+                }
+            ]
+        },
+    }
+    att = build_attestation_payload(
+        _verifier_payload(),
+        source=Path("verifier.json"),
+        redacted=True,
+        report=_report_payload(),
+        verify_run=verify_run,
+        verify_run_sha256="c" * 64,
+        run_context={
+            "event_time": "2026-06-21T12:00:00Z",
+            "source_url": "https://github.com/acme/repo/pull/42",
+            "branch": "feature/agent",
+            "base_sha": "d" * 40,
+            "head_sha": "e" * 40,
+        },
+    )
+
+    assert att["run_id"] == "sha256:" + "a" * 64
+    assert att["verify_run_sha256"] == "c" * 64
+    assert att["event_time"] == "2026-06-21T12:00:00Z"
+    assert att["source_url"] == "https://github.com/acme/repo/pull/42"
+    assert att["branch"] == "feature/agent"
+    assert att["base_sha"] == "d" * 40
+    assert att["head_sha"] == "e" * 40
+    assert att["policy_packs"] == [
+        {
+            "id": "org",
+            "name": "Org Release",
+            "version": "3",
+            "path": "vendor/org.yaml",
+            "sha256": "sha256:" + "b" * 64,
+            "status": "verified",
+            "rule_count": 2,
+        }
+    ]
+    jsonschema.validate(att, SCHEMA)
 
 
 def test_human_ack_and_policy_hash_from_report() -> None:
@@ -355,7 +413,20 @@ tool_sources:
         encoding="utf-8",
     )
     event = tmp_path / "event.json"
-    event.write_text(json.dumps({"pull_request": {"number": 42}}), encoding="utf-8")
+    event.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 42,
+                    "updated_at": "2026-06-21T12:00:00Z",
+                    "html_url": "https://github.com/acme/from-env/pull/42",
+                    "base": {"sha": "a" * 40},
+                    "head": {"sha": "b" * 40, "ref": "feature/support"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("GITHUB_REPOSITORY", "acme/from-env")
     monkeypatch.setenv("GITHUB_RUN_ID", "9001")
     monkeypatch.setenv("GITHUB_ACTOR", "octocat")
@@ -391,6 +462,11 @@ tool_sources:
         "actor": "octocat",
         "merge_sha": "f" * 40,
     }
+    assert payload["event_time"] == "2026-06-21T12:00:00Z"
+    assert payload["source_url"] == "https://github.com/acme/from-env/pull/42"
+    assert payload["branch"] == "feature/support"
+    assert payload["base_sha"] == "a" * 40
+    assert payload["head_sha"] == "b" * 40
 
 
 def test_attest_cli_out_without_json_prints_written_message(tmp_path: Path) -> None:

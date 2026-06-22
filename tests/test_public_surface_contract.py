@@ -46,7 +46,10 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.host_grants import HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
 
@@ -329,6 +332,9 @@ def test_well_known_metadata_lists_packet_outputs():
         "capability_lock_diff_md",
         "feedback_json",
         "attestation_json",
+        "org_evidence_bundle_json",
+        "host_grants_json",
+        "org_status_json",
     ):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
@@ -404,6 +410,32 @@ def test_well_known_metadata_lists_packet_outputs():
     assert f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json" in (attestation_url), (
         ".well-known schemas.attestation must point to the current "
         f"attestation schema; got {attestation_url!r}."
+    )
+    assert data.get("attestation_schema_version") == contract["attestation_schema_version"]
+    assert data.get("registry_schema_version") == contract["registry_schema_version"]
+    assert data.get("org_evidence_bundle_schema_version") == (
+        contract["org_evidence_bundle_schema_version"]
+    )
+    assert data.get("host_grants_inventory_schema_version") == (
+        contract["host_grants_inventory_schema_version"]
+    )
+    registry_url = schemas.get("registry", "")
+    assert f"registry-schema.v{REGISTRY_SCHEMA_VERSION}.json" in registry_url, (
+        ".well-known schemas.registry must point to the current "
+        f"registry schema; got {registry_url!r}."
+    )
+    bundle_url = schemas.get("org_evidence_bundle", "")
+    assert "org-evidence-bundle-schema.v1.json" in bundle_url
+    assert data.get("org_evidence_bundle_schema_version") == (
+        ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
+    )
+    host_grants_url = schemas.get("host_grants_inventory", "")
+    assert (
+        f"host-grants-inventory-schema.v{HOST_GRANTS_INVENTORY_SCHEMA_VERSION}.json"
+        in host_grants_url
+    ), (
+        ".well-known schemas.host_grants_inventory must point to the current "
+        f"host grants schema; got {host_grants_url!r}."
     )
     benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
     assert (

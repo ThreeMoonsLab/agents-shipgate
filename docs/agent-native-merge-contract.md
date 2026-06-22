@@ -130,9 +130,12 @@ protected* — never a new way to decide.
   JSON-first attestation from `verifier.json` (+ the sibling `report.json`) —
   base/head SHAs, the verdict, the capability delta, optional org/CI context,
   declared `human_ack` details, a policy-snapshot hash, content hashes of every
-  verify artifact, and capability lock/diff hash bindings when verify emitted them. It is
-  content-addressed (no wall-clock timestamp) and does not gate. Schema:
-  [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json).
+  verify artifact, verify-run binding (`run_id`, `verify_run_sha256`),
+  explicit CI event facts, policy-pack pin records, and capability lock/diff
+  hash bindings when verify emitted them. It is content-addressed; event time is
+  copied only from explicit input or CI payloads, never generated from `now()`,
+  and it does not gate. Schema:
+  [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json).
 - **Agent reads:** the attestation is a durable record for humans and
   registries, not a control signal — the agent still acts on `agent_controller`
   (contracts 3–5).

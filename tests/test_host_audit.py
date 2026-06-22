@@ -68,6 +68,7 @@ jobs:
 
 def test_inventory_collects_all_grant_kinds(tmp_path: Path) -> None:
     inventory = host_audit_inventory(_seed_workspace(tmp_path))
+    assert inventory["host_grants_inventory_schema_version"] == "0.1"
 
     servers = {item["server"]: item for item in inventory["mcp_servers"]}
     assert set(servers) == {"github", "remote"}
@@ -115,7 +116,30 @@ def test_cli_audit_host_json(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
+    assert payload["host_grants_inventory_schema_version"] == "0.1"
     assert payload["mcp_servers"]
+
+
+def test_cli_audit_host_json_out_writes_inventory(tmp_path: Path) -> None:
+    _seed_workspace(tmp_path)
+    out = tmp_path / "reports" / "host-grants.json"
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == json.loads(out.read_text(encoding="utf-8"))
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["host_grants_inventory_schema_version"] == "0.1"
+    assert "secret-token-value" not in out.read_text(encoding="utf-8")
 
 
 def test_cli_audit_without_host_flag_errors(tmp_path: Path) -> None:

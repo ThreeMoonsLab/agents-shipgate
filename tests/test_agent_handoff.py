@@ -228,7 +228,7 @@ def test_agent_handoff_cli_missing_input_exits_three(tmp_path: Path) -> None:
 def test_agent_handoff_rejects_mismatched_decision_and_merge_verdict() -> None:
     with pytest.raises(ValidationError):
         AgentHandoffArtifact(
-            contract_version="6",
+            contract_version="7",
             operation="verify_pr",
             subject=AgentHandoffSubject(workspace="/tmp/repo", config="shipgate.yaml"),
             gate=AgentHandoffGate(
@@ -243,7 +243,7 @@ def test_agent_handoff_rejects_mismatched_decision_and_merge_verdict() -> None:
 def test_agent_handoff_rejects_controller_completion_mismatch() -> None:
     with pytest.raises(ValidationError):
         AgentHandoffArtifact(
-            contract_version="6",
+            contract_version="7",
             operation="verify_pr",
             subject=AgentHandoffSubject(workspace="/tmp/repo", config="shipgate.yaml"),
             gate=AgentHandoffGate(

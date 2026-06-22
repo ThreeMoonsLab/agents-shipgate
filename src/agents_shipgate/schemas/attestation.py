@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-ATTESTATION_SCHEMA_VERSION = "0.3"
+ATTESTATION_SCHEMA_VERSION = "0.4"
 
 
 class AttestationVerdictV1(BaseModel):
@@ -88,11 +88,18 @@ class ReleaseAttestationV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    attestation_schema_version: Literal["0.3"] = ATTESTATION_SCHEMA_VERSION
+    attestation_schema_version: Literal["0.4"] = ATTESTATION_SCHEMA_VERSION
     cli_version: str
     org: AttestationOrgContextV1 = Field(default_factory=AttestationOrgContextV1)
     source_verifier: str
     redacted: bool = True
+    run_id: str | None = None
+    verify_run_sha256: str | None = None
+    event_time: str | None = None
+    source_url: str | None = None
+    branch: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
     base_ref: str | None = None
     head_ref: str | None = None
     base_tree_sha: str | None = None
@@ -104,6 +111,7 @@ class ReleaseAttestationV1(BaseModel):
     capability_diff: AttestationCapabilityDiffBindingV1 | None = None
     human_ack: AttestationHumanAckV1
     policy_snapshot_sha256: str | None = None
+    policy_packs: list[dict[str, str | int | None]] = Field(default_factory=list)
     artifact_sha256: dict[str, str] = Field(default_factory=dict)
 
 

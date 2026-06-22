@@ -201,6 +201,15 @@
           "default": null,
           "title": "Sha256"
         },
+        "sha256_status": {
+          "default": "unpinned",
+          "enum": [
+            "unpinned",
+            "verified"
+          ],
+          "title": "Sha256 Status",
+          "type": "string"
+        },
         "version": {
           "anyOf": [
             {
