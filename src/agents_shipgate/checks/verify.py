@@ -59,6 +59,29 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
     ("tool_surface_decl", "**/SKILL.md"),
 )
 
+# The deny-list of trust-root files a coding agent must never edit *to make a
+# verdict pass*, derived from ``TRUST_ROOT_SURFACES`` (single source of truth),
+# restricted to the classes whose trust boundary is the WHOLE FILE: the
+# Shipgate CI gate, the agent-instruction surfaces, and policy packs.
+#
+# Deliberately EXCLUDES:
+#   * ``shipgate.yaml`` and ``.agents-shipgate/**`` — their boundary is
+#     *key-level* (editing an action's scope is a legitimate mechanical fix; a
+#     ``checks.ignore`` / baseline / waiver expansion is reward-hacking). A
+#     path-level deny cannot express that, so they are covered by
+#     ``forbidden_actions`` (``FORBIDDEN_SHORTCUTS``) instead.
+#   * the tool-surface declarations (``.mcp.json``, ``SKILL.md``, ``.app.json``,
+#     ``.codex-plugin/**``) — those are the capability surface UNDER review,
+#     which a PR may legitimately edit.
+#
+# Single home so the verify ``agent_controller`` and the ``agent_handoff``
+# fallback (preview, where no controller is computed) emit the IDENTICAL
+# standing deny-list — a passing/preview verdict never reads as "anything goes".
+_FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
+PROTECTED_FILE_EDITS: tuple[str, ...] = tuple(
+    pattern for kind, pattern in TRUST_ROOT_SURFACES if kind in _FORBIDDEN_EDIT_CLASSES
+)
+
 
 def run(context: ScanContext) -> list[Finding]:
     verification = context.verification

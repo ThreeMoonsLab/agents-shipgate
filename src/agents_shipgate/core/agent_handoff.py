@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
+from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.agent_handoff import (
     AgentHandoffArtifact,
     AgentHandoffBlockedBy,
@@ -132,8 +134,13 @@ def _controller(
         must_stop=False if operation == "verify_preview" else not gate.can_merge_without_human,
         stop_reason=None,
         allowed_next_commands=allowed_next_commands,
-        forbidden_file_edits=[],
-        forbidden_actions=[],
+        # Standing negative affordance: the forbidden lists are present on EVERY
+        # verdict (per the verifier/handoff contract), including the preview
+        # operation where no agent_controller is computed. Emit the same
+        # canonical deny-lists the verify controller uses so a preview handoff
+        # never reads as "nothing is forbidden".
+        forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        forbidden_actions=list(FORBIDDEN_SHORTCUTS),
     )
 
 
