@@ -11,8 +11,27 @@ from agents_shipgate.core.codex_boundary import (
     parse_unified_diff,
 )
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
-from agents_shipgate.triggers import _git_diff_context
+from agents_shipgate.triggers import _git_diff_context, load_triggers
 from agents_shipgate.triggers import evaluate as evaluate_trigger
+
+# Trigger rule IDs that mark a changed file as a *tool/capability source* —
+# the surfaces ``verify`` compiles into the capability delta. Deliberately
+# EXCLUDES the other ``run_shipgate`` rules that are not declarable tool
+# sources: ``TRIGGER-SHIPGATE-MANIFEST`` (the manifest itself),
+# ``TRIGGER-PROMPTS-OR-POLICIES`` (prompts/policies), ``TRIGGER-SHIPGATE-CI-
+# WORKFLOW`` (the gate), and ``TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED`` (which
+# the boundary check itself evaluates). A change to one of those must not be
+# mislabeled an "undeclared tool surface".
+_TOOL_SOURCE_TRIGGER_IDS = frozenset(
+    {
+        "TRIGGER-MCP-EXPORT-CHANGED",
+        "TRIGGER-OPENAPI-SPEC-CHANGED",
+        "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED",
+        "TRIGGER-CODEX-PLUGIN-CHANGED",
+        "TRIGGER-N8N-WORKFLOW-CHANGED",
+        "TRIGGER-FUNCTION-TOOL-DECORATOR",
+    }
+)
 
 
 def build_codex_agent_result(
@@ -24,7 +43,8 @@ def build_codex_agent_result(
     policy: Path | None,
 ) -> CodexBoundaryResultV1:
     workspace = workspace.resolve()
-    changed_files = sorted({item.path for item in parse_unified_diff(diff_text) if item.path})
+    diff_files = parse_unified_diff(diff_text)
+    changed_files = sorted({item.path for item in diff_files if item.path})
     config_path = config if config.is_absolute() else workspace / config
     trigger = evaluate_trigger(
         paths=changed_files,
@@ -32,18 +52,78 @@ def build_codex_agent_result(
         manifest_present=config_path.is_file(),
         user_requested=True,
     )
+    declared = _declared_tool_surfaces_changed(
+        workspace=workspace,
+        config_path=config_path,
+        changed_files=changed_files,
+    )
     return evaluate_codex_boundary_result(
         workspace=workspace,
         diff_text=diff_text,
         agent=agent,
         policy_path=policy,
         trigger=trigger,
-        capability_surfaces_changed=_declared_tool_surfaces_changed(
-            workspace=workspace,
-            config_path=config_path,
+        capability_surfaces_changed=declared,
+        undeclared_capability_surfaces=_undeclared_tool_surfaces_changed(
+            diff_files=diff_files,
             changed_files=changed_files,
+            declared=declared,
         ),
     )
+
+
+def _undeclared_tool_surfaces_changed(
+    *,
+    diff_files: list[Any],
+    changed_files: list[str],
+    declared: list[str],
+) -> list[str]:
+    """Changed files that are tool/capability surfaces the manifest does NOT declare.
+
+    ``verify`` only gates *declared* tool sources, so an undeclared surface (a
+    new MCP/OpenAPI/tool-inventory/codex-plugin file, or an SDK/n8n tool the
+    manifest does not list) escapes the gate even though ``check`` returns a
+    clean ``allow``. Each changed file is classified per-file against only the
+    *tool-source* trigger rules (so the manifest, prompts/policies, the CI gate,
+    and ``.codex`` boundary config are never mislabeled), excluding boundary
+    paths (the boundary evaluator already inspects those) and files the manifest
+    already declares (``verify`` gates those). Computed independently of the
+    declared set so a mixed diff — one declared surface plus one undeclared —
+    still surfaces the undeclared one.
+    """
+    if not changed_files:
+        return []
+    declared_set = set(declared)
+    added_by_path = {
+        item.path: "\n".join(getattr(item, "added_lines", []) or [])
+        for item in diff_files
+        if item.path
+    }
+    catalog = load_triggers()
+    undeclared: list[str] = []
+    for path in changed_files:
+        if path in declared_set or is_boundary_path(path):
+            continue
+        # Per-file classification: a glob rule matches on the path, a
+        # diff_contains rule (n8n, @function_tool) on this file's added lines.
+        result = evaluate_trigger(
+            paths=[path],
+            diff_text=added_by_path.get(path, ""),
+            manifest_present=False,
+            user_requested=False,
+            triggers=catalog,
+        )
+        # Require the evaluator's WINNING verdict, not just a matched rule: a
+        # docs/test file that incidentally mentions ``@tool`` also matches
+        # ``TRIGGER-DOCS-ONLY-NEGATIVE``, which beats ``run_shipgate`` so the
+        # catalog skips it. Only treat the file as a tool surface when the
+        # trigger actually runs AND a tool-source rule is what carried it.
+        if result.get("run_shipgate") and any(
+            rule.get("id") in _TOOL_SOURCE_TRIGGER_IDS
+            for rule in result.get("matched_rules", [])
+        ):
+            undeclared.append(path)
+    return sorted(dict.fromkeys(undeclared))
 
 
 def _declared_tool_surfaces_changed(
