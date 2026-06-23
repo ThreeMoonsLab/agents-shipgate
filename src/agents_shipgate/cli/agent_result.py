@@ -113,7 +113,12 @@ def _undeclared_tool_surfaces_changed(
             user_requested=False,
             triggers=catalog,
         )
-        if any(
+        # Require the evaluator's WINNING verdict, not just a matched rule: a
+        # docs/test file that incidentally mentions ``@tool`` also matches
+        # ``TRIGGER-DOCS-ONLY-NEGATIVE``, which beats ``run_shipgate`` so the
+        # catalog skips it. Only treat the file as a tool surface when the
+        # trigger actually runs AND a tool-source rule is what carried it.
+        if result.get("run_shipgate") and any(
             rule.get("id") in _TOOL_SOURCE_TRIGGER_IDS
             for rule in result.get("matched_rules", [])
         ):

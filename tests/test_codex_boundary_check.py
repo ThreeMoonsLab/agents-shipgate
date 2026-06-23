@@ -421,6 +421,65 @@ def test_prompts_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
     assert result.decision == "allow"
 
 
+def test_docs_file_mentioning_tool_decorator_is_not_undeclared_surface(
+    tmp_path: Path,
+) -> None:
+    # Review finding: a docs file that incidentally mentions @tool matches the
+    # FUNCTION-TOOL-DECORATOR rule but ALSO TRIGGER-DOCS-ONLY-NEGATIVE, which
+    # wins — the catalog skips it, so it must not be flagged as an undeclared
+    # tool surface routed to detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " # Docs\n"
+        "+Use the @tool / @function_tool decorator to register a tool.\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert not any(
+        d["code"] == "undeclared_capability_surface" for d in payload.get("diagnostics", [])
+    )
+
+
+def test_test_file_mentioning_tool_decorator_is_not_undeclared_surface(
+    tmp_path: Path,
+) -> None:
+    # Same property for a tests/ file: docs-only-negative covers tests/**.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/tests/test_docs.py b/tests/test_docs.py\n"
+        "--- a/tests/test_docs.py\n"
+        "+++ b/tests/test_docs.py\n"
+        "@@ -1 +1,2 @@\n"
+        " def test_x():\n"
+        "+    # documents the @function_tool example\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
 def test_undeclared_gap_never_downgrades_a_block(tmp_path: Path) -> None:
     # A real boundary block plus an undeclared surface must stay blocked.
     block_diff = (CORPUS / "mcp_auto_approve_write.diff").read_text(encoding="utf-8")
