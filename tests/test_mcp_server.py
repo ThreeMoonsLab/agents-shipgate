@@ -197,6 +197,12 @@ def test_build_server_registers_read_only_tools() -> None:
         "shipgate.handoff",
         "shipgate.preflight",
     }
+    # Every tool advertises its read-only, closed-world nature in the
+    # machine-readable contract, not just the server prose instructions.
+    for tool in listed:
+        assert tool.annotations is not None, tool.name
+        assert tool.annotations.readOnlyHint is True, tool.name
+        assert tool.annotations.openWorldHint is False, tool.name
 
 
 def _write_json(path: Path, payload: dict) -> None:
