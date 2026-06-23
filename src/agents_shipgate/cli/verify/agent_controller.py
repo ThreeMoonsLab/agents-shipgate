@@ -12,7 +12,11 @@ no new decision, and ``completion_allowed`` is locked to
 
 from __future__ import annotations
 
-from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
+# ``PROTECTED_FILE_EDITS`` (the standing whole-file trust-root deny-list) is
+# defined alongside ``TRUST_ROOT_SURFACES`` in ``checks.verify`` so the verify
+# controller here and the ``agent_handoff`` preview fallback share one source.
+# Re-exported for existing consumers/tests that import it from this module.
+from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.cli.verify.fix_task import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.verifier import (
     AgentController,
@@ -21,29 +25,6 @@ from agents_shipgate.schemas.verifier import (
     VerifierCapabilityReview,
     VerifierFixTask,
     VerifierHumanReview,
-)
-
-# The deny-list of trust-root files an agent must never edit *to make a verdict
-# pass*. Derived from the canonical ``TRUST_ROOT_SURFACES`` (single source of
-# truth), restricted to the classes whose trust boundary is the WHOLE FILE: the
-# Shipgate CI gate, the agent-instruction surfaces, and policy packs.
-#
-# Deliberately EXCLUDES:
-#   * ``shipgate.yaml`` and ``.agents-shipgate/**`` — their boundary is
-#     *key-level* (editing an action's scope is a legitimate mechanical fix; a
-#     ``checks.ignore`` / baseline / waiver expansion is reward-hacking). A
-#     path-level deny cannot express that, so they are covered by
-#     ``forbidden_actions`` instead.
-#   * the tool-surface declarations (``.mcp.json``, ``SKILL.md``, ``.app.json``,
-#     ``.codex-plugin/**``) — those are the capability surface UNDER review,
-#     which a PR may legitimately edit.
-#
-# There is intentionally NO allow-list: an agent's legitimate mechanical fix
-# edits application code or manifest scope fields that cannot be enumerated
-# ahead of time, so an exhaustive "may edit" list would fight real work.
-_FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
-PROTECTED_FILE_EDITS: tuple[str, ...] = tuple(
-    pattern for kind, pattern in TRUST_ROOT_SURFACES if kind in _FORBIDDEN_EDIT_CLASSES
 )
 
 

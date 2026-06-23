@@ -261,3 +261,39 @@ def test_agent_handoff_rejects_invalid_verifier_substrate() -> None:
 
     with pytest.raises(ValidationError):
         build_agent_handoff(verifier=payload)
+
+
+def test_preview_handoff_carries_standing_forbidden_lists() -> None:
+    # verify --preview emits no agent_controller, so the handoff falls back to
+    # deriving the controller. The forbidden lists are a STANDING negative
+    # affordance present on every verdict — they must not be empty in preview,
+    # and must equal the canonical deny-lists the verify controller uses.
+    from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
+    from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+
+    verifier = {
+        "workspace": "/tmp/repo",
+        "config": "shipgate.yaml",
+        "mode": "preview",
+        "head_status": "skipped",
+        "merge_verdict": "mergeable",
+        "applicability": "not_applicable",
+        "can_merge_without_human": True,
+        "agent_controller": None,
+        "first_next_action": {
+            "actor": "coding_agent",
+            "kind": "continue",
+            "command": None,
+            "why": "Preview: nothing to gate yet.",
+        },
+    }
+
+    handoff = build_agent_handoff(verifier=verifier).model_dump(mode="json")
+
+    assert handoff["operation"] == "verify_preview"
+    controller = handoff["controller"]
+    assert controller["forbidden_actions"] == list(FORBIDDEN_SHORTCUTS)
+    assert controller["forbidden_file_edits"] == list(PROTECTED_FILE_EDITS)
+    # Non-empty: a preview handoff never reads as "anything goes".
+    assert controller["forbidden_actions"]
+    assert controller["forbidden_file_edits"]
