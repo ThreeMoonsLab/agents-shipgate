@@ -189,6 +189,7 @@
   },
   "verifier_read_order": [
     "merge_verdict",
+    "applicability",
     "can_merge_without_human",
     "first_next_action",
     "fix_task",

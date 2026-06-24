@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Non-preview `verify` now fails closed on a missing `--config`.**
+  `agents-shipgate verify --workspace . --config missing.yaml --json` exits
+  `2` with `merge_verdict: "unknown"`, `applicability: "unknown"`, and
+  `can_merge_without_human: false`; it writes lightweight verifier/controller
+  artifacts but no `report.json` and runs no head scan. This replaces the old
+  lenient path where a missing config could trigger-skip and exit `0`.
+  `verify --preview --config missing.yaml --json` is unchanged and remains the
+  setup/relevance path with exit `0`.
+- **Shipgate now has a separate self-dogfood PR workflow.** The root
+  `shipgate.yaml` remains the public Codex-plugin marketplace self-scan, while
+  `shipgate-self.yaml` and `.github/workflows/agents-shipgate-self.yml` run an
+  advisory static-only local-action gate on pull requests with
+  `fail_on_merge_verdicts: blocked`, artifact upload enabled, and PR comments
+  disabled. This does not scan Shipgate's Python scanner implementation; tests,
+  coverage, audit, SBOM, and release signing remain that assurance path.
 - **A named high concern now routes to review, not `insufficient_evidence`.**
   When a scan turns up an *active* (not baseline-accepted) high/critical review
   finding, the release decision is now `review_required` even if low-confidence

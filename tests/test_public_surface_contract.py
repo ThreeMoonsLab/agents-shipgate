@@ -1460,8 +1460,9 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert data.get("static_scan_fixture_run") == (
         "agents-shipgate fixture run support_refund_agent"
     )
-    assert data.get("verifier_read_order", [])[:6] == [
+    assert data.get("verifier_read_order", [])[:7] == [
         "merge_verdict",
+        "applicability",
         "can_merge_without_human",
         "first_next_action",
         "fix_task",

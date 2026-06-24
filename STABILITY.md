@@ -22,6 +22,13 @@ Breaking changes from the `0.x` line:
   `report.json.release_decision.decision`.
 - `agents-shipgate verify --format agent` was removed. Use
   `--format json` to print the full `VerifierArtifact`.
+- Non-preview `agents-shipgate verify --config <path>` now fails closed when
+  `<path>` is missing. The old lenient path could trigger-skip and exit `0`;
+  the new behavior exits `2`, emits `merge_verdict: "unknown"` and
+  `applicability: "unknown"`, writes only lightweight verifier/controller
+  artifacts, and does not write `report.json` or run a head scan.
+  `agents-shipgate verify --preview` is unchanged and still treats a missing
+  config as an onboarding/relevance condition with exit `0`.
 - `shipgate check --format agent-json` was removed. Use
   `shipgate check --format codex-boundary-json`; the output
   `schema_version` is now `shipgate.codex_boundary_result/v1`.
@@ -134,7 +141,7 @@ not agent-repairable authority gaps.
 Full PR verification uses `agents-shipgate verify`. The single
 agent-controller artifact is
 `agents-shipgate-reports/verifier.json`; it leads with
-`merge_verdict`, `can_merge_without_human`, `agent_controller`,
+`merge_verdict`, `applicability`, `can_merge_without_human`, `agent_controller`,
 `first_next_action`, and `fix_task`. `verify-run.json` records stable run
 identity and input hashes for reproducibility. `report.json` remains the
 release-gate artifact.
@@ -798,6 +805,16 @@ CI. If the requested base ref or PR diff context is unavailable, verify records
 `merge_verdict: "unknown"`, and exits 2. If the base tree is available but the
 base manifest or base scan is unavailable, verify records `base_status`, disables
 diff enrichment, and leaves the head release decision and exit code unchanged.
+
+Before any trigger-skip can return success, non-preview `verify` also requires
+the resolved `--config` path to exist. A missing config is a configuration
+failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
+`verify-run.json`, `agent-handoff.json`, and `pr-comment.md` with
+`head_status: "failed"`, `head_exit_code: 2`, `merge_verdict: "unknown"`,
+`applicability: "unknown"`, and `can_merge_without_human: false`; it writes no
+`report.json` and runs no head scan. The first next action directs agents to
+fix the config path or run `agents-shipgate verify --preview --json` /
+`agents-shipgate detect --workspace . --json` before initializing.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, `verify-run.json`, `agent-handoff.json`, and `pr-comment.md`.

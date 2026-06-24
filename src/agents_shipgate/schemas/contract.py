@@ -200,6 +200,7 @@ AGENT_READ_ORDER: tuple[str, ...] = (
 )
 VERIFIER_READ_ORDER: tuple[str, ...] = (
     "merge_verdict",
+    "applicability",
     "can_merge_without_human",
     "first_next_action",
     "fix_task",
