@@ -48,10 +48,10 @@ plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-result.json` first, then
-`agents-shipgate-reports/verifier.json` for `merge_verdict` and
+fetches. Read `agents-shipgate-reports/verifier.json` first for
+`merge_verdict`, `applicability`, and `agent_controller`, then read
 `agents-shipgate-reports/report.json.release_decision.decision` for the release
-gate.
+gate. `agent-result.json` is a supporting/provisional compact projection.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action

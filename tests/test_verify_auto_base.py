@@ -41,6 +41,25 @@ def _commit_all(repo: Path, message: str) -> None:
 
 def _docs_only_repo_with_origin_main(tmp_path: Path) -> Path:
     repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _commit_all(repo, "base")
     _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")

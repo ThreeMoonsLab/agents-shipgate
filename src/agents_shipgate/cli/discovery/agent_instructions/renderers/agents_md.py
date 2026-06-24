@@ -55,10 +55,10 @@ repair and rerun the command. If `human_review.required=true` or
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-result.json` first, then
-`agents-shipgate-reports/verifier.json` for `merge_verdict` and
+fetches. Read `agents-shipgate-reports/verifier.json` first for
+`merge_verdict`, `applicability`, and `agent_controller`, then read
 `agents-shipgate-reports/report.json.release_decision.decision` for the release
-gate.
+gate. `agent-result.json` is a supporting/provisional compact projection.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;

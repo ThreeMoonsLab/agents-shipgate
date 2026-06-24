@@ -1,16 +1,19 @@
 # Reading Agents Shipgate Reports
 
 For verify runs, read `agents-shipgate-reports/verifier.json` first. Then read
-`agents-shipgate-reports/report.json`. Do not scrape Markdown.
+`agents-shipgate-reports/report.json`. `agent-result.json` is a
+supporting/provisional compact projection for Action and automation consumers.
+Do not scrape Markdown.
 
 ## Order
 
 1. `verifier.json.merge_verdict`: `mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`.
-2. `verifier.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
+2. `verifier.json.applicability` and `agent_controller`: whether Shipgate evaluated the change and what an autonomous controller may do next.
 3. `verifier.json.first_next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
 4. `report.json.release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`; this is the release gate.
-5. `release_decision.blockers[]` and `release_decision.review_items[]`.
-6. `findings[]`: detailed evidence, source, severity, and remediation.
+5. `verifier.json.capability_review.top_changes[]`: supporting/provisional highest-signal tool/action or trust-root changes.
+6. `release_decision.blockers[]` and `release_decision.review_items[]`.
+7. `findings[]`: detailed evidence, source, severity, and remediation.
 
 ## Verifier Summary
 
@@ -26,8 +29,9 @@ When `report_schema_version` is `0.22` or newer, read
   state; a coding agent must not synthesize acknowledgement.
 - `top_reason_codes[]`: ranked reason-code counts for concise summaries.
 
-This block is a deterministic projection. It cannot introduce a blocker that
-is not already present in `findings[]` and `release_decision`.
+This block is a supporting/provisional deterministic projection. It cannot
+introduce a blocker that is not already present in `findings[]` and
+`release_decision`.
 
 ## Per-Finding Action
 

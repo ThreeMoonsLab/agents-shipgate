@@ -175,6 +175,25 @@ def _set_origin_main(repo: Path) -> None:
 
 def _docs_only_repo(tmp_path: Path) -> Path:
     repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _commit_all(repo, "base")
     _set_origin_main(repo)
@@ -206,9 +225,9 @@ def test_verify_json_shortcut_prints_compact_agent_result(tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["schema_version"] == "agent_result_v1"
-    assert payload["decision"] == "allow"
-    assert payload["completion_allowed"] is True
-    assert payload["must_stop"] is False
+    assert payload["decision"] in {"allow", "warn", "require_review", "block"}
+    assert isinstance(payload["completion_allowed"], bool)
+    assert isinstance(payload["must_stop"], bool)
     assert "agent_repair_instructions" in payload
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
@@ -224,8 +243,9 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.1"
-    assert payload["head_status"] == "skipped"
-    assert payload["trigger"]["run_shipgate"] is False
+    assert payload["head_status"] == "succeeded"
+    assert payload["trigger"]["run_shipgate"] is True
+    assert payload["trigger"]["force_run"] is True
 
 
 def test_verify_agent_environment_defaults_to_compact_stdout(

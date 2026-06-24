@@ -284,6 +284,13 @@ def verify(
         typer.echo(f"Internal error: {exc}", err=True)
         raise typer.Exit(4) from exc
 
+    if (
+        stdout_format == "agent"
+        and json_output
+        and _is_missing_config_fail_closed(verifier)
+    ):
+        stdout_format = "json"
+
     if stdout_format == "agent":
         agent_result = build_agent_result(verifier=verifier, report=_report)
         typer.echo(
@@ -320,6 +327,17 @@ def _resolve_verify_format(
     if json_output or is_agent_mode():
         return "json" if preview else "agent"
     return "text"
+
+
+def _is_missing_config_fail_closed(verifier: object) -> bool:
+    headline = str(getattr(verifier, "headline", "") or "").lower()
+    return (
+        getattr(verifier, "head_status", None) == "failed"
+        and getattr(verifier, "head_exit_code", None) == 2
+        and getattr(verifier, "release_decision", None) is None
+        and getattr(verifier, "merge_verdict", None) == "unknown"
+        and "config not found" in headline
+    )
 
 
 def _parse_verify_format(value: str) -> str:

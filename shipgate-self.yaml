@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json
+version: "0.1"
+
+project:
+  name: agents-shipgate
+  owner: Three Moons Lab
+  repo: ThreeMoonsLab/agents-shipgate
+
+agent:
+  name: Agents Shipgate self-governance surfaces
+  declared_purpose:
+    - verify the packaged Agents Shipgate Codex plugin surface
+    - review bundled skill metadata and static plugin declarations
+    - keep self-dogfood coverage separate from scanner-source CI tests
+  prohibited_actions:
+    - execute agent, tool, MCP server, hook, or LLM calls during static scanning
+    - treat this manifest as coverage for Shipgate Python scanner internals
+    - weaken Shipgate release policy or CI to make a verifier run pass
+  instructions_preview: |
+    This self-dogfood manifest scans the local Codex plugin package that ships
+    Agents Shipgate workflow instructions. It is intentionally separate from
+    the root shipgate.yaml marketplace scan. Python scanner implementation
+    assurance remains covered by the normal CI test, coverage, audit, SBOM, and
+    release-signing gates.
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: agents_shipgate_codex_plugin_package
+    type: codex_plugin
+    mode: package
+    path: plugins/agents-shipgate
+
+ci:
+  mode: advisory
+  fail_on:
+    - critical
+    - high
+  pr_comment: false
+  upload_artifact: true
+
+output:
+  directory: agents-shipgate-reports/self
+  formats:
+    - markdown
+    - json
+    - sarif

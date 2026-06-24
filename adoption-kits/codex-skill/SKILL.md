@@ -5,7 +5,7 @@ description: Use when the user wants to add or run Agents Shipgate — the deter
 
 # Agents Shipgate
 
-Agents Shipgate is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It reads `shipgate.yaml` plus local tool sources and writes deterministic reports as Markdown, JSON, SARIF, and Release Evidence Packets.
+Agents Shipgate is the deterministic merge gate for AI-generated agent capability changes — a local-first, static Tool-Use Readiness review. It reads `shipgate.yaml` plus local tool sources and writes deterministic reports as Markdown, JSON, SARIF, and supporting Release Evidence Packets.
 
 Use this skill when a task touches agent tools, MCP exports, OpenAPI specs, prompts that constrain tool use, permissions/scopes, approval or confirmation policies, `shipgate.yaml`, Shipgate CI, or `agents-shipgate-reports/report.json`.
 
@@ -20,7 +20,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 5. Default first-time CI to advisory mode. Do not enable release-blocking CI or save a baseline until a human has reviewed current findings.
 6. For local agent control, run `shipgate check --agent codex --workspace . --format agent-json` and read the stdout `agent_result_v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
 7. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --json` or pass the planned paths with `--changed-files`. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
-8. For full PR verification, read `agents-shipgate-reports/agent-result.json` first, then `verifier.json` and `report.json` for reviewer detail; `report.json.release_decision.decision` remains the release gate.
+8. For full PR verification, read `agents-shipgate-reports/verifier.json` first, then `report.json`; `agent-result.json` is a supporting/provisional compact projection, and `report.json.release_decision.decision` remains the release gate.
 9. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
 10. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
 

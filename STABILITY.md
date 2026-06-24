@@ -193,6 +193,14 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `effective_policy.{ci_mode, fail_on, suppressed_check_ids, waiver_scopes, severity_overrides, baseline_integrity_mode, baseline_fingerprints, ci_gate_present}` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison. Required + always present. Every list/dict is emitted sorted (`fail_on` by severity tier rank) for byte-stable output; derived from the manifest plus accepted-debt fingerprints.
 - `human_ack.{required, satisfied, acks, outstanding}` (v0.22+) — declared human-acknowledgement state. Required + always present (default `required=false`, `satisfied=true`, empty lists). Within the static boundary, acknowledgement is declared evidence only — never inferred. A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; `satisfied` only when a matching `human_ack` entry exists in `shipgate.yaml`. `acks[]` are `{owner, reason, affected_surface, expires, source}`; `outstanding[]` lists required-but-unacknowledged surfaces. The ack section lives in `shipgate.yaml` (a trust root) so adding one trips `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 
+During `0.x`, secondary projections are supporting/provisional even when their
+field shapes are documented for additive compatibility. CI gates on
+`report.json.release_decision.decision`; PR controllers use
+`verifier.json.merge_verdict`, `applicability`, and `agent_controller`.
+`reviewer_summary`, `verifier_summary`, `capability_review`, runtime
+trace/evidence fields, Release Evidence Packets, and non-gating capability diff
+projections are explanatory surfaces, not independent policy engines.
+
 ### Privacy and redaction
 
 Reports, packets, SARIF, Markdown, GitHub step summaries, `explain-finding`
@@ -702,7 +710,8 @@ consumer may read:
   capability_changes_modified, top_changes[]}`. `top_changes[]` carries the
   highest-signal capability deltas with `{id, title, impact, rationale,
   related_finding_ids}`. `impact` mirrors the gate; this block never introduces a
-  finding-independent blocker.
+  finding-independent blocker. Treat it as supporting/provisional reviewer
+  context, not as the controller's primary verdict.
 - `agent_controller` — imperative restatement of the verdict for autonomous
   control (`null` for `--preview`): `{completion_allowed, must_stop, stop_reason,
   allowed_next_commands[], forbidden_file_edits[], forbidden_actions[],
@@ -780,7 +789,14 @@ Diff remains explanatory only.
 
 ### Release Evidence Packet (v0.7)
 
-`agents-shipgate-reports/packet.json` is governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json). v0.7 adds capability-linked local trace evidence summary and trace refs under `human_in_the_loop`. v0.6 stays as the frozen reference at [`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets validate against it. v0.6 added the top-level `evidence_matrix` section and the optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source` pointers for reviewer-grade dual-source provenance on top of v0.5. Within `0.x`:
+`agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
+artifact governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json).
+v0.7 adds capability-linked local trace evidence summary and trace refs under
+`human_in_the_loop`. v0.6 stays as the frozen reference at
+[`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets
+validate against it. v0.6 added the top-level `evidence_matrix` section and the
+optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source`
+pointers for reviewer-grade dual-source provenance on top of v0.5. Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
@@ -939,6 +955,12 @@ The following paths are part of the public agent surface and will not move withi
 - [`skills/agents-shipgate/prompts/`](skills/agents-shipgate/prompts/) and [`skills/agents-shipgate/ci-recipes/`](skills/agents-shipgate/ci-recipes/) — bundled supporting files the skill references via relative paths. Filenames listed in `SKILL.md` are stable.
 
 The body content of these files may change to reflect new prompts; the entry-point paths will not.
+
+`agents-shipgate skill lint`, `agents-shipgate skill security`, and
+`agents-shipgate skill review` are supporting/provisional review helpers in
+`0.x`. They may inform skill and instruction review, but they are not the CI
+release gate and should not be treated as a substitute for
+`report.json.release_decision.decision`.
 
 ---
 

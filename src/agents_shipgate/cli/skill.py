@@ -12,7 +12,10 @@ from agents_shipgate.skill.models import SkillCommand
 from agents_shipgate.skill.runner import run_skill_review
 
 skill_app = typer.Typer(
-    help="Lint and security-review agent skill and instruction artifacts.",
+    help=(
+        "Supporting/provisional lint and security review for agent skill "
+        "and instruction artifacts."
+    ),
     no_args_is_help=True,
 )
 

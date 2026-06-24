@@ -137,6 +137,8 @@ Then read `agents-shipgate-reports/verifier.json` and **lead with
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next for the highest-signal tool/action access changes, and check
 `trust_root_touched`, `policy_weakened`, and `fix_task`.
+`agent-result.json` is a supporting/provisional compact projection; Claude Code
+should not read it ahead of `verifier.json`.
 
 Do **not** claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

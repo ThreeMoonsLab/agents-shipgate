@@ -57,13 +57,14 @@ from agents_shipgate.schemas.verifier import (
 runner = CliRunner()
 
 
-def test_verify_trigger_skip_writes_lightweight_artifacts(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    (repo / "README.md").write_text("base\n", encoding="utf-8")
-    _commit_all(repo, "base")
+def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
     _set_origin_main(repo)
     (repo / "README.md").write_text("docs only\n", encoding="utf-8")
     _commit_all(repo, "docs")
+    out_dir = repo / "agents-shipgate-reports"
+    out_dir.mkdir()
+    (out_dir / "report.json").write_text('{"stale": true}\n', encoding="utf-8")
 
     result = runner.invoke(
         app,
@@ -84,18 +85,136 @@ def test_verify_trigger_skip_writes_lightweight_artifacts(tmp_path: Path) -> Non
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["head_status"] == "skipped"
-    assert payload["trigger"]["run_shipgate"] is False
+    assert payload["head_status"] == "succeeded"
+    assert payload["trigger"]["run_shipgate"] is True
+    assert payload["trigger"]["force_run"] is True
     verifier_json = repo / "agents-shipgate-reports" / "verifier.json"
     pr_comment = repo / "agents-shipgate-reports" / "pr-comment.md"
     assert verifier_json.is_file()
     assert pr_comment.is_file()
+    assert (repo / "agents-shipgate-reports" / "report.json").is_file()
+    assert "report_json" in payload["artifacts"]
+    assert payload["base_status"] == "succeeded"
+
+
+def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+    out_dir = repo / "agents-shipgate-reports"
+    out_dir.mkdir()
+    (out_dir / "report.json").write_text('{"stale": true}\n', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "missing.yaml",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "failed"
+    assert payload["head_exit_code"] == 2
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["applicability"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+    assert payload["release_decision"] is None
+    assert "correct --config" in payload["headline"].lower()
+    assert payload["human_review"]["required"] is True
+    assert "verify --preview --json" in payload["human_review"]["why"]
+    assert payload["first_next_action"]["command"] == (
+        "agents-shipgate verify --preview --json"
+    )
+    assert (out_dir / "verifier.json").is_file()
+    assert (out_dir / "pr-comment.md").is_file()
+    assert (out_dir / "agent-result.json").is_file()
+    assert not (out_dir / "report.json").exists()
+
+
+def test_verify_json_missing_config_emits_verifier_unknown(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "missing.yaml",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["applicability"] == "unknown"
+    assert payload["head_status"] == "failed"
+    assert payload["head_exit_code"] == 2
+    assert payload["can_merge_without_human"] is False
+    assert "schema_version" not in payload
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
-    assert "report_json" not in payload["artifacts"]
-    assert payload["base_status"] == "skipped"
 
 
-def test_verify_missing_base_without_manifest_is_unknown_not_mergeable(
+def test_verify_missing_config_relevant_diff_fails_before_head_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "tools.json").write_text(
+        '{"tools":[{"name":"delete_files","description":"Delete files."}]}\n',
+        encoding="utf-8",
+    )
+    _commit_all(repo, "head")
+    calls: list[dict[str, Any]] = []
+    _patch_run_scan(monkeypatch, calls, head_exit=0)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "missing.yaml",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "failed"
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+    assert calls == []
+
+
+def test_verify_missing_config_takes_precedence_over_missing_base(
     tmp_path: Path,
 ) -> None:
     repo = _init_repo(tmp_path)
@@ -126,9 +245,10 @@ def test_verify_missing_base_without_manifest_is_unknown_not_mergeable(
 
     assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
-    assert payload["base_status"] == "ref_missing"
+    assert payload["base_status"] == "not_requested"
     assert payload["head_status"] == "failed"
     assert payload["merge_verdict"] == "unknown"
+    assert payload["applicability"] == "unknown"
     assert payload["can_merge_without_human"] is False
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 

@@ -118,12 +118,13 @@ CI contexts, make the base ref available first because `verify` never fetches.
 If you pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
 
 Read `agents-shipgate-reports/verifier.json` first. Lead with
-`merge_verdict`, then inspect `capability_review.top_changes[]`,
-`first_next_action.actor`, and `fix_task.safe_to_attempt`. Then read
+`merge_verdict`, `applicability`, and `agent_controller`, then inspect
+`first_next_action.actor` and `fix_task.safe_to_attempt`. Then read
 `agents-shipgate-reports/report.json`; `release_decision.decision` remains the
-gate. Use `verifier_summary` only as a composition summary: its `verdict`
-mirrors `release_decision.decision` and it adds counts for protected-surface
-touches, policy weakening, human acknowledgement, and top reason codes.
+gate. `capability_review.top_changes[]` and `verifier_summary` are
+supporting/provisional composition summaries: their verdict-like values mirror
+`release_decision.decision`, and they add counts for protected-surface touches,
+policy weakening, human acknowledgement, and top reason codes.
 
 Do not bypass the verifier. Do not suppress findings, lower severity, expand
 baselines or waivers, remove Shipgate CI, or weaken agent instructions to make

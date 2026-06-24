@@ -257,7 +257,7 @@ def test_scenario_agent_weakens_shipgate_policy_touches_trust_root(
     assert payload["capability_review"]["trust_root_touched"] is True
 
 
-def test_scenario_docs_only_no_shipgate_skips(tmp_path: Path) -> None:
+def test_scenario_docs_only_no_shipgate_fails_closed(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     _commit(repo, "base docs")
@@ -265,12 +265,31 @@ def test_scenario_docs_only_no_shipgate_skips(tmp_path: Path) -> None:
     (repo / "README.md").write_text("hello world\n", encoding="utf-8")
     _commit(repo, "docs only")
 
-    payload = _verify(repo)
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
 
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
     assert payload["trigger"]["should_run"] is False
-    assert payload["head_status"] == "skipped"
-    assert payload["merge_verdict"] == "mergeable"
-    assert payload["can_merge_without_human"] is True
+    assert payload["head_status"] == "failed"
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["applicability"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+    assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
 
 def test_scenario_docs_only_with_shipgate_yaml_force_runs(tmp_path: Path) -> None:

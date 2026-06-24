@@ -120,7 +120,9 @@
   "governance_benchmark_catalog_schema_version": "0.2",
   "governance_benchmark_result_schema_version": "0.2",
   "external_integration_surfaces": ["preflight", "capability_lock", "capability_lock_diff", "capability_standard", "governance_benchmark_catalog", "governance_benchmark_result"],
+  "supporting_provisional_surfaces": ["agent_result", "agent_decision", "release_evidence_packet", "reviewer_summary", "verifier_summary", "capability_review", "runtime_trace_evidence", "capability_diff_projections", "skill_review"],
   "gating_signal": "release_decision.decision",
+  "agent_controller_signals": ["merge_verdict", "applicability", "agent_controller"],
   "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
   "applicability_values": ["verified", "not_applicable", "unknown"],
   "release_decisions": ["passed", "review_required", "insufficient_evidence", "blocked"],
@@ -132,11 +134,12 @@
   },
   "verifier_read_order": [
     "merge_verdict",
+    "applicability",
+    "agent_controller",
     "can_merge_without_human",
     "first_next_action",
     "fix_task",
     "capability_review.top_changes",
-    "agent_controller",
     "release_decision.decision"
   ],
   "do_not_auto_assert": [

@@ -194,6 +194,42 @@ def test_action_outputs_include_agent_result_fields(tmp_path: Path) -> None:
     assert outputs["policy_snapshot_sha256"] == "b" * 64
 
 
+def test_action_outputs_do_not_allow_failed_missing_config_verify(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "head_status": "failed",
+            "head_exit_code": 2,
+            "merge_verdict": "unknown",
+            "can_merge_without_human": False,
+            "headline": "Shipgate config not found at missing.yaml.",
+            "trigger": {"run_shipgate": False},
+        },
+    )
+    _write_json(
+        output_dir / "agent-result.json",
+        {
+            "decision": "require_review",
+            "risk_level": "high",
+            "audit_id": "sg_audit_missing_config",
+            "required_reviewers": ["release-owner"],
+        },
+    )
+
+    outputs = extract_outputs(output_dir)
+
+    assert outputs["decision"] == ""
+    assert outputs["verifier_verdict"] == "failed"
+    assert outputs["merge_verdict"] == "unknown"
+    assert outputs["can_merge_without_human"] == "false"
+    assert outputs["agent_decision"] == "require_review"
+    assert outputs["agent_decision"] != "allow"
+
+
 def test_decision_policy_exit_code_is_opt_in() -> None:
     assert decision_policy_exit_code("block", "") == 0
     assert decision_policy_exit_code("block", "block") == 20

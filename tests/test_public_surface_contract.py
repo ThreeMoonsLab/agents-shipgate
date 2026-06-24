@@ -1356,12 +1356,24 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert data.get("static_scan_fixture_run") == (
         "agents-shipgate fixture run support_refund_agent"
     )
-    assert data.get("verifier_read_order", [])[:5] == [
+    assert data.get("verifier_read_order", [])[:6] == [
         "merge_verdict",
+        "applicability",
+        "agent_controller",
         "can_merge_without_human",
         "first_next_action",
         "fix_task",
-        "capability_review.top_changes",
+    ]
+    assert data.get("supporting_provisional_surfaces", []) == [
+        "agent_result",
+        "agent_decision",
+        "release_evidence_packet",
+        "reviewer_summary",
+        "verifier_summary",
+        "capability_review",
+        "runtime_trace_evidence",
+        "capability_diff_projections",
+        "skill_review",
     ]
 
     recommended_topics = data.get("recommended_github_topics", [])
@@ -1699,6 +1711,31 @@ def test_pre_commit_hook_regex_skips_docs_only_paths():
             "tool-surface artifact and the hook should not fire on it. "
             "Tighten the regex."
         )
+
+
+def test_self_dogfood_manifest_scans_codex_plugin_package() -> None:
+    """The internal self-dogfood gate must stay on supported static surfaces.
+
+    It intentionally scans the shipped Codex plugin package, not the Python
+    scanner implementation. Scanner-source assurance lives in normal CI.
+    """
+    import yaml
+
+    manifest = yaml.safe_load(_read("shipgate-self.yaml"))
+    assert manifest["tool_sources"] == [
+        {
+            "id": "agents_shipgate_codex_plugin_package",
+            "type": "codex_plugin",
+            "mode": "package",
+            "path": "plugins/agents-shipgate",
+        }
+    ]
+    assert manifest["output"]["directory"] == "agents-shipgate-reports/self"
+
+    workflow = _read(".github/workflows/agents-shipgate-self.yml")
+    assert "config: shipgate-self.yaml" in workflow
+    assert "verify_mode: verify" in workflow
+    assert "fail_on_decisions: block" in workflow
 
 
 def test_pre_commit_local_docs_show_same_path_trigger_clauses():
