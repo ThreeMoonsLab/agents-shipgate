@@ -50,6 +50,7 @@ AGENT_FACING_DOCS = (
 
 ADOPTION_DOCS_WITH_LINKS = (
     REPO_ROOT / "README.md",
+    DOCS_DIR / "agents" / "README.md",
     DOCS_DIR / "target-repo-agent-snippets.md",
     DOCS_DIR / "agent-adoption-harness.md",
     REPO_ROOT / "samples" / "README.md",

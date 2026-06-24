@@ -661,6 +661,7 @@ readers and AI search ingest.
 - [Terms](docs/terms.md)
 - [Trust model](docs/trust-model.md)
 - [AI search summary](docs/ai-search-summary.md)
+- [Agent entry points](docs/agents/README.md)
 - [Design partners](docs/design-partners.md)
 - [Design partner verifier pilot](docs/design-partner-verifier-pilot.md)
 - [Runtime inventory design note](docs/runtime-inventory.md)
