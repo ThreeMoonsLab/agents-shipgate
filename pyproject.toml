@@ -79,7 +79,11 @@ mcp = [
   # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
   # server exposing read-only Shipgate projection tools; it does not broker
   # general MCP permissions or start implicitly.
-  "mcp>=1.2,<2",
+  # Floor is 1.14: the server registers every tool with `ToolAnnotations`
+  # (readOnlyHint / openWorldHint) via `FastMCP.tool(..., annotations=...)`,
+  # which earlier 1.x releases either lack (ToolAnnotations import fails) or
+  # do not accept on the tool decorator (registration fails).
+  "mcp>=1.14,<2",
 ]
 dev = [
   "build>=1.5.0,<2",

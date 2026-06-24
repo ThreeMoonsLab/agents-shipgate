@@ -164,11 +164,19 @@ def shipgate_handoff(
 def create_server():
     try:
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
     except ImportError as exc:  # pragma: no cover - exercised only without extra.
         raise ConfigError(
             "The MCP server requires the optional [mcp] extra. Install it "
             'with: pip install "agents-shipgate[mcp]"'
         ) from exc
+
+    # Every tool is a deterministic, local, static projection — it does not
+    # modify its environment (``readOnlyHint``) and never reaches an external
+    # system: no git, no network, no tool execution, no outbound MCP
+    # (``openWorldHint=False``). Advertise that in the machine-readable contract
+    # the agent host reads, not just the prose ``instructions`` below.
+    read_only = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
     server = FastMCP(
         "agents-shipgate",
@@ -182,7 +190,7 @@ def create_server():
         ),
     )
 
-    @server.tool(name="shipgate.check")
+    @server.tool(name="shipgate.check", annotations=read_only)
     def _shipgate_check(
         agent: str = "codex",
         workspace: str = ".",
@@ -198,7 +206,7 @@ def create_server():
             policy=policy,
         )
 
-    @server.tool(name="shipgate.preflight")
+    @server.tool(name="shipgate.preflight", annotations=read_only)
     def _shipgate_preflight(
         workspace: str = ".",
         config: str = "shipgate.yaml",
@@ -218,7 +226,7 @@ def create_server():
             base_preflight=base_preflight,
         )
 
-    @server.tool(name="shipgate.explain")
+    @server.tool(name="shipgate.explain", annotations=read_only)
     def _shipgate_explain(
         check_id: str | None = None,
         fingerprint: str | None = None,
@@ -232,7 +240,7 @@ def create_server():
             no_plugins=no_plugins,
         )
 
-    @server.tool(name="shipgate.capabilities")
+    @server.tool(name="shipgate.capabilities", annotations=read_only)
     def _shipgate_capabilities(
         config: str = "shipgate.yaml",
         base_lock: str | None = None,
@@ -246,7 +254,7 @@ def create_server():
             no_plugins=no_plugins,
         )
 
-    @server.tool(name="shipgate.handoff")
+    @server.tool(name="shipgate.handoff", annotations=read_only)
     def _shipgate_handoff(
         verifier_path: str = "agents-shipgate-reports/verifier.json",
         report_path: str | None = None,
