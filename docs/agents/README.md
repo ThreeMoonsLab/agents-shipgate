@@ -35,8 +35,11 @@ For committed PR verification, run `agents-shipgate verify`, then read
 `report.json.release_decision.decision` as the release gate.
 
 The normative local protocol is [`protocol.md`](protocol.md). Per-agent compact
-guides are [`codex.md`](codex.md), [`claude-code.md`](claude-code.md), and
-[`cursor.md`](cursor.md).
+control guides are [`codex.md`](codex.md), [`claude-code.md`](claude-code.md),
+and [`cursor.md`](cursor.md). Full installation and workflow guides live in
+[`use-with-codex.md`](use-with-codex.md),
+[`use-with-claude-code.md`](use-with-claude-code.md), and
+[`use-with-cursor.md`](use-with-cursor.md).
 
 ## Proactive Feedback
 

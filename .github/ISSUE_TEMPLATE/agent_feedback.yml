@@ -24,7 +24,7 @@ body:
     id: version
     attributes:
       label: Agents Shipgate version or contract
-      placeholder: "v1.0.0a1 / contract v7"
+      placeholder: "agents-shipgate --version / contract version"
     validations:
       required: true
   - type: textarea
