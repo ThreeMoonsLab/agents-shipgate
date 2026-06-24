@@ -128,11 +128,14 @@ protected* — never a new way to decide.
   memory: which capability shipped, under which verdict, acknowledged by whom.
 - **Implements it:** `agents-shipgate attest` derives a deterministic, local,
   JSON-first attestation from `verifier.json` (+ the sibling `report.json`) —
-  base/head SHAs, the verdict, the capability delta, declared `human_ack` state,
-  a policy-snapshot hash, content hashes of every verify artifact, and
-  capability lock/diff hash bindings when verify emitted them. It is
-  content-addressed (no wall-clock timestamp) and does not gate. Schema:
-  [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json).
+  base/head SHAs, the verdict, the capability delta, optional org/CI context,
+  declared `human_ack` details, a policy-snapshot hash, content hashes of every
+  verify artifact, verify-run binding (`run_id`, `verify_run_sha256`),
+  explicit CI event facts, policy-pack pin records, and capability lock/diff
+  hash bindings when verify emitted them. It is content-addressed; event time is
+  copied only from explicit input or CI payloads, never generated from `now()`,
+  and it does not gate. Schema:
+  [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json).
 - **Agent reads:** the attestation is a durable record for humans and
   registries, not a control signal — the agent still acts on `agent_controller`
   (contracts 3–5).
@@ -143,6 +146,11 @@ protected* — never a new way to decide.
 
 The four imperative questions collapse into one block,
 `verifier.json.agent_controller`, which an autonomous agent can act on directly:
+`agents-shipgate-reports/agent-handoff.json` exposes the same controller block
+beside `gate`, `blocked_by[]`, `remediation_plan[]`, and verify-run
+reproducibility metadata for agents that want one compact artifact. It is a
+projection only; it cannot disagree with `verifier.json` or introduce a second
+verdict.
 
 1. `completion_allowed` is `true` → the capability-change task is done; merge.
 2. else `must_stop` is `true` → surface `user_message_template` and `stop_reason`
@@ -158,7 +166,7 @@ contradict the gate.
 
 | Reader | Read first | Source of truth |
 | --- | --- | --- |
-| Coding agent (controller) | `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
+| Coding agent (controller) | `agent-handoff.json.gate` → `controller`; fallback `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
 | Human reviewer | `pr-comment.md` | `release_decision.decision` |
 | CI gate implementer | `report.json.release_decision.decision` | same |
 | Discovery (agents/search) | [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) | — |

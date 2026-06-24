@@ -1,41 +1,41 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
-  "decision": "block",
-  "risk_level": "critical",
-  "audit_id": "codex_boundary_70796b2daec5ba5b8f94b657",
+  "decision": "require_review",
+  "risk_level": "medium",
+  "audit_id": "codex_boundary_b8ad4ecc5767cae8dde14c14",
   "policy_version": "1",
-  "summary": "1 Codex boundary change(s) block local continuation.",
+  "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     ".codex/config.toml"
   ],
   "completion_allowed": false,
-  "must_stop": false,
+  "must_stop": true,
   "first_next_action": {
-    "actor": "coding_agent",
-    "kind": "repair",
-    "command": "shipgate check --agent codex --workspace . --format agent-json",
-    "why": "Do not auto-approve write/destructive MCP tools."
+    "actor": "human",
+    "kind": "review",
+    "why": "Unknown Codex permission key"
   },
   "human_review": {
-    "required": false,
-    "required_reviewers": []
+    "required": true,
+    "why": "Unknown Codex permission key",
+    "required_reviewers": [
+      "agent-platform"
+    ]
   },
   "repair": {
-    "actor": "coding_agent",
-    "safe_to_attempt": true,
+    "actor": "human",
+    "safe_to_attempt": false,
     "instructions": [
-      "Do not auto-approve write/destructive MCP tools.",
-      "Rerun: shipgate check --agent codex --workspace . --format agent-json"
+      "Review the unknown permission key before trusting the boundary."
     ],
-    "command": "shipgate check --agent codex --workspace . --format agent-json",
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
       "Do not lower severity or add a waiver just to pass the gate.",
@@ -55,23 +55,18 @@
   },
   "violated_rules": [
     {
-      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
-      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
-      "action": "block",
-      "risk_level": "critical",
-      "title": "Codex MCP write tool is auto-approved",
+      "id": "CODEX-UNKNOWN-PERMISSION-KEY",
+      "check_id": "SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "Unknown Codex permission key",
       "path": ".codex/config.toml",
       "evidence": {
-        "kind": "mcp_default_auto_approve",
-        "server": "mcp_servers.filesystem",
-        "risky_tools": [
-          "write_file"
-        ],
-        "tool_names": [
-          "write_file"
-        ]
+        "kind": "unknown_permission_network_key",
+        "profile": "workspace",
+        "key": "surprise"
       },
-      "recommendation": "Do not auto-approve write/destructive MCP tools."
+      "recommendation": "Review the unknown permission key before trusting the boundary."
     }
   ],
   "affected_files": [
@@ -79,13 +74,15 @@
       "path": ".codex/config.toml"
     }
   ],
-  "required_reviewers": [],
-  "explanation": "1 Codex boundary change(s) block local continuation.",
+  "required_reviewers": [
+    "agent-platform"
+  ],
+  "explanation": "1 Codex boundary change(s) require human review.",
   "suggested_fixes": [
-    "Do not auto-approve write/destructive MCP tools."
+    "Review the unknown permission key before trusting the boundary."
   ],
   "agent_repair_instructions": [
-    "Do not auto-approve write/destructive MCP tools."
+    "Review the unknown permission key before trusting the boundary."
   ],
   "diagnostics": [
     {
@@ -102,7 +99,7 @@
     },
     {
       "step": "decision",
-      "summary": "Projected 1 violation(s) to block."
+      "summary": "Projected 1 violation(s) to require_review."
     }
   ],
   "source_artifacts": {},
@@ -122,7 +119,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -131,13 +128,13 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },
   "finding_fingerprints": [
-    "fp_71c94cd92ba68747"
+    "fp_b75e128442b5e376"
   ],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 20
+  "exit_code_hint": 0
 }

@@ -36,9 +36,10 @@ work is complete.
    policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
    plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
    ```bash
-   agents-shipgate preflight --workspace . --json
+   agents-shipgate preflight --workspace . --plan - --json
    ```
-   If you have changed-file or diff context, use it:
+   Pass a `PreflightPlanV1` object on stdin. If you need legacy shorthands,
+   pass changed-file or diff context directly:
    ```bash
    agents-shipgate preflight --workspace . \
      --changed-files /tmp/shipgate-changed-files.txt \

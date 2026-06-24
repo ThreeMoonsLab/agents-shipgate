@@ -1,16 +1,16 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "codex_boundary_a8560988e8467525c48f9c0c",
+  "audit_id": "codex_boundary_59caa9612004f0bcf2d55b68",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -120,7 +120,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -129,7 +129,7 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 
+from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
 from agents_shipgate.schemas.report import (
     AgentSummary,
     AgentSummaryAction,
@@ -17,6 +18,7 @@ def build_agent_summary(
     findings: list[Finding],
     release_decision: ReleaseDecision | None,
     json_report_path: str | None = None,
+    tool_count: int = 0,
 ) -> AgentSummary:
     """Construct the top-level ``agent_summary`` block.
 
@@ -41,6 +43,7 @@ def build_agent_summary(
         review_item_count = 0
         reason = "No release decision computed."
         evidence_recommended = False
+        evidence_below_threshold = False
     else:
         verdict = release_decision.decision
         blocker_count = len(release_decision.blockers)
@@ -67,6 +70,22 @@ def build_agent_summary(
             and (
                 release_decision.evidence_coverage.human_review_recommended
                 or release_decision.evidence_coverage.source_warning_count > 0
+            )
+        )
+        # `evidence_recommended` is the BROAD signal (any review-worthy
+        # evidence gap, including 1-3 sub-threshold source warnings).
+        # `evidence_below_threshold` is the NARROW one: evidence weak
+        # enough that, absent an active high/critical finding, the verdict
+        # would have been `insufficient_evidence`. Since that finding now
+        # *elevates* such a case to `review_required` (Phase 2c), the
+        # narrow signal is what tells the action picker to put evidence
+        # remediation ahead of auto-apply — applying patches never makes a
+        # below-threshold scan trustworthy. Uses the same predicate
+        # `build_release_decision` does, so the two never disagree.
+        evidence_below_threshold = bool(
+            release_decision.evidence_coverage
+            and evidence_below_ie_threshold(
+                release_decision.evidence_coverage, tool_count=tool_count
             )
         )
 
@@ -215,6 +234,7 @@ def build_agent_summary(
         active_findings=active_findings,
         json_report_path=json_report_path,
         evidence_recommended=evidence_recommended,
+        evidence_below_threshold=evidence_below_threshold,
         evidence_reason=(
             reason
             if (evidence_recommended or verdict == "insufficient_evidence")
@@ -242,6 +262,7 @@ def _build_first_recommended_action(
     active_findings: list[Finding],
     json_report_path: str | None,
     evidence_recommended: bool = False,
+    evidence_below_threshold: bool = False,
     evidence_reason: str = "",
 ) -> AgentSummaryAction | None:
     """Deterministic next-step picker for ``agent_summary``.
@@ -255,6 +276,13 @@ def _build_first_recommended_action(
        release, and running apply-patches first would contradict the
        headline. Tell the agent to fix the trust problem before
        cleaning up findings.
+    1b. Verdict is review_required BUT evidence is below the IE
+       threshold (an active high/critical finding elevated it out of
+       insufficient_evidence — Phase 2c) → same as (1): evidence
+       remediation + human review of the named concern outrank
+       auto-apply. Without this, a report-only consumer following
+       agent_summary would be told to run ``apply-patches --apply`` on a
+       scan the gate has already said it can't trust.
     2. Auto-applicable patches available → propose ``apply-patches``,
        but only as a ``command`` action when we know the actual JSON
        report path (so the command never points at the wrong file).
@@ -281,17 +309,44 @@ def _build_first_recommended_action(
             ),
         )
 
+    if verdict == "review_required" and evidence_below_threshold:
+        # An active high/critical finding elevated a below-IE-threshold
+        # scan to review_required (Phase 2c). Evidence is still too weak to
+        # gate, so — exactly like insufficient_evidence — gathering better
+        # evidence and routing the named concern to a human outrank any
+        # auto-apply patch. Emitting a runnable apply-patches command here
+        # would tell a report-only consumer to "fix" a scan the gate has
+        # already said it cannot trust.
+        base = (
+            evidence_reason
+            or "Evidence coverage is below threshold; scan results are not "
+            "trustworthy enough to gate release."
+        )
+        return AgentSummaryAction(
+            kind="info",
+            command=None,
+            why=(
+                f"{base} A human must review the active high/critical "
+                "finding(s), and you should gather deeper evidence (e.g. "
+                "MCP/OpenAPI inputs, eval traces, additional source files) "
+                "before re-running the scan; applying patches does not clear "
+                "the evidence gap."
+            ),
+        )
+
     if auto_appliable > 0:
         why = (
             f"{auto_appliable} finding(s) carry high-confidence patches "
             "safe to apply without human review."
         )
         if verdict == "review_required" and evidence_recommended:
-            # The patches are still worth applying (the scan IS
-            # trustworthy enough to gate at review_required, unlike
-            # the insufficient_evidence path that outranks auto-apply
-            # entirely). But the action's why must call out the
-            # evidence gap so the agent doesn't treat apply-patches
+            # Reaching here means evidence is recommended but only
+            # *sub-threshold* (1-3 source warnings, or human-review-
+            # recommended without enough low-confidence tools) — the
+            # below-threshold case was already intercepted above and
+            # routed to evidence remediation. So the patches ARE worth
+            # applying here, but the why must still call out the
+            # sub-threshold gap so the agent doesn't treat apply-patches
             # as the *only* next step — the human still needs to
             # review the source warnings / low-confidence tools.
             evidence_note = evidence_reason or (

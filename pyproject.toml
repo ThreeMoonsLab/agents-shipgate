@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.13.0"
+version = "1.0.0a1"
 description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -62,7 +62,10 @@ Issues = "https://github.com/ThreeMoonsLab/agents-shipgate/issues"
 Documentation = "https://github.com/ThreeMoonsLab/agents-shipgate/wiki"
 Changelog = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/CHANGELOG.md"
 "Agent Instructions" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md"
+"Agent Entry Points" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agents/README.md"
+"Agent Protocol" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agents/protocol.md"
 "Stability Contract" = "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md"
+"Agent Feedback" = "https://github.com/ThreeMoonsLab/agents-shipgate/issues/new?template=agent_feedback.yml"
 "LLMs.txt" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms.txt"
 "LLMs Full" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt"
 "Trigger Catalog" = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json"
@@ -79,7 +82,11 @@ mcp = [
   # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
   # server exposing read-only Shipgate projection tools; it does not broker
   # general MCP permissions or start implicitly.
-  "mcp>=1.2,<2",
+  # Floor is 1.14: the server registers every tool with `ToolAnnotations`
+  # (readOnlyHint / openWorldHint) via `FastMCP.tool(..., annotations=...)`,
+  # which earlier 1.x releases either lack (ToolAnnotations import fails) or
+  # do not accept on the tool decorator (registration fails).
+  "mcp>=1.14,<2",
 ]
 dev = [
   "build>=1.5.0,<2",
@@ -134,6 +141,7 @@ packages = ["src/agents_shipgate"]
 "policies/codex-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/codex-boundary.shipgate.yaml"
 "policies/mcp-permissions.shipgate.yaml" = "agents_shipgate/_meta/policies/mcp-permissions.shipgate.yaml"
 "policies/host-boundary.shipgate.yaml" = "agents_shipgate/_meta/policies/host-boundary.shipgate.yaml"
+"policies/templates" = "agents_shipgate/_meta/policies/templates"
 "adoption-kits" = "agents_shipgate/_adoption_kits"
 
 [tool.hatch.build.targets.sdist]

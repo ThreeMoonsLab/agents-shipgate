@@ -1,5 +1,5 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
@@ -20,7 +20,7 @@
     "actor": "coding_agent",
     "kind": "install",
     "command": "pipx upgrade agents-shipgate",
-    "why": "Installed Agents Shipgate is older than the required >=0.13.0; a stale binary can emit an outdated schema or miss commands."
+    "why": "Installed Agents Shipgate is older than the required contract v7; a stale binary can emit an outdated schema or miss commands."
   },
   "human_review": {
     "required": false,
@@ -47,19 +47,19 @@
   "violated_rules": [],
   "affected_files": [],
   "required_reviewers": [],
-  "explanation": "Upgrade Agents Shipgate to >=0.13.0, then rerun shipgate check.",
+  "explanation": "Upgrade Agents Shipgate to contract v7, then rerun shipgate check.",
   "suggested_fixes": [
-    "pipx upgrade agents-shipgate"
+    "Install or upgrade agents-shipgate to contract v7"
   ],
   "agent_repair_instructions": [
-    "Upgrade Agents Shipgate with pipx upgrade agents-shipgate (or python -m pip install -U \"agents-shipgate>=0.13\").",
-    "Rerun shipgate check --agent codex --workspace . --format agent-json."
+    "Install or upgrade Agents Shipgate, then confirm agents-shipgate contract --json reports contract_version >= 7.",
+    "Rerun shipgate check --agent codex --workspace . --format codex-boundary-json."
   ],
   "diagnostics": [
     {
       "level": "error",
       "code": "shipgate_stale_install",
-      "message": "The installed shipgate binary is older than the required >=0.13.0."
+      "message": "The installed shipgate binary is older than the required contract v7."
     }
   ],
   "trace": [

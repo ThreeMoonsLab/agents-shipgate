@@ -56,6 +56,11 @@ class DetectResult(BaseModel):
     agent_name_candidates: list[NameCandidate] = Field(default_factory=list)
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
+    # Glob-matched OpenAPI/MCP candidates the real input adapters reject
+    # ({type, path, reason}). Kept out of suggested_sources so init never
+    # writes a tool_sources entry that scan fails to parse (e.g. an
+    # mcpServers-style host config matching *mcp*.json).
+    excluded_sources: list[dict[str, str]] = Field(default_factory=list)
     codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)

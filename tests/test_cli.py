@@ -19,17 +19,32 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
+    AGENT_HANDOFF_SCHEMA_PATH,
+    AGENT_HANDOFF_SCHEMA_VERSION,
+    AGENT_INTERFACE_OPERATIONS,
+    AGENT_READ_ORDER,
+    AGENT_RESULT_CONTROL_FIELDS,
+    AGENT_RESULT_SCHEMA_PATH,
+    AGENT_RESULT_SCHEMA_VERSION,
     ARTIFACTS,
+    ATTESTATION_SCHEMA_VERSION,
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
     COMMANDS,
     CONTRACT_VERSION,
     DEFAULT_PATHS,
     DO_NOT_AUTO_ASSERT,
+    EXIT_CODE_POLICY,
     EXTERNAL_INTEGRATION_SURFACES,
     GATING_SIGNAL,
+    HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     MANUAL_REVIEW_SIGNALS,
+    MCP_TOOLS,
     MERGE_VERDICTS,
+    ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
+    VERIFY_RUN_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
@@ -39,6 +54,7 @@ from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 runner = CliRunner()
 
@@ -58,7 +74,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Agents Shipgate 0.13.0" in result.output
+    assert f"Agents Shipgate {__version__}" in result.output
     # v0.8: CLI summary leads with the release decision; the support_refund
     # sample has new criticals → decision=blocked. (Advisory exit is still 0.)
     assert "Decision: blocked" in result.output
@@ -210,7 +226,7 @@ def test_cli_version_outputs_version():
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "Agents Shipgate 0.13.0"
+    assert result.output.strip() == f"Agents Shipgate {__version__}"
 
 
 def test_cli_contract_json_outputs_runtime_contract():
@@ -224,18 +240,35 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version",
         "report_schema_version",
         "packet_schema_version",
+        "verifier_schema_version",
+        "verify_run_schema_version",
+        "agent_handoff_schema_version",
+        "agent_handoff_schema_path",
+        "agent_handoff_artifact",
+        "codex_boundary_result_schema_version",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
         "preflight_schema_version",
         "capability_standard_version",
         "governance_benchmark_catalog_schema_version",
         "governance_benchmark_result_schema_version",
+        "attestation_schema_version",
+        "registry_schema_version",
+        "org_evidence_bundle_schema_version",
+        "host_grants_inventory_schema_version",
         "external_integration_surfaces",
         "gating_signal",
+        "agent_result_schema_version",
+        "agent_result_schema_path",
+        "agent_result_control_fields",
         "manual_review_signals",
+        "agent_interface_operations",
+        "exit_code_policy",
+        "mcp_tools",
         "commands",
         "default_paths",
         "artifacts",
+        "agent_read_order",
         "verifier_read_order",
         "merge_verdicts",
         "release_decisions",
@@ -246,6 +279,14 @@ def test_cli_contract_json_outputs_runtime_contract():
         "cli_version": __version__,
         "report_schema_version": str(ReadinessReport.model_fields["report_schema_version"].default),
         "packet_schema_version": str(EvidencePacket.model_fields["packet_schema_version"].default),
+        "verifier_schema_version": str(
+            VerifierArtifact.model_fields["verifier_schema_version"].default
+        ),
+        "verify_run_schema_version": VERIFY_RUN_SCHEMA_VERSION,
+        "agent_handoff_schema_version": AGENT_HANDOFF_SCHEMA_VERSION,
+        "agent_handoff_schema_path": AGENT_HANDOFF_SCHEMA_PATH,
+        "agent_handoff_artifact": ARTIFACTS["agent_handoff"],
+        "codex_boundary_result_schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         "preflight_schema_version": PREFLIGHT_SCHEMA_VERSION,
@@ -254,12 +295,23 @@ def test_cli_contract_json_outputs_runtime_contract():
             GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION
         ),
         "governance_benchmark_result_schema_version": (GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION),
+        "attestation_schema_version": ATTESTATION_SCHEMA_VERSION,
+        "registry_schema_version": REGISTRY_SCHEMA_VERSION,
+        "org_evidence_bundle_schema_version": ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),
         "gating_signal": GATING_SIGNAL,
+        "agent_result_schema_version": AGENT_RESULT_SCHEMA_VERSION,
+        "agent_result_schema_path": AGENT_RESULT_SCHEMA_PATH,
+        "agent_result_control_fields": list(AGENT_RESULT_CONTROL_FIELDS),
         "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
+        "agent_interface_operations": list(AGENT_INTERFACE_OPERATIONS),
+        "exit_code_policy": dict(EXIT_CODE_POLICY),
+        "mcp_tools": list(MCP_TOOLS),
         "commands": dict(COMMANDS),
         "default_paths": dict(DEFAULT_PATHS),
         "artifacts": dict(ARTIFACTS),
+        "agent_read_order": list(AGENT_READ_ORDER),
         "verifier_read_order": list(VERIFIER_READ_ORDER),
         "merge_verdicts": list(MERGE_VERDICTS),
         "release_decisions": list(RELEASE_DECISIONS),
@@ -368,6 +420,46 @@ def test_cli_scan_help_hides_deferred_flags():
     assert "--deep-import" in hidden_options
     assert "--baseline-mode" in public_options
     assert "--policy-pack" in public_options
+
+
+# WS-D visibility policy: --help shows the core loop; niche/maintainer
+# surfaces are hidden but stay fully invokable (presentation, not
+# deprecation — STABILITY.md is unaffected).
+HIDDEN_TOP_LEVEL_COMMANDS = {
+    "evidence-packet",
+    "feedback",
+    "scenario",
+    "skill",
+}
+VISIBLE_CORE_COMMANDS = {
+    "detect",
+    "check",
+    "verify",
+    "init",
+    "scan",
+    "audit",
+    "org",
+    "registry",
+    "doctor",
+    "self-check",
+    "fixture",  # the README 60-second demo leads with `fixture run`
+}
+
+
+def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
+    root = get_command(app)
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+
+    for name in HIDDEN_TOP_LEVEL_COMMANDS:
+        assert root.commands[name].hidden, f"{name} should be hidden from --help"
+        assert f" {name} " not in result.output
+        # Hidden, not removed: the command still resolves and answers --help.
+        invoked = runner.invoke(app, [name, "--help"])
+        assert invoked.exit_code == 0, f"{name} must remain invokable: {invoked.output}"
+
+    for name in VISIBLE_CORE_COMMANDS:
+        assert not root.commands[name].hidden, f"{name} must stay visible"
 
 
 def test_cli_tool_surface_summary_detects_no_changes():

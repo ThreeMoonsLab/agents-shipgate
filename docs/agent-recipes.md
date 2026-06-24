@@ -19,23 +19,26 @@ MCP/OpenAPI surfaces, prompts, permissions, policies, release gates, or
 
 ```bash
 agents-shipgate verify --preview --json
-agents-shipgate preflight --json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
-`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, `fix_task`, and
-`capability_review.top_changes[]`. Then read
-`report.json.release_decision.decision`, which remains the only release gate.
+`agents-shipgate-reports/agent-handoff.json` first and lead with
+`gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
+`next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
+`verifier.json` only for older installed CLIs that do not report contract v7.
+Then read `report.json.release_decision.decision`, which remains the only
+release gate.
 
 Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --json` or pass the proposed paths with
-`--changed-files`. If `requires_human_review` is true, stop for a human.
+`agents-shipgate preflight --workspace . --plan - --json` with a
+`PreflightPlanV1` object. Legacy `--changed-files` remains available. If
+`requires_human_review` is true, stop for a human.
 
 Do not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user explicitly
@@ -73,8 +76,14 @@ Consume the response to decide whether to proceed. Key fields:
   (lowest).
 - `project_name_candidates[]` — same shape; `pyproject` source seeds
   `project.name` only.
-- `suggested_sources[]` — MCP/OpenAPI files matched by glob. These do
-  NOT bump `is_agent_project` on their own.
+- `suggested_sources[]` — MCP/OpenAPI files matched by glob AND accepted
+  by the real input adapters, so `init` never writes a `tool_sources`
+  entry that `scan` rejects at parse time. These do NOT bump
+  `is_agent_project` on their own.
+- `excluded_sources[]` — `{type, path, reason}` for glob matches the
+  input adapters reject (e.g. an `mcpServers`-style host config such as
+  a Cursor plugin `mcp.json`, or a Swagger 2.0 document). Do not add
+  these to `tool_sources`; the `reason` says what `scan` would fail on.
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.

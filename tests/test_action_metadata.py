@@ -37,24 +37,27 @@ def test_action_has_marketplace_metadata_and_outputs():
         "baseline_new_count",
         "report_json",
         "verifier_json",
+        "verify_run_json",
+        "run_id",
         "pr_comment_markdown",
-        "agent_result_json",
         "check_annotations_json",
         "capability_lock_json",
         "base_capability_lock_json",
         "capability_lock_diff_json",
+        "attestation_json",
+        "org_evidence_bundle_json",
+        "host_grants_json",
+        "org_status_json",
         "exit_code",
-        "agent_decision",
-        "risk_level",
-        "audit_id",
-        "required_reviewers",
-        "policy_snapshot_sha256",
         "should_run",
         "trigger_action",
         "trigger_rule_ids",
         "verifier_verdict",
         "merge_verdict",
         "can_merge_without_human",
+        "agent_controller_must_stop",
+        "agent_controller_stop_reason",
+        "agent_controller_completion_allowed",
         "trust_root_touched",
         "policy_weakened",
         "capability_changes_added",
@@ -65,13 +68,22 @@ def test_action_has_marketplace_metadata_and_outputs():
         "Verifier convenience verdict. Prefer `decision`"
     )
     assert data["inputs"]["verify_mode"]["default"] == "verify"
-    assert data["inputs"]["fail_on_decisions"]["default"] == ""
+    assert data["inputs"]["fail_on_merge_verdicts"]["default"] == ""
+    assert "fail_on_decisions" not in data["inputs"]
     assert data["inputs"]["check_annotations"]["default"] == "true"
     assert data["inputs"]["check_annotation_limit"]["default"] == "50"
     assert data["inputs"]["check_run"]["default"] == "false"
+    assert data["inputs"]["check_run_policy"]["default"] == "advisory"
+    assert "require-mergeable" in data["inputs"]["check_run_policy"]["description"]
     assert data["inputs"]["check_run_name"]["default"] == "Agents Shipgate"
     assert data["inputs"]["pr_comment_style"]["default"] == "capability-review"
     assert "legacy v1 findings comment" in data["inputs"]["pr_comment_style"]["description"]
+    assert data["inputs"]["attestation"]["default"] == "false"
+    assert data["inputs"]["registry_repo_label"]["default"] == ""
+    assert data["inputs"]["org_bundle"]["default"] == "false"
+    assert data["inputs"]["host_audit"]["default"] == "false"
+    assert data["inputs"]["org_status"]["default"] == "false"
+    assert data["inputs"]["registry_path"]["default"] == ""
 
 
 def test_action_exposes_verifier_merge_outputs():
@@ -116,15 +128,28 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}" in text
     assert "CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}" in text
     assert "scripts/github_action_annotations.py" in text
-    assert "fail_on_decisions" in text
-    assert "Apply Agents Shipgate decision policy" in text
-    assert "decision_policy_exit_code" in text
+    assert "fail_on_merge_verdicts" in text
+    assert "fail_on_decisions" not in text
+    assert "Apply Agents Shipgate merge verdict policy" in text
+    assert "merge_verdict_policy_exit_code" in text
     assert (
-        "if: ${{ always() && inputs.fail_on_decisions != '' }}" in text
+        "if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}" in text
     )
-    assert "agent-result.json did not expose an agent decision" in text
+    assert "verifier.json did not expose a merge verdict" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
+    assert "Build Agents Shipgate attestation" in text
+    assert "inputs.attestation == 'true'" in text
+    assert "--ci-context github-actions" in text
+    assert "Build Agents Shipgate host audit" in text
+    assert "inputs.host_audit == 'true'" in text
+    assert "Build Agents Shipgate org status" in text
+    assert "inputs.org_status == 'true'" in text
+    assert "Build Agents Shipgate org evidence bundle" in text
+    assert "inputs.org_bundle == 'true'" in text
+    assert "REGISTRY_PATH: ${{ inputs.registry_path }}" in text
+    assert "REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}" in text
+    assert "CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}" in text
     assert "verify" in text
     assert "scan" in text
     assert "--workspace" in text
@@ -141,16 +166,19 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "args+=(--no-plugins)" in text
 
 
-def test_action_step_summary_leads_with_release_decision():
+def test_action_step_summary_leads_with_verifier_merge_state():
     text = Path("action.yml").read_text(encoding="utf-8")
     script = Path("scripts/github_action_outputs.py").read_text(encoding="utf-8")
 
     assert "scripts/github_action_outputs.py" in text
     assert "GITHUB_STEP_SUMMARY" in script
     assert "## Agents Shipgate" in script
-    assert "Decision:" in script
-    assert "Risk:" in script
-    assert "Audit ID:" in script
+    assert "Merge verdict:" in script
+    assert "Can merge without human:" in script
+    assert "First next action:" in script
+    assert "Release gate:" in script
+    assert "Run ID:" in script
+    assert "Agent controller:" in script
     assert "Blockers:" in script
     assert "Review items:" in script
     assert "would_fail_ci=" in script
@@ -162,6 +190,8 @@ def test_action_pr_comment_truncates_user_controlled_text():
     assert "pr-comment.md" in text
     assert "fs.readFileSync(commentPath" in text
     assert ".slice(0, 6000)" in text
+    assert "Workflow artifacts:" in text
+    assert "body.length + artifactLine.length <= 6000" in text
     assert "preferredDiff" not in text
 
 

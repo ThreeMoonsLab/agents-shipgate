@@ -1,0 +1,362 @@
+{
+  "$defs": {
+    "VerifyRunArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "VerifyRunArtifactRef",
+      "type": "object"
+    },
+    "VerifyRunInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "ci_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Mode"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Sha256"
+        },
+        "fail_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "no_heuristics": {
+          "default": false,
+          "title": "No Heuristics",
+          "type": "boolean"
+        },
+        "plugins_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugins Enabled"
+        },
+        "policy_packs": {
+          "items": {
+            "$ref": "#/$defs/VerifyRunPolicyPack"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        }
+      },
+      "title": "VerifyRunInputs",
+      "type": "object"
+    },
+    "VerifyRunOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "base_status": {
+          "title": "Base Status",
+          "type": "string"
+        },
+        "can_merge_without_human": {
+          "default": false,
+          "title": "Can Merge Without Human",
+          "type": "boolean"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "head_status": {
+          "title": "Head Status",
+          "type": "string"
+        },
+        "merge_verdict": {
+          "title": "Merge Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exit_code",
+        "base_status",
+        "head_status",
+        "merge_verdict"
+      ],
+      "title": "VerifyRunOutcome",
+      "type": "object"
+    },
+    "VerifyRunPolicyPack": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rule_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Count"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "sha256_status": {
+          "default": "unpinned",
+          "enum": [
+            "unpinned",
+            "verified"
+          ],
+          "title": "Sha256 Status",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "VerifyRunPolicyPack",
+      "type": "object"
+    },
+    "VerifyRunSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "base_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree Sha"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "head_ref": {
+          "default": "HEAD",
+          "title": "Head Ref",
+          "type": "string"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "kind": {
+          "const": "git_diff",
+          "default": "git_diff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "workspace": {
+          "default": ".",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "title": "VerifyRunSubject",
+      "type": "object"
+    },
+    "VerifyRunTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "VerifyRunTool",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verify-run-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate-reports/verify-run.json. Generated from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not edit by hand.",
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/VerifyRunArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "inputs": {
+      "$ref": "#/$defs/VerifyRunInputs"
+    },
+    "outcome": {
+      "$ref": "#/$defs/VerifyRunOutcome"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.verify_run/v1",
+      "default": "shipgate.verify_run/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/VerifyRunSubject"
+    },
+    "tool": {
+      "$ref": "#/$defs/VerifyRunTool"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool",
+    "subject",
+    "inputs",
+    "outcome"
+  ],
+  "title": "Agents Shipgate Verify Run v1",
+  "type": "object"
+}

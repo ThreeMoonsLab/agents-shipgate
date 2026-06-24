@@ -8,7 +8,7 @@ A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in t
 
 ## TL;DR
 
-**This primer is the `report.json` / CI-gate read path.** If you are a PR/controller consumer — an autonomous coding agent deciding *continue, repair, or stop* — read `agents-shipgate-reports/verifier.json` first — `merge_verdict` (a deterministic projection of the gate), then `agent_controller` for imperative controls. See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
+**This primer is the `report.json` / CI-gate read path.** If you are a PR/controller consumer — an autonomous coding agent deciding *continue, repair, or stop* — read `agents-shipgate-reports/agent-handoff.json` first: `gate.merge_verdict` is the deterministic projection of the gate, and `controller` carries imperative controls. See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
 
 **Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "insufficient_evidence" | "passed"`, baseline-aware, stable since v0.8 (`insufficient_evidence` added v0.14). Switch on the enum with a `review_required` fallback for unknown future values per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release). Everything else in the report is detail you reach for *after* the gate decision is captured.
 
@@ -28,14 +28,18 @@ The CLI's stable contract names this signal explicitly: run `agents-shipgate con
 
 Branch on the four values (treat unknown future values as `review_required` per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release)):
 
+Precedence (highest first): `blocked` → `review_required` (active high/critical) → `insufficient_evidence` → `review_required` (other) → `passed`.
+
 | `decision` | Meaning | Agent behavior |
 |---|---|---|
 | `"blocked"` | Active, unaccepted blockers exist. CI will fail in strict mode. | Surface blockers; do not auto-merge; do not assert evidence categories — see [`agent-autofix-boundary.md`](agent-autofix-boundary.md). |
-| `"insufficient_evidence"` (v0.14+) | With no active blockers, evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. One to three source warnings route to `review_required`. The scan can't gate release reliably, but this does not prove the agent is unsafe. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP exports, OpenAPI specs, explicit inventories, broader SDK source paths, eval traces) and re-running. Do not auto-merge. |
-| `"review_required"` | Review items exist (often baseline-matched accepted debt, capability/intent misalignments, or sub-threshold evidence gaps). | Surface review items as a human handoff; safe mechanical patches may still apply via `apply-patches --confidence high`. |
+| `"insufficient_evidence"` (v0.14+) | With no active blockers **and no active high/critical review finding**, evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. The scan can't gate release reliably, but this does not prove the agent is unsafe. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP exports, OpenAPI specs, explicit inventories, broader SDK source paths, eval traces) and re-running. Do not auto-merge. |
+| `"review_required"` | Review items exist (often baseline-matched accepted debt, capability/intent misalignments, or sub-threshold evidence gaps). This **also** covers a degraded-evidence case that carries an active (non-baseline-accepted) high/critical finding — the verdict names the concern instead of the vaguer `insufficient_evidence`, but the evidence gap is still present in `evidence_coverage`. One to three source warnings without blockers also land here. | Surface review items as a human handoff. Safe mechanical patches may still apply via `apply-patches --confidence high` — **unless** evidence is degraded (check `evidence_coverage.low_confidence_tool_count` / `source_warning_count`), in which case treat it like `insufficient_evidence` and gather deeper sources first. `verify`'s `fix_task` already routes degraded-evidence cases to a human. |
 | `"passed"` | No active blockers, no review items, evidence coverage clean. | Mechanical patches (if any) may apply; otherwise nothing to do. |
 
 The decision is **baseline-aware**: a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not in `release_decision.blockers`. Compare with the legacy `summary.status` field, which is *baseline-blind* — see Anti-patterns below.
+
+> **Don't switch on the verdict label to detect degraded evidence.** A degraded-evidence case can surface as either `insufficient_evidence` or `review_required` (the latter when an active high/critical finding names the concern). Read `release_decision.evidence_coverage.{low_confidence_tool_count, source_warning_count, evidence_gaps[]}` to know whether evidence was thin, regardless of the label.
 
 ### Step 2 · `release_decision.{reason, blockers, review_items, fail_policy.would_fail_ci}`
 
@@ -214,10 +218,10 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.26` | `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.26.json`](report-schema.v0.26.json) |
+| Report | `0.27` | `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.27.json`](report-schema.v0.27.json) |
 | Packet | `0.7` | `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.7.json`](packet-schema.v0.7.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
-| CLI contract | `1` | — | `agents-shipgate contract --json` |
+| CLI contract | `5` | — | `agents-shipgate contract --json` |
 
 To detect the version programmatically:
 

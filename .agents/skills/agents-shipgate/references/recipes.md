@@ -11,33 +11,28 @@ enough for the `verify` workflow:
 ```bash
 command -v agents-shipgate
 agents-shipgate --version
+agents-shipgate contract --json
 ```
 
-Require `agents-shipgate >=0.13.0`. If the command is missing or the version is
-older, ask the user to install or upgrade the CLI and rerun the task:
+Require `agents-shipgate contract --json` to report `contract_version: "7"` or
+newer. If the command is missing or the contract is older, ask the user to
+install or upgrade the CLI and rerun the task:
 
 ```bash
 pipx install agents-shipgate
 pipx upgrade agents-shipgate  # plain install is a no-op over a stale build
 ```
 
-If `pipx` is unavailable, use:
-
-```bash
-python -m pip install -U "agents-shipgate>=0.13"
-```
-
-After installation, run `agents-shipgate --version` again. Do not continue to
-`detect`, `init`, `scan`, or `verify` until the CLI exists and is `>=0.13.0`.
+After installation, run `agents-shipgate --version` and
+`agents-shipgate contract --json` again. Do not continue to `detect`, `init`,
+`scan`, or `verify` until the CLI exists and reports contract v7 or newer.
 
 A missing or stale binary is a `decision="block"` install action in the
 agent-native protocol, not a reason to proceed unverified. Until
-`agents-shipgate --version` confirms `>=0.13.0`, do not report the task
-complete: surface the install/upgrade action and stop. The schema-valid
-`agent_result_v1` object to emit is documented in the Missing Install and Stale
-Install sections of `docs/agents/protocol.md`, with full fixtures at
-`examples/agent-protocol/expected/missing-install.json` and
-`examples/agent-protocol/expected/stale-install.json`.
+`agents-shipgate contract --json` confirms contract v7 or newer, do not report
+the task complete: surface the install/upgrade action and stop. Local boundary
+checks emit `shipgate.codex_boundary_result/v1`; legacy `agent_result_v1`
+fixtures are retained only for older protocol integrations.
 
 ## Protected Surface Preflight
 
@@ -46,11 +41,11 @@ policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
 
 ```bash
-AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --plan - --json
 ```
 
-If you already have a path list or local diff, ask preflight about it before
-editing:
+Pass a `PreflightPlanV1` object on stdin. If you already have a path list or
+local diff and need legacy shorthands, ask preflight about them before editing:
 
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . \
@@ -106,7 +101,7 @@ release surfaces.
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate trigger \
   --workspace . --base origin/main --head HEAD --json
-AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate preflight --workspace . --plan - --json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
@@ -117,9 +112,10 @@ the checked-out working tree, including uncommitted edits. In committed PR or
 CI contexts, make the base ref available first because `verify` never fetches.
 If you pass a missing `--base`, `verify` exits 2 with an unknown merge verdict.
 
-Read `agents-shipgate-reports/verifier.json` first. Lead with
-`merge_verdict`, `applicability`, and `agent_controller`, then inspect
-`first_next_action.actor` and `fix_task.safe_to_attempt`. Then read
+Read `agents-shipgate-reports/agent-handoff.json` first. Lead with
+`gate.merge_verdict`, then inspect `capability_review.top_changes[]`,
+`next_action`, `controller`, and `fix_task.safe_to_attempt`. Then read
+`agents-shipgate-reports/verifier.json` for detailed controller context and
 `agents-shipgate-reports/report.json`; `release_decision.decision` remains the
 gate. `capability_review.top_changes[]` and `verifier_summary` are
 supporting/provisional composition summaries: their verdict-like values mirror

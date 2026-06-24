@@ -1,16 +1,16 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_e9e3c90dbde091f719563f1f",
+  "audit_id": "codex_boundary_deee1c93b1db2f2b87759951",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
@@ -21,11 +21,11 @@
   "first_next_action": {
     "actor": "human",
     "kind": "review",
-    "why": "Unknown Codex permission key"
+    "why": "Codex config could not be parsed"
   },
   "human_review": {
     "required": true,
-    "why": "Unknown Codex permission key",
+    "why": "Codex config could not be parsed",
     "required_reviewers": [
       "agent-platform"
     ]
@@ -34,7 +34,7 @@
     "actor": "human",
     "safe_to_attempt": false,
     "instructions": [
-      "Review the unknown permission key before trusting the boundary."
+      "Fix the TOML or have a human review the Codex boundary change."
     ],
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
@@ -55,18 +55,17 @@
   },
   "violated_rules": [
     {
-      "id": "CODEX-UNKNOWN-PERMISSION-KEY",
-      "check_id": "SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY",
+      "id": "CODEX-CONFIG-PARSE-FAILED",
+      "check_id": "SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED",
       "action": "require_review",
       "risk_level": "medium",
-      "title": "Unknown Codex permission key",
+      "title": "Codex config could not be parsed",
       "path": ".codex/config.toml",
       "evidence": {
-        "kind": "unknown_permission_network_key",
-        "profile": "workspace",
-        "key": "surprise"
+        "kind": "toml_parse_failed",
+        "error": "Expected ']' at the end of a table declaration (at line 1, column 31)"
       },
-      "recommendation": "Review the unknown permission key before trusting the boundary."
+      "recommendation": "Fix the TOML or have a human review the Codex boundary change."
     }
   ],
   "affected_files": [
@@ -79,10 +78,10 @@
   ],
   "explanation": "1 Codex boundary change(s) require human review.",
   "suggested_fixes": [
-    "Review the unknown permission key before trusting the boundary."
+    "Fix the TOML or have a human review the Codex boundary change."
   ],
   "agent_repair_instructions": [
-    "Review the unknown permission key before trusting the boundary."
+    "Fix the TOML or have a human review the Codex boundary change."
   ],
   "diagnostics": [
     {
@@ -119,7 +118,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -128,12 +127,12 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },
   "finding_fingerprints": [
-    "fp_b75e128442b5e376"
+    "fp_86fb9b0faf6ca539"
   ],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
   "exit_code_hint": 0

@@ -45,16 +45,16 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "1fee08b353335461b8b4309293870e668b6448ae350b2a9e2337d0d23df518e0"
+        "c2b0882af212c091d1b94c6c838ab312e25455057cf57e994a49c93d84646273"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "4cd59ab4d3d598526209006fc3be3a217f6efd282e3b5359333610bad0372a56"
+        "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "f36a2ac25bfbb543d897a83c47c6177c7e4a70d22d57d2e7bb202b05624a2396"
+        "b8403d6e873fbc343eb3677fca1e117faef1ec3743befae1a1fe0bf1e5ea003d"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "60a1c924eff80205783bd1d6642c0878f3a1508ec8bd88845de917a8f18d1bac"
+        "03df378c4dae05b0d7da558b3a7e868de4d1bcba5f55744615b1c2290a13879e"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -66,7 +66,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "44f2291c157ffb32eaecbf518071bef2a1ce59611ea05d7ade20614a2e379dfa"
+        "3a42ae0d22e46b58de3d40b300ca76bee6120f3bde3f779926ae824c16a25c65"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -75,24 +75,24 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "6bcead487f0b93ede5c7349bd787aa652e27fd075ab5b3486cb8918baec73e06"
+        "919059f86649c7098a75922123c988b819da3094d5bb42ac1737af25e81604de"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "36d5628c382df56873d4aa49f4a8c042cd5d61178bf081ac4b08dffb2a0a1944"
+        "bf711ad6209b4a7ea5030bb97b3c0d1ce848dc4255f868bea2329bd06f8a9999"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "589c6b6867b76c80be3cff10374c14f808f99c0e1c488c3b49aead7264d44ec1"
+        "16894ce679eb55c69213070775cb265f0775ad7ff1cd08091a5c57627950871b"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "b744661e72a1e241d9175e81615340e6b35789716af8c2bf046b7fa35d1d29c6"
+        "d1676a96e803a9526d715a58f458174bcb661d5c54156ecb823b0bd77bb35775"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "7d46f47e7bd3902bf014a504360294270d4d6f8833f0ded3b06563851e30f5fe"
+        "6d2848f3436f6e246bf553e6cf061c990888d6ff39eb82fec9a41f291b2e94fe"
     ),
 }
 
@@ -128,6 +128,26 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
     assert '"**/*.py"' not in out
 
 
+def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:
+    for name, text in {
+        "agents-md": render_agents_md(),
+        "claude-md": render_claude_md(),
+        "cursor": render_cursor_file(),
+    }.items():
+        for token in (
+            "shipgate check",
+            "shipgate.codex_boundary_result/v1",
+            "decision",
+            "completion_allowed",
+            "must_stop",
+            "first_next_action",
+            "human_review",
+            "repair",
+            "policy",
+        ):
+            assert token in text, f"{name} missing {token!r}"
+
+
 def test_committed_cursor_rule_matches_renderer() -> None:
     """The repo-level Cursor rule and the init renderer must not drift."""
     committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(encoding="utf-8")
@@ -144,12 +164,57 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "1"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "3"
+    assert payload["contract_version"] == "7"
+    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v1"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v1.json"
+    assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
+    assert (
+        payload["codex_boundary_result_schema_version"]
+        == "shipgate.codex_boundary_result/v1"
+    )
+    assert payload["agent_result_schema_version"] == "agent_result_v1"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
+    assert payload["attestation_schema_version"] == "0.4"
+    assert payload["registry_schema_version"] == "0.3"
+    assert payload["org_evidence_bundle_schema_version"] == (
+        "shipgate.org_evidence_bundle/v1"
+    )
+    assert payload["host_grants_inventory_schema_version"] == "0.1"
+    assert payload["agent_result_control_fields"] == [
+        "decision",
+        "completion_allowed",
+        "must_stop",
+        "first_next_action",
+        "human_review",
+        "repair",
+        "policy",
+    ]
+    assert payload["commands"]["agent_check_codex"].startswith("shipgate check")
+    assert payload["commands"]["agent_check_claude_code"].startswith("shipgate check")
+    assert payload["commands"]["agent_check_cursor"].startswith("shipgate check")
+    assert payload["commands"]["agent_handoff"].startswith("agents-shipgate agent handoff")
     assert payload["commands"]["install_agent_workflow"].endswith(
         "--ci --agent-instructions=default --json"
     )
+    assert payload["agent_interface_operations"] == [
+        "verify_pr",
+        "verify_local",
+        "verify_preview",
+    ]
+    assert payload["exit_code_policy"]["3"] == "input parse or missing artifact error"
+    assert "shipgate.handoff" in payload["mcp_tools"]
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
+    assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
+    assert payload["agent_read_order"] == [
+        "agent-handoff.json",
+        "verifier.json.merge_verdict",
+        "verifier.json.agent_controller",
+        "verify-run.json",
+        "report.json.release_decision.decision",
+    ]
     assert payload["gating_signal"] == "release_decision.decision"
 
 
@@ -275,16 +340,11 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "Do not auto-assert approval" in skill
     assert "agents-shipgate verify" in skill
     assert "agents-shipgate --version" in skill
-    assert "pipx upgrade agents-shipgate" in skill
+    assert "agents-shipgate contract --json" in skill
+    assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "Require `agents-shipgate >=0.13.0`" in recipes
-    assert 'python -m pip install -U "agents-shipgate>=0.13"' in recipes
-    # The agent-ingested preflight must point at the canonical fail-closed
-    # install/upgrade objects, not leave the missing/stale-binary path
-    # prose-only (PR #201 review).
-    assert "docs/agents/protocol.md" in recipes
-    assert "missing-install.json" in recipes
-    assert "stale-install.json" in recipes
+    assert 'contract_version: "7"' in recipes
+    assert "shipgate.codex_boundary_result/v1" in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

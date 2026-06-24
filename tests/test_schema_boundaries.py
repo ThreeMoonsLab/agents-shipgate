@@ -86,9 +86,20 @@ def test_schemas_do_not_import_core_modules() -> None:
 def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() -> None:
     v25 = _report_schema_action_fact_properties("0.25")
     v26 = _report_schema_action_fact_properties("0.26")
+    v27 = _report_schema_action_fact_properties("0.27")
 
     assert ACTION_FACT_SOURCE_FIELDS.isdisjoint(v25)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
+    assert ACTION_FACT_SOURCE_FIELDS.issubset(v27)
+
+
+def test_frozen_v026_report_schema_does_not_backport_v027_policy_pack_metadata() -> None:
+    v26 = _loaded_policy_pack_properties("0.26")
+    v27 = _loaded_policy_pack_properties("0.27")
+    v27_fields = {"source", "sha256", "sha256_status", "owner"}
+
+    assert v27_fields.isdisjoint(v26)
+    assert v27_fields.issubset(v27)
 
 
 def _report_schema_action_fact_properties(version: str) -> set[str]:
@@ -98,6 +109,15 @@ def _report_schema_action_fact_properties(version: str) -> set[str]:
         )
     )
     return set(schema["$defs"]["ActionFact"]["properties"])
+
+
+def _loaded_policy_pack_properties(version: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"]["LoadedPolicyPack"]["properties"])
 
 
 def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:
@@ -138,7 +158,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.26"
+    assert report_payload["report_schema_version"] == "0.27"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -234,7 +254,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         ],
     )
     assert baseline.model_dump(mode="json") == {
-        "schema_version": "0.5",
+        "schema_version": "0.6",
         "project": {},
         "agent": {},
         "created_at": "2026-01-01T00:00:00Z",
@@ -255,43 +275,97 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="3",
+        contract_version="7",
         cli_version="0.0.0",
-        report_schema_version="0.17",
-        packet_schema_version="0.6",
+        report_schema_version="0.27",
+        packet_schema_version="0.7",
+        verifier_schema_version="0.1",
+        verify_run_schema_version="shipgate.verify_run/v1",
+        agent_handoff_schema_version="shipgate.agent_handoff/v1",
+        agent_handoff_schema_path="docs/agent-handoff-schema.v1.json",
+        agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
+        codex_boundary_result_schema_version="shipgate.codex_boundary_result/v1",
         capability_lock_schema_version="0.2",
         capability_lock_diff_schema_version="0.3",
-        preflight_schema_version="0.1",
+        preflight_schema_version="0.2",
         capability_standard_version="0.1",
         governance_benchmark_catalog_schema_version="0.2",
         governance_benchmark_result_schema_version="0.2",
+        attestation_schema_version="0.4",
+        registry_schema_version="0.3",
+        org_evidence_bundle_schema_version="shipgate.org_evidence_bundle/v1",
+        host_grants_inventory_schema_version="0.1",
         external_integration_surfaces=[],
         gating_signal="release_decision.decision",
+        agent_result_schema_version="agent_result_v1",
+        agent_result_schema_path="docs/agent-result-schema.v1.json",
+        agent_result_control_fields=["decision"],
         manual_review_signals=[],
+        agent_interface_operations=["verify_pr"],
+        exit_code_policy={"3": "input parse or missing artifact error"},
+        mcp_tools=["shipgate.handoff"],
         commands={"preview": "agents-shipgate verify --preview --json"},
         default_paths={"manifest": "shipgate.yaml"},
-        artifacts={"verifier": "agents-shipgate-reports/verifier.json"},
+        artifacts={
+            "verifier": "agents-shipgate-reports/verifier.json",
+            "verify_run": "agents-shipgate-reports/verify-run.json",
+            "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
+        },
+        agent_read_order=[
+            "agent-handoff.json",
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         verifier_read_order=["merge_verdict"],
         merge_verdicts=["mergeable", "blocked"],
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "3",
+        "contract_version": "7",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.17",
-        "packet_schema_version": "0.6",
+        "report_schema_version": "0.27",
+        "packet_schema_version": "0.7",
+        "verifier_schema_version": "0.1",
+        "verify_run_schema_version": "shipgate.verify_run/v1",
+        "agent_handoff_schema_version": "shipgate.agent_handoff/v1",
+        "agent_handoff_schema_path": "docs/agent-handoff-schema.v1.json",
+        "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
+        "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
         "capability_lock_schema_version": "0.2",
         "capability_lock_diff_schema_version": "0.3",
-        "preflight_schema_version": "0.1",
+        "preflight_schema_version": "0.2",
         "capability_standard_version": "0.1",
         "governance_benchmark_catalog_schema_version": "0.2",
         "governance_benchmark_result_schema_version": "0.2",
+        "attestation_schema_version": "0.4",
+        "registry_schema_version": "0.3",
+        "org_evidence_bundle_schema_version": "shipgate.org_evidence_bundle/v1",
+        "host_grants_inventory_schema_version": "0.1",
         "external_integration_surfaces": [],
         "gating_signal": "release_decision.decision",
+        "agent_result_schema_version": "agent_result_v1",
+        "agent_result_schema_path": "docs/agent-result-schema.v1.json",
+        "agent_result_control_fields": ["decision"],
         "manual_review_signals": [],
+        "agent_interface_operations": ["verify_pr"],
+        "exit_code_policy": {"3": "input parse or missing artifact error"},
+        "mcp_tools": ["shipgate.handoff"],
         "commands": {"preview": "agents-shipgate verify --preview --json"},
         "default_paths": {"manifest": "shipgate.yaml"},
-        "artifacts": {"verifier": "agents-shipgate-reports/verifier.json"},
+        "artifacts": {
+            "verifier": "agents-shipgate-reports/verifier.json",
+            "verify_run": "agents-shipgate-reports/verify-run.json",
+            "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
+        },
+        "agent_read_order": [
+            "agent-handoff.json",
+            "verifier.json.merge_verdict",
+            "verifier.json.agent_controller",
+            "verify-run.json",
+            "report.json.release_decision.decision",
+        ],
         "verifier_read_order": ["merge_verdict"],
         "merge_verdicts": ["mergeable", "blocked"],
         "release_decisions": ["passed", "blocked"],
@@ -304,6 +378,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_name_candidates": [],
         "project_name_candidates": [],
         "suggested_sources": [],
+        "excluded_sources": [],
         "codex_plugin_candidates": [],
         "next_action": "",
         "workspace_signals": {

@@ -1,9 +1,9 @@
 {
-  "schema_version": "agent_result_v1",
+  "schema_version": "shipgate.codex_boundary_result/v1",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.13.0"
+    "version": "1.0.0a1"
   },
   "subject": {
     "agent": "codex"
@@ -21,7 +21,7 @@
   "first_next_action": {
     "actor": "coding_agent",
     "kind": "repair",
-    "command": "shipgate check --agent codex --workspace . --format agent-json",
+    "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
     "why": "Do not auto-approve write/destructive MCP tools."
   },
   "human_review": {
@@ -33,9 +33,9 @@
     "safe_to_attempt": true,
     "instructions": [
       "Do not auto-approve write/destructive MCP tools.",
-      "Rerun: shipgate check --agent codex --workspace . --format agent-json"
+      "Rerun: shipgate check --agent codex --workspace . --format codex-boundary-json"
     ],
-    "command": "shipgate check --agent codex --workspace . --format agent-json",
+    "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
     "forbidden_shortcuts": [
       "Do not suppress the finding (checks.ignore in shipgate.yaml).",
       "Do not lower severity or add a waiver just to pass the gate.",
@@ -122,7 +122,7 @@
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format agent-json"
+        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
       }
     ],
     "changed_files": [
@@ -131,7 +131,7 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format agent-json",
+      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
       "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
     }
   },

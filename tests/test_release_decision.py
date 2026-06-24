@@ -6,7 +6,11 @@ from agents_shipgate.ci.exit_policy import (
     GATE_FAILURE_EXIT_CODE,
     exit_code_for_report,
 )
-from agents_shipgate.ci.release_decision import build_release_decision
+from agents_shipgate.ci.release_decision import (
+    _LOW_CONFIDENCE_TOOL_RATIO,
+    _MAX_TOLERATED_SOURCE_WARNINGS,
+    build_release_decision,
+)
 from agents_shipgate.core.domain import (
     AuthInfo,
     Tool,
@@ -301,6 +305,66 @@ def test_insufficient_evidence_outranks_review_required():
     decision = _build(report, ci_mode="strict", tools=tools)
     assert decision.decision == "insufficient_evidence"
     assert len(decision.review_items) == 1
+
+
+def test_active_high_review_finding_outranks_insufficient_evidence():
+    """Phase 2c: an active (non-accepted) HIGH finding is a *named* concern —
+    review_required, not the vaguer insufficient_evidence — even when the
+    low-confidence-tool gate would otherwise trip. Contrast with the medium
+    case above, which stays insufficient_evidence. Both verdicts are equally
+    non-auto-mergeable, so this loses no safety; the evidence detail is kept."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[
+            _finding(
+                check_id="SHIP-SCOPE-TOOLKIT-UNBOUNDED",
+                severity="high",
+                baseline_status="new",
+            )
+        ],
+        tools=tools,
+        human_review_recommended=True,
+    )
+    decision = _build(report, ci_mode="advisory", tools=tools)
+    assert decision.decision == "review_required"
+    assert len(decision.review_items) == 1
+    # The insufficient-evidence detail is preserved for the reviewer.
+    assert decision.evidence_coverage.low_confidence_tool_count == 2
+    assert decision.evidence_coverage.evidence_gaps
+
+
+def test_accepted_high_finding_does_not_outrank_insufficient_evidence():
+    """A baseline-MATCHED (accepted) high finding is acknowledged debt — it
+    must NOT elevate out of insufficient_evidence; only active high concerns do."""
+    tools = [_tool(name="a", confidence="low"), _tool(name="b", confidence="low")]
+    report = _report(
+        findings=[_finding(severity="high", baseline_status="matched")],
+        tools=tools,
+        baseline=BaselineSummary(path=".agents-shipgate/baseline.json", matched_count=1),
+    )
+    decision = _build(report, ci_mode="advisory", tools=tools, new_findings_only=True)
+    assert decision.decision == "insufficient_evidence"
+
+
+def test_ie_threshold_constants_are_frozen():
+    """Freeze the IE-threshold constants at their examined-and-held values.
+
+    benchmark/miner/CALIBRATION.md decided to HOLD these because no available
+    data justifies a change. The labeled constructed fixture
+    (test_miner_constructed) only guards extraction for that case — it sits at
+    ratio 1.0 and so cannot detect a threshold edit. This is the guard that
+    makes a threshold edit surface in CI: changing 0.5 / 3 here is a deliberate
+    recalibration that must update CALIBRATION.md (and the revisit
+    prerequisites: the human labeling pass + a re-mine) alongside this test.
+    """
+    assert _LOW_CONFIDENCE_TOOL_RATIO == 0.5, (
+        "IE low-confidence ratio changed — recalibrate per "
+        "benchmark/miner/CALIBRATION.md and update this guard."
+    )
+    assert _MAX_TOLERATED_SOURCE_WARNINGS == 3, (
+        "IE source-warning tolerance changed — recalibrate per "
+        "benchmark/miner/CALIBRATION.md and update this guard."
+    )
 
 
 def test_insufficient_evidence_reason_lists_both_counts():

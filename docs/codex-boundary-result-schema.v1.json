@@ -1,0 +1,688 @@
+{
+  "$defs": {
+    "AgentResultAffectedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pointer"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "AgentResultAffectedFile",
+      "type": "object"
+    },
+    "AgentResultDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        }
+      },
+      "required": [
+        "level",
+        "code",
+        "message"
+      ],
+      "title": "AgentResultDiagnostic",
+      "type": "object"
+    },
+    "AgentResultHumanReview": {
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "title": "AgentResultHumanReview",
+      "type": "object"
+    },
+    "AgentResultNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "enum": [
+            "continue",
+            "warn",
+            "review",
+            "repair",
+            "install",
+            "stop",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "why"
+      ],
+      "title": "AgentResultNextAction",
+      "type": "object"
+    },
+    "AgentResultPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "discovery": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Discovery",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "snapshot_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Sha256"
+        },
+        "source": {
+          "enum": [
+            "explicit",
+            "workspace",
+            "packaged_default",
+            "report_effective_policy",
+            "missing",
+            "invalid"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "source"
+      ],
+      "title": "AgentResultPolicy",
+      "type": "object"
+    },
+    "AgentResultRepair": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "forbidden_shortcuts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Shortcuts",
+          "type": "array"
+        },
+        "instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "safe_to_attempt": {
+          "default": false,
+          "title": "Safe To Attempt",
+          "type": "boolean"
+        }
+      },
+      "title": "AgentResultRepair",
+      "type": "object"
+    },
+    "AgentResultSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base"
+        },
+        "diff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Diff"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head"
+        },
+        "workspace": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace"
+        }
+      },
+      "title": "AgentResultSubject",
+      "type": "object"
+    },
+    "AgentResultTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "1.0.0a1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AgentResultTool",
+      "type": "object"
+    },
+    "AgentResultTraceEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "summary"
+      ],
+      "title": "AgentResultTraceEvent",
+      "type": "object"
+    },
+    "AgentResultViolatedRule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "allow",
+            "warn",
+            "require_review",
+            "block"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "risk_level": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "check_id",
+        "action",
+        "risk_level",
+        "title",
+        "recommendation"
+      ],
+      "title": "AgentResultViolatedRule",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for shipgate check --format codex-boundary-json. Generated from agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. Do not edit by hand.",
+  "properties": {
+    "affected_files": {
+      "items": {
+        "$ref": "#/$defs/AgentResultAffectedFile"
+      },
+      "title": "Affected Files",
+      "type": "array"
+    },
+    "agent": {
+      "default": "codex",
+      "enum": [
+        "codex",
+        "claude-code",
+        "cursor"
+      ],
+      "title": "Agent",
+      "type": "string"
+    },
+    "agent_repair_instructions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Agent Repair Instructions",
+      "type": "array"
+    },
+    "audit_id": {
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "completion_allowed": {
+      "default": false,
+      "title": "Completion Allowed",
+      "type": "boolean"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "warn",
+        "require_review",
+        "block"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/AgentResultDiagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "exit_code_hint": {
+      "default": 0,
+      "title": "Exit Code Hint",
+      "type": "integer"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Explanation"
+    },
+    "finding_fingerprints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Finding Fingerprints",
+      "type": "array"
+    },
+    "first_next_action": {
+      "$ref": "#/$defs/AgentResultNextAction"
+    },
+    "human_review": {
+      "$ref": "#/$defs/AgentResultHumanReview"
+    },
+    "must_stop": {
+      "default": true,
+      "title": "Must Stop",
+      "type": "boolean"
+    },
+    "policy": {
+      "$ref": "#/$defs/AgentResultPolicy"
+    },
+    "policy_snapshot_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Snapshot Sha256"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "release_decision": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Release Decision"
+    },
+    "repair": {
+      "$ref": "#/$defs/AgentResultRepair"
+    },
+    "required_reviewers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Reviewers",
+      "type": "array"
+    },
+    "risk_level": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.codex_boundary_result/v1",
+      "default": "shipgate.codex_boundary_result/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Source Artifacts",
+      "type": "object"
+    },
+    "subject": {
+      "$ref": "#/$defs/AgentResultSubject"
+    },
+    "suggested_fixes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Suggested Fixes",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "tool": {
+      "$ref": "#/$defs/AgentResultTool"
+    },
+    "trace": {
+      "items": {
+        "$ref": "#/$defs/AgentResultTraceEvent"
+      },
+      "title": "Trace",
+      "type": "array"
+    },
+    "trigger": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trigger"
+    },
+    "violated_rules": {
+      "items": {
+        "$ref": "#/$defs/AgentResultViolatedRule"
+      },
+      "title": "Violated Rules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "decision",
+    "risk_level",
+    "audit_id",
+    "policy_version",
+    "summary",
+    "first_next_action",
+    "policy"
+  ],
+  "title": "Agents Shipgate Codex Boundary Result v1",
+  "type": "object"
+}

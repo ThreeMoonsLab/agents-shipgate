@@ -1,5 +1,10 @@
 # Shipgate Strategic Engineering Review
 
+> 历史说明：本文是 2026-06-09 基于 `0.11.0` / commit `ef58a57`
+> 的战略审计快照。当前 `main` 已经实现 GitHub Check Run、Actions
+> annotations、`verifier.json` 和 PR capability-review comment；文中将这些
+> 能力标为"缺失"的段落应按历史记录阅读，而不是当前实现状态。
+
 > 审计日期：2026-06-09 · 审计对象：`ThreeMoonsLab/agents-shipgate` · commit `ef58a57` · 版本 `0.11.0`
 >
 > 证据标注约定：**【仓库实证】** 直接观察到；**【意图明确但未完成】** 有代码/文档意图但未落地；**【缺失/未实现】** 经搜索确认不存在；**【战略建议】** 基于明确论点的建议。

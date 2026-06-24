@@ -24,18 +24,19 @@ different audience and can never disagree with it.
 
 | Artifact | Reader | When to read | Can you skip it? |
 |---|---|---|---|
-| `verifier.json` | **coding agent** | first, on every PR verify | No — it leads with `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task` |
+| `agent-handoff.json` | **coding agent** | first, on every PR verify | No — it leads with `gate.merge_verdict`, `controller`, `next_action`, `fix_task` |
+| `verifier.json` | **coding agent / CI** | detailed controller context | Yes if `agent-handoff.json` has enough detail for the workflow |
 | `pr-comment.md` | **human reviewer** | in the PR thread | Yes if you read the Check Run / report |
 | `report.json` | **tools, CI, auditors** | when gating or debugging a verdict | No for CI gating (`release_decision.decision` is the source of truth) |
 | `report.md` | **human release reviewer** | release review | Yes — same content as report.json, prose-shaped |
 | `report.sarif` | **GitHub code scanning** | Security tab / annotations | Yes unless you use code scanning |
 | `packet.{md,json,html}` | **GRC / security reviewer** | formal release evidence | Yes for day-to-day PRs |
-| `agent-result.json` | **PR controllers / bots** | compact allow/warn/review/block routing | Yes unless you build automation |
+| `verify-run.json` | **agents, CI, auditors** | reproducibility and input identity | Yes for casual human review; no for deterministic reruns |
 | `suggested-inventory.json` | **whoever fixes `insufficient_evidence`** | when evidence gaps exist | Yes when confidence is high |
 | capability lock / diff | **external integrations, research** | cross-repo capability tracking | Yes — never gates |
 | attestation | **release record keepers** | after merge | Yes — durable record, not a gate |
 
-If you remember nothing else: **agents read `verifier.json` first; CI
+If you remember nothing else: **agents read `agent-handoff.json` first; CI
 gates on `report.json.release_decision.decision`; humans read the PR
 comment.** Everything else is optional depth.
 

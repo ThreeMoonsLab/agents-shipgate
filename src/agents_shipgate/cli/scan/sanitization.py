@@ -162,6 +162,17 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="source_warnings[]",
     )
+    # Fail-soft action-surface warnings (e.g. OpenAPI action_id collisions)
+    # are raised in Phase 5, after the Phase 3 source-warning list is
+    # assembled. Append them last so byte-stable output is preserved for
+    # the common (no-collision) case where this list is empty.
+    public_source_warnings.extend(
+        redact_data(
+            decision.action_surface_warnings,
+            stats=privacy_stats,
+            path="source_warnings[]",
+        )
+    )
     public_api_surface = redact_data(
         public_api_artifacts.surface_summary() if public_api_artifacts else None,
         stats=privacy_stats,

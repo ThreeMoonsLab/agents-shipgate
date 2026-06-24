@@ -3,12 +3,12 @@
 Codex uses the shared agent-native protocol:
 
 ```bash
-shipgate check --agent codex --workspace . --format agent-json
+shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `agent_result_v1`. Switch only on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `repair`, and
-`human_review`.
+Parse stdout as `shipgate.codex_boundary_result/v1`. Switch only on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`.
 
 If the binary is missing, surface the schema-valid install fixture with
 `first_next_action.kind="install"` and command `pipx install agents-shipgate`.
@@ -27,9 +27,10 @@ For committed PR verification, use the CI substrate after the local check:
 agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
-Read `agents-shipgate-reports/verifier.json` first, then `report.json`.
-`agent-result.json` is a supporting/provisional compact projection for Action
-and automation consumers.
+Read `agents-shipgate-reports/agent-handoff.json` first, then
+`verifier.json`, then `verify-run.json`, then `report.json` for reviewer
+evidence. Legacy `agent-result.json` surfaces are supporting/provisional
+compatibility projections for older automation consumers.
 
 See [protocol.md](protocol.md) for the state machine, repair loop, policy
 discovery convention, and MCP read-only boundary.

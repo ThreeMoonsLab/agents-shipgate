@@ -35,9 +35,9 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
 ```
 
-Read `agents-shipgate-reports/verifier.json` first and lead with
-`merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`,
-and `capability_review.top_changes`. Then read
+Read `agents-shipgate-reports/agent-handoff.json` first and lead with
+`gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
+`next_action`, `fix_task`, and `capability_review.top_changes`. Then read
 `agents-shipgate-reports/report.json`; the release gate remains
 `release_decision.decision`.
 
@@ -104,7 +104,7 @@ finding list looks like. It is a demo path, not the main PR verification flow.
 
 ## Read the first result
 
-For PR verification, read `verifier.json.merge_verdict` first:
+For PR verification, read `agent-handoff.json.gate.merge_verdict` first:
 
 | Merge verdict | Meaning | Next action |
 | --- | --- | --- |
@@ -233,13 +233,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "0.13.0"
+          shipgate_version: "1.0.0a1"
 ```
 
 Advisory mode never fails CI — it posts the merge verdict, capability changes,

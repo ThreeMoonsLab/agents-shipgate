@@ -1,0 +1,603 @@
+{
+  "$defs": {
+    "AttestationCapabilityDiffBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "base_semantic_capability_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Semantic Capability Set Hash"
+        },
+        "capability_lock_diff_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Lock Diff Schema Version"
+        },
+        "head_semantic_capability_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Semantic Capability Set Hash"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttestationCapabilityDiffSummaryV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AttestationCapabilityDiffBindingV1",
+      "type": "object"
+    },
+    "AttestationCapabilityDiffSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "changed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Changed",
+          "type": "integer"
+        },
+        "evidence_changed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Evidence Changed",
+          "type": "integer"
+        },
+        "reidentified": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Reidentified",
+          "type": "integer"
+        },
+        "removed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "unchanged": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unchanged",
+          "type": "integer"
+        }
+      },
+      "title": "AttestationCapabilityDiffSummaryV1",
+      "type": "object"
+    },
+    "AttestationCapabilityLockBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Count"
+        },
+        "capability_lock_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Lock Schema Version"
+        },
+        "evidence_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Set Hash"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "semantic_capability_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Capability Set Hash"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "source_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Set Hash"
+        }
+      },
+      "title": "AttestationCapabilityLockBindingV1",
+      "type": "object"
+    },
+    "AttestationCapabilitySummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "change_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Change Ids",
+          "type": "array"
+        },
+        "modified": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Modified",
+          "type": "integer"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "removed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "trust_root_touched": {
+          "default": false,
+          "title": "Trust Root Touched",
+          "type": "boolean"
+        }
+      },
+      "title": "AttestationCapabilitySummaryV1",
+      "type": "object"
+    },
+    "AttestationHumanAckV1": {
+      "additionalProperties": false,
+      "properties": {
+        "acks": {
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Acks",
+          "type": "array"
+        },
+        "outstanding": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Outstanding",
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "satisfied": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Satisfied"
+        }
+      },
+      "title": "AttestationHumanAckV1",
+      "type": "object"
+    },
+    "AttestationOrgContextV1": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "merge_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Sha"
+        },
+        "org_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Org Id"
+        },
+        "pr_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Number"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repo"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        },
+        "workflow_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Run Id"
+        }
+      },
+      "title": "AttestationOrgContextV1",
+      "type": "object"
+    },
+    "AttestationVerdictV1": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applicability"
+        },
+        "can_merge_without_human": {
+          "default": false,
+          "title": "Can Merge Without Human",
+          "type": "boolean"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "merge_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Verdict"
+        }
+      },
+      "title": "AttestationVerdictV1",
+      "type": "object"
+    },
+    "ReleaseAttestationV1": {
+      "additionalProperties": false,
+      "description": "Deterministic local release attestation emitted by ``agents-shipgate attest``.",
+      "properties": {
+        "artifact_sha256": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Sha256",
+          "type": "object"
+        },
+        "attestation_schema_version": {
+          "const": "0.3",
+          "default": "0.3",
+          "title": "Attestation Schema Version",
+          "type": "string"
+        },
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "base_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree Sha"
+        },
+        "capability": {
+          "$ref": "#/$defs/AttestationCapabilitySummaryV1"
+        },
+        "capability_diff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttestationCapabilityDiffBindingV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "capability_lock": {
+          "$ref": "#/$defs/AttestationCapabilityLockBindingV1"
+        },
+        "cli_version": {
+          "title": "Cli Version",
+          "type": "string"
+        },
+        "head_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Ref"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "human_ack": {
+          "$ref": "#/$defs/AttestationHumanAckV1"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "org": {
+          "$ref": "#/$defs/AttestationOrgContextV1"
+        },
+        "policy_snapshot_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Snapshot Sha256"
+        },
+        "redacted": {
+          "default": true,
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "source_verifier": {
+          "title": "Source Verifier",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/AttestationVerdictV1"
+        }
+      },
+      "required": [
+        "cli_version",
+        "source_verifier",
+        "verdict",
+        "capability",
+        "capability_lock",
+        "human_ack"
+      ],
+      "title": "ReleaseAttestationV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.3.json",
+  "$ref": "#/$defs/ReleaseAttestationV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for deterministic, local release attestations emitted by agents-shipgate attest. It binds verifier/report artifacts plus static capability lock/diff hashes when available. It does not gate; release_decision.decision remains the only gate.",
+  "title": "Agents Shipgate Release Attestation v0.3"
+}

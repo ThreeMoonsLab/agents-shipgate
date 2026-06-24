@@ -43,6 +43,18 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
     assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
 
 
+def test_wheel_includes_org_policy_templates(built_wheel: Path) -> None:
+    with zipfile.ZipFile(built_wheel) as archive:
+        names = set(archive.namelist())
+    for template in (
+        "org-release.shipgate.yaml",
+        "payments.shipgate.yaml",
+        "production-ops.shipgate.yaml",
+        "host-boundary-strict.shipgate.yaml",
+    ):
+        assert f"agents_shipgate/_meta/policies/templates/{template}" in names
+
+
 def test_wheel_claude_command_is_byte_identical_to_repo_file(
     built_wheel: Path,
 ) -> None:

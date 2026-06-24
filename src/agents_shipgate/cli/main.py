@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import typer
 
@@ -14,6 +15,7 @@ from agents_shipgate.cli import (
     _register_list_checks,
     _register_scan,
 )
+from agents_shipgate.cli.agent_interface import agent_app
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
 from agents_shipgate.cli.attest import _attest_command
 from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
@@ -28,6 +30,7 @@ from agents_shipgate.cli.fixture import fixture_app
 from agents_shipgate.cli.host_audit import audit as _audit_command
 from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
 from agents_shipgate.cli.mcp import mcp_app
+from agents_shipgate.cli.org import org_app
 from agents_shipgate.cli.preflight import preflight as _preflight_command
 from agents_shipgate.cli.registry import registry_app
 from agents_shipgate.cli.scenario import scenario_app
@@ -40,7 +43,9 @@ from agents_shipgate.core.logging import configure_logging
 app = typer.Typer(
     name="agents-shipgate",
     help="The deterministic merge gate for AI-generated agent capability changes.",
-    no_args_is_help=True,
+    # Bare `shipgate` runs a zero-config first look (see the root callback),
+    # not a help dump — so off, not True.
+    no_args_is_help=False,
     invoke_without_command=True,
 )
 app.command(
@@ -53,7 +58,7 @@ app.command(
 )(_detect_command)
 app.command(
     "check",
-    help="Run the agent-native boundary check and emit agent_result_v1 JSON.",
+    help="Run the local Codex boundary check and emit codex boundary JSON.",
 )(_check_command)
 app.command(
     "preflight",
@@ -72,6 +77,9 @@ app.command(
 )(_apply_patches_command)
 app.command(
     "evidence-packet",
+    # Hidden from --help (niche re-render utility), still fully invokable —
+    # see the visibility policy note above the sub-app block below.
+    hidden=True,
     help=(
         "Re-render a Release Evidence Packet from an existing packet.json "
         "into md, html, and/or pdf."
@@ -165,19 +173,28 @@ _register_explain.register(app)
 _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
+# Visibility policy (WS-D): `--help` shows the core loop — detect / check /
+# verify / init / scan / audit and their direct companions. Niche or
+# maintainer-facing surfaces (`hidden=True` here and on `evidence-packet`
+# above) stay fully invokable and documented — hiding is presentation only,
+# not deprecation, so STABILITY.md is unaffected. `fixture` stays visible
+# because the README's 60-second demo leads with `fixture run`.
 app.add_typer(fixture_app, name="fixture")
-app.add_typer(feedback_app, name="feedback")
-app.add_typer(scenario_app, name="scenario")
-app.add_typer(skill_app, name="skill")
+app.add_typer(feedback_app, name="feedback", hidden=True)
+app.add_typer(scenario_app, name="scenario", hidden=True)
+app.add_typer(skill_app, name="skill", hidden=True)
 app.add_typer(capability_app, name="capability")
+app.add_typer(agent_app, name="agent")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(org_app, name="org")
 app.add_typer(registry_app, name="registry")
 logger = logging.getLogger(__name__)
 
 
 @app.callback()
-def _version(
-    version: bool = typer.Option(False, "--version", help="Show version and exit.")
+def _root(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "--version", help="Show version and exit."),
 ) -> None:
     # Logging state is per-invocation, not per-process: reset to the
     # default (WARNING, plain formatter) before every command so a
@@ -189,4 +206,13 @@ def _version(
     configure_logging(force=True)
     if version:
         typer.echo(f"Agents Shipgate {__version__}")
+        raise typer.Exit(0)
+    # Bare `shipgate` (no subcommand) runs a zero-config, read-only first
+    # look instead of dumping --help, so a fresh repo gets a verdict and a
+    # next step without a manifest. Named subcommands and `--help` are
+    # unaffected: this branch only fires when no subcommand was matched.
+    if ctx.invoked_subcommand is None:
+        from agents_shipgate.cli.first_look import run_first_look
+
+        run_first_look(Path("."))
         raise typer.Exit(0)

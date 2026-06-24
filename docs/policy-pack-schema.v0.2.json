@@ -1,5 +1,40 @@
 {
   "$defs": {
+    "PolicyPackApproval": {
+      "additionalProperties": false,
+      "properties": {
+        "min_approvals": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested human approval count for routing/audit metadata only; not enforced by the deterministic rule engine.",
+          "title": "Min Approvals"
+        },
+        "required": {
+          "default": false,
+          "description": "Routing/audit metadata only. Shipgate validates team references but does not verify external approvals or change release gating from this field.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "teams": {
+          "description": "Organization team names for approval routing metadata. They are not checked against GitHub or any external approval system.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Teams",
+          "type": "array"
+        }
+      },
+      "title": "PolicyPackApproval",
+      "type": "object"
+    },
     "PolicyPackCapabilityMatch": {
       "additionalProperties": false,
       "properties": {
@@ -247,6 +282,18 @@
           "default": null,
           "title": "Name"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "rules": {
           "items": {
             "$ref": "#/$defs/PolicyPackRule"
@@ -484,6 +531,18 @@
     "PolicyPackRule": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyPackApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional non-enforcing approval routing metadata. Rule matching and release decisions continue to use deterministic predicates and the rule's severity/block fields."
+        },
         "block": {
           "default": false,
           "title": "Block",
@@ -523,9 +582,28 @@
         "match": {
           "$ref": "#/$defs/PolicyPackMatch"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "recommendation": {
           "title": "Recommendation",
           "type": "string"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
         },
         "severity": {
           "enum": [

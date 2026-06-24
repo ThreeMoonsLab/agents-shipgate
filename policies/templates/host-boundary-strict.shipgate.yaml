@@ -1,0 +1,4 @@
+name: Host Boundary Strict Policy
+version: "1.0"
+owner: agent-platform
+rules: []

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.ci.agent_result import build_agent_result
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
@@ -14,10 +13,12 @@ from agents_shipgate.cli._helpers import (
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
+from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
 
+from .git import ensure_git_workspace, staged_paths_under
 from .orchestrator import run_preview, run_verify
 
 logger = logging.getLogger(__name__)
@@ -80,18 +81,17 @@ def verify(
         None,
         "--format",
         help=(
-            "Verifier stdout format: text, json (full verifier artifact), or "
-            "agent (compact agent result). Defaults to text, or agent when a "
-            "coding-agent environment is detected. Scan artifacts are fixed."
+            "Verifier stdout format: text or json (full verifier artifact). "
+            "Defaults to text, or json when a coding-agent environment is "
+            "detected. Scan artifacts are fixed."
         ),
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help=(
-            "Shortcut for the coding-agent surface: --format agent for "
-            "verify runs, --format json for --preview (relevance data lives "
-            "in the trigger block, which the compact form omits)."
+            "Shortcut for the coding-agent surface: --format json. Emits the "
+            "full verifier controller artifact."
         ),
     ),
     ci_mode: str | None = typer.Option(
@@ -178,6 +178,7 @@ def verify(
         emit_agent_mode_error(
             "config_error",
             message=str(exc),
+            exit_code=2,
             next_action=guidance,
             next_actions=[
                 NextAction(
@@ -237,6 +238,7 @@ def verify(
         emit_agent_mode_error(
             "config_error",
             message=str(exc),
+            exit_code=2,
             next_action=flattened[0].to_legacy_string(),
             next_actions=[a.model_dump(mode="json") for a in flattened],
         )
@@ -250,6 +252,7 @@ def verify(
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
+            exit_code=3,
             next_action=guidance,
             next_actions=[
                 NextAction(
@@ -272,6 +275,7 @@ def verify(
         emit_agent_mode_error(
             "other_error",
             message=str(exc),
+            exit_code=4,
             next_action=guidance,
             next_actions=[
                 NextAction(kind="review", why=guidance).model_dump(mode="json")
@@ -282,21 +286,20 @@ def verify(
         if verbose:
             logger.exception("unhandled exception")
         typer.echo(f"Internal error: {exc}", err=True)
+        emit_agent_mode_error(
+            "internal_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=(
+                "Re-run with --verbose for a stack trace, then file an issue if "
+                "the error is not actionable."
+            ),
+        )
         raise typer.Exit(4) from exc
 
-    if (
-        stdout_format == "agent"
-        and json_output
-        and _is_missing_config_fail_closed(verifier)
-    ):
-        stdout_format = "json"
+    _warn_if_reports_staged(workspace, out)
 
-    if stdout_format == "agent":
-        agent_result = build_agent_result(verifier=verifier, report=_report)
-        typer.echo(
-            json.dumps(agent_result.model_dump(mode="json"), indent=2, sort_keys=True)
-        )
-    elif stdout_format == "json":
+    if stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
     else:
         verdict = (
@@ -311,33 +314,56 @@ def verify(
     raise typer.Exit(exit_code)
 
 
+def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
+    """Advisory nudge when generated reports are staged for commit.
+
+    Agents that run verify and then ``git add .`` stage the generated
+    reports directory — a blocker in 7/31 W24 adoption cells. ``init``
+    gitignores it; this warns when an existing checkout has it staged.
+    Written to stderr only: never affects the verdict, exit code, or the
+    stdout JSON contract. Silent outside a git checkout.
+    """
+
+    # verify resolves the reports dir relative to the GIT ROOT (run_verify),
+    # so probe the root, not --workspace: a subdirectory --workspace would
+    # otherwise miss root-level staged reports.
+    try:
+        root = ensure_git_workspace(workspace)
+    except ConfigError:
+        return
+    if out is None:
+        target = REPORTS_DIR_NAME
+    else:
+        try:
+            target = out.resolve().relative_to(root).as_posix()
+        except ValueError:
+            target = out.name
+    staged = staged_paths_under(root, target)
+    if not staged:
+        return
+    shown = ", ".join(staged[:3]) + (" …" if len(staged) > 3 else "")
+    typer.echo(
+        f"warning: {len(staged)} generated Agents Shipgate report file(s) staged "
+        f"for commit ({shown}). These are build artifacts — unstage them with "
+        f"`git restore --staged {target}/` (agents-shipgate init gitignores this "
+        f"directory).",
+        err=True,
+    )
+
+
 def _resolve_verify_format(
     value: str | None, *, json_output: bool, preview: bool
 ) -> str:
     """Resolve the stdout format from flags and the agent-mode environment.
 
     Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode
-    auto-detection > text. ``--json`` maps to the compact agent result for
-    verify runs but keeps the full verifier JSON for ``--preview``, whose
-    relevance answer lives in the ``trigger`` block that the compact form
-    omits. The same split applies when agent mode is auto-detected.
+    auto-detection > text.
     """
     if value is not None:
         return _parse_verify_format(value)
     if json_output or is_agent_mode():
-        return "json" if preview else "agent"
+        return "json"
     return "text"
-
-
-def _is_missing_config_fail_closed(verifier: object) -> bool:
-    headline = str(getattr(verifier, "headline", "") or "").lower()
-    return (
-        getattr(verifier, "head_status", None) == "failed"
-        and getattr(verifier, "head_exit_code", None) == 2
-        and getattr(verifier, "release_decision", None) is None
-        and getattr(verifier, "merge_verdict", None) == "unknown"
-        and "config not found" in headline
-    )
 
 
 def _parse_verify_format(value: str) -> str:
@@ -347,8 +373,10 @@ def _parse_verify_format(value: str) -> str:
     if normalized == "json":
         return "json"
     if normalized == "agent":
-        return "agent"
-    raise ConfigError("--format must be text, json, or agent for verify")
+        raise ConfigError(
+            "--format agent was removed in the 1.0.0-alpha contract; use --format json"
+        )
+    raise ConfigError("--format must be text or json for verify")
 
 
 def _parse_pr_comment_style(value: str) -> str:

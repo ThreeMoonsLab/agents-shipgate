@@ -2,7 +2,7 @@
 
 > Status: **proposal** (no behavior change in this document). Target:
 > freeze a v1.0 report schema whose top-level surface stops growing.
-> Written 2026-06; current runtime is `report_schema_version: "0.26"`.
+> Written 2026-06; current runtime is `report_schema_version: "0.27"`.
 
 ## Problem
 
@@ -75,10 +75,10 @@ Rules:
 
 1. A generated `docs/report-schema.v1.0-rc1.json` with the regrouped
    shape; goldens render from the same scan run in both shapes.
-2. Contract test: every leaf field in v0.26 maps to exactly one v1 path
+2. Contract test: every leaf field in v0.27 maps to exactly one v1 path
    (no drops, no renames) — a generated mapping table is committed as
    `docs/report-v1-field-map.json`.
-3. Baseline round-trip: a v0.26 baseline matches identically against a
+3. Baseline round-trip: a v0.27 baseline matches identically against a
    v1-shaped scan.
 4. Consumer dry-run: Action outputs, PR comment, packet, SARIF, agent
    result, and attestation all build from the v1 shape with zero output

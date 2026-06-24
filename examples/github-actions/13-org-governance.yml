@@ -1,0 +1,48 @@
+# Organization governance evidence bundle.
+#
+# This workflow emits deterministic local artifacts for a platform team to
+# collect across repos: verifier/report evidence, attestation, org evidence
+# bundle, org status, and optional host-grant inventory. It does not create a
+# second release verdict; PR merge decisions still come from
+# report.json.release_decision.decision in the verifier workflow.
+
+name: Agents Shipgate (org governance)
+
+on:
+  pull_request:
+  schedule:
+    - cron: "31 6 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  org-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
+        id: shipgate
+        with:
+          config: shipgate.yaml
+          ci_mode: advisory
+          diff_base: target
+          attestation: "true"
+          org_bundle: "true"
+          host_audit: "true"
+          org_status: "true"
+          upload_artifact: "true"
+          artifact_name: agents-shipgate-org-evidence
+
+      # User-owned central ledger step. Keep repo mutation outside the scanner.
+      - name: Show collected artifact paths
+        run: |
+          printf 'attestation=%s\n' '${{ steps.shipgate.outputs.attestation_json }}'
+          printf 'org_bundle=%s\n' '${{ steps.shipgate.outputs.org_evidence_bundle_json }}'
+          printf 'host_grants=%s\n' '${{ steps.shipgate.outputs.host_grants_json }}'
+          printf 'org_status=%s\n' '${{ steps.shipgate.outputs.org_status_json }}'

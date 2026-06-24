@@ -1,0 +1,381 @@
+{
+  "$defs": {
+    "ExceptionRecordV1": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "kind": {
+          "enum": [
+            "baseline",
+            "suppression",
+            "severity_override",
+            "override_acknowledgement",
+            "human_ack",
+            "host_grant_baseline"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "recorded_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded At"
+        },
+        "source_ref": {
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        },
+        "violations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Violations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "source_ref"
+      ],
+      "title": "ExceptionRecordV1",
+      "type": "object"
+    },
+    "OrgGovernanceSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "exception_count": {
+          "default": 0,
+          "title": "Exception Count",
+          "type": "integer"
+        },
+        "exception_violation_count": {
+          "default": 0,
+          "title": "Exception Violation Count",
+          "type": "integer"
+        },
+        "host_grant_drift": {
+          "default": false,
+          "title": "Host Grant Drift",
+          "type": "boolean"
+        },
+        "policy_pack_count": {
+          "default": 0,
+          "title": "Policy Pack Count",
+          "type": "integer"
+        },
+        "policy_pack_violation_count": {
+          "default": 0,
+          "title": "Policy Pack Violation Count",
+          "type": "integer"
+        },
+        "registry_configured": {
+          "default": false,
+          "title": "Registry Configured",
+          "type": "boolean"
+        }
+      },
+      "title": "OrgGovernanceSummaryV1",
+      "type": "object"
+    },
+    "PolicyPackPinRecordV1": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Sha256"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rule_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Count"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "status": {
+          "enum": [
+            "unpinned",
+            "verified",
+            "mismatch",
+            "missing",
+            "unreadable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "violations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Violations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "status"
+      ],
+      "title": "PolicyPackPinRecordV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-governance-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate org status --json. This is an organization governance projection over local artifacts, not a release verdict; release_decision.decision remains the only gate.",
+  "properties": {
+    "as_of": {
+      "title": "As Of",
+      "type": "string"
+    },
+    "config": {
+      "title": "Config",
+      "type": "string"
+    },
+    "exceptions": {
+      "items": {
+        "$ref": "#/$defs/ExceptionRecordV1"
+      },
+      "title": "Exceptions",
+      "type": "array"
+    },
+    "host_grant_drift": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host Grant Drift"
+    },
+    "org_governance_schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Org Governance Schema Version",
+      "type": "string"
+    },
+    "organization": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Organization"
+    },
+    "policy_packs": {
+      "items": {
+        "$ref": "#/$defs/PolicyPackPinRecordV1"
+      },
+      "title": "Policy Packs",
+      "type": "array"
+    },
+    "registry": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registry"
+    },
+    "summary": {
+      "$ref": "#/$defs/OrgGovernanceSummaryV1"
+    },
+    "violations": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Violations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "config",
+    "as_of",
+    "summary"
+  ],
+  "title": "Agents Shipgate Organization Governance Status v0.1",
+  "type": "object"
+}

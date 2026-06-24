@@ -27,6 +27,7 @@ from harness.adoption.drivers.base import DriverInputs
 from harness.adoption.drivers.claude_code import ClaudeCodeDriver
 from harness.adoption.drivers.codex import CodexDriver
 from harness.adoption.drivers.cursor import CursorStaticDriver
+from harness.adoption.drivers.cursor_manual import CursorManualDriver
 from harness.adoption.drivers.mock import MockDriver
 from harness.adoption.matrix import Cell, load_matrix
 from harness.adoption.observer.fs_snapshot import FsDiff, snapshot
@@ -73,7 +74,7 @@ def run(
     agent_filter: str | None = typer.Option(
         None,
         "--agent",
-        help="Comma-separated agent filter, e.g. 'claude-code,cursor-static'.",
+        help="Comma-separated agent filter, e.g. 'claude-code,cursor-static,cursor-manual'.",
     ),
 ) -> None:
     """Execute the full pipeline against ``matrix.yaml``."""
@@ -328,6 +329,8 @@ def _select_driver(agent: str):
         return ClaudeCodeDriver()
     if agent == "cursor-static":
         return CursorStaticDriver()
+    if agent == "cursor-manual":
+        return CursorManualDriver()
     if agent == "codex":
         return CodexDriver()
     raise ValueError(f"Unknown agent {agent!r}")

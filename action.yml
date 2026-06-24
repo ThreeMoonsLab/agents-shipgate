@@ -27,10 +27,10 @@ inputs:
     required: false
     default: ""
     description: Optional comma-separated severities that fail CI, for example critical,high.
-  fail_on_decisions:
+  fail_on_merge_verdicts:
     required: false
     default: ""
-    description: Optional comma-separated agent-result decisions that fail CI, for example block or block,require_review.
+    description: "Optional comma-separated merge verdicts that fail CI. Supported values: blocked, human_review_required, insufficient_evidence, unknown, mergeable."
   baseline:
     required: false
     default: ""
@@ -98,8 +98,12 @@ inputs:
       Create/update a GitHub Check Run named by check_run_name with the
       merge verdict as the check conclusion (mergeable=success,
       blocked=failure, otherwise neutral) and up to 50 line-level
-      annotations from report.sarif. Requires `checks: write` permission
-      on the workflow.
+      annotations from the PR projection. Requires `checks: write`
+      permission on the workflow.
+  check_run_policy:
+    required: false
+    default: advisory
+    description: "Check Run conclusion policy: advisory, blocked-fails, or require-mergeable."
   check_run_name:
     required: false
     default: "Agents Shipgate"
@@ -112,6 +116,30 @@ inputs:
     required: false
     default: ""
     description: Optional Agents Shipgate PyPI version to install. Empty installs this action source.
+  attestation:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/attestation.json from verifier.json/report.json.
+  registry_repo_label:
+    required: false
+    default: ""
+    description: Optional repository label copied into attestation org context.
+  org_bundle:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/org-evidence-bundle.json for org/fleet aggregation.
+  host_audit:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/host-grants.json from audit --host.
+  org_status:
+    required: false
+    default: "false"
+    description: Emit agents-shipgate-reports/org-status.json from org status.
+  registry_path:
+    required: false
+    default: ""
+    description: Optional registry path label embedded in org bundle metadata; never mutated by this action.
 
 outputs:
   # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
@@ -155,12 +183,18 @@ outputs:
   verifier_json:
     description: Path to verifier.json.
     value: ${{ steps.report_outputs.outputs.verifier_json }}
+  verify_run_json:
+    description: Path to verify-run.json.
+    value: ${{ steps.report_outputs.outputs.verify_run_json }}
+  agent_handoff_json:
+    description: Path to agent-handoff.json.
+    value: ${{ steps.report_outputs.outputs.agent_handoff_json }}
+  run_id:
+    description: Deterministic verify-run input identity from verify-run.json.
+    value: ${{ steps.report_outputs.outputs.run_id }}
   pr_comment_markdown:
     description: Path to the generated PR comment Markdown.
     value: ${{ steps.report_outputs.outputs.pr_comment_markdown }}
-  agent_result_json:
-    description: Path to supporting/provisional agent-result.json. Prefer report.json decision for CI and verifier.json for PR controllers.
-    value: ${{ steps.report_outputs.outputs.agent_result_json }}
   check_annotations_json:
     description: Path to generated GitHub Actions annotation payload.
     value: ${{ steps.report_outputs.outputs.check_annotations_json }}
@@ -173,24 +207,21 @@ outputs:
   capability_lock_diff_json:
     description: Path to generated capability lock diff JSON when base and head locks are available.
     value: ${{ steps.report_outputs.outputs.capability_lock_diff_json }}
+  attestation_json:
+    description: Path to generated release attestation JSON when attestation is true.
+    value: ${{ steps.report_outputs.outputs.attestation_json }}
+  org_evidence_bundle_json:
+    description: Path to generated organization evidence bundle JSON when org_bundle is true.
+    value: ${{ steps.report_outputs.outputs.org_evidence_bundle_json }}
+  host_grants_json:
+    description: Path to generated host-grants inventory JSON when host_audit is true.
+    value: ${{ steps.report_outputs.outputs.host_grants_json }}
+  org_status_json:
+    description: Path to generated organization status JSON when org_status is true.
+    value: ${{ steps.report_outputs.outputs.org_status_json }}
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
-  agent_decision:
-    description: Supporting/provisional compact agent-result decision (`allow`, `warn`, `require_review`, or `block`). Not the CI gate.
-    value: ${{ steps.report_outputs.outputs.agent_decision }}
-  risk_level:
-    description: Supporting/provisional compact agent-result risk level (`low`, `medium`, `high`, or `critical`).
-    value: ${{ steps.report_outputs.outputs.risk_level }}
-  audit_id:
-    description: Deterministic supporting/provisional audit id from agent-result.json.
-    value: ${{ steps.report_outputs.outputs.audit_id }}
-  required_reviewers:
-    description: Comma-separated reviewer roles projected into supporting/provisional agent-result.json.
-    value: ${{ steps.report_outputs.outputs.required_reviewers }}
-  policy_snapshot_sha256:
-    description: sha256 of report.effective_policy projected into supporting/provisional agent-result.json.
-    value: ${{ steps.report_outputs.outputs.policy_snapshot_sha256 }}
   decision:
     description: Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14.
     value: ${{ steps.report_outputs.outputs.decision }}
@@ -236,6 +267,15 @@ outputs:
   can_merge_without_human:
     description: Whether the verifier projection says the PR can merge without human authority gaps (`true`/`false`).
     value: ${{ steps.report_outputs.outputs.can_merge_without_human }}
+  agent_controller_must_stop:
+    description: Whether verifier.json.agent_controller says the agent must stop (`true`/`false`).
+    value: ${{ steps.report_outputs.outputs.agent_controller_must_stop }}
+  agent_controller_stop_reason:
+    description: Stop reason from verifier.json.agent_controller.
+    value: ${{ steps.report_outputs.outputs.agent_controller_stop_reason }}
+  agent_controller_completion_allowed:
+    description: Whether verifier.json.agent_controller allows agent completion (`true`/`false`).
+    value: ${{ steps.report_outputs.outputs.agent_controller_completion_allowed }}
   trust_root_touched:
     description: Whether verifier_summary reports a touched release trust root (`true`/`false`). Review signal; not a second gate.
     value: ${{ steps.report_outputs.outputs.trust_root_touched }}
@@ -352,6 +392,86 @@ runs:
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
+    - name: Build Agents Shipgate attestation
+      if: ${{ always() && inputs.attestation == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+        REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}
+      run: |
+        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+          args=(
+            attest
+            --from "${OUTPUT_DIR}/verifier.json"
+            --out "${OUTPUT_DIR}/attestation.json"
+            --config "${CONFIG}"
+            --ci-context github-actions
+          )
+          if [ -n "${REGISTRY_REPO_LABEL}" ]; then
+            args+=(--repo "${REGISTRY_REPO_LABEL}")
+          fi
+          agents-shipgate "${args[@]}"
+        else
+          echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
+        fi
+
+    - name: Build Agents Shipgate host audit
+      if: ${{ always() && inputs.host_audit == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        agents-shipgate audit --host --workspace "." --json \
+          --out "${OUTPUT_DIR}/host-grants.json" >/dev/null || \
+          echo "Agents Shipgate host audit failed; artifact skipped." >&2
+
+    - name: Build Agents Shipgate org status
+      if: ${{ always() && inputs.org_status == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        set +e
+        agents-shipgate org status --config "${CONFIG}" --workspace "." --json \
+          > "${OUTPUT_DIR}/org-status.json"
+        status_code=$?
+        set -e
+        if [ "${status_code}" != "0" ] && [ "${status_code}" != "20" ]; then
+          echo "Agents Shipgate org status failed with ${status_code}." >&2
+        fi
+
+    - name: Build Agents Shipgate org evidence bundle
+      if: ${{ always() && inputs.org_bundle == 'true' }}
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+        CONFIG: ${{ inputs.config }}
+        REGISTRY_PATH: ${{ inputs.registry_path }}
+      run: |
+        mkdir -p "${OUTPUT_DIR}"
+        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+          args=(
+            org
+            bundle
+            --config "${CONFIG}"
+            --workspace "."
+            --from "${OUTPUT_DIR}/verifier.json"
+            --out "${OUTPUT_DIR}/org-evidence-bundle.json"
+            --json
+          )
+          if [ -n "${REGISTRY_PATH}" ]; then
+            args+=(--registry "${REGISTRY_PATH}")
+          fi
+          agents-shipgate "${args[@]}" >/dev/null || \
+            echo "Agents Shipgate org evidence bundle failed; artifact skipped." >&2
+        else
+          echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
+        fi
+
     - name: Extract Agents Shipgate outputs
       id: report_outputs
       if: ${{ always() }}
@@ -395,7 +515,14 @@ runs:
             return;
           }
           const STICKY = "<!-- agents-shipgate-pr-comment -->";
-          const body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
+          let body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
+          const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
+          const runId = process.env.GITHUB_RUN_ID;
+          const runUrl = `${serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+          const artifactLine = `\n\nWorkflow artifacts: ${runUrl}`;
+          if (body.length + artifactLine.length <= 6000) {
+            body = `${body}${artifactLine}`;
+          }
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
           // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
           // earlier comments before Shipgate's first run, which would silently regress to append-only.
@@ -428,6 +555,7 @@ runs:
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_RUN_NAME: ${{ inputs.check_run_name }}
+        CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
       run: |
         python "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 
@@ -467,12 +595,12 @@ runs:
             core.warning(`Agents Shipgate check-run creation failed: ${error.message}`);
           }
 
-    - name: Apply Agents Shipgate decision policy
-      if: ${{ always() && inputs.fail_on_decisions != '' }}
+    - name: Apply Agents Shipgate merge verdict policy
+      if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}
       shell: bash
       env:
-        FAIL_ON_DECISIONS: ${{ inputs.fail_on_decisions }}
-        AGENT_DECISION: ${{ steps.report_outputs.outputs.agent_decision }}
+        FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}
+        MERGE_VERDICT: ${{ steps.report_outputs.outputs.merge_verdict }}
       run: |
         python - <<'PY'
         import os
@@ -480,24 +608,24 @@ runs:
 
         sys.path.insert(0, os.environ["GITHUB_ACTION_PATH"])
 
-        from scripts.github_action_outputs import decision_policy_exit_code
+        from scripts.github_action_outputs import merge_verdict_policy_exit_code
 
-        code = decision_policy_exit_code(
-            os.environ.get("AGENT_DECISION", ""),
-            os.environ.get("FAIL_ON_DECISIONS", ""),
+        code = merge_verdict_policy_exit_code(
+            os.environ.get("MERGE_VERDICT", ""),
+            os.environ.get("FAIL_ON_MERGE_VERDICTS", ""),
         )
         if code:
-            decision = os.environ.get("AGENT_DECISION", "")
-            if decision:
+            verdict = os.environ.get("MERGE_VERDICT", "")
+            if verdict:
                 print(
-                    "Agents Shipgate agent decision "
-                    f"{decision!r} matched fail_on_decisions.",
+                    "Agents Shipgate merge verdict "
+                    f"{verdict!r} matched fail_on_merge_verdicts.",
                     file=sys.stderr,
                 )
             else:
                 print(
-                    "Agents Shipgate fail_on_decisions was configured, but "
-                    "agent-result.json did not expose an agent decision.",
+                    "Agents Shipgate fail_on_merge_verdicts was configured, but "
+                    "verifier.json did not expose a merge verdict.",
                     file=sys.stderr,
                 )
         raise SystemExit(code)

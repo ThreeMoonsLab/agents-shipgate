@@ -294,6 +294,7 @@ def register(app: typer.Typer) -> None:
         if claude_code and requested_targets is None:
             requested_targets = parse_selector("claude-md,claude-code-skill")
 
+        excluded_sources: list[dict[str, str]] = []
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
@@ -360,6 +361,12 @@ def register(app: typer.Typer) -> None:
                     for c in detect_result.agent_name_candidates
                 ],
             }
+            excluded_sources = detect_result.excluded_sources
+            if excluded_sources:
+                # Glob-matched files the input adapters reject — dropped from
+                # tool_sources so the manifest scans, surfaced here so the
+                # decision is visible to JSON consumers.
+                auto_detected["excluded_sources"] = excluded_sources
             next_action_create = (
                 "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
             )
@@ -546,6 +553,12 @@ def register(app: typer.Typer) -> None:
             else:
                 if manifest_status == "written":
                     typer.echo(manifest_message)
+                    if excluded_sources:
+                        typer.echo(
+                            f"Excluded {len(excluded_sources)} detected file(s) "
+                            "scan cannot parse as tool sources; see the comments "
+                            "in shipgate.yaml."
+                        )
                     if placeholders:
                         typer.echo(
                             f"Replace these placeholders before scanning: "

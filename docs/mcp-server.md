@@ -27,17 +27,24 @@ Claude Code registration (`.mcp.json`):
 
 | Tool | Input | Output |
 |---|---|---|
-| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `agent_result_v1` |
-| `shipgate.preflight` | `{workspace?, config?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV1` |
+| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.codex_boundary_result/v1` |
+| `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV2` |
 | `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
 | `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |
+| `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v1` |
 
 `shipgate.check` is the same protocol surface documented in
 [`agents/protocol.md`](agents/protocol.md). `shipgate.preflight` is proactive
-routing only: it can tell an agent to stop before editing protected surfaces or
-to gather evidence for a proposed high-risk capability, but it is not a second
-release verdict. The release gate remains
+routing only: prefer passing a `PreflightPlanV1` object in `plan`. It can tell
+an agent to stop before editing protected surfaces, route host/MCP permission
+requests to a human, or gather evidence for a proposed high-risk capability,
+but it is not a second release verdict. The release gate remains
 `report.json.release_decision.decision`.
+
+`shipgate.handoff` is a read-only projection over existing verifier artifacts.
+It never runs `verify`, shells out to git, or writes `agent-handoff.json`; it
+returns the same `shipgate.agent_handoff/v1` shape that `verify` writes for
+agents that need a compact controller/release-readiness object.
 
 ## Trust model
 

@@ -13,9 +13,10 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
 | [`09-risk-labels-and-reviewers.yml`](09-risk-labels-and-reviewers.yml) | Label PRs by risk signal (`agent-capability-change`, `trust-root-touched`, `shipgate-blocked`) and request boundary owners as reviewers. |
-| [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with line-level SARIF annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
+| [`10-check-run-annotations.yml`](10-check-run-annotations.yml) | Native Check Run with merge-relevant line annotations; branch protection can require the "Agents Shipgate" check directly. Needs `checks: write`. |
 | [`11-fail-on-insufficient-evidence.yml`](11-fail-on-insufficient-evidence.yml) | Evidence policy: fail when static evidence is too weak to gate confidently. |
 | [`12-host-grant-drift.yml`](12-host-grant-drift.yml) | Scheduled drift gate: fail when current coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes) no longer match the acknowledged `.agents-shipgate/host-grants.json` baseline. Catches authority changes that land outside PR review. |
+| [`13-org-governance.yml`](13-org-governance.yml) | Scheduled organization governance gate: exception hygiene, policy-pack pinning, and host-grant drift. Does not create a second release verdict. |
 
 ## Permissions
 
@@ -36,9 +37,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+- uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
   with:
-    shipgate_version: "0.13.0"
+    shipgate_version: "1.0.0a1"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
@@ -56,7 +57,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.13.0
+  uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
@@ -93,6 +94,16 @@ findings-oriented comment while updating downstream automation.
 The Action also emits GitHub Actions job annotations by default for
 source-backed blockers and review items. Disable with `check_annotations:
 'false'`, or tune the cap with `check_annotation_limit`.
+
+When `check_run: 'true'` is enabled, the Check Run uses the same PR projection
+as job annotations. `check_run_policy: advisory` preserves the default
+mergeable/success, blocked/failure, human-routed/neutral behavior.
+`check_run_policy: blocked-fails` keeps human-routed verdicts neutral but fails
+`blocked` and `unknown` so setup failures do not look successful. For direct
+branch protection, use `check_run_policy: require-mergeable`; only
+`can_merge_without_human == true` succeeds. `check_run_policy` is newer than
+v1.0.0a1; until the next release is tagged, the Check Run policy example targets
+`main` and omits `shipgate_version` so the action installs from that ref.
 
 `verify` writes static capability artifacts to the workflow artifact when
 available: `capabilities.lock.json`, `base.capabilities.lock.json`, and

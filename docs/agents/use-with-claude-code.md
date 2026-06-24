@@ -5,8 +5,12 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 [protocol.md](protocol.md). The canonical Claude Code control command is:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format agent-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
 ```
+
+Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`. Do not infer a local control decision from prose.
 
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 
@@ -116,13 +120,14 @@ It should then summarize `verifier.json.merge_verdict`,
 
 ## Verify an agent PR
 
-The bootstrap flow above wires Shipgate into a repo. The ongoing-PR command is
-`verify`. On any PR that changes agent tools, MCP exports, OpenAPI specs,
-prompts, permissions, policies, CI gates, or `shipgate.yaml`, Claude Code should
-run it before reporting the change as complete:
+The bootstrap flow above wires Shipgate into a repo. On any PR that changes
+agent tools, MCP exports, OpenAPI specs, prompts, permissions, policies, CI
+gates, or `shipgate.yaml`, Claude Code should run the local control check before
+reporting the change as complete, then run `verify` for PR/reviewer evidence:
 
 ```bash
-agents-shipgate preflight --json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
@@ -130,15 +135,15 @@ If preflight returns `requires_human_review: true`, Claude Code must stop for a
 human before editing the protected surface or asserting missing high-risk
 evidence.
 
-Then read `agents-shipgate-reports/verifier.json` and **lead with
-`merge_verdict`** (`mergeable` / `human_review_required` /
+Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
+`gate.merge_verdict`** (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`) — a deterministic projection of
 `release_decision.decision`, which stays the gate in
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next for the highest-signal tool/action access changes, and check
-`trust_root_touched`, `policy_weakened`, and `fix_task`.
-`agent-result.json` is a supporting/provisional compact projection; Claude Code
-should not read it ahead of `verifier.json`.
+`controller`, `next_action`, and `fix_task`. Use `verifier.json` only for
+detailed controller context. Legacy `agent-result.json` surfaces are
+supporting/provisional compatibility projections and not the verifier read path.
 
 Do **not** claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

@@ -9,19 +9,19 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the current verifier and agent-result contracts and requires **`>=0.13.0`**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the current verifier, agent-handoff, and Codex-boundary contracts and requires **contract v7 or newer**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   SG="uvx agents-shipgate@0.13.0"            # uv: ephemeral, always the pinned build
-   # or: SG="pipx run agents-shipgate==0.13.0"
+   SG="uvx agents-shipgate@1.0.0a1"           # uv: ephemeral, always the pinned build
+   # or: SG="pipx run agents-shipgate==1.0.0a1"
    $SG --version                             # confirm the pinned runner resolves
    ```
    Every step below calls `$SG …`; e.g. `$SG detect …` runs `agents-shipgate detect` through the pinned runner, never a `PATH` copy.
 
    If you would rather install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists — then set `SG=agents-shipgate`:
    ```bash
-   python -m pip install -U "agents-shipgate>=0.13.0"   # or: pipx install "agents-shipgate>=0.13.0"
-   agents-shipgate --version   # STOP if this prints < 0.13.0 - re-run pinned via uvx agents-shipgate@0.13.0
-   SG=agents-shipgate          # only after the line above confirms >=0.13.0
+   python -m pip install -U --pre agents-shipgate
+   agents-shipgate contract --json   # STOP if this reports contract_version < 5 - re-run pinned via uvx agents-shipgate@1.0.0a1
+   SG=agents-shipgate                # only after the line above confirms contract v7+
    ```
 
 2. **Sanity-check the install** before touching the user's code:

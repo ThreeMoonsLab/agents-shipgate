@@ -38,3 +38,24 @@ checks:
   - declared_purpose
   - risk_tags
   recommendation: Remove the tool or update release scope.
+- id: SHIP-SCOPE-TOOLKIT-UNBOUNDED
+  default_severity: high
+  mvp_tier: core
+  description: A dynamically-loaded agent toolkit is mounted without a scope bound.
+  rationale: |-
+    A recognized toolkit constructor (e.g. stripe_agent_toolkit) called with no
+    configuration allowlist mounts its full tool surface — refund/cancel/dispute —
+    which the static extractor cannot enumerate. The unbounded grant must be
+    reviewed rather than pass silently into insufficient_evidence.
+  fires_when: |-
+    A recognized agent-toolkit constructor is called with no configuration
+    allowlist (the parsed ToolkitScopeBound is unbounded), so the full toolkit
+    surface is mounted.
+  evidence_fields:
+  - provider
+  - constructor
+  - binding
+  - source_ref
+  recommendation: Pass an explicit configuration allowlist (resource:verb actions)
+    to the toolkit constructor so the agent mounts only the tools it needs.
+  requires_human_review_regardless_of_patch: true

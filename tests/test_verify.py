@@ -140,8 +140,10 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
         "agents-shipgate verify --preview --json"
     )
     assert (out_dir / "verifier.json").is_file()
+    assert (out_dir / "verify-run.json").is_file()
+    assert (out_dir / "agent-handoff.json").is_file()
     assert (out_dir / "pr-comment.md").is_file()
-    assert (out_dir / "agent-result.json").is_file()
+    assert not (out_dir / "agent-result.json").exists()
     assert not (out_dir / "report.json").exists()
 
 
@@ -212,6 +214,117 @@ def test_verify_missing_config_relevant_diff_fails_before_head_scan(
     assert payload["merge_verdict"] == "unknown"
     assert payload["can_merge_without_human"] is False
     assert calls == []
+
+
+def test_verify_warns_when_reports_directory_is_staged(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    # Simulate the W24 footgun: the agent ran a scan/verify and then
+    # `git add`-ed the generated reports directory.
+    reports = repo / "agents-shipgate-reports"
+    reports.mkdir()
+    (reports / "report.json").write_text("{}\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    # Advisory only: the staged-reports nudge never changes the verdict or
+    # the exit code.
+    assert result.exit_code == 0, result.output
+    assert "warning:" in result.output
+    assert "agents-shipgate-reports/" in result.output
+    assert "git restore --staged" in result.output
+
+
+def test_verify_warns_on_staged_reports_from_subdirectory_workspace(
+    tmp_path: Path,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    # Reports staged at the GIT ROOT, where verify writes them...
+    reports = repo / "agents-shipgate-reports"
+    reports.mkdir()
+    (reports / "report.json").write_text("{}\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True
+    )
+
+    # ...but verify is invoked with a subdirectory --workspace. The nudge must
+    # still resolve to the git root rather than probing only the subdirectory.
+    subdir = repo / "service"
+    subdir.mkdir()
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(subdir),
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "warning:" in result.output
+    assert "agents-shipgate-reports/" in result.output
+
+
+def test_verify_no_staged_reports_warning_and_stdout_json_is_clean(
+    tmp_path: Path,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _commit_all(repo, "docs")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Verify writes verifier.json/pr-comment.md into the reports dir during
+    # the run, but never stages them, so no nudge fires and stdout stays
+    # pure JSON for agent consumers.
+    assert "report file(s) staged" not in result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "succeeded"
 
 
 def test_verify_missing_config_takes_precedence_over_missing_base(
@@ -483,9 +596,6 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "### Human summary" in comment
     assert "### Agent instruction block" in comment
     assert "- Merge verdict: `blocked`" in comment
-    assert "- Agent decision: `block`" in comment
-    assert "Risk: `" in comment
-    assert "Audit ID: `sg_audit_" in comment
     assert "Summary: This PR adds a refund action without approval evidence" in comment
     assert "- Release gate: `blocked`" in comment
     assert "- Reason: test decision" in comment
@@ -570,9 +680,7 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
 
     assert "## Agents Shipgate" in comment
     assert "- Merge verdict: `human_review_required`" in comment
-    assert "- Agent decision: `require_review`" in comment
     assert "- Release gate: `review_required`" in comment
-    assert "- Agent decision: `review_required`" not in comment
     assert "- Reason: test decision" in comment
 
 
@@ -611,7 +719,6 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
 
     assert "## Agents Shipgate" in comment
     assert "- Merge verdict: `unknown`" in comment
-    assert "- Agent decision: `require_review`" in comment
     assert "## Agents Shipgate: mergeable" not in comment
     assert "Head scan did not produce a report" in comment
 

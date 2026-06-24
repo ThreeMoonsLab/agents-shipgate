@@ -53,26 +53,31 @@ name: Agents Shipgate
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
-  pull-requests: write   # only used when pr_comment: true; harmless otherwise
+  pull-requests: write   # required for pr_comment: "true"
+  # checks: write         # uncomment when enabling check_run: "true"
 
 jobs:
   shipgate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run Agents Shipgate
         uses: ThreeMoonsLab/agents-shipgate@{ref}
         with:
           config: shipgate.yaml
           ci_mode: advisory       # change to "strict" once findings are clean
+          diff_base: target
+          check_annotations: "true"
+          pr_comment: "true"
           # fail_on: critical,high
           # baseline: .agents-shipgate/baseline.json
-          # pr_comment: "true"
+          # check_run: "true"
+          # check_run_policy: require-mergeable
 """
 
 

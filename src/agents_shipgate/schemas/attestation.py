@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-ATTESTATION_SCHEMA_VERSION = "0.2"
+ATTESTATION_SCHEMA_VERSION = "0.4"
 
 
 class AttestationVerdictV1(BaseModel):
@@ -33,6 +33,20 @@ class AttestationHumanAckV1(BaseModel):
     required: bool = False
     satisfied: bool | None = None
     outstanding: list[str] = Field(default_factory=list)
+    acks: list[dict[str, str | None]] = Field(default_factory=list)
+
+
+class AttestationOrgContextV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_id: str | None = None
+    repo: str | None = None
+    service: str | None = None
+    tier: str | None = None
+    pr_number: str | None = None
+    workflow_run_id: str | None = None
+    actor: str | None = None
+    merge_sha: str | None = None
 
 
 class AttestationCapabilityLockBindingV1(BaseModel):
@@ -74,10 +88,18 @@ class ReleaseAttestationV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    attestation_schema_version: Literal["0.2"] = ATTESTATION_SCHEMA_VERSION
+    attestation_schema_version: Literal["0.4"] = ATTESTATION_SCHEMA_VERSION
     cli_version: str
+    org: AttestationOrgContextV1 = Field(default_factory=AttestationOrgContextV1)
     source_verifier: str
     redacted: bool = True
+    run_id: str | None = None
+    verify_run_sha256: str | None = None
+    event_time: str | None = None
+    source_url: str | None = None
+    branch: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
     base_ref: str | None = None
     head_ref: str | None = None
     base_tree_sha: str | None = None
@@ -89,6 +111,7 @@ class ReleaseAttestationV1(BaseModel):
     capability_diff: AttestationCapabilityDiffBindingV1 | None = None
     human_ack: AttestationHumanAckV1
     policy_snapshot_sha256: str | None = None
+    policy_packs: list[dict[str, str | int | None]] = Field(default_factory=list)
     artifact_sha256: dict[str, str] = Field(default_factory=dict)
 
 
@@ -103,6 +126,7 @@ __all__ = [
     "AttestationCapabilityLockBindingV1",
     "AttestationCapabilitySummaryV1",
     "AttestationHumanAckV1",
+    "AttestationOrgContextV1",
     "AttestationVerdictV1",
     "ReleaseAttestationArtifactV1",
     "ReleaseAttestationV1",

@@ -743,7 +743,7 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
         baseline_path=baseline_path,
     )
 
-    assert baseline.schema_version == "0.5"
+    assert baseline.schema_version == "0.6"
     assert baseline.tool_surface_facts is not None
     assert baseline.action_surface_facts is not None
     assert first_report.run_id == second_report.run_id
@@ -1327,3 +1327,97 @@ def test_scan_writes_no_suggested_inventory_when_confidence_is_high(tmp_path):
         packet_enabled=False,
     )
     assert not (tmp_path / "suggested-inventory.json").exists()
+
+
+def test_openapi_action_id_collision_degrades_instead_of_crashing(tmp_path):
+    """A valid third-party OpenAPI spec with two operations that normalize
+    to the same ``method + path`` must never crash a scan with a hard
+    Config error. Regression for the block/goose miner finding: two GET
+    operations on ``/sessions/{session_id}`` (one a trailing-slash variant)
+    collapsed to one ``action_id`` and hard-failed the duplicate-id guard.
+    Same fail-soft principle as the symlink-loop (#212) and MCP-as-tools
+    (#214) fixes: degrade to a source_warning, keep both operations.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    # Two GET operations whose paths normalize identically (the second has
+    # a trailing slash), each with a distinct operationId — exactly the
+    # shape goose's spec ships.
+    (project / "openapi.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Goose-like API
+  version: "1.0"
+paths:
+  /sessions/{session_id}:
+    get:
+      operationId: get_session
+      summary: Get a session.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: ok
+  /sessions/{session_id}/:
+    get:
+      operationId: get_session_detail
+      summary: Get a session detail.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: goose-collision
+agent:
+  name: goose-agent
+  declared_purpose:
+    - test action_id collision degradation
+environment:
+  target: local
+tool_sources:
+  - id: goose-api
+    type: openapi
+    path: openapi.yaml
+""",
+        encoding="utf-8",
+    )
+
+    # Must not raise ConfigError — the scan completes and returns a report.
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    # advisory mode never fails the build; in particular it is not the
+    # config-error exit code.
+    assert exit_code == 0
+    # Both operations survive as distinct actions (one disambiguated).
+    action_ids = {action.action_id for action in report.action_surface_facts.actions}
+    assert len(action_ids) == 2
+    assert {a.tool_name for a in report.action_surface_facts.actions} == {
+        "get_session",
+        "get_session_detail",
+    }
+    # The collision is surfaced as a source_warning (routes to
+    # review_required), not swallowed.
+    assert any(
+        "Duplicate action_surface action_id" in warning
+        for warning in report.source_warnings
+    ), f"Expected an action_id collision warning; got: {report.source_warnings}"

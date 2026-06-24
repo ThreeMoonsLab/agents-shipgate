@@ -33,15 +33,16 @@ class SeverityOverrideEntry(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     severity: Severity
+    owner: str | None = None
     reason: str | None = None
     # Optional ISO-8601 date. When present, the manifest loader rejects
     # the manifest after the date with a structured ``override_ack_expired``
     # config error. Allows time-bounded acceptance of weakened severity.
     expires: date | None = None
 
-    @field_validator("reason")
+    @field_validator("owner", "reason")
     @classmethod
-    def _strip_reason(cls, value: str | None) -> str | None:
+    def _strip_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()
@@ -61,6 +62,7 @@ class OverrideAcknowledgement(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     check_id: str
+    owner: str | None = None
     reason: str
     expires: date | None = None
 
@@ -71,3 +73,11 @@ class OverrideAcknowledgement(BaseModel):
         if not stripped:
             raise ValueError("acknowledge_overrides reason must be non-empty")
         return stripped
+
+    @field_validator("owner")
+    @classmethod
+    def _strip_owner(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None

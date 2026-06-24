@@ -870,6 +870,88 @@ def test_insufficient_evidence_outranks_auto_apply_in_first_action():
     assert "apply-patches" not in why or "does not clear" in why
 
 
+def test_review_required_below_threshold_outranks_auto_apply():
+    """Phase 2c regression: an active high finding elevates a
+    below-IE-threshold scan from insufficient_evidence to review_required.
+    The finding is auto-applicable, so the OLD code took the auto-apply
+    branch and emitted a runnable `apply-patches --apply` command — telling
+    a report-only consumer to "fix" a scan the gate already said it can't
+    trust. first_recommended_action must instead be the evidence/human
+    info action, exactly like the insufficient_evidence path."""
+    finding = _make_finding(
+        check_id="SHIP-SCOPE-TOOLKIT-UNBOUNDED",
+        severity="high",
+        agent_action="auto_apply",
+    )
+    reason = (
+        "1 finding need review and evidence coverage is incomplete."
+    )
+    decision = _make_release_decision(
+        decision="review_required",
+        review_items=["SHIP-SCOPE-TOOLKIT-UNBOUNDED"],
+        reason=reason,
+        evidence_human_review_recommended=True,
+    )
+    # 2 of 2 low-confidence tools → below the IE threshold (ceil(2*0.5)=1).
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=True,
+        source_warning_count=0,
+        low_confidence_tool_count=2,
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=decision,
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+        tool_count=2,
+    )
+    assert summary.verdict == "review_required"
+    assert summary.auto_appliable_patches == 1
+    assert summary.first_recommended_action is not None
+    # Must NOT propose a runnable apply-patches command.
+    assert summary.first_recommended_action.kind == "info"
+    assert summary.first_recommended_action.command is None
+    why = summary.first_recommended_action.why
+    assert "gather deeper evidence" in why
+    assert "apply-patches" not in why or "does not clear" in why
+    assert "human" in why.lower()
+
+
+def test_review_required_sub_threshold_evidence_keeps_auto_apply():
+    """Counterpart guard: the SAME auto-applicable high finding with only
+    sub-threshold evidence (2 low-confidence tools out of 10 → below the
+    ceil(10*0.5)=5 threshold) is NOT degraded. apply-patches stays the
+    first action (the scan is trustworthy enough to gate at
+    review_required); the escalation keys on the ratio, not severity."""
+    finding = _make_finding(
+        check_id="SHIP-SCOPE-TOOLKIT-UNBOUNDED",
+        severity="high",
+        agent_action="auto_apply",
+    )
+    decision = _make_release_decision(
+        decision="review_required",
+        review_items=["SHIP-SCOPE-TOOLKIT-UNBOUNDED"],
+        reason="1 finding requires review.",
+        evidence_human_review_recommended=True,
+    )
+    decision.evidence_coverage = EvidenceCoverageDecision(
+        level=decision.evidence_coverage.level,
+        human_review_recommended=True,
+        source_warning_count=0,
+        low_confidence_tool_count=2,
+    )
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=decision,
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+        tool_count=10,
+    )
+    assert summary.verdict == "review_required"
+    assert summary.first_recommended_action is not None
+    assert summary.first_recommended_action.kind == "command"
+    assert "apply-patches" in (summary.first_recommended_action.command or "")
+
+
 def test_build_agent_summary_insufficient_evidence_uses_reason_as_headline():
     """A `insufficient_evidence` verdict must NOT fall through to the
     "Release ready" else-branch. The headline should surface the

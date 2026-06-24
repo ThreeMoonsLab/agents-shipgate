@@ -1105,6 +1105,137 @@
       "title": "OpenAIApiConfig",
       "type": "object"
     },
+    "OrganizationAuditConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "registry": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Registry"
+        }
+      },
+      "title": "OrganizationAuditConfig",
+      "type": "object"
+    },
+    "OrganizationConfig": {
+      "additionalProperties": false,
+      "description": "Optional org metadata for local, deterministic governance workflows.",
+      "properties": {
+        "audit": {
+          "$ref": "#/$defs/OrganizationAuditConfig"
+        },
+        "exception_policy": {
+          "$ref": "#/$defs/OrganizationExceptionPolicyConfig"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repo"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        },
+        "teams": {
+          "additionalProperties": {
+            "$ref": "#/$defs/OrganizationTeamConfig"
+          },
+          "title": "Teams",
+          "type": "object"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "OrganizationConfig",
+      "type": "object"
+    },
+    "OrganizationExceptionPolicyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "max_age_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Age Days"
+        },
+        "require_expiry": {
+          "default": false,
+          "title": "Require Expiry",
+          "type": "boolean"
+        },
+        "require_owner": {
+          "default": false,
+          "title": "Require Owner",
+          "type": "boolean"
+        },
+        "require_reason": {
+          "default": false,
+          "title": "Require Reason",
+          "type": "boolean"
+        }
+      },
+      "title": "OrganizationExceptionPolicyConfig",
+      "type": "object"
+    },
+    "OrganizationTeamConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        }
+      },
+      "title": "OrganizationTeamConfig",
+      "type": "object"
+    },
     "OutputConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1152,6 +1283,18 @@
           ],
           "default": null,
           "title": "Expires"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
         },
         "reason": {
           "title": "Reason",
@@ -1292,6 +1435,18 @@
           ],
           "default": null,
           "title": "Sha256"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
         }
       },
       "required": [
@@ -1395,6 +1550,18 @@
           "default": null,
           "title": "Expires"
         },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
         "reason": {
           "anyOf": [
             {
@@ -1431,6 +1598,31 @@
         "check_id": {
           "title": "Check Id",
           "type": "string"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
         },
         "reason": {
           "title": "Reason",
@@ -1756,6 +1948,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/OpenAIApiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "organization": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OrganizationConfig"
         },
         {
           "type": "null"

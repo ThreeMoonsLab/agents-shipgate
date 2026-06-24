@@ -7,26 +7,58 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.agent_handoff import (
+    AGENT_HANDOFF_SCHEMA_PATH,
+    AGENT_HANDOFF_SCHEMA_VERSION,
+)
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
 )
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.host_grants import HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
+from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["3"] = "3"
+CONTRACT_VERSION: Literal["7"] = "7"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
+AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
+AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
+    "docs/agent-result-schema.v1.json"
+)
+AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
+    "decision",
+    "completion_allowed",
+    "must_stop",
+    "first_next_action",
+    "human_review",
+    "repair",
+    "policy",
+)
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
+    "agent_handoff",
     "preflight",
     "capability_lock",
     "capability_lock_diff",
     "capability_standard",
+    "attestation",
+    "registry",
+    "org_governance",
+    "org_evidence_bundle",
+    "host_grants_inventory",
     "governance_benchmark_catalog",
     "governance_benchmark_result",
 )
@@ -80,8 +112,39 @@ DEFAULT_PATHS: dict[str, str] = {
     "reports_dir": "agents-shipgate-reports",
     "local_contract": ".shipgate/agent-contract.json",
 }
+AGENT_INTERFACE_OPERATIONS: tuple[str, ...] = (
+    "verify_pr",
+    "verify_local",
+    "verify_preview",
+)
+EXIT_CODE_POLICY: dict[str, str] = {
+    "0": "command completed; inspect JSON verdict fields for release state",
+    "2": "configuration or CLI flag error",
+    "3": "input parse or missing artifact error",
+    "4": "other or internal error",
+    "6": "baseline integrity failure",
+    "20": "strict-mode gate failure or opt-in governance failure",
+}
+MCP_TOOLS: tuple[str, ...] = (
+    "shipgate.check",
+    "shipgate.preflight",
+    "shipgate.explain",
+    "shipgate.capabilities",
+    "shipgate.handoff",
+)
 COMMANDS: dict[str, str] = {
-    "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --json",
+    "agent_check_codex": (
+        "shipgate check --agent codex --workspace . --format codex-boundary-json"
+    ),
+    "agent_check_claude_code": (
+        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+    ),
+    "agent_check_cursor": (
+        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+    ),
+    "preflight": (
+        "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"
+    ),
     "preview": "agents-shipgate verify --preview --json",
     "install_agent_workflow": (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
@@ -93,15 +156,48 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
+    "agent_handoff": (
+        "agents-shipgate agent handoff --from "
+        "agents-shipgate-reports/verifier.json --json"
+    ),
+    "attest": (
+        "agents-shipgate attest --from agents-shipgate-reports/verifier.json "
+        "--out agents-shipgate-reports/attestation.json"
+    ),
+    "org_bundle": (
+        "agents-shipgate org bundle --config shipgate.yaml "
+        "--from agents-shipgate-reports/verifier.json "
+        "--out agents-shipgate-reports/org-evidence-bundle.json --json"
+    ),
+    "org_policy_packs": "agents-shipgate org policy-packs --config shipgate.yaml --json",
+    "registry_summary": "agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --json",
+    "registry_verify": "agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json",
+    "host_audit": (
+        "agents-shipgate audit --host --json --out "
+        "agents-shipgate-reports/host-grants.json"
+    ),
     "contract": "agents-shipgate contract --json",
 }
 ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
+    "verify_run": "agents-shipgate-reports/verify-run.json",
+    "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
-    "agent_result": "agents-shipgate-reports/agent-result.json",
     "packet": "agents-shipgate-reports/packet.json",
+    "attestation": "agents-shipgate-reports/attestation.json",
+    "org_evidence_bundle": "agents-shipgate-reports/org-evidence-bundle.json",
+    "host_grants": "agents-shipgate-reports/host-grants.json",
+    "org_status": "agents-shipgate-reports/org-status.json",
+    "registry": ".agents-shipgate/registry.jsonl",
 }
+AGENT_READ_ORDER: tuple[str, ...] = (
+    "agent-handoff.json",
+    "verifier.json.merge_verdict",
+    "verifier.json.agent_controller",
+    "verify-run.json",
+    "report.json.release_decision.decision",
+)
 VERIFIER_READ_ORDER: tuple[str, ...] = (
     "merge_verdict",
     "can_merge_without_human",
@@ -131,6 +227,7 @@ DO_NOT_AUTO_ASSERT: tuple[str, ...] = (
     "broad-scope",
     "prohibited-action",
     "runtime-trace",
+    "human-ack",
     "suppression",
     "waiver",
     "baseline",
@@ -148,18 +245,35 @@ class ContractPayload(BaseModel):
     cli_version: str
     report_schema_version: str
     packet_schema_version: str
+    verifier_schema_version: str
+    verify_run_schema_version: str
+    agent_handoff_schema_version: str
+    agent_handoff_schema_path: str
+    agent_handoff_artifact: str
+    codex_boundary_result_schema_version: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
     preflight_schema_version: str
     capability_standard_version: str
     governance_benchmark_catalog_schema_version: str
     governance_benchmark_result_schema_version: str
+    attestation_schema_version: str
+    registry_schema_version: str
+    org_evidence_bundle_schema_version: str
+    host_grants_inventory_schema_version: str
     external_integration_surfaces: list[str]
     gating_signal: str
+    agent_result_schema_version: str
+    agent_result_schema_path: str
+    agent_result_control_fields: list[str]
     manual_review_signals: list[str]
+    agent_interface_operations: list[str]
+    exit_code_policy: dict[str, str]
+    mcp_tools: list[str]
     commands: dict[str, str]
     default_paths: dict[str, str]
     artifacts: dict[str, str]
+    agent_read_order: list[str]
     verifier_read_order: list[str]
     merge_verdicts: list[str]
     release_decisions: list[str]
@@ -171,23 +285,41 @@ def build_contract_payload() -> ContractPayload:
 
     report_schema_version = ReadinessReport.model_fields["report_schema_version"].default
     packet_schema_version = EvidencePacket.model_fields["packet_schema_version"].default
+    verifier_schema_version = VerifierArtifact.model_fields["verifier_schema_version"].default
     return ContractPayload(
         contract_version=CONTRACT_VERSION,
         cli_version=__version__,
         report_schema_version=str(report_schema_version),
         packet_schema_version=str(packet_schema_version),
+        verifier_schema_version=str(verifier_schema_version),
+        verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
+        agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
+        agent_handoff_artifact=ARTIFACTS["agent_handoff"],
+        codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         governance_benchmark_catalog_schema_version=(GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION),
         governance_benchmark_result_schema_version=(GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION),
+        attestation_schema_version=ATTESTATION_SCHEMA_VERSION,
+        registry_schema_version=REGISTRY_SCHEMA_VERSION,
+        org_evidence_bundle_schema_version=ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        host_grants_inventory_schema_version=HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
+        agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
+        agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
+        agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
+        agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
+        exit_code_policy=dict(EXIT_CODE_POLICY),
+        mcp_tools=list(MCP_TOOLS),
         commands=dict(COMMANDS),
         default_paths=dict(DEFAULT_PATHS),
         artifacts=dict(ARTIFACTS),
+        agent_read_order=list(AGENT_READ_ORDER),
         verifier_read_order=list(VERIFIER_READ_ORDER),
         merge_verdicts=list(MERGE_VERDICTS),
         release_decisions=list(RELEASE_DECISIONS),
@@ -197,16 +329,31 @@ def build_contract_payload() -> ContractPayload:
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AGENT_RESULT_CONTROL_FIELDS",
+    "AGENT_RESULT_SCHEMA_PATH",
+    "AGENT_RESULT_SCHEMA_VERSION",
+    "AGENT_READ_ORDER",
+    "AGENT_HANDOFF_SCHEMA_PATH",
+    "AGENT_HANDOFF_SCHEMA_VERSION",
+    "AGENT_INTERFACE_OPERATIONS",
     "ARTIFACTS",
+    "ATTESTATION_SCHEMA_VERSION",
+    "CODEX_BOUNDARY_RESULT_SCHEMA_VERSION",
     "COMMANDS",
     "DEFAULT_PATHS",
     "DO_NOT_AUTO_ASSERT",
+    "EXIT_CODE_POLICY",
     "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
+    "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "MANUAL_REVIEW_SIGNALS",
     "MERGE_VERDICTS",
+    "MCP_TOOLS",
+    "ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION",
+    "REGISTRY_SCHEMA_VERSION",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",
+    "VERIFY_RUN_SCHEMA_VERSION",
     "VERIFIER_READ_ORDER",
     "ContractPayload",
     "build_contract_payload",

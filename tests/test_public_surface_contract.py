@@ -46,7 +46,10 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.host_grants import HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
+from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.triggers import evaluate, load_triggers
 
@@ -59,7 +62,7 @@ CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
@@ -76,14 +79,15 @@ CONTEXT_WINDOW = 400  # ~one paragraph; tight enough that the original
 # stale `.claude/commands/shipgate.md` (no legacy
 # marker for hundreds of chars) would still fail.
 
-ACTION_PIN_PATTERN = re.compile(r"ThreeMoonsLab/agents-shipgate@v(\d+\.\d+\.\d+)")
-PIP_PIN_PATTERN = re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)")
+VERSION_RE = r"\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?"
+ACTION_PIN_PATTERN = re.compile(rf"ThreeMoonsLab/agents-shipgate@v({VERSION_RE})")
+PIP_PIN_PATTERN = re.compile(rf"agents-shipgate==({VERSION_RE})")
 # Zero-install runner pin recommended by the agent-facing install
 # snippets: ``uvx agents-shipgate@X.Y.Z``. The ``@v`` GitHub Action form
 # is NOT matched (a digit must follow ``@``), nor is the ``==`` pip form,
 # so this guards the uvx literal specifically.
-UVX_PIN_PATTERN = re.compile(r"agents-shipgate@(\d+\.\d+\.\d+)")
-SHIPGATE_VERSION_INPUT_PATTERN = re.compile(r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]")
+UVX_PIN_PATTERN = re.compile(rf"agents-shipgate@({VERSION_RE})")
+SHIPGATE_VERSION_INPUT_PATTERN = re.compile(rf"shipgate_version:\s*['\"]({VERSION_RE})['\"]")
 # Surfaces that name the *latest released* version inline (not as an
 # Action / pip / shipgate_version pin) and must move with the package
 # version on every bump. Each entry is a (path, regex) pair where the
@@ -94,19 +98,19 @@ SHIPGATE_VERSION_INPUT_PATTERN = re.compile(r"shipgate_version:\s*['\"](\d+\.\d+
 VERSION_LITERAL_TARGETS = (
     (
         ".github/ISSUE_TEMPLATE/bug_report.yml",
-        re.compile(r"placeholder:\s*\"v(\d+\.\d+\.\d+)\""),
+        re.compile(rf"placeholder:\s*\"v({VERSION_RE})\""),
     ),
     (
         "docs/distribution.md",
-        re.compile(r"Pinned GitHub Action release tags[^\n]*?including\s+`v(\d+\.\d+\.\d+)`"),
+        re.compile(rf"Pinned GitHub Action release tags[^\n]*?including\s+`v({VERSION_RE})`"),
     ),
     (
         "docs/faq.md",
-        re.compile(r"v(\d+\.\d+\.\d+) is the latest released version"),
+        re.compile(rf"v({VERSION_RE}) is the current alpha contract version"),
     ),
     (
         "ROADMAP.md",
-        re.compile(r"Latest release:\s*`v(\d+\.\d+\.\d+)`"),
+        re.compile(rf"Latest release:\s*`v({VERSION_RE})`"),
     ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
@@ -328,6 +332,9 @@ def test_well_known_metadata_lists_packet_outputs():
         "capability_lock_diff_md",
         "feedback_json",
         "attestation_json",
+        "org_evidence_bundle_json",
+        "host_grants_json",
+        "org_status_json",
     ):
         assert expected in outputs, (
             f".well-known/agents-shipgate.json outputs missing {expected!r}; "
@@ -344,8 +351,33 @@ def test_well_known_metadata_lists_packet_outputs():
         "gating_signal: 'release_decision.decision' so coding agents "
         "don't fall back to summary.status."
     )
-    assert data.get("contract_version") == "3"
-    assert data.get("artifacts", {}).get("local_contract") == (".shipgate/agent-contract.json")
+    assert data.get("contract_version") == CONTRACT_VERSION
+    assert data.get("agent_result_schema_version") == contract["agent_result_schema_version"]
+    assert data.get("agent_result_schema_path") == contract["agent_result_schema_path"]
+    assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
+    assert data.get("verifier_schema_version") == contract["verifier_schema_version"]
+    assert data.get("verify_run_schema_version") == contract["verify_run_schema_version"]
+    assert data.get("agent_handoff_schema_version") == contract["agent_handoff_schema_version"]
+    assert data.get("agent_handoff_schema_path") == contract["agent_handoff_schema_path"]
+    assert data.get("agent_handoff_artifact") == contract["agent_handoff_artifact"]
+    assert data.get("codex_boundary_result_schema_version") == (
+        contract["codex_boundary_result_schema_version"]
+    )
+    assert data.get("agent_read_order") == contract["agent_read_order"]
+    assert data.get("verifier_read_order") == contract["verifier_read_order"]
+    assert data.get("agent_interface_operations") == contract["agent_interface_operations"]
+    assert data.get("exit_code_policy") == contract["exit_code_policy"]
+    assert data.get("mcp_tools") == contract["mcp_tools"]
+    commands = data.get("commands", {})
+    assert commands.get("agent_check_codex") == contract["commands"]["agent_check_codex"]
+    assert commands.get("agent_check_claude_code") == (
+        contract["commands"]["agent_check_claude_code"]
+    )
+    assert commands.get("agent_check_cursor") == contract["commands"]["agent_check_cursor"]
+    artifacts = data.get("artifacts", {})
+    assert artifacts.get("local_contract") == (".shipgate/agent-contract.json")
+    assert artifacts.get("verify_run") == contract["artifacts"]["verify_run"]
+    assert artifacts.get("agent_handoff") == contract["artifacts"]["agent_handoff"]
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (
         f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; got {report_url!r}."
@@ -379,6 +411,32 @@ def test_well_known_metadata_lists_packet_outputs():
         ".well-known schemas.attestation must point to the current "
         f"attestation schema; got {attestation_url!r}."
     )
+    assert data.get("attestation_schema_version") == contract["attestation_schema_version"]
+    assert data.get("registry_schema_version") == contract["registry_schema_version"]
+    assert data.get("org_evidence_bundle_schema_version") == (
+        contract["org_evidence_bundle_schema_version"]
+    )
+    assert data.get("host_grants_inventory_schema_version") == (
+        contract["host_grants_inventory_schema_version"]
+    )
+    registry_url = schemas.get("registry", "")
+    assert f"registry-schema.v{REGISTRY_SCHEMA_VERSION}.json" in registry_url, (
+        ".well-known schemas.registry must point to the current "
+        f"registry schema; got {registry_url!r}."
+    )
+    bundle_url = schemas.get("org_evidence_bundle", "")
+    assert "org-evidence-bundle-schema.v1.json" in bundle_url
+    assert data.get("org_evidence_bundle_schema_version") == (
+        ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
+    )
+    host_grants_url = schemas.get("host_grants_inventory", "")
+    assert (
+        f"host-grants-inventory-schema.v{HOST_GRANTS_INVENTORY_SCHEMA_VERSION}.json"
+        in host_grants_url
+    ), (
+        ".well-known schemas.host_grants_inventory must point to the current "
+        f"host grants schema; got {host_grants_url!r}."
+    )
     benchmark_catalog_url = schemas.get("governance_benchmark_catalog", "")
     assert (
         "governance-benchmark-catalog-schema."
@@ -394,6 +452,15 @@ def test_well_known_metadata_lists_packet_outputs():
     ), (
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
+    )
+    assert "verify_run" in schemas and "verify-run-schema.v1.json" in schemas["verify_run"]
+    assert (
+        "agent_handoff" in schemas
+        and "agent-handoff-schema.v1.json" in schemas["agent_handoff"]
+    )
+    assert (
+        "codex_boundary_result" in schemas
+        and "codex-boundary-result-schema.v1.json" in schemas["codex_boundary_result"]
     )
 
 
@@ -434,6 +501,9 @@ def test_agent_contract_current_doc_is_canonical():
     assert "commands" in text and "verifier_read_order" in text, (
         "docs/agent-contract-current.md must mention the runtime contract's "
         "agent-operational command/read-order fields."
+    )
+    assert "agent-handoff.json" in text and "agent_handoff_schema_version" in text, (
+        "docs/agent-contract-current.md must document the v6 agent handoff artifact."
     )
     assert "findings[].provenance_kind" in MANUAL_REVIEW_SIGNALS
     assert "agents-shipgate findings" in text, (
@@ -522,7 +592,7 @@ def test_constants_match_contract_doc():
     text = _read("docs/agent-contract-current.md")
     report_match = re.search(r"Current report schema:\s*`(\d+\.\d+)`", text)
     packet_match = re.search(r"Current packet schema:\s*`(\d+\.\d+)`", text)
-    release_match = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", text)
+    release_match = re.search(rf"Latest release:\s*`v({VERSION_RE})`", text)
     assert report_match, (
         "docs/agent-contract-current.md must declare 'Current report "
         "schema: `X.Y`' so the test constants can be cross-checked."
@@ -585,7 +655,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
     # llms.txt — both the "Latest public release" line and the
     # GitHub Action line must echo the package version.
     llms_text = _read("llms.txt")
-    llms_release = re.search(r"Latest public release:\s*v(\d+\.\d+\.\d+)", llms_text)
+    llms_release = re.search(rf"Latest public release:\s*v({VERSION_RE})", llms_text)
     assert llms_release, "llms.txt must declare 'Latest public release: vX.Y.Z'."
     assert llms_release.group(1) == expected, (
         f"llms.txt 'Latest public release' is "
@@ -602,7 +672,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
 
     # docs/agent-contract-current.md
     contract_text = _read("docs/agent-contract-current.md")
-    contract_release = re.search(r"Latest release:\s*`v(\d+\.\d+\.\d+)`", contract_text)
+    contract_release = re.search(rf"Latest release:\s*`v({VERSION_RE})`", contract_text)
     assert contract_release and contract_release.group(1) == expected, (
         f"docs/agent-contract-current.md 'Latest release' must be `v{expected}`."
     )
@@ -1286,6 +1356,8 @@ def test_well_known_links_to_agent_discovery_onramps():
 
     onramps = data.get("agent_onramps", {})
     expected_onramps = {
+        "index": "/docs/agents/README.md",
+        "protocol": "/docs/agents/protocol.md",
         "target_repo_snippets": "/docs/target-repo-agent-snippets.md",
         "codex": "/docs/agents/use-with-codex.md",
         "claude_code": "/docs/agents/use-with-claude-code.md",
@@ -1295,6 +1367,27 @@ def test_well_known_links_to_agent_discovery_onramps():
         url = onramps.get(key, "")
         assert url.startswith("https://"), f"agent_onramps.{key} must be an absolute HTTPS URL."
         assert url.endswith(suffix), f"agent_onramps.{key} must end with {suffix}; got {url!r}."
+
+
+def test_well_known_advertises_agent_feedback_loop():
+    """Coding agents need a safe outbound feedback path when a verifier
+    result is wrong, unclear, or incomplete. Pin the redacted export and
+    issue-template pointers so feedback does not depend on prose search."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+    feedback = data.get("feedback_loop", {})
+
+    assert "missed_capability" in feedback.get("when", [])
+    assert "unsafe_pass" in feedback.get("when", [])
+    assert feedback.get("export_command") == data["commands"]["feedback_export"]
+    assert "--redact" in feedback.get("export_command", "")
+    assert feedback.get("issue_template", "").endswith(
+        "/issues/new?template=agent_feedback.yml"
+    )
+    assert "shipgate-feedback.json" in feedback.get("attach", [])
+    forbidden = set(feedback.get("do_not_attach", []))
+    assert {"unredacted reports", "raw tool outputs", "secrets", "chain-of-thought"} <= (
+        forbidden
+    )
 
 
 def test_well_known_seo_geo_positioning_fields_are_pinned():
@@ -1351,6 +1444,17 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert commands.get("install_ai_coding_workflow") == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
+    assert data.get("check_run_policies") == [
+        "advisory",
+        "blocked-fails",
+        "require-mergeable",
+    ]
+    assert (
+        data.get("github_action_pr_workflow", {})
+        .get("recommended_inputs", {})
+        .get("diff_base")
+        == "target"
+    )
     assert "feedback export" in commands.get("feedback_export", "")
     assert data.get("fixture_run") == "agents-shipgate fixture run ai_generated_refund_pr"
     assert data.get("static_scan_fixture_run") == (
@@ -1358,11 +1462,11 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     )
     assert data.get("verifier_read_order", [])[:6] == [
         "merge_verdict",
-        "applicability",
-        "agent_controller",
         "can_merge_without_human",
         "first_next_action",
         "fix_task",
+        "capability_review.top_changes",
+        "agent_controller",
     ]
     assert data.get("supporting_provisional_surfaces", []) == [
         "agent_result",
@@ -1735,7 +1839,7 @@ def test_self_dogfood_manifest_scans_codex_plugin_package() -> None:
     workflow = _read(".github/workflows/agents-shipgate-self.yml")
     assert "config: shipgate-self.yaml" in workflow
     assert "verify_mode: verify" in workflow
-    assert "fail_on_decisions: block" in workflow
+    assert "fail_on_merge_verdicts: blocked" in workflow
 
 
 def test_pre_commit_local_docs_show_same_path_trigger_clauses():

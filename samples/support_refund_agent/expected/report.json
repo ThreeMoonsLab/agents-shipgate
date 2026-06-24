@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.26",
-  "run_id": "agents_shipgate_ebb71d7248235cc3",
+  "report_schema_version": "0.27",
+  "run_id": "agents_shipgate_33cced54c422d1e8",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -1717,7 +1717,7 @@
       {
         "kind": "suppression",
         "key": "SHIP-SCHEMA-BROAD-FREE-TEXT:support.search_kb",
-        "value_hash": "e18375f35e6bf45d",
+        "value_hash": "b579fdfa54a957f7",
         "summary": "Search query intentionally accepts free text."
       }
     ]
@@ -1774,6 +1774,13 @@
         "provider": "support_mcp_tools",
         "source_type": "mcp",
         "source_id": "support_mcp_tools",
+        "source_ref": ".agents-shipgate/mcp-tools.json",
+        "source_location": null,
+        "source_path": ".agents-shipgate/mcp-tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/1",
         "operation": "gmail.send_customer_email",
         "effect": "financial_write",
         "risk_tags": [
@@ -1808,10 +1815,10 @@
           "recipient",
           "subject"
         ],
-        "input_schema_hash": "8c76077daf4af98a",
+        "input_schema_hash": "a118ab43d7a42fa2",
         "hashes": {
           "identity_hash": "4aabad739fef9222",
-          "schema_hash": "8c76077daf4af98a",
+          "schema_hash": "a118ab43d7a42fa2",
           "policy_hash": "e2f65f5729883cf7",
           "risk_hash": "d4eb9a132648a203"
         }
@@ -1824,6 +1831,13 @@
         "provider": "support_mcp_tools",
         "source_type": "mcp",
         "source_id": "support_mcp_tools",
+        "source_ref": ".agents-shipgate/mcp-tools.json",
+        "source_location": null,
+        "source_path": ".agents-shipgate/mcp-tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/0",
         "operation": "support.search_kb",
         "effect": "financial_write",
         "risk_tags": [
@@ -1854,10 +1868,10 @@
         "required_input_fields": [
           "query"
         ],
-        "input_schema_hash": "d18dae577323051e",
+        "input_schema_hash": "a04fa83b2b4e95b6",
         "hashes": {
           "identity_hash": "1b2ecaa86e8be96b",
-          "schema_hash": "d18dae577323051e",
+          "schema_hash": "a04fa83b2b4e95b6",
           "policy_hash": "1e20e61c1e17120f",
           "risk_hash": "05c2a00c8cf607ea"
         }
@@ -1870,6 +1884,13 @@
         "provider": "wildcard_mcp_tools",
         "source_type": "mcp",
         "source_id": "wildcard_mcp_tools",
+        "source_ref": ".agents-shipgate/wildcard-tools.json",
+        "source_location": null,
+        "source_path": ".agents-shipgate/wildcard-tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/wildcard",
         "operation": "wildcard_mcp_tools.*",
         "effect": "read",
         "risk_tags": [],
@@ -1891,10 +1912,10 @@
         },
         "input_fields": [],
         "required_input_fields": [],
-        "input_schema_hash": "107c0ed314a0d6ff",
+        "input_schema_hash": "28cc233c2ea84993",
         "hashes": {
           "identity_hash": "287678bdd479304a",
-          "schema_hash": "107c0ed314a0d6ff",
+          "schema_hash": "28cc233c2ea84993",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "4b93b7ea9c7e351c"
         }
@@ -1907,6 +1928,13 @@
         "provider": "support_openapi",
         "source_type": "openapi",
         "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+        "source_location": null,
+        "source_path": "specs/support-tools.openapi.yaml",
+        "source_start_line": 72,
+        "source_end_line": null,
+        "source_start_column": 5,
+        "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
         "operation": "GET /refunds/{payment_id}/status",
         "effect": "read",
         "risk_tags": [
@@ -1934,10 +1962,10 @@
         "required_input_fields": [
           "payment_id"
         ],
-        "input_schema_hash": "292a2a079de3cd2d",
+        "input_schema_hash": "fd8a8d06f055b0bb",
         "hashes": {
           "identity_hash": "83764018fe1c1489",
-          "schema_hash": "292a2a079de3cd2d",
+          "schema_hash": "fd8a8d06f055b0bb",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
         }
@@ -1950,6 +1978,13 @@
         "provider": "support_openapi",
         "source_type": "openapi",
         "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
+        "source_location": null,
+        "source_path": "specs/support-tools.openapi.yaml",
+        "source_start_line": 142,
+        "source_end_line": null,
+        "source_start_column": 5,
+        "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
         "operation": "PATCH /tickets/{ticket_id}",
         "effect": "write",
         "risk_tags": [
@@ -1981,10 +2016,10 @@
           "ticket_id",
           "updates"
         ],
-        "input_schema_hash": "dbf925d266a30cf8",
+        "input_schema_hash": "9c69a8dd3914e45a",
         "hashes": {
           "identity_hash": "7c0056d5cbf14a55",
-          "schema_hash": "dbf925d266a30cf8",
+          "schema_hash": "9c69a8dd3914e45a",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "2cb95edd8a482599"
         }
@@ -1997,6 +2032,13 @@
         "provider": "support_openapi",
         "source_type": "openapi",
         "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
+        "source_location": null,
+        "source_path": "specs/support-tools.openapi.yaml",
+        "source_start_line": 116,
+        "source_end_line": null,
+        "source_start_column": 5,
+        "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
         "operation": "POST /orders/{order_id}/cancel",
         "effect": "destructive",
         "risk_tags": [
@@ -2029,10 +2071,10 @@
           "order_id",
           "reason"
         ],
-        "input_schema_hash": "4911286cfee6035f",
+        "input_schema_hash": "e48b6ae3cf620cd2",
         "hashes": {
           "identity_hash": "36c4e5462388903d",
-          "schema_hash": "4911286cfee6035f",
+          "schema_hash": "e48b6ae3cf620cd2",
           "policy_hash": "c96258eea5f54acc",
           "risk_hash": "32374998992b2880"
         }
@@ -2045,6 +2087,13 @@
         "provider": "support_openapi",
         "source_type": "openapi",
         "source_id": "support_openapi",
+        "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+        "source_location": null,
+        "source_path": "specs/support-tools.openapi.yaml",
+        "source_start_line": 97,
+        "source_end_line": null,
+        "source_start_column": 5,
+        "source_pointer": "/paths/~1refunds/post",
         "operation": "POST /refunds",
         "effect": "financial_write",
         "risk_tags": [
@@ -2080,10 +2129,10 @@
           "currency",
           "payment_id"
         ],
-        "input_schema_hash": "81d9efbadca5ea8c",
+        "input_schema_hash": "ebf694161d251213",
         "hashes": {
           "identity_hash": "d39fafff8a4904e0",
-          "schema_hash": "81d9efbadca5ea8c",
+          "schema_hash": "ebf694161d251213",
           "policy_hash": "f912d8866f75d017",
           "risk_hash": "e8d98d8ba9e58c3f"
         }
@@ -2096,6 +2145,13 @@
         "provider": "openai_sdk_static",
         "source_type": "sdk_function",
         "source_id": "openai_sdk_static",
+        "source_ref": "agents/refund_agent.py",
+        "source_location": "agents/refund_agent.py:5",
+        "source_path": null,
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": null,
         "operation": "send_email_preview",
         "effect": "external_communication",
         "risk_tags": [
@@ -2128,10 +2184,10 @@
           "recipient",
           "subject"
         ],
-        "input_schema_hash": "bffb98e13492ed24",
+        "input_schema_hash": "a118ab43d7a42fa2",
         "hashes": {
           "identity_hash": "80e079dee96c23c3",
-          "schema_hash": "bffb98e13492ed24",
+          "schema_hash": "a118ab43d7a42fa2",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "ea7fc5b0104ac208"
         }
@@ -3259,8 +3315,8 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmplpw9nygt/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

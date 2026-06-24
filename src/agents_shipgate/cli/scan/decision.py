@@ -58,10 +58,12 @@ def _run_checks_and_decide(
     derived from sanitized tools. Mutating ``reason`` here would leak
     ``path:line`` into ``Finding.evidence``, churning fingerprints.
     """
+    action_surface_warnings: list[str] = []
     action_surface_facts = build_action_surface_facts(
         manifest,
         agent_id=tools_and_agent.agent.id,
         tools=tools_and_agent.tools,
+        warnings=action_surface_warnings,
     )
     capability_facts, capability_policy_subjects = build_capability_policy_subjects(
         manifest,
@@ -167,6 +169,7 @@ def _run_checks_and_decide(
     return _ChecksDecision(
         action_surface_facts=action_surface_facts,
         action_surface_diff=action_surface_diff,
+        action_surface_warnings=action_surface_warnings,
         findings=findings,
         legacy_fingerprints=legacy_fingerprints,
         override_resolution=override_resolution,

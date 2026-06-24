@@ -2,7 +2,7 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-**Latest release: `v0.13.0`** — the **agent-native protocol** cycle.
+**Latest release: `v1.0.0a1`** — the **agent-native contract cleanup** cycle.
 
 ## What Agents Shipgate is
 

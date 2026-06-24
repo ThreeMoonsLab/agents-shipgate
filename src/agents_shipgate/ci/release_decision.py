@@ -25,13 +25,40 @@ from agents_shipgate.schemas.report import (
 
 # Thresholds for the `insufficient_evidence` decision state. Private
 # module-level constants so they're tunable in code without expanding
-# the manifest or CLI surface.
+# the manifest or CLI surface. Examined and deliberately HELD at these
+# values: see benchmark/miner/CALIBRATION.md — the available corpora cannot
+# justify a change (the real corpus is unlabeled; the labeled constructed set
+# has a single threshold-exercising point at the robust extreme). Editing
+# either constant fails test_ie_threshold_constants_are_frozen
+# (tests/test_release_decision.py), so a change is a deliberate recalibration
+# that must update CALIBRATION.md too. Recalibrate only after the human
+# labeling pass + a re-mine (prerequisites in that doc).
 _LOW_CONFIDENCE_TOOL_RATIO = 0.5
 _MAX_TOLERATED_SOURCE_WARNINGS = 3
 
 
 def _low_confidence_tool_threshold(tool_count: int) -> int:
     return max(1, math.ceil(tool_count * _LOW_CONFIDENCE_TOOL_RATIO))
+
+
+def evidence_below_ie_threshold(
+    evidence: EvidenceCoverageDecision, *, tool_count: int
+) -> bool:
+    """True when extraction evidence is too weak to gate release on its own.
+
+    This is the exact predicate `build_release_decision` uses to raise the
+    `insufficient_evidence` verdict, exposed so downstream projections can
+    reason about it directly. An active high/critical review finding *elevates*
+    such a case to `review_required` (a more actionable verdict), so the verdict
+    label alone no longer tells a consumer whether evidence was degraded — the
+    verify fix_task authority routing needs this predicate to keep
+    degraded-evidence cases human-routed regardless of which of the two
+    non-mergeable verdicts they landed on.
+    """
+    return (
+        evidence.low_confidence_tool_count >= _low_confidence_tool_threshold(tool_count)
+        or evidence.source_warning_count > _MAX_TOLERATED_SOURCE_WARNINGS
+    )
 
 
 def build_release_decision(
@@ -55,6 +82,11 @@ def build_release_decision(
     review_items: list[ReleaseDecisionItem] = []
     contribution_rules: list[ContributionRule] = []
     blocker_severities: set[Severity] = {"critical", *fail_on_resolved}
+    # Phase 2c: an active (non-accepted) high/critical finding routed to
+    # review is a *named* concern — the gate has decided "a human must look",
+    # which is more specific than "insufficient_evidence". Tracked here so the
+    # decision can prefer review_required over IE when one exists (see below).
+    has_active_high_review = False
 
     # v0.17: iterate the FULL findings list (not just `active`) so the
     # audit row set is exhaustive over report.findings. The branching
@@ -121,6 +153,11 @@ def build_release_decision(
             or finding.requires_human_review is True
         ):
             review_items.append(_to_item(finding))
+            if (
+                finding.severity in {"critical", "high"}
+                and finding.baseline_status != "matched"
+            ):
+                has_active_high_review = True
             contribution_rules.append(
                 _rule(
                     finding,
@@ -178,15 +215,25 @@ def build_release_decision(
         exit_code=exit_code,
     )
 
-    low_confidence_threshold = _low_confidence_tool_threshold(len(tools))
+    evidence_is_degraded = evidence_below_ie_threshold(evidence, tool_count=len(tools))
 
     decision: ReleaseDecisionStatus
     if blockers:
         decision = "blocked"
-    elif (
-        evidence.low_confidence_tool_count >= low_confidence_threshold
-        or evidence.source_warning_count > _MAX_TOLERATED_SOURCE_WARNINGS
-    ):
+    elif has_active_high_review:
+        # Phase 2c: a named, active high/critical concern (e.g. an unbounded
+        # toolkit mounted on the agent) is not "insufficient evidence" — the
+        # gate HAS something concrete for a human to review. Prefer the
+        # actionable review_required over the vaguer insufficient_evidence.
+        # Both are equally non-auto-mergeable (can_merge_without_human=False),
+        # so this loses no safety; the low-confidence detail is still carried
+        # in evidence_coverage.evidence_gaps. IE stays the verdict when the
+        # only signal is weak evidence with no named high concern. NOTE: when
+        # evidence is *also* degraded here, the verify fix_task still routes to
+        # a human via evidence_below_ie_threshold (the same predicate), so the
+        # elevation never opens an auto-fix path on weak evidence.
+        decision = "review_required"
+    elif evidence_is_degraded:
         decision = "insufficient_evidence"
     elif (
         review_items

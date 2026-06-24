@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.26",
-  "run_id": "agents_shipgate_75f9c3e73779b880",
+  "report_schema_version": "0.27",
+  "run_id": "agents_shipgate_def9be4e0968c3e8",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
@@ -295,6 +295,13 @@
         "provider": "crewai_agent",
         "source_type": "crewai_class_tool",
         "source_id": "crewai_agent",
+        "source_ref": "crew.py",
+        "source_location": "crew.py:19",
+        "source_path": null,
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": null,
         "operation": "lookup_case",
         "effect": "read",
         "risk_tags": [
@@ -322,10 +329,10 @@
         "required_input_fields": [
           "case_id"
         ],
-        "input_schema_hash": "0450bcd1cf172724",
+        "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
           "identity_hash": "206874534cba0d0d",
-          "schema_hash": "0450bcd1cf172724",
+          "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
         }
@@ -338,6 +345,13 @@
         "provider": "crewai_agent",
         "source_type": "crewai_function",
         "source_id": "crewai_agent",
+        "source_ref": "crew.py",
+        "source_location": "crew.py:14",
+        "source_path": null,
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": null,
         "operation": "summarize_case",
         "effect": "read",
         "risk_tags": [],
@@ -363,10 +377,10 @@
         "required_input_fields": [
           "case_id"
         ],
-        "input_schema_hash": "2bc19305cad6af32",
+        "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
           "identity_hash": "ff8f369285481a85",
-          "schema_hash": "2bc19305cad6af32",
+          "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "4b93b7ea9c7e351c"
         }
@@ -379,6 +393,13 @@
         "provider": "crewai_agent",
         "source_type": "crewai_prebuilt_tool",
         "source_id": "crewai_agent",
+        "source_ref": "crew.py",
+        "source_location": "crew.py:28",
+        "source_path": null,
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": null,
         "operation": "FileReadTool",
         "effect": "read",
         "risk_tags": [],
@@ -400,10 +421,10 @@
         },
         "input_fields": [],
         "required_input_fields": [],
-        "input_schema_hash": "107c0ed314a0d6ff",
+        "input_schema_hash": "28cc233c2ea84993",
         "hashes": {
           "identity_hash": "264e9266ba5528e7",
-          "schema_hash": "107c0ed314a0d6ff",
+          "schema_hash": "28cc233c2ea84993",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "4b93b7ea9c7e351c"
         }
@@ -476,8 +497,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp70nn3lo_/report.md",
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp70nn3lo_/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],

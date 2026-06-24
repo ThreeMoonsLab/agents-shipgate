@@ -12,8 +12,8 @@ from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "codex_boundary"
-GOLDEN = ROOT / "tests" / "golden" / "agent_result"
-SCHEMA = ROOT / "docs" / "agent-result-schema.v1.json"
+GOLDEN = ROOT / "tests" / "golden" / "codex_boundary_result"
+SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v1.json"
 
 runner = CliRunner()
 
@@ -33,7 +33,7 @@ CASES = {
 }
 
 
-def test_codex_check_agent_json_golden_outputs(tmp_path: Path) -> None:
+def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
     validator = Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
     for case, (decision, rule_ids) in CASES.items():
         result = runner.invoke(
@@ -45,7 +45,7 @@ def test_codex_check_agent_json_golden_outputs(tmp_path: Path) -> None:
                 "--diff",
                 str(CORPUS / f"{case}.diff"),
                 "--format",
-                "agent-json",
+                "codex-boundary-json",
             ],
         )
 
@@ -66,7 +66,7 @@ def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
         "--diff",
         str(CORPUS / "network_wildcard.diff"),
         "--format",
-        "agent-json",
+        "codex-boundary-json",
     ]
     first = json.loads(runner.invoke(app, args).output)
     second = json.loads(runner.invoke(app, args).output)
@@ -246,6 +246,275 @@ def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> 
     assert result.decision == "allow"
 
 
+# --- Undeclared coverage gap: a changed file IS a tool surface but the --------
+# manifest does not declare it (or there is no manifest). verify only gates
+# declared surfaces, so route to declare-then-verify (detect) rather than a
+# clean allow or a verify that never scans it.
+
+# A second changed file that is an *undeclared* tool surface (an OpenAPI spec),
+# used to exercise mixed declared+undeclared diffs (review finding P1).
+_MIXED_TOOL_SOURCE_DIFF = _TOOL_SOURCE_DIFF + (
+    "diff --git a/api/openapi.yaml b/api/openapi.yaml\n"
+    "--- a/api/openapi.yaml\n"
+    "+++ b/api/openapi.yaml\n"
+    "@@ -1 +1,2 @@\n"
+    " openapi: 3.0.0\n"
+    "+paths: {}\n"
+)
+
+
+def test_undeclared_surface_warns_and_routes_to_detect(tmp_path: Path) -> None:
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        undeclared_capability_surfaces=["mcp-tools.json"],
+    )
+    payload = result.model_dump(mode="json", exclude_none=True)
+    _validate(payload)
+    # Was a bare allow before the fix; now a warn that routes to detect/declare.
+    assert payload["decision"] == "warn"
+    assert payload["completion_allowed"] is True
+    assert payload["must_stop"] is False
+    assert payload["first_next_action"]["kind"] == "warn"
+    assert payload["first_next_action"]["command"].startswith("agents-shipgate detect")
+    assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
+    assert any(t["step"] == "coverage" for t in payload["trace"])
+    assert payload["suggested_fixes"][0].startswith("agents-shipgate detect")
+    assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
+
+
+def test_mixed_declared_and_undeclared_routes_to_detect(tmp_path: Path) -> None:
+    # Review finding P1: a diff that changes BOTH a declared surface (verify
+    # gates it) and an undeclared one (verify does not) must route to detect —
+    # declare-then-verify — not a verify that silently misses the undeclared
+    # surface. Undeclared takes precedence over the declared coverage gap.
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_MIXED_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        capability_surfaces_changed=["mcp-tools.json"],
+        undeclared_capability_surfaces=["api/openapi.yaml"],
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
+    assert "api/openapi.yaml" in diag["message"]
+
+
+def test_no_manifest_capability_add_via_check_warns_and_routes_to_detect(
+    tmp_path: Path,
+) -> None:
+    # End-to-end: empty workspace (no shipgate.yaml). build_codex_agent_result
+    # classifies mcp-tools.json as an undeclared tool surface.
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+
+
+def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other(
+    tmp_path: Path,
+) -> None:
+    # Manifest exists but declares a *different* tool source than the changed
+    # file. The declared-coverage path does not match, so the undeclared path
+    # must catch it (and route to detect, not a verify that never scans it).
+    _write_manifest(
+        tmp_path,
+        "  - id: other\n    type: mcp\n    path: other-tools.json\n    trust: internal\n",
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
+
+
+def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
+    tmp_path: Path,
+) -> None:
+    # Review finding P1, end-to-end through build_codex_agent_result: manifest
+    # declares mcp-tools.json; the diff also adds an undeclared OpenAPI spec.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_MIXED_TOOL_SOURCE_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "warn"
+    assert result.first_next_action.command.startswith("agents-shipgate detect")
+    payload = result.model_dump(mode="json", exclude_none=True)
+    diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
+    assert "api/openapi.yaml" in diag["message"]
+
+
+def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
+    # Review finding P2: editing shipgate.yaml in an opted-in repo fires a
+    # run_shipgate trigger rule (TRIGGER-SHIPGATE-MANIFEST) but is NOT a
+    # declarable tool source, so it must not be reported as an undeclared
+    # surface routed to detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/shipgate.yaml b/shipgate.yaml\n"
+        "--- a/shipgate.yaml\n"
+        "+++ b/shipgate.yaml\n"
+        "@@ -1 +1,2 @@\n"
+        ' version: "0.1"\n'
+        "+# touch\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert not any(
+        d["code"] == "undeclared_capability_surface" for d in payload.get("diagnostics", [])
+    )
+
+
+def test_prompts_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
+    # Review finding P2: a prompts/ edit fires TRIGGER-PROMPTS-OR-POLICIES but
+    # is not a declarable tool source — no undeclared-surface warn / detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/prompts/system.md b/prompts/system.md\n"
+        "--- a/prompts/system.md\n"
+        "+++ b/prompts/system.md\n"
+        "@@ -1 +1,2 @@\n"
+        " You are helpful.\n"
+        "+Be concise.\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
+def test_docs_file_mentioning_tool_decorator_is_not_undeclared_surface(
+    tmp_path: Path,
+) -> None:
+    # Review finding: a docs file that incidentally mentions @tool matches the
+    # FUNCTION-TOOL-DECORATOR rule but ALSO TRIGGER-DOCS-ONLY-NEGATIVE, which
+    # wins — the catalog skips it, so it must not be flagged as an undeclared
+    # tool surface routed to detect.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " # Docs\n"
+        "+Use the @tool / @function_tool decorator to register a tool.\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert not any(
+        d["code"] == "undeclared_capability_surface" for d in payload.get("diagnostics", [])
+    )
+
+
+def test_test_file_mentioning_tool_decorator_is_not_undeclared_surface(
+    tmp_path: Path,
+) -> None:
+    # Same property for a tests/ file: docs-only-negative covers tests/**.
+    _write_manifest(
+        tmp_path,
+        "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
+    )
+    diff = (
+        "diff --git a/tests/test_docs.py b/tests/test_docs.py\n"
+        "--- a/tests/test_docs.py\n"
+        "+++ b/tests/test_docs.py\n"
+        "@@ -1 +1,2 @@\n"
+        " def test_x():\n"
+        "+    # documents the @function_tool example\n"
+    )
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+    assert result.decision == "allow"
+
+
+def test_undeclared_gap_never_downgrades_a_block(tmp_path: Path) -> None:
+    # A real boundary block plus an undeclared surface must stay blocked.
+    block_diff = (CORPUS / "mcp_auto_approve_write.diff").read_text(encoding="utf-8")
+    result = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=block_diff,
+        agent="claude-code",
+        undeclared_capability_surfaces=["mcp-tools.json"],
+    )
+    assert result.decision == "block"
+
+
+def test_undeclared_gap_inactive_without_signal_or_when_release_decision_present(
+    tmp_path: Path,
+) -> None:
+    # No undeclared surfaces supplied (bare call) preserves the clean allow.
+    no_signal = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+    )
+    assert no_signal.decision == "allow"
+
+    # A supplied release_decision means the full scan already ran; the
+    # projection governs and the boundary-only heuristic stays out of it.
+    scanned = evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=_TOOL_SOURCE_DIFF,
+        agent="claude-code",
+        undeclared_capability_surfaces=["mcp-tools.json"],
+        release_decision={"decision": "passed", "reason": "clean"},
+    )
+    assert scanned.decision == "allow"
+
+
 def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
     diff_text = (CORPUS / "docs_only.diff").read_text(encoding="utf-8")
     result = runner.invoke(
@@ -257,7 +526,7 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
             "--diff",
             "-",
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
         input=diff_text,
     )
@@ -277,12 +546,19 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
             "--head",
             "HEAD",
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
-    assert result.exit_code == 2
-    assert "--base and --head must be provided together" in result.stderr
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
+    assert payload["decision"] == "block"
+    assert payload["completion_allowed"] is False
+    assert payload["first_next_action"]["actor"] == "coding_agent"
+    assert payload["first_next_action"]["kind"] == "repair"
+    assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+    assert payload["exit_code_hint"] == 2
 
 
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:
@@ -295,7 +571,7 @@ def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) ->
             "--diff",
             str(CORPUS / "malformed_toml.diff"),
             "--format",
-            "agent-json",
+            "codex-boundary-json",
         ],
     )
 
@@ -619,7 +895,7 @@ index 1111111..2222222 100644
 @@ -7,2 +7,3 @@
            config: shipgate.yaml
            ci_mode: advisory
-+          fail_on_decisions: block
++          fail_on_merge_verdicts: blocked
 """
 
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
@@ -780,7 +1056,7 @@ index 1111111..2222222 100644
     assert [item.id for item in result.violated_rules] == ["CODEX-NETWORK-EXPANDED"]
 
 
-def test_agent_result_never_contradicts_release_decision(tmp_path: Path) -> None:
+def test_codex_boundary_result_never_contradicts_release_decision(tmp_path: Path) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=(CORPUS / "docs_only.diff").read_text(encoding="utf-8"),

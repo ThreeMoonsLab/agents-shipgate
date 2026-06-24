@@ -83,6 +83,12 @@ for discovery metadata, [`../llms.txt`](../llms.txt) for the short index,
 a scan, parse `agents-shipgate-reports/report.json` and use
 `release_decision.decision` as the release gating signal.
 
+The compact agent entry point is [`agents/README.md`](agents/README.md), and
+the normative local control protocol is [`agents/protocol.md`](agents/protocol.md).
+Per-agent guides cover [Codex](agents/use-with-codex.md),
+[Claude Code](agents/use-with-claude-code.md), and
+[Cursor](agents/use-with-cursor.md).
+
 In discovery metadata, `positioning.not_for[]` uses snake_case enum-like values
 for stable machine matching. `recommended_github_topics[]` uses GitHub topic
 slug format, so those values are kebab-case.
@@ -91,6 +97,22 @@ For downstream repos, the copyable agent instructions live in
 [`target-repo-agent-snippets.md`](target-repo-agent-snippets.md), with
 agent-specific guides for [Claude Code](agents/use-with-claude-code.md),
 [Codex](agents/use-with-codex.md), and [Cursor](agents/use-with-cursor.md).
+
+## Feedback from coding agents
+
+When a coding-agent run finds a false positive, missed capability, unsafe pass,
+confusing next action, stale-install loop, or adapter gap, export a redacted
+feedback artifact before opening an issue:
+
+```bash
+agents-shipgate feedback export --from agents-shipgate-reports/verifier.json \
+  --redact --out shipgate-feedback.json
+```
+
+Use the [agent feedback issue template](https://github.com/ThreeMoonsLab/agents-shipgate/issues/new?template=agent_feedback.yml).
+Attach `shipgate-feedback.json` plus the smallest safe manifest or tool-source
+snippet. Do not attach unredacted reports, raw tool outputs, secrets, customer
+data, or chain-of-thought.
 
 ## What it is not
 
@@ -137,6 +159,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.26.json`](report-schema.v0.26.json) (v0.25 frozen at [`report-schema.v0.25.json`](report-schema.v0.25.json), v0.24 frozen at [`report-schema.v0.24.json`](report-schema.v0.24.json), v0.23 frozen at [`report-schema.v0.23.json`](report-schema.v0.23.json), v0.22 frozen at [`report-schema.v0.22.json`](report-schema.v0.22.json))
+- Report schema (current): [`report-schema.v0.27.json`](report-schema.v0.27.json) (v0.26 frozen at [`report-schema.v0.26.json`](report-schema.v0.26.json), v0.25 frozen at [`report-schema.v0.25.json`](report-schema.v0.25.json), v0.24 frozen at [`report-schema.v0.24.json`](report-schema.v0.24.json), v0.23 frozen at [`report-schema.v0.23.json`](report-schema.v0.23.json), v0.22 frozen at [`report-schema.v0.22.json`](report-schema.v0.22.json))
 - Packet schema (current): [`packet-schema.v0.7.json`](packet-schema.v0.7.json) (v0.6 frozen at [`packet-schema.v0.6.json`](packet-schema.v0.6.json))
 - Check catalog: [`checks.json`](checks.json)

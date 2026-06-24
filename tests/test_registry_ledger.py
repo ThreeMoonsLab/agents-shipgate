@@ -6,6 +6,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.registry import _row_id
+from agents_shipgate.schemas.registry import RegistryRowV1
 
 runner = CliRunner()
 
@@ -13,7 +15,7 @@ runner = CliRunner()
 def _attestation(verdict: str = "blocked", change_ids: list[str] | None = None) -> dict:
     return {
         "attestation_schema_version": "0.1",
-        "cli_version": "0.13.0",
+        "cli_version": "1.0.0a1",
         "source_verifier": "agents-shipgate-reports/verifier.json",
         "redacted": True,
         "base_ref": "origin/main",
@@ -39,6 +41,59 @@ def _attestation(verdict: str = "blocked", change_ids: list[str] | None = None) 
         "policy_snapshot_sha256": "c" * 64,
         "artifact_sha256": {"verifier_json": "d" * 64},
     }
+
+
+def _attestation_v03(
+    verdict: str = "blocked",
+    *,
+    repo: str = "org/from-attestation",
+    ack_satisfied: bool | None = None,
+) -> dict:
+    attestation = _attestation(verdict)
+    attestation["attestation_schema_version"] = "0.4"
+    attestation["run_id"] = "sha256:" + "1" * 64
+    attestation["verify_run_sha256"] = "2" * 64
+    attestation["event_time"] = "2026-06-21T12:00:00Z"
+    attestation["source_url"] = "https://github.com/acme/support-agent/pull/42"
+    attestation["branch"] = "feature/support"
+    attestation["base_sha"] = "3" * 40
+    attestation["head_sha"] = "4" * 40
+    attestation["org"] = {
+        "org_id": "acme",
+        "repo": repo,
+        "service": "support-agent",
+        "tier": "production",
+        "pr_number": "42",
+        "workflow_run_id": "9001",
+        "actor": "octocat",
+        "merge_sha": "f" * 40,
+    }
+    attestation["human_ack"] = {
+        "required": verdict != "mergeable",
+        "satisfied": ack_satisfied,
+        "outstanding": [] if ack_satisfied else ["policy"],
+        "acks": [],
+    }
+    attestation["capability_lock"] = {
+        "path": "capabilities.lock.json",
+        "sha256": "5" * 64,
+        "semantic_capability_set_hash": "sem_head",
+    }
+    attestation["capability_diff"] = {
+        "path": "capability-lock-diff.json",
+        "sha256": "6" * 64,
+        "summary": {"added": 1, "removed": 0},
+    }
+    attestation["policy_packs"] = [
+        {
+            "id": "org-release",
+            "path": "vendor/org-release.yaml",
+            "sha256": "7" * 64,
+            "status": "verified",
+            "rule_count": 2,
+        }
+    ]
+    return attestation
 
 
 def _ingest(tmp_path: Path, attestation: dict, repo: str) -> Path:
@@ -135,6 +190,209 @@ def test_query_filters_by_repo_verdict_and_capability(tmp_path: Path) -> None:
         ],
     )
     assert json.loads(result.output)["count"] == 1
+
+
+def test_ingest_writes_v03_rows_and_uses_attestation_org_repo(tmp_path: Path) -> None:
+    att_path = tmp_path / "att.json"
+    att_path.write_text(json.dumps(_attestation_v03(repo="org/from-org")), encoding="utf-8")
+    ledger = tmp_path / "registry.jsonl"
+
+    result = runner.invoke(
+        app,
+        [
+            "registry",
+            "ingest",
+            "--attestation",
+            str(att_path),
+            "--registry",
+            str(ledger),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    row = json.loads(ledger.read_text(encoding="utf-8"))
+    assert row["registry_schema_version"] == "0.3"
+    assert row["repo"] == "org/from-org"
+    assert row["org_id"] == "acme"
+    assert row["service"] == "support-agent"
+    assert row["pr_number"] == "42"
+    assert row["human_ack_required"] is True
+    assert row["human_ack_satisfied"] is None
+    assert row["run_id"] == "sha256:" + "1" * 64
+    assert row["source_verify_run_sha256"] == "2" * 64
+    assert row["event_time"] == "2026-06-21T12:00:00Z"
+    assert row["source_url"] == "https://github.com/acme/support-agent/pull/42"
+    assert row["branch"] == "feature/support"
+    assert row["base_sha"] == "3" * 40
+    assert row["head_sha"] == "4" * 40
+    assert row["source_attestation_sha256"]
+    assert row["row_id"] == _row_id(RegistryRowV1.model_validate(row))
+    assert row["capability_lock"]["sha256"] == "5" * 64
+    assert row["capability_diff"]["sha256"] == "6" * 64
+    assert row["policy_packs"][0]["id"] == "org-release"
+
+
+def test_bypass_report_excludes_mergeable_and_acknowledged_rows(tmp_path: Path) -> None:
+    ledger = _ingest(tmp_path, _attestation_v03("blocked", ack_satisfied=None), "org/a")
+    _ingest(tmp_path, _attestation_v03("mergeable", ack_satisfied=None), "org/b")
+    _ingest(tmp_path, _attestation_v03("blocked", ack_satisfied=True), "org/c")
+
+    result = runner.invoke(
+        app,
+        ["registry", "report", "--bypass", "--registry", str(ledger), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["registry_schema_version"] == "0.3"
+    assert payload["bypass_count"] == 1
+    assert payload["rows"][0]["repo"] == "org/a"
+    assert payload["rows"][0]["merge_verdict"] == "blocked"
+    assert payload["skipped_count"] == 0
+
+
+def test_query_reports_malformed_registry_rows(tmp_path: Path) -> None:
+    ledger = _ingest(tmp_path, _attestation_v03("blocked"), "org/a")
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write("{not valid json}\n")
+        handle.write("[]\n")
+
+    result = runner.invoke(
+        app,
+        ["registry", "query", "--registry", str(ledger), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["count"] == 1
+    assert payload["skipped_count"] == 2
+    invalid_json_reason = (
+        "invalid_json: Expecting property name enclosed in double quotes"
+    )
+    assert payload["skipped_rows"] == [
+        {"line": 2, "reason": invalid_json_reason},
+        {"line": 3, "reason": "row must be a JSON object"},
+    ]
+
+
+def test_bypass_report_can_fail_ci_on_bypass_rows(tmp_path: Path) -> None:
+    ledger = _ingest(tmp_path, _attestation_v03("blocked", ack_satisfied=None), "org/a")
+
+    default_result = runner.invoke(
+        app,
+        ["registry", "report", "--bypass", "--registry", str(ledger), "--json"],
+    )
+    assert default_result.exit_code == 0, default_result.output
+
+    failing_result = runner.invoke(
+        app,
+        [
+            "registry",
+            "report",
+            "--bypass",
+            "--fail-on-bypass",
+            "--registry",
+            str(ledger),
+            "--json",
+        ],
+    )
+    assert failing_result.exit_code == 20, failing_result.output
+    assert json.loads(failing_result.output)["bypass_count"] == 1
+
+
+def test_query_filters_org_fields_and_human_ack(tmp_path: Path) -> None:
+    ledger = _ingest(
+        tmp_path,
+        _attestation_v03("blocked", repo="org/support", ack_satisfied=False),
+        "org/support",
+    )
+    _ingest(
+        tmp_path,
+        _attestation_v03("blocked", repo="org/billing", ack_satisfied=True),
+        "org/billing",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "registry",
+            "query",
+            "--registry",
+            str(ledger),
+            "--org-id",
+            "acme",
+            "--service",
+            "support-agent",
+            "--tier",
+            "production",
+            "--actor",
+            "octocat",
+            "--human-ack-required",
+            "--human-ack-not-satisfied",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["registry_schema_version"] == "0.3"
+    assert payload["count"] == 1
+    assert payload["rows"][0]["repo"] == "org/support"
+
+
+def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
+    ledger = _ingest(
+        tmp_path,
+        _attestation_v03("blocked", repo="org/support", ack_satisfied=False),
+        "org/support",
+    )
+    _ingest(
+        tmp_path,
+        _attestation_v03("mergeable", repo="org/support", ack_satisfied=True),
+        "org/support",
+    )
+
+    summary = runner.invoke(
+        app,
+        ["registry", "summary", "--registry", str(ledger), "--json"],
+    )
+    assert summary.exit_code == 0, summary.output
+    summary_payload = json.loads(summary.output)
+    assert summary_payload["registry_schema_version"] == "0.3"
+    assert summary_payload["count"] == 2
+    assert summary_payload["by_repo"] == {"org/support": 2}
+    assert summary_payload["by_merge_verdict"] == {"blocked": 1, "mergeable": 1}
+    assert summary_payload["bypass_count"] == 1
+    assert summary_payload["trust_root_touched_count"] == 1
+    assert summary_payload["policy_weakened_count"] == 0
+    assert summary_payload["human_ack_unsatisfied_count"] == 1
+    assert summary_payload["policy_pack_unverified_count"] == 0
+
+    verify = runner.invoke(
+        app,
+        ["registry", "verify", "--registry", str(ledger), "--json"],
+    )
+    assert verify.exit_code == 0, verify.output
+    verify_payload = json.loads(verify.output)
+    assert verify_payload["registry_schema_version"] == "0.3"
+    assert verify_payload["ok"] is True
+    assert verify_payload["issue_count"] == 0
+
+
+def test_registry_summary_counts_unverified_policy_packs(tmp_path: Path) -> None:
+    attestation = _attestation_v03("blocked", repo="org/support", ack_satisfied=False)
+    attestation["policy_packs"][0]["status"] = "unpinned"
+    ledger = _ingest(tmp_path, attestation, "org/support")
+
+    result = runner.invoke(
+        app,
+        ["registry", "summary", "--registry", str(ledger), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["policy_pack_unverified_count"] == 1
 
 
 def test_ingest_rejects_non_attestation(tmp_path: Path) -> None:

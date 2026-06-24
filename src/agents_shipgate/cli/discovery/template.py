@@ -88,6 +88,11 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
             "    path: CHANGE_ME.yaml",
         ]
 
+    # Excluded-source hints are comments, appended only after the fallback
+    # decision above so they can never stand in for a real tool_sources
+    # block in the schema-requirement check.
+    tool_source_lines.extend(_excluded_sources_hint(detect_result.excluded_sources))
+
     if tool_source_lines:
         lines.extend(tool_source_lines)
         lines.append("")
@@ -185,6 +190,28 @@ def _tool_sources_block(
         if mode is not None:
             lines.append(f"    mode: {mode}")
     return lines, used
+
+
+def _excluded_sources_hint(excluded: list[dict[str, str]]) -> list[str]:
+    """Comment-only hint for glob-matched files the input adapters reject.
+
+    These were dropped from ``tool_sources`` because writing them would
+    guarantee a ``scan`` input-parse failure (exit 3) on the very next step
+    of the cold-start flow. The hint keeps them reviewable without making
+    the manifest unscannable.
+    """
+    if not excluded:
+        return []
+    lines = [
+        "# Detected but excluded — `scan` cannot parse these as tool sources:",
+    ]
+    for entry in excluded:
+        lines.append(f"#   {entry['path']} ({entry['type']}): {entry['reason']}")
+    lines.append(
+        "# If one of these is a real tools export, fix its format and add it "
+        "to tool_sources."
+    )
+    return lines
 
 
 def _source_id_for(framework_type: str, path: str) -> str:

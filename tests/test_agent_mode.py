@@ -1,9 +1,9 @@
-"""Agent-mode environment detection and the compact verify stdout surface.
+"""Agent-mode environment detection and the verify JSON stdout surface.
 
 Claude Code exports ``CLAUDECODE=1`` (and Cursor ``CURSOR_TRACE_ID``) in
 every shell it spawns. ``is_agent_mode`` auto-enables agent mode on those
-hints so coding agents get structured errors and the compact agent-result
-stdout without remembering ``AGENTS_SHIPGATE_AGENT_MODE=1``. An explicit
+hints so coding agents get structured errors and JSON verifier stdout without
+remembering ``AGENTS_SHIPGATE_AGENT_MODE=1``. An explicit
 ``AGENTS_SHIPGATE_AGENT_MODE`` value wins in both directions.
 
 The suite-wide autouse fixture in the root ``conftest.py`` scrubs these
@@ -82,7 +82,9 @@ def test_emit_agent_mode_error_auto_detects_claude_code(
     monkeypatch.setenv("CLAUDECODE", "1")
     emit_agent_mode_error("config_error", message="boom")
     payload = json.loads(capsys.readouterr().err.strip())
-    assert payload == {"error": "config_error", "message": "boom"}
+    assert payload["error"] == "config_error"
+    assert payload["message"] == "boom"
+    assert "command" in payload
 
 
 def test_emit_agent_mode_error_silent_without_agent_environment(
@@ -110,8 +112,8 @@ def test_resolve_format_explicit_flag_wins_over_json_shortcut() -> None:
     )
 
 
-def test_resolve_format_json_shortcut_is_compact_agent_surface() -> None:
-    assert _resolve_verify_format(None, json_output=True, preview=False) == "agent"
+def test_resolve_format_json_shortcut_is_verifier_surface() -> None:
+    assert _resolve_verify_format(None, json_output=True, preview=False) == "json"
 
 
 def test_resolve_format_json_shortcut_keeps_full_json_for_preview() -> None:
@@ -122,11 +124,11 @@ def test_resolve_format_defaults_to_text_without_agent_environment() -> None:
     assert _resolve_verify_format(None, json_output=False, preview=False) == "text"
 
 
-def test_resolve_format_agent_environment_defaults_to_agent(
+def test_resolve_format_agent_environment_defaults_to_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CLAUDECODE", "1")
-    assert _resolve_verify_format(None, json_output=False, preview=False) == "agent"
+    assert _resolve_verify_format(None, json_output=False, preview=False) == "json"
     assert _resolve_verify_format(None, json_output=False, preview=True) == "json"
 
 
@@ -137,8 +139,9 @@ def test_resolve_format_explicit_text_wins_in_agent_environment(
     assert _resolve_verify_format("text", json_output=False, preview=False) == "text"
 
 
-def test_resolve_format_accepts_agent_value() -> None:
-    assert _resolve_verify_format("agent", json_output=False, preview=False) == "agent"
+def test_resolve_format_rejects_removed_agent_value() -> None:
+    with pytest.raises(ConfigError):
+        _resolve_verify_format("agent", json_output=False, preview=False)
 
 
 def test_resolve_format_rejects_unknown_value() -> None:
@@ -217,20 +220,51 @@ def _verify_args(repo: Path, *extra: str) -> list[str]:
     ]
 
 
-def test_verify_json_shortcut_prints_compact_agent_result(tmp_path: Path) -> None:
+def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
     repo = _docs_only_repo(tmp_path)
 
     result = runner.invoke(app, _verify_args(repo, "--json"))
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "agent_result_v1"
-    assert payload["decision"] in {"allow", "warn", "require_review", "block"}
-    assert isinstance(payload["completion_allowed"], bool)
-    assert isinstance(payload["must_stop"], bool)
-    assert "agent_repair_instructions" in payload
+    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["can_merge_without_human"] is False
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
+    assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
+    handoff_path = repo / "agents-shipgate-reports" / "agent-handoff.json"
+    assert handoff_path.is_file()
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v1"
+    assert handoff["operation"] == "verify_pr"
+    assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
+
+
+def test_verify_preview_writes_agent_handoff(tmp_path: Path) -> None:
+    repo = _docs_only_repo(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    handoff = json.loads(
+        (repo / "agents-shipgate-reports" / "agent-handoff.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v1"
+    assert handoff["operation"] == "verify_preview"
+    assert handoff["gate"]["decision"] is None
+    assert handoff["controller"]["completion_allowed"] is False
 
 
 def test_verify_format_json_still_prints_full_verifier_artifact(
@@ -248,7 +282,7 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
     assert payload["trigger"]["force_run"] is True
 
 
-def test_verify_agent_environment_defaults_to_compact_stdout(
+def test_verify_agent_environment_defaults_to_verifier_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo = _docs_only_repo(tmp_path)
@@ -258,7 +292,8 @@ def test_verify_agent_environment_defaults_to_compact_stdout(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "agent_result_v1"
+    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["merge_verdict"] == "human_review_required"
 
 
 def test_verify_without_agent_environment_defaults_to_text(

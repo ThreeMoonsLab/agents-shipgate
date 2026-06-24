@@ -18,12 +18,31 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.1.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
+- docs/verify-run-schema.v1.json
+                                (from agents_shipgate.schemas.verify_run.
+                                 VerifyRunArtifact)
+- docs/agent-handoff-schema.v1.json
+                                (from agents_shipgate.schemas.agent_handoff.
+                                 AgentHandoffArtifact)
 - docs/agent-result-schema.v1.json
-                                (from agents_shipgate.schemas.agent_result_v1.
+                                (legacy local-agent protocol schema from
+                                 agents_shipgate.schemas.agent_result_v1.
                                  AgentResultV1)
-- docs/preflight-schema.v0.1.json
+- docs/preflight-schema.v0.2.json
                                 (from agents_shipgate.schemas.preflight.
-                                 PreflightResultV1)
+                                 PreflightResultV2)
+- docs/org-governance-schema.v0.1.json
+                                (from agents_shipgate.schemas.org_governance.
+                                 OrgGovernanceStatusV1)
+- docs/org-evidence-bundle-schema.v1.json
+                                (from agents_shipgate.schemas.org_evidence_bundle.
+                                 OrgEvidenceBundleArtifactV1)
+- docs/registry-schema.v0.3.json
+                                (from agents_shipgate.schemas.registry.
+                                 RegistryQueryResultV1)
+- docs/host-grants-inventory-schema.v0.1.json
+                                (from agents_shipgate.schemas.host_grants.
+                                 HostGrantsInventoryArtifactV1)
 - docs/capability-lock-schema.v0.2.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1225,7 +1244,7 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
 
 
 def build_agent_result_schema() -> tuple[Path, str]:
-    """Generate docs/agent-result-schema.v1.json from AgentResultV1."""
+    """Generate the legacy local-agent protocol schema."""
 
     from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
 
@@ -1235,25 +1254,92 @@ def build_agent_result_schema() -> tuple[Path, str]:
         "main/docs/agent-result-schema.v1.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Agent Result v1"
+    schema["title"] = "Agents Shipgate Legacy Agent Result v1"
     schema["description"] = (
-        "JSON Schema for shipgate check --format agent-json and "
-        "agents-shipgate-reports/agent-result.json. Generated from "
+        "Legacy JSON Schema retained for existing local-agent protocol and "
+        "MCP consumers. It is not emitted by agents-shipgate verify and is "
+        "not the Codex boundary result contract. Generated from "
         "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
     )
     target = DOCS / "agent-result-schema.v1.json"
     return target, _canonical_json(schema)
 
 
+def build_codex_boundary_result_schema() -> tuple[Path, str]:
+    """Generate docs/codex-boundary-result-schema.v1.json."""
+
+    from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+
+    schema = CodexBoundaryResultV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/codex-boundary-result-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Codex Boundary Result v1"
+    schema["description"] = (
+        "JSON Schema for shipgate check --format codex-boundary-json. "
+        "Generated from "
+        "agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. "
+        "Do not edit by hand."
+    )
+    target = DOCS / "codex-boundary-result-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def build_verify_run_schema() -> tuple[Path, str]:
+    """Generate docs/verify-run-schema.v1.json."""
+
+    from agents_shipgate.schemas.verify_run import VerifyRunArtifact
+
+    schema = VerifyRunArtifact.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/verify-run-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Verify Run v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
+        "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
+        "edit by hand."
+    )
+    target = DOCS / "verify-run-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
+def build_agent_handoff_schema() -> tuple[Path, str]:
+    """Generate docs/agent-handoff-schema.v1.json."""
+
+    from agents_shipgate.schemas.agent_handoff import AgentHandoffArtifact
+
+    schema = AgentHandoffArtifact.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/agent-handoff-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Handoff v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate-reports/agent-handoff.json. "
+        "Generated from "
+        "agents_shipgate.schemas.agent_handoff.AgentHandoffArtifact. It is "
+        "a compact projection for coding agents and does not gate releases; "
+        "release_decision.decision remains the only gate."
+    )
+    target = DOCS / "agent-handoff-schema.v1.json"
+    return target, _canonical_json(schema)
+
+
 def build_preflight_schema() -> tuple[Path, str]:
-    """Generate docs/preflight-schema.v0.1.json from PreflightResultV1."""
+    """Generate docs/preflight-schema.v0.2.json from PreflightResultV2."""
 
     from agents_shipgate.schemas.preflight import (
         PREFLIGHT_SCHEMA_VERSION,
-        PreflightResultV1,
+        PreflightResultV2,
     )
 
-    schema = PreflightResultV1.model_json_schema()
+    schema = PreflightResultV2.model_json_schema()
     minor = PREFLIGHT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1263,7 +1349,7 @@ def build_preflight_schema() -> tuple[Path, str]:
     schema["title"] = f"Agents Shipgate Preflight Result v{minor}"
     schema["description"] = (
         "JSON Schema for shipgate preflight --json. Generated from "
-        "agents_shipgate.schemas.preflight.PreflightResultV1. It is a "
+        "agents_shipgate.schemas.preflight.PreflightResultV2. It is a "
         "proactive routing/projection surface, not a release gate; "
         "release_decision.decision remains the only gate."
     )
@@ -1423,6 +1509,105 @@ def build_attestation_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_org_governance_schema() -> tuple[Path, str]:
+    """Generate the organization governance status schema."""
+
+    from agents_shipgate.schemas.org_governance import (
+        ORG_GOVERNANCE_SCHEMA_VERSION,
+        OrgGovernanceStatusV1,
+    )
+
+    schema = OrgGovernanceStatusV1.model_json_schema()
+    minor = ORG_GOVERNANCE_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/org-governance-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Organization Governance Status v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate org status --json. This is an "
+        "organization governance projection over local artifacts, not a "
+        "release verdict; release_decision.decision remains the only gate."
+    )
+    target = DOCS / f"org-governance-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_registry_schema() -> tuple[Path, str]:
+    """Generate the local attestation registry schema."""
+
+    from agents_shipgate.schemas.registry import (
+        REGISTRY_SCHEMA_VERSION,
+        RegistryQueryResultV1,
+    )
+
+    schema = RegistryQueryResultV1.model_json_schema()
+    minor = REGISTRY_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/registry-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Local Attestation Registry v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate registry query --json. Rows are "
+        "local, append-only projections of deterministic attestations. The "
+        "registry does not produce release verdicts."
+    )
+    target = DOCS / f"registry-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_org_evidence_bundle_schema() -> tuple[Path, str]:
+    """Generate the organization evidence bundle schema."""
+
+    from agents_shipgate.schemas.org_evidence_bundle import (
+        ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        OrgEvidenceBundleArtifactV1,
+    )
+
+    schema = OrgEvidenceBundleArtifactV1.model_json_schema()
+    version = ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION.rsplit("/", maxsplit=1)[-1]
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/org-evidence-bundle-schema.{version}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Organization Evidence Bundle v1"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate org bundle --json. This bundle "
+        "aggregates local deterministic artifacts for fleet reporting and "
+        "does not produce a release verdict."
+    )
+    target = DOCS / f"org-evidence-bundle-schema.{version}.json"
+    return target, _canonical_json(schema)
+
+
+def build_host_grants_inventory_schema() -> tuple[Path, str]:
+    """Generate the host-grants inventory schema."""
+
+    from agents_shipgate.schemas.host_grants import (
+        HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+        HostGrantsInventoryArtifactV1,
+    )
+
+    schema = HostGrantsInventoryArtifactV1.model_json_schema()
+    minor = HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/host-grants-inventory-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Host Grants Inventory v{minor}"
+    schema["description"] = (
+        "JSON Schema for agents-shipgate audit --host --json. The inventory "
+        "summarizes local coding-agent host grants and does not gate releases."
+    )
+    target = DOCS / f"host-grants-inventory-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1432,11 +1617,18 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("policy_pack", build_policy_pack_schema),
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
+    ("verify_run", build_verify_run_schema),
+    ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
+    ("codex_boundary_result", build_codex_boundary_result_schema),
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
     ("attestation", build_attestation_schema),
+    ("org_governance", build_org_governance_schema),
+    ("org_evidence_bundle", build_org_evidence_bundle_schema),
+    ("registry", build_registry_schema),
+    ("host_grants_inventory", build_host_grants_inventory_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )

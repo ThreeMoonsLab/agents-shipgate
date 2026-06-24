@@ -1,7 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- **A named high concern now routes to review, not `insufficient_evidence`.**
+  When a scan turns up an *active* (not baseline-accepted) high/critical review
+  finding, the release decision is now `review_required` even if low-confidence
+  extraction would otherwise have produced `insufficient_evidence`. Both
+  verdicts are equally non-auto-mergeable, but `review_required` points the
+  human at a specific, actionable finding (e.g. the new
+  `SHIP-SCOPE-TOOLKIT-UNBOUNDED`) instead of the vaguer "we couldn't see
+  enough." `blocked` still outranks everything; IE still fires when the only
+  signal is thin extraction. The 2026-06-01 Stripe pilot's silent/IE case now
+  surfaces as a routed review. `evidence_gaps` are preserved on the report
+  either way, so the extraction-coverage signal is not lost.
+
 ## 0.13.0 - 2026-06-12
 
+- **Accepted-debt exception workflow (baseline schema 0.6).** `baseline save`
+  gains `--owner`, `--reason`, and `--expires` so the approval metadata the
+  v0.5 provenance contract documented as "reviewer-set" is finally settable
+  without hand-editing the file (which trips the integrity hash). Metadata is
+  stamped on newly-accepted entries; `--apply-to-existing` fills the fields
+  into existing entries that lack them — never overwriting a previously-set
+  value and preserving each entry's original `recorded_at`/`run_id` history.
+  Approval is declared, never inferred, matching the `human_ack` contract.
+  New `baseline status` reports accepted-debt aging (owner, age, expiry,
+  expiring-soon/expired/unowned summary; `--as-of` pins the date for
+  reproducible CI output) and turns into an org governance gate with
+  `--require-owner` / `--require-expiry` / `--max-age-days N` — exit 20 on
+  violations, advisory exit 0 without gate flags. Expired entries violate
+  `--require-expiry`, and entries without provenance fail every active gate
+  (unknown history is ungoverned debt, not exempt debt). Legacy 0.2–0.5
+  baselines still load; re-saving upgrades them to 0.6.
 - **Host-grant drift detection.** `audit --host --save-baseline` records the
   current coding-agent host grants (MCP servers, Claude Code permission rules
   and hooks, workflow scopes, Codex config presence) as the acknowledged state

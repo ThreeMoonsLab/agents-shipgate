@@ -5,8 +5,12 @@ protocol, use [cursor.md](cursor.md) and [protocol.md](protocol.md). The
 canonical Cursor control command is:
 
 ```bash
-shipgate check --agent cursor --workspace . --format agent-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
+
+Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
+`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
+`repair`, and `policy`. Do not infer a local control decision from prose.
 
 Cursor's discoverability surface is the auto-attach project rule: a Markdown file under `.cursor/rules/*.mdc` with frontmatter that lists which globs cause it to attach to a chat. The canonical Shipgate rule already exists as a copy-paste snippet — drop it in and Cursor will load it whenever a chat touches `shipgate.yaml`, an OpenAPI/MCP spec, a tools JSON, or any `.py` file.
 
@@ -73,13 +77,14 @@ If both checks pass, you are done.
 
 ## Verify an agent PR
 
-The rule above makes Shipgate discoverable. The ongoing-PR command is `verify`.
-When a chat touches a PR that changes agent tools, MCP exports, OpenAPI specs,
-prompts, permissions, policies, CI gates, or `shipgate.yaml`, Cursor should run
-it before treating the change as finished:
+The rule above makes Shipgate discoverable. When a chat touches a PR that
+changes agent tools, MCP exports, OpenAPI specs, prompts, permissions, policies,
+CI gates, or `shipgate.yaml`, Cursor should run the local control check before
+treating the change as finished, then run `verify` for PR/reviewer evidence:
 
 ```bash
-agents-shipgate preflight --json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
+agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
@@ -134,7 +139,7 @@ Cursor must follow the same boundary as any other agent driving Shipgate:
 - **What it may do mechanically** — install, detect, init, doctor, scan, summarize, add advisory CI, apply high-confidence mechanical patches (`apply-patches --confidence high --apply`), add `agents-shipgate-reports/` to `.gitignore`.
 - **What it must not assert without human review** — approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime trace evidence.
 
-Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `verifier.json.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
+Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `agent-handoff.json.gate.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
 
 For the stable CLI / JSON contract, see [`STABILITY.md`](../../STABILITY.md).
 
