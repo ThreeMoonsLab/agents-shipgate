@@ -110,6 +110,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 
 ## For agents
 
+- [`agents/README.md`](agents/README.md) — compact entry point for coding agents: discovery, local control, PR verify, and redacted feedback
+- [`agents/protocol.md`](agents/protocol.md) — normative local control protocol for `shipgate check --format codex-boundary-json`
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for verify-first PRs and first adoption (`detect → init → scan → apply-patches`)
 - [`agent-contract-current.md`](agent-contract-current.md) — current statement of which `report.json` fields agents and CI integrations should read
 - [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer for `report.json`; walks the file in the order a new consumer should read it

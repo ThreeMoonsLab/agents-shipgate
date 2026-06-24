@@ -1356,6 +1356,8 @@ def test_well_known_links_to_agent_discovery_onramps():
 
     onramps = data.get("agent_onramps", {})
     expected_onramps = {
+        "index": "/docs/agents/README.md",
+        "protocol": "/docs/agents/protocol.md",
         "target_repo_snippets": "/docs/target-repo-agent-snippets.md",
         "codex": "/docs/agents/use-with-codex.md",
         "claude_code": "/docs/agents/use-with-claude-code.md",
@@ -1365,6 +1367,27 @@ def test_well_known_links_to_agent_discovery_onramps():
         url = onramps.get(key, "")
         assert url.startswith("https://"), f"agent_onramps.{key} must be an absolute HTTPS URL."
         assert url.endswith(suffix), f"agent_onramps.{key} must end with {suffix}; got {url!r}."
+
+
+def test_well_known_advertises_agent_feedback_loop():
+    """Coding agents need a safe outbound feedback path when a verifier
+    result is wrong, unclear, or incomplete. Pin the redacted export and
+    issue-template pointers so feedback does not depend on prose search."""
+    data = json.loads(_read(".well-known/agents-shipgate.json"))
+    feedback = data.get("feedback_loop", {})
+
+    assert "missed_capability" in feedback.get("when", [])
+    assert "unsafe_pass" in feedback.get("when", [])
+    assert feedback.get("export_command") == data["commands"]["feedback_export"]
+    assert "--redact" in feedback.get("export_command", "")
+    assert feedback.get("issue_template", "").endswith(
+        "/issues/new?template=agent_feedback.yml"
+    )
+    assert "shipgate-feedback.json" in feedback.get("attach", [])
+    forbidden = set(feedback.get("do_not_attach", []))
+    assert {"unredacted reports", "raw tool outputs", "secrets", "chain-of-thought"} <= (
+        forbidden
+    )
 
 
 def test_well_known_seo_geo_positioning_fields_are_pinned():

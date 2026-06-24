@@ -1,0 +1,76 @@
+name: Agent run feedback
+description: Report feedback from a coding-agent or verifier run.
+title: "[Agent feedback]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when Codex, Claude Code, Cursor, or another coding agent ran Agents Shipgate and found a false positive, missed capability, unsafe pass, or confusing next action. Prefer a redacted feedback export over raw report artifacts.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: What happened?
+      options:
+        - false positive
+        - missed capability
+        - unsafe pass
+        - confusing next action
+        - install or stale-version loop
+        - other agent workflow issue
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agents Shipgate version or contract
+      placeholder: "v1.0.0a1 / contract v7"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command the agent ran
+      description: Include the exact Shipgate command, without secrets.
+      render: shell
+      placeholder: |
+        agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --format json
+    validations:
+      required: true
+  - type: textarea
+    id: redacted_feedback
+    attributes:
+      label: Redacted feedback export
+      description: Paste or attach the output of `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
+      render: json
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected agent behavior
+      description: What should the coding agent or verifier have done?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual agent behavior
+      description: What did it do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: minimal_repro
+    attributes:
+      label: Minimal safe repro
+      description: Include a sanitized manifest/tool-source snippet or link to a public repro. Do not include secrets or customer data.
+      render: yaml
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I used `--redact` or removed sensitive values before sharing artifacts.
+          required: true
+        - label: I did not include raw tool outputs, secrets, customer data, or chain-of-thought.
+          required: true
+        - label: This is not a vulnerability report. I will email security@threemoonslab.com for vulnerabilities.
+          required: true

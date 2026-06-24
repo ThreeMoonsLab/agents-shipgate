@@ -113,11 +113,19 @@
 ## Coding agent on-ramps
 
 - Discovery metadata: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/.well-known/agents-shipgate.json
+- Agent entry-point index: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/README.md
+- Normative local protocol: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/protocol.md
 - Trigger catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json
 - Downstream AGENTS.md / CLAUDE.md / Cursor snippets: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/target-repo-agent-snippets.md
 - Codex guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-codex.md
 - Claude Code guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-claude-code.md
 - Cursor guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md
+
+## Proactive feedback loop
+
+- When a coding-agent run finds a false positive, missed capability, unsafe pass, confusing next action, stale-install loop, or adapter gap, export redacted feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
+- File it with the agent feedback template: https://github.com/ThreeMoonsLab/agents-shipgate/issues/new?template=agent_feedback.yml
+- Attach `shipgate-feedback.json` and the smallest safe manifest/tool-source snippet. Do not attach unredacted reports, raw tool outputs, secrets, customer data, or chain-of-thought.
 
 ## Source of truth
 
