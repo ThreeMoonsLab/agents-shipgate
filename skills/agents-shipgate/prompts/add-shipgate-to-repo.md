@@ -70,7 +70,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    ```bash
    $SG scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
    ```
-   The report lands at `agents-shipgate-reports/report.json`. The Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
+   The report lands at `agents-shipgate-reports/report.json`. The supporting Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
 
    **Read these first for release gating (v0.8+):**
    - `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` — baseline-aware. This is the gating signal. `insufficient_evidence` (v0.14+) fires when evidence coverage is degraded past threshold; treat unknown future values as `review_required`.
@@ -111,7 +111,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 9. **Report back to the user**:
    - `release_decision.decision` and `release_decision.reason` (the gating signal — baseline-aware, v0.8+)
    - Blocker / review-item counts (`len(release_decision.blockers)` / `len(release_decision.review_items)`)
-   - The path to the Release Evidence Packet (`agents-shipgate-reports/packet.md`) for reviewer-shaped output
+   - The path to the supporting Release Evidence Packet (`agents-shipgate-reports/packet.md`) for reviewer-shaped output
    - The top 3 active critical/high findings (use `report.json`, not stdout)
    - Which patches were applied (count from `apply-patches --json` output's `files`)
    - Any check IDs the user should investigate first — link to `docs_url` from the finding for full rationale, or use `$SG explain <CHECK_ID> --json` for the same content via CLI

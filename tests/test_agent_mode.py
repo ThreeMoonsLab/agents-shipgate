@@ -178,6 +178,25 @@ def _set_origin_main(repo: Path) -> None:
 
 def _docs_only_repo(tmp_path: Path) -> Path:
     repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _commit_all(repo, "base")
     _set_origin_main(repo)
@@ -209,8 +228,8 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.1"
-    assert payload["merge_verdict"] == "mergeable"
-    assert payload["can_merge_without_human"] is True
+    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["can_merge_without_human"] is False
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
     assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
@@ -258,8 +277,9 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.1"
-    assert payload["head_status"] == "skipped"
-    assert payload["trigger"]["run_shipgate"] is False
+    assert payload["head_status"] == "succeeded"
+    assert payload["trigger"]["run_shipgate"] is True
+    assert payload["trigger"]["force_run"] is True
 
 
 def test_verify_agent_environment_defaults_to_verifier_json(
@@ -273,7 +293,7 @@ def test_verify_agent_environment_defaults_to_verifier_json(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.1"
-    assert payload["merge_verdict"] == "mergeable"
+    assert payload["merge_verdict"] == "human_review_required"
 
 
 def test_verify_without_agent_environment_defaults_to_text(

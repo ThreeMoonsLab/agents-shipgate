@@ -220,6 +220,8 @@ projection of `release_decision.decision`, which remains the gate in
 `capability_review.top_changes[]` next to see the highest-signal tool/action
 access changes, and check `controller`, `next_action`, and `fix_task`. Use
 `verifier.json` only for detailed controller context.
+Legacy `agent-result.json` surfaces are supporting/provisional compatibility
+projections and not the verifier read path.
 
 Codex must not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

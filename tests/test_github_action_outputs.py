@@ -206,6 +206,30 @@ def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path:
     assert outputs["agent_controller_stop_reason"] == "human_review_required"
     assert outputs["agent_controller_completion_allowed"] == "false"
 
+def test_action_outputs_do_not_allow_failed_missing_config_verify(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "head_status": "failed",
+            "head_exit_code": 2,
+            "merge_verdict": "unknown",
+            "can_merge_without_human": False,
+            "headline": "Shipgate config not found at missing.yaml.",
+            "trigger": {"run_shipgate": False},
+        },
+    )
+
+    outputs = extract_outputs(output_dir)
+
+    assert outputs["decision"] == ""
+    assert outputs["verifier_verdict"] == "failed"
+    assert outputs["merge_verdict"] == "unknown"
+    assert outputs["can_merge_without_human"] == "false"
+
 
 def test_step_summary_leads_with_verifier_merge_state(
     tmp_path: Path,

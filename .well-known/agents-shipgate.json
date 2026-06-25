@@ -153,6 +153,7 @@
   "capability_standard_version": "0.1",
   "governance_benchmark_catalog_schema_version": "0.2",
   "governance_benchmark_result_schema_version": "0.2",
+  "supporting_provisional_surfaces": ["agent_result", "agent_decision", "release_evidence_packet", "reviewer_summary", "verifier_summary", "capability_review", "runtime_trace_evidence", "capability_diff_projections", "skill_review"],
   "external_integration_surfaces": ["agent_handoff", "preflight", "capability_lock", "capability_lock_diff", "capability_standard", "attestation", "registry", "org_governance", "org_evidence_bundle", "host_grants_inventory", "governance_benchmark_catalog", "governance_benchmark_result"],
   "agent_interface_operations": ["verify_pr", "verify_local", "verify_preview"],
   "exit_code_policy": {
@@ -165,6 +166,7 @@
   },
   "mcp_tools": ["shipgate.check", "shipgate.preflight", "shipgate.explain", "shipgate.capabilities", "shipgate.handoff"],
   "gating_signal": "release_decision.decision",
+  "agent_controller_signals": ["merge_verdict", "applicability", "agent_controller"],
   "merge_verdicts": ["mergeable", "human_review_required", "insufficient_evidence", "blocked", "unknown"],
   "check_run_policies": ["advisory", "blocked-fails", "require-mergeable"],
   "github_action_pr_workflow": {
@@ -187,6 +189,7 @@
   },
   "verifier_read_order": [
     "merge_verdict",
+    "applicability",
     "can_merge_without_human",
     "first_next_action",
     "fix_task",

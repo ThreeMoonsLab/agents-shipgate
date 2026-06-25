@@ -71,6 +71,23 @@ one decision engine.
 `merge_verdict` is a deterministic projection of `release_decision.decision`, so
 the two can never disagree.
 
+## Primary vs supporting surfaces
+
+Primary gates are intentionally narrow. CI gates on
+`report.json.release_decision.decision`. Coding agents handling committed PRs
+read `agent-handoff.json.gate.merge_verdict` and `controller` first, with
+`verifier.json.merge_verdict`, `applicability`, and `agent_controller` as the
+authoritative detailed substrate. Everything else in the
+verifier/report/packet family is supporting review evidence or a convenience
+projection.
+
+Treat legacy `agent_result_v1` / `agent-result.json` compatibility surfaces,
+runtime trace/evidence fields, the Release Evidence Packet, `reviewer_summary`,
+`verifier_summary`, `capability_review`, non-gating capability diff
+projections, and `agents-shipgate skill ...` review output as
+supporting/provisional surfaces. They may be useful for routing and review, but
+they do not replace the gate above and must not introduce a second verdict.
+
 `agents-shipgate preflight --workspace . --plan - --json` is a proactive
 routing surface for coding agents before edits. It accepts a single
 `PreflightPlanV1` object with `changed_files[]`, optional `diff_text`,
@@ -430,7 +447,13 @@ agents-shipgate findings --from agents-shipgate-reports/report.json \
 The command reads active findings by default; add `--include-suppressed` when a
 reviewer needs suppressed entries in the same provenance summary.
 
-For reviewer-shaped output, also read the **Release Evidence Packet** at `agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the `[pdf]` extras are installed). Packet outputs are redacted by the same default privacy layer as the report. The packet has fixed reviewer sections governed by [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json) — see [STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v07).
+For reviewer-shaped output, also read the **Release Evidence Packet** at
+`agents-shipgate-reports/packet.{md,json,html}` (and `packet.pdf` when the
+`[pdf]` extras are installed). The packet is a supporting/provisional reviewer
+projection, not a second gate. Packet outputs are redacted by the same default
+privacy layer as the report. The packet has fixed reviewer sections governed by
+[`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v07).
 Packet schema `0.7` adds capability-linked trace summary and trace refs under
 `human_in_the_loop`. Packet schema `0.6` preserved the v0.5
 `action_surface_diff` section and added two independent additive extensions:

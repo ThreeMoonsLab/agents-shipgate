@@ -66,6 +66,8 @@ fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
+Legacy `agent-result.json` surfaces, where present, are supporting/provisional
+projections and not the CI gate.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;

@@ -142,7 +142,8 @@ Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next for the highest-signal tool/action access changes, and check
 `controller`, `next_action`, and `fix_task`. Use `verifier.json` only for
-detailed controller context.
+detailed controller context. Legacy `agent-result.json` surfaces are
+supporting/provisional compatibility projections and not the verifier read path.
 
 Do **not** claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has

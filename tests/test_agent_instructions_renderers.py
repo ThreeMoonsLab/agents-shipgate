@@ -45,13 +45,13 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "1e97a37f354f4ffd20078179a0f2d2357f3bf483f98b763d19f44a9ea208526b"
+        "c2b0882af212c091d1b94c6c838ab312e25455057cf57e994a49c93d84646273"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "51f63536f13e251f922b325ba0d9b536ee698c0d12266b94e5961ad297de3ff5"
+        "b8403d6e873fbc343eb3677fca1e117faef1ec3743befae1a1fe0bf1e5ea003d"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
         "03df378c4dae05b0d7da558b3a7e868de4d1bcba5f55744615b1c2290a13879e"
@@ -75,12 +75,12 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "577100cabad0d0182dd8908209d985d2a041a1c1d42be55705085c796a0068d5"
+        "919059f86649c7098a75922123c988b819da3094d5bb42ac1737af25e81604de"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "d4c306638e8c269073e8bd8b1dcfc2dc642c7561a905ebd3be14c8a32a12699d"
+        "bf711ad6209b4a7ea5030bb97b3c0d1ce848dc4255f868bea2329bd06f8a9999"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -89,10 +89,10 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "16894ce679eb55c69213070775cb265f0775ad7ff1cd08091a5c57627950871b"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "3e55caf7cde63334278d3843dd5b988e40519768d6d09019d1c74be650336085"
+        "d1676a96e803a9526d715a58f458174bcb661d5c54156ecb823b0bd77bb35775"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "ac1e4760ea72d4ff8e961484a1777c8a1392ac973e1812faaeee8ebc63470880"
+        "6d2848f3436f6e246bf553e6cf061c990888d6ff39eb82fec9a41f291b2e94fe"
     ),
 }
 

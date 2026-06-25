@@ -111,6 +111,66 @@ def run_verify(
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
 
+    if not config_path.is_file():
+        trigger = evaluate(
+            paths=[],
+            diff_text="",
+            manifest_present=False,
+            user_requested=True,
+        )
+        message = (
+            f"Shipgate config not found at {_display_path(config_path, git_root)}. "
+            "Correct --config, or run `agents-shipgate verify --preview --json` "
+            "and `agents-shipgate detect --workspace . --json` before initializing."
+        )
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base,
+            head=head,
+            changed_files=[],
+            diff_text="",
+            trigger=trigger,
+            base_status="not_requested",
+            base_tree=None,
+            base_report=None,
+            base_notes=[],
+            report=None,
+            head_status="failed",
+            head_exit_code=2,
+            out_dir=out_dir,
+            ci_mode=ci_mode,
+            headline_override=message,
+            human_review_override=VerifierHumanReview(required=True, why=message),
+            first_next_action_override=VerifierNextAction(
+                actor="coding_agent",
+                kind="command",
+                command="agents-shipgate verify --preview --json",
+                why=(
+                    "Shipgate could not find the configured manifest; preview or "
+                    "detect the workspace, then correct --config or initialize "
+                    "shipgate.yaml."
+                ),
+            ),
+        )
+        _remove_scan_artifacts(out_dir)
+        _write_artifacts(
+            verifier,
+            verifier_path,
+            verify_run_path,
+            pr_comment_path,
+            report=None,
+            git_root=git_root,
+            config_path=config_path,
+            baseline_path=baseline_path,
+            policy_pack_paths=policy_pack_paths or [],
+            plugins_enabled=plugins_enabled,
+            no_heuristics=no_heuristics,
+            fail_on=fail_on,
+            pr_comment_style=pr_comment_style,
+        )
+        return verifier, None, 2
+
     changed_files: list[str] = []
     diff_text = ""
     base_status: VerifierBaseStatus = "not_requested"
@@ -883,6 +943,9 @@ def _build_verifier(
     out_dir: Path,
     ci_mode: str | None = None,
     preview: bool = False,
+    headline_override: str | None = None,
+    human_review_override: VerifierHumanReview | None = None,
+    first_next_action_override: VerifierNextAction | None = None,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -900,7 +963,7 @@ def _build_verifier(
     applicability = applicability_for(decision=decision, head_status=head_status)
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
-    human_review = _human_review(
+    human_review = human_review_override or _human_review(
         merge_verdict=merge_verdict,
         release_decision=release_decision_model,
         capability_review=capability_review,
@@ -917,7 +980,7 @@ def _build_verifier(
         release_decision=release_decision_model,
         capability_review=capability_review,
     )
-    headline = _verifier_headline(
+    headline = headline_override or _verifier_headline(
         report=report,
         merge_verdict=merge_verdict,
         head_status=head_status,
@@ -978,7 +1041,8 @@ def _build_verifier(
         can_merge_without_human=can_merge,
         headline=headline,
         human_review=human_review,
-        first_next_action=_first_next_action(
+        first_next_action=first_next_action_override
+        or _first_next_action(
             merge_verdict=merge_verdict,
             fix_task=fix_task,
             agent_summary=agent_summary_model,
@@ -1021,6 +1085,26 @@ def _artifact_paths(
         if key in {"verifier_json", "verify_run_json", "agent_handoff_json", "pr_comment"}
         or path.exists()
     }
+
+
+def _remove_scan_artifacts(out_dir: Path) -> None:
+    for name in (
+        "report.md",
+        "report.json",
+        "report.sarif",
+        "packet.md",
+        "packet.json",
+        "packet.html",
+        "packet.pdf",
+        "capabilities.lock.json",
+        "base.capabilities.lock.json",
+        "capability-lock-diff.json",
+        "capability-lock-diff.md",
+    ):
+        path = out_dir / name
+        if path.is_file() or path.is_symlink():
+            with contextlib.suppress(OSError):
+                path.unlink()
 
 
 def _write_artifacts(

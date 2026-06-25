@@ -117,9 +117,10 @@ Read `agents-shipgate-reports/agent-handoff.json` first. Lead with
 `next_action`, `controller`, and `fix_task.safe_to_attempt`. Then read
 `agents-shipgate-reports/verifier.json` for detailed controller context and
 `agents-shipgate-reports/report.json`; `release_decision.decision` remains the
-gate. Use `verifier_summary` only as a composition summary: its `verdict`
-mirrors `release_decision.decision` and it adds counts for protected-surface
-touches, policy weakening, human acknowledgement, and top reason codes.
+gate. `capability_review.top_changes[]` and `verifier_summary` are
+supporting/provisional composition summaries: their verdict-like values mirror
+`release_decision.decision`, and they add counts for protected-surface touches,
+policy weakening, human acknowledgement, and top reason codes.
 
 Do not bypass the verifier. Do not suppress findings, lower severity, expand
 baselines or waivers, remove Shipgate CI, or weaken agent instructions to make

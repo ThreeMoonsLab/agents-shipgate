@@ -1,0 +1,26 @@
+name: Agents Shipgate Self Dogfood
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-self:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - uses: ./
+        with:
+          config: shipgate-self.yaml
+          verify_mode: verify
+          ci_mode: advisory
+          diff_base: target
+          fail_on_merge_verdicts: blocked
+          upload_artifact: "true"
+          pr_comment: "false"

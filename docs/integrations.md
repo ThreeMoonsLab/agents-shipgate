@@ -98,10 +98,11 @@ Action outputs:
 The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
 packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown
 artifacts. It intentionally emits `packet.json` only for the packet;
-`pr-comment.md` is the human PR surface. Read `verifier.json` first for `merge_verdict`,
-`can_merge_without_human`, `agent_controller`, `first_next_action`, and
-`capability_review.top_changes`; read `verify-run.json` for reproducibility
-metadata; read `report.json.release_decision.decision` for the gate.
+`pr-comment.md` is the human PR surface. Read `agent-handoff.json` first for
+the compact agent handoff, `verifier.json` for detailed controller context,
+`verify-run.json` for reproducibility metadata, and
+`report.json.release_decision.decision` for the gate. Capability diffs and
+`capability_review.top_changes` are supporting/provisional review context.
 Verify never fetches; use `fetch-depth: 0` on checkout or fetch
 the base ref before the action when `diff_base: target` is set. An explicit
 `head_ref` is scanned from an isolated archive; without it, the checked-out

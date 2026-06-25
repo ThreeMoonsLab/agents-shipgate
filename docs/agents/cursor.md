@@ -29,7 +29,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main -
 
 Read `agents-shipgate-reports/agent-handoff.json` first, then
 `verifier.json`, then `verify-run.json`, then `report.json` for reviewer
-evidence.
+evidence. Legacy `agent-result.json` surfaces are supporting/provisional
+compatibility projections for older automation consumers.
 
 See [protocol.md](protocol.md) for the state machine, repair loop, policy
 discovery convention, and MCP read-only boundary.

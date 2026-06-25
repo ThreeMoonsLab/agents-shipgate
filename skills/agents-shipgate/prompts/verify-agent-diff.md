@@ -68,13 +68,13 @@ work is complete.
 
 5. **Read JSON, not Markdown.**
    - `agents-shipgate-reports/verifier.json` is the PR/controller artifact.
-   - Lead with `merge_verdict`, then inspect `capability_review.top_changes[]`,
-     `first_next_action.actor`, and `fix_task.safe_to_attempt`.
+   - Lead with `merge_verdict`, `applicability`, and `agent_controller`, then
+     inspect `first_next_action.actor` and `fix_task.safe_to_attempt`.
    - `agents-shipgate-reports/report.json` is the release-gate artifact.
    - `release_decision.decision` is the only gate signal.
-   - `verifier_summary` is a one-fetch composition for controller output; its
-     `verdict` mirrors `release_decision.decision` and never gates
-     independently.
+   - `capability_review.top_changes[]` and `verifier_summary` are
+     supporting/provisional composition summaries; verdict-like values mirror
+     `release_decision.decision` and never gate independently.
 
 6. **Do not bypass the verifier.** Do not suppress findings, lower severity,
    expand baselines or waivers, remove Shipgate CI, or soften agent
@@ -111,7 +111,9 @@ work is complete.
 - `agents-shipgate-reports/report.json` exists and parses.
 - `agents-shipgate-reports/verifier.json` exists and parses.
 - `verifier.json.merge_verdict` is surfaced to the user.
-- `capability_review.top_changes[]` is considered before generic findings.
+- `applicability` and `agent_controller` are considered before generic findings.
+- `capability_review.top_changes[]` is treated as supporting/provisional review
+  context.
 - `report.json.release_decision.decision` is surfaced to the user.
 - If `verifier_summary.protected_surface_touched` or `policy_weakened` is true,
   the response names the human-review requirement.

@@ -163,8 +163,10 @@ The release gate is `agents-shipgate-reports/report.json` →
 The PR/controller surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
 blocked | unknown`), a deterministic projection of the release decision. Read
-`verifier.json` first for `merge_verdict`, `can_merge_without_human`,
-`first_next_action`, `fix_task`, and `capability_review.top_changes`.
+`verifier.json` first for `merge_verdict`, `applicability`,
+`agent_controller`, `can_merge_without_human`, `first_next_action`, and
+`fix_task`. `capability_review.top_changes` is supporting/provisional reviewer
+context.
 
 Zero-setup demos of both verdicts are in
 [60 seconds](#60-seconds-watch-it-block-two-prs) above; `uvx` runs them with no
@@ -255,8 +257,9 @@ For local control, parse the `shipgate check` stdout JSON
 omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, `fix_task`, and
-`capability_review.top_changes`, then read
+`applicability`, `agent_controller`, `can_merge_without_human`,
+`first_next_action`, and `fix_task`, then read supporting/provisional
+`capability_review.top_changes` and
 `agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
 claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
 `human_review_required` unless the user explicitly accepts human review. Do not auto-assert approval. Do not auto-assert confirmation, idempotency,
@@ -338,9 +341,12 @@ make the base ref available first because `verify` never fetches. Verify writes
 base scan can be materialized, verify also writes
 `base.capabilities.lock.json` plus `capability-lock-diff.{json,md}`, and the PR
 comment includes a compact semantic capability diff summary. Lead with
-`merge_verdict`, `can_merge_without_human`, `first_next_action`, and the capability diff or
-`capability_review.top_changes`; use `release_decision.decision` as the release
-gate.
+`merge_verdict`, `applicability`, `agent_controller`,
+`can_merge_without_human`, `first_next_action`, and `fix_task`; use
+`release_decision.decision` as the release gate. Capability diff summaries and
+`capability_review.top_changes` are supporting/provisional review context.
+Legacy `agent_result_v1` / `agent-result.json` compatibility surfaces are
+supporting/provisional projections, not the CI gate or verifier read path.
 
 Install alternatives (your agent project does **not** need Python 3.12 — install the CLI separately):
 
@@ -511,7 +517,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
 - **`agents-shipgate mcp-serve`** (`[mcp]` extra) — read-only stdio MCP server exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, `shipgate.capabilities`, and `shipgate.handoff` for agents without comfortable shell access. It is static-only and not a general MCP permission broker. See [`docs/mcp-server.md`](docs/mcp-server.md).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json)** + **[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing (current; emitted reports carry `report_schema_version: "0.27"`, handoff emits `schema_version: "shipgate.agent_handoff/v1"`, preflight emits `preflight_schema_version: "0.2"`). v0.27 adds policy-pack distribution metadata (`loaded_policy_packs[].{source,sha256,sha256_status,owner}`) over v0.26's structured evidence gaps; gate behavior is unchanged. Read `release_decision.decision` for release gating, `agent-handoff.json.gate` / `controller` for the compact agent step, and `reviewer_summary.first_recommended_surface` for the human-review entry point. The per-version additive history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json)** + **[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing (current; emitted reports carry `report_schema_version: "0.27"`, handoff emits `schema_version: "shipgate.agent_handoff/v1"`, preflight emits `preflight_schema_version: "0.2"`). v0.27 adds policy-pack distribution metadata (`loaded_policy_packs[].{source,sha256,sha256_status,owner}`) over v0.26's structured evidence gaps; gate behavior is unchanged. Read `release_decision.decision` for release gating, `agent-handoff.json.gate` / `controller` for the compact agent step, and `reviewer_summary.first_recommended_surface` for the human-review entry point. `reviewer_summary`, `verifier_summary`, runtime trace/evidence fields, Release Evidence Packet outputs, legacy `agent_result_v1` surfaces, and capability diff projections are supporting/provisional review or compatibility context, not additional gates. The per-version additive history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
 - **[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)** + **[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)** — stable schemas for the static capability envelope and semantic diff emitted by `agents-shipgate capability` and, in PR workflows, by `agents-shipgate verify`; non-gating and separate from `report.json`.
 - **[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/org-evidence-bundle-schema.v1.json`](docs/org-evidence-bundle-schema.v1.json)** + **[`docs/registry-schema.v0.3.json`](docs/registry-schema.v0.3.json)** + **[`docs/host-grants-inventory-schema.v0.1.json`](docs/host-grants-inventory-schema.v0.1.json)** — deterministic local attestation, organization governance, org evidence bundle, append-only registry, and host-grant inventory schemas for multi-repo governance.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
