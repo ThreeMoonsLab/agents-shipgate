@@ -2,6 +2,35 @@ from pathlib import Path
 
 import yaml
 
+WORKFLOW_DIR = Path(".github/workflows")
+
+
+def _workflow_paths() -> list[Path]:
+    return sorted([*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")])
+
+
+def _workflow_steps(workflow: dict) -> list[dict]:
+    steps: list[dict] = []
+    jobs = workflow.get("jobs") or {}
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict):
+                steps.append(step)
+    return steps
+
+
+def _local_action_metadata_path(uses: str) -> Path | None:
+    if not uses.startswith("./"):
+        return None
+    action_path = Path(uses.split("@", 1)[0])
+    candidates = [action_path / "action.yml", action_path / "action.yaml"]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise AssertionError(f"Local action {uses!r} has no action.yml or action.yaml")
+
 
 def test_github_script_reads_output_dir_from_env():
     text = Path("action.yml").read_text(encoding="utf-8")
@@ -164,6 +193,34 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "args+=(--policy-pack" in text
     assert "NO_PLUGINS: ${{ inputs.no_plugins }}" in text
     assert "args+=(--no-plugins)" in text
+
+
+def test_repo_workflows_use_declared_local_action_inputs():
+    for workflow_path in _workflow_paths():
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        assert isinstance(workflow, dict), f"{workflow_path} must parse as a mapping"
+        for step in _workflow_steps(workflow):
+            uses = step.get("uses")
+            if not isinstance(uses, str):
+                continue
+            metadata_path = _local_action_metadata_path(uses)
+            if metadata_path is None:
+                continue
+            metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+            declared = set((metadata.get("inputs") or {}).keys())
+            supplied = set((step.get("with") or {}).keys())
+            unknown = supplied - declared
+            assert not unknown, (
+                f"{workflow_path}: step uses {uses!r} with undeclared local "
+                f"action inputs {sorted(unknown)}; update {metadata_path}"
+            )
+
+
+def test_agents_shipgate_workflow_uses_merge_verdict_policy_input():
+    text = (WORKFLOW_DIR / "agents-shipgate.yml").read_text(encoding="utf-8")
+
+    assert "fail_on_decisions" not in text
+    assert "fail_on_merge_verdicts: blocked" in text
 
 
 def test_action_step_summary_leads_with_verifier_merge_state():

@@ -42,8 +42,9 @@ def verify(
         help=(
             "Local base ref/SHA for PR diff. Verify never fetches it. When "
             "omitted, verify auto-detects the default branch (origin/HEAD, "
-            "origin/main, origin/master, main, master) if it points at a "
-            "different commit than the head; --no-base disables that."
+            "origin/main, origin/master) if it points at a different commit "
+            "than the head. Local main/master are used only when passed "
+            "explicitly; --no-base disables auto-detection."
         ),
     ),
     no_base: bool = typer.Option(
