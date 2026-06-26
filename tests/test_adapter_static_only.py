@@ -303,7 +303,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=152,
+        line=218,
         snippet="subprocess.run(cmd, capture_output=True, check=check, text=text, timeout=60)",
         rationale=(
             "_run_git helper for verify: executes fixed git argv assembled "

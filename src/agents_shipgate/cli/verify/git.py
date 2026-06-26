@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import subprocess
 import tarfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from agents_shipgate.core.errors import ConfigError
@@ -25,7 +26,14 @@ def ensure_git_workspace(workspace: Path) -> Path:
     return Path(root).resolve()
 
 
-DEFAULT_BASE_CANDIDATES = ("origin/main", "origin/master", "main", "master")
+REMOTE_BASE_CANDIDATES = ("origin/main", "origin/master")
+LOCAL_BASE_CANDIDATES = ("main", "master")
+
+
+@dataclass(frozen=True)
+class DefaultBaseDetection:
+    base: str | None
+    notes: list[str]
 
 
 def commit_sha(workspace: Path, ref: str) -> str | None:
@@ -42,16 +50,27 @@ def commit_sha(workspace: Path, ref: str) -> str | None:
 def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
     """Best-effort default base ref for PR-style diff enrichment.
 
-    Tries the remote default branch (``origin/HEAD``) first, then the
-    conventional candidates. A candidate qualifies only when it exists
-    locally and points at a different commit than ``head`` — diffing a
-    branch against itself adds scan cost without diff signal. Never
-    fetches; this only reads refs that already exist in the checkout.
+    Tries the remote default branch (``origin/HEAD``) first, then remote
+    conventional candidates (``origin/main``, ``origin/master``). A
+    candidate qualifies only when it exists locally and points at a
+    different commit than ``head`` — diffing a branch against itself adds
+    scan cost without diff signal. Local ``main``/``master`` are never
+    selected implicitly because they are often stale in CI and worktrees;
+    pass ``--base main`` explicitly when that is intended. Never fetches;
+    this only reads refs that already exist in the checkout.
     """
+
+    return detect_default_base_with_notes(workspace, head).base
+
+
+def detect_default_base_with_notes(
+    workspace: Path, head: str = "HEAD"
+) -> DefaultBaseDetection:
+    """Return the implicit base plus warnings for skipped local defaults."""
 
     head_sha = commit_sha(workspace, head)
     if head_sha is None:
-        return None
+        return DefaultBaseDetection(base=None, notes=[])
     candidates: list[str] = []
     origin_head = _run_git(
         workspace, ["rev-parse", "--abbrev-ref", "origin/HEAD"], check=False
@@ -60,12 +79,59 @@ def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
         name = origin_head.stdout.strip()
         if name and name != "origin/HEAD":
             candidates.append(name)
-    candidates.extend(c for c in DEFAULT_BASE_CANDIDATES if c not in candidates)
+    candidates.extend(c for c in REMOTE_BASE_CANDIDATES if c not in candidates)
+    selected_base: str | None = None
+    selected_base_sha: str | None = None
     for candidate in candidates:
         sha = commit_sha(workspace, candidate)
         if sha is not None and sha != head_sha:
-            return candidate
-    return None
+            selected_base = candidate
+            selected_base_sha = sha
+            break
+    notes = _skipped_local_base_notes(
+        workspace,
+        head_sha,
+        selected_base_sha=selected_base_sha,
+    )
+    return DefaultBaseDetection(base=selected_base, notes=notes)
+
+
+def _skipped_local_base_notes(
+    workspace: Path,
+    head_sha: str,
+    *,
+    selected_base_sha: str | None,
+) -> list[str]:
+    notes: list[str] = []
+    for local in LOCAL_BASE_CANDIDATES:
+        local_sha = commit_sha(workspace, local)
+        if local_sha is None or local_sha == head_sha:
+            continue
+        if selected_base_sha is not None and local_sha == selected_base_sha:
+            continue
+        remote = f"origin/{local}"
+        remote_sha = commit_sha(workspace, remote)
+        if remote_sha is not None and remote_sha == local_sha:
+            continue
+        if remote_sha is not None and remote_sha != local_sha:
+            notes.append(
+                f"Skipped local base {local!r} for implicit auto-base because "
+                "only remote refs are auto-detected; "
+                f"{local!r} points at {_short_sha(local_sha)} while {remote!r} "
+                f"points at {_short_sha(remote_sha)}. Pass --base {local} "
+                "explicitly if that local branch is intended."
+            )
+            continue
+        notes.append(
+            f"Skipped local base {local!r} for implicit auto-base because only "
+            "remote refs are auto-detected. Pass --base "
+            f"{local} explicitly if that local branch is intended."
+        )
+    return notes
+
+
+def _short_sha(sha: str) -> str:
+    return sha[:12]
 
 
 def ref_exists(workspace: Path, ref: str) -> bool:
@@ -196,7 +262,9 @@ def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
 __all__ = [
     "archive_tree",
     "commit_sha",
+    "DefaultBaseDetection",
     "detect_default_base",
+    "detect_default_base_with_notes",
     "diff_context",
     "ensure_git_workspace",
     "git_path",

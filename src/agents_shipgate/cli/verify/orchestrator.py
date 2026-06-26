@@ -56,7 +56,7 @@ from .capability_review import build_capability_review
 from .fix_task import build_fix_task
 from .git import (
     archive_tree,
-    detect_default_base,
+    detect_default_base_with_notes,
     diff_context,
     ensure_git_workspace,
     git_path,
@@ -185,11 +185,12 @@ def run_verify(
         raise ConfigError(f"Head ref does not exist locally: {head}")
 
     if base is None and auto_base:
-        detected = detect_default_base(git_root, head)
-        if detected is not None:
-            base = detected
+        detection = detect_default_base_with_notes(git_root, head)
+        base_notes.extend(detection.notes)
+        if detection.base is not None:
+            base = detection.base
             base_notes.append(
-                f"Auto-detected base {detected!r} for diff context; "
+                f"Auto-detected base {detection.base!r} for diff context; "
                 "pass --base to override or --no-base to disable."
             )
 
