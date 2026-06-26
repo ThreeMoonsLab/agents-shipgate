@@ -80,22 +80,39 @@ def detect_default_base_with_notes(
         if name and name != "origin/HEAD":
             candidates.append(name)
     candidates.extend(c for c in REMOTE_BASE_CANDIDATES if c not in candidates)
-    notes = _skipped_local_base_notes(workspace, head_sha)
+    selected_base: str | None = None
+    selected_base_sha: str | None = None
     for candidate in candidates:
         sha = commit_sha(workspace, candidate)
         if sha is not None and sha != head_sha:
-            return DefaultBaseDetection(base=candidate, notes=notes)
-    return DefaultBaseDetection(base=None, notes=notes)
+            selected_base = candidate
+            selected_base_sha = sha
+            break
+    notes = _skipped_local_base_notes(
+        workspace,
+        head_sha,
+        selected_base_sha=selected_base_sha,
+    )
+    return DefaultBaseDetection(base=selected_base, notes=notes)
 
 
-def _skipped_local_base_notes(workspace: Path, head_sha: str) -> list[str]:
+def _skipped_local_base_notes(
+    workspace: Path,
+    head_sha: str,
+    *,
+    selected_base_sha: str | None,
+) -> list[str]:
     notes: list[str] = []
     for local in LOCAL_BASE_CANDIDATES:
         local_sha = commit_sha(workspace, local)
         if local_sha is None or local_sha == head_sha:
             continue
+        if selected_base_sha is not None and local_sha == selected_base_sha:
+            continue
         remote = f"origin/{local}"
         remote_sha = commit_sha(workspace, remote)
+        if remote_sha is not None and remote_sha == local_sha:
+            continue
         if remote_sha is not None and remote_sha != local_sha:
             notes.append(
                 f"Skipped local base {local!r} for implicit auto-base because "

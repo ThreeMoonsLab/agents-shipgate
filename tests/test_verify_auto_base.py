@@ -72,6 +72,36 @@ tool_sources:
     return repo
 
 
+def _feature_repo_with_local_main_equal_origin_main(tmp_path: Path) -> Path:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "feature")
+    (repo / "README.md").write_text("feature\n", encoding="utf-8")
+    _commit_all(repo, "feature")
+    return repo
+
+
 def _repo_with_stale_local_main_and_origin_main_head(tmp_path: Path) -> Path:
     repo = _init_repo(tmp_path)
     (repo / "shipgate.yaml").write_text(
@@ -158,6 +188,17 @@ def test_warns_when_stale_local_main_is_skipped(tmp_path: Path) -> None:
     )
 
 
+def test_does_not_warn_when_local_main_matches_selected_origin_main(
+    tmp_path: Path,
+) -> None:
+    repo = _feature_repo_with_local_main_equal_origin_main(tmp_path)
+
+    detection = detect_default_base_with_notes(repo)
+
+    assert detection.base == "origin/main"
+    assert not any("Skipped local base 'main'" in note for note in detection.notes)
+
+
 def test_returns_none_in_empty_repo(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     assert detect_default_base(repo) is None
@@ -230,6 +271,21 @@ def test_zero_base_verify_warns_but_skips_stale_local_main(tmp_path: Path) -> No
         and "origin/main" in note
         and "--base main" in note
         for note in payload["base_notes"]
+    )
+
+
+def test_zero_base_verify_does_not_warn_for_equivalent_local_main(
+    tmp_path: Path,
+) -> None:
+    repo = _feature_repo_with_local_main_equal_origin_main(tmp_path)
+
+    result = _verify(repo)
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["base_ref"] == "origin/main"
+    assert not any(
+        "Skipped local base 'main'" in note for note in payload["base_notes"]
     )
 
 
