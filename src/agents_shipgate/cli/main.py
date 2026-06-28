@@ -188,6 +188,7 @@ _register_baseline.register(app)
 # `shipgate check`, `shipgate verify`, and `shipgate audit --host`.
 # Supporting/compatibility commands stay fully invokable and documented
 # through their direct --help; hiding is presentation, not deprecation.
+# README fixture demos remain runnable, but are not a root-help flow.
 app.add_typer(fixture_app, name="fixture", hidden=True)
 app.add_typer(feedback_app, name="feedback", hidden=True)
 app.add_typer(scenario_app, name="scenario", hidden=True)

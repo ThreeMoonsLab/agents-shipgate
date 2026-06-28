@@ -1282,7 +1282,7 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     assert payload["trigger"]["should_run"] is False
     assert payload["first_next_action"]["kind"] == "command"
     assert payload["first_next_action"]["command"] == (
-        f"agents-shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+        f"shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
     )
 
 
@@ -1314,7 +1314,7 @@ def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: 
     assert payload["mode"] == "preview"
     assert payload["first_next_action"]["kind"] == "command"
     assert payload["first_next_action"]["command"] == (
-        f"agents-shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+        f"shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
     )
     assert payload["base_notes"]
 
@@ -1352,7 +1352,7 @@ def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Pa
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
     assert payload["first_next_action"]["command"] == (
-        f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
+        f"shipgate verify --workspace {repo} --config shipgate.yaml "
         f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
     )
 

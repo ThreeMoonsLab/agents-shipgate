@@ -1388,7 +1388,7 @@ def _shell_join(parts: list[str]) -> str:
 def _preview_init_command(workspace: Path) -> str:
     return _shell_join(
         [
-            "agents-shipgate",
+            "shipgate",
             "init",
             "--workspace",
             str(workspace),
@@ -1409,7 +1409,7 @@ def _preview_verify_command(
     out: Path | None,
 ) -> str:
     parts = [
-        "agents-shipgate",
+        "shipgate",
         "verify",
         "--workspace",
         str(workspace),

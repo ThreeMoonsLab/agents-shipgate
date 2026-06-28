@@ -248,8 +248,10 @@ def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> 
 
 # --- Undeclared coverage gap: a changed file IS a tool surface but the --------
 # manifest does not declare it (or there is no manifest). verify only gates
-# declared surfaces, so route through verify preview before full verify rather
-# than a clean allow or a full verify that never scans it.
+# declared surfaces, so adopted repos route to detect for suggested_sources
+# before full verify; unconfigured repos route through verify preview for setup
+# guidance. Either way, do not return a clean allow or a full verify that never
+# scans the surface.
 
 # A second changed file that is an *undeclared* tool surface (an OpenAPI spec),
 # used to exercise mixed declared+undeclared diffs (review finding P1).
@@ -263,31 +265,38 @@ _MIXED_TOOL_SOURCE_DIFF = _TOOL_SOURCE_DIFF + (
 )
 
 
-def test_undeclared_surface_warns_and_routes_to_verify_preview(tmp_path: Path) -> None:
+def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
+    tmp_path: Path,
+) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
         diff_text=_TOOL_SOURCE_DIFF,
         agent="claude-code",
         undeclared_capability_surfaces=["mcp-tools.json"],
+        manifest_present=True,
     )
     payload = result.model_dump(mode="json", exclude_none=True)
     _validate(payload)
-    # Was a bare allow before the fix; now a warn that routes to verify preview.
+    # Was a bare allow before the fix; now a warn that routes to detect so the
+    # agent gets suggested_sources before editing shipgate.yaml.
     assert payload["decision"] == "warn"
     assert payload["completion_allowed"] is True
     assert payload["must_stop"] is False
     assert payload["first_next_action"]["kind"] == "warn"
-    assert payload["first_next_action"]["command"].startswith("shipgate verify --preview")
+    assert payload["first_next_action"]["command"] == "shipgate detect --workspace . --json"
+    assert "suggested_sources" in payload["first_next_action"]["why"]
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
-    assert payload["suggested_fixes"][0].startswith("shipgate verify --preview")
+    assert payload["suggested_fixes"][0] == "shipgate detect --workspace . --json"
     assert any(fix.startswith("shipgate verify") for fix in payload["suggested_fixes"])
 
 
-def test_mixed_declared_and_undeclared_routes_to_verify_preview(tmp_path: Path) -> None:
+def test_mixed_declared_and_undeclared_routes_to_detect_when_manifest_present(
+    tmp_path: Path,
+) -> None:
     # Review finding P1: a diff that changes BOTH a declared surface (verify
-    # gates it) and an undeclared one (verify does not) must route to verify
-    # preview before full verify. Undeclared takes precedence over the declared
+    # gates it) and an undeclared one (verify does not) must route to detect
+    # before full verify. Undeclared takes precedence over the declared
     # coverage gap.
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
@@ -295,9 +304,10 @@ def test_mixed_declared_and_undeclared_routes_to_verify_preview(tmp_path: Path) 
         agent="claude-code",
         capability_surfaces_changed=["mcp-tools.json"],
         undeclared_capability_surfaces=["api/openapi.yaml"],
+        manifest_present=True,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify --preview")
+    assert result.first_next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
     assert "api/openapi.yaml" in diag["message"]
@@ -324,8 +334,8 @@ def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other
 ) -> None:
     # Manifest exists but declares a *different* tool source than the changed
     # file. The declared-coverage path does not match, so the undeclared path
-    # must catch it and route through verify preview, not a full verify that
-    # never scans it.
+    # must catch it and route to detect for suggested_sources, not a full verify
+    # that never scans it.
     _write_manifest(
         tmp_path,
         "  - id: other\n    type: mcp\n    path: other-tools.json\n    trust: internal\n",
@@ -338,12 +348,13 @@ def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify --preview")
+    assert result.first_next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
+    assert "suggested_sources" in payload["first_next_action"]["why"]
 
 
-def test_mixed_declared_and_undeclared_via_check_routes_to_verify_preview(
+def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
     tmp_path: Path,
 ) -> None:
     # Review finding P1, end-to-end through build_codex_agent_result: manifest
@@ -360,7 +371,7 @@ def test_mixed_declared_and_undeclared_via_check_routes_to_verify_preview(
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify --preview")
+    assert result.first_next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
     assert "api/openapi.yaml" in diag["message"]

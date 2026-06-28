@@ -21,7 +21,7 @@
       "exit_code": 2,
       "typical_cause": "shipgate.yaml does not exist OR exists but the loader rejected it (extra key, missing required field, wrong nesting level).",
       "additional_fields": ["message", "next_action", "next_actions"],
-      "recovery_hint": "Distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run `agents-shipgate detect --workspace <dir> --json` then `init --write`. `SHIP-DIAG-INVALID-MANIFEST` → edit the manifest at the path in the error; do NOT re-run `init` (it refuses to overwrite an existing file)."
+      "recovery_hint": "Distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run `shipgate verify --workspace <dir> --preview --json`; if preview routes setup, run the emitted init command. `SHIP-DIAG-INVALID-MANIFEST` → edit the manifest at the path in the error; do NOT re-run `init` (it refuses to overwrite an existing file)."
     },
     {
       "id": "config_already_exists",
