@@ -391,9 +391,9 @@ def evaluate_codex_boundary_result(
       tool sources. ``verify`` will gate these, so route to ``verify``.
     - ``undeclared_capability_surfaces`` — changed files that ARE tool surfaces
       but the manifest does not declare (or there is no manifest). ``verify``
-      cannot gate an undeclared surface, so route to declare-then-verify
-      (``detect``). Takes precedence when a diff changes both, since ``verify``
-      alone would miss the undeclared one.
+      cannot gate an undeclared surface yet, so route through verify preview
+      before full verify. Takes precedence when a diff changes both, since full
+      ``verify`` alone would miss the undeclared one.
     """
 
     # Keep this local diff projector aligned with
@@ -499,7 +499,7 @@ def evaluate_codex_boundary_result(
         summary = _undeclared_summary(undeclared_surfaces)
         diagnostics = [*diagnostics, _undeclared_diagnostic(undeclared_surfaces)]
         trace = [*_trace_for(policy, decision, violations), _undeclared_trace(undeclared_surfaces)]
-        suggested_fixes = [_DETECT_COMMAND, _VERIFY_COMMAND]
+        suggested_fixes = [_VERIFY_PREVIEW_COMMAND, _VERIFY_COMMAND]
     elif coverage_gap:
         first_next_action = _coverage_next_action()
         summary = _coverage_summary(coverage_surfaces)
@@ -1356,22 +1356,22 @@ def _risk_for(violations: list[AgentResultViolatedRule]) -> AgentResultRiskLevel
 
 
 # Canonical capability gate. check is boundary-only; verify computes the
-# capability delta and owns release_decision.decision. Bare ``verify --json``
-# auto-detects the base (v0.13) and emits the boundary-result surface, so it
-# works for both the local working tree and committed refs.
-_VERIFY_COMMAND = "agents-shipgate verify --json"
-_DETECT_COMMAND = "agents-shipgate detect --json"
+# capability delta and owns release_decision.decision. Preview stays inside the
+# verify flow for unconfigured or undeclared surfaces.
+_VERIFY_COMMAND = "shipgate verify --json"
+_VERIFY_PREVIEW_COMMAND = "shipgate verify --preview --json"
 
 
 def _undeclared_next_action() -> AgentResultNextAction:
     return AgentResultNextAction(
         actor="coding_agent",
         kind="warn",
-        command=_DETECT_COMMAND,
+        command=_VERIFY_PREVIEW_COMMAND,
         why=(
             "This diff changes a tool/capability surface that shipgate.yaml does not "
             "declare, so neither check nor verify gates it yet. Declare the surface "
-            "(run detect or add it to tool_sources), then run verify before completing."
+            "from verify preview guidance or add it to tool_sources, then run verify "
+            "before completing."
         ),
     )
 
@@ -1380,8 +1380,8 @@ def _undeclared_summary(surfaces: list[str]) -> str:
     return (
         "No Codex boundary rule fired, but the diff changes a tool/capability surface "
         f"({', '.join(surfaces[:5])}) that shipgate.yaml does not declare, so verify "
-        "cannot gate it yet. Declare it (detect or tool_sources) and run verify before "
-        "reporting completion."
+        "cannot gate it yet. Use verify preview guidance or add it to tool_sources, "
+        "then run verify before reporting completion."
     )
 
 
@@ -1402,7 +1402,7 @@ def _undeclared_trace(surfaces: list[str]) -> AgentResultTraceEvent:
         step="coverage",
         summary=(
             f"boundary_only: {len(surfaces)} undeclared tool surface(s) changed; "
-            "routed to detect + verify."
+            "routed to verify preview + verify."
         ),
     )
 

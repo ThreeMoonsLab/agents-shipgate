@@ -137,8 +137,8 @@ def test_next_command_routing_priority() -> None:
     # Manifest present wins regardless of the other signals.
     assert "verify" in _next_command(True, True, True)
     assert "verify" in _next_command(True, False, False)
-    # No manifest, but an agent tool surface: set up the gate / check now.
-    assert "init" in _next_command(False, True, False)
+    # No manifest, but an agent tool surface: stay inside the verify/check flows.
+    assert "verify --preview" in _next_command(False, True, False)
     assert "check" in _next_command(False, True, False)
     # No manifest, no agent surface, but host grants: route to the host audit.
     assert "audit --host" in _next_command(False, False, True)

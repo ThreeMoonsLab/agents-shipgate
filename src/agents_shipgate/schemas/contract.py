@@ -33,7 +33,7 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["7"] = "7"
+CONTRACT_VERSION: Literal["8"] = "8"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -178,6 +178,28 @@ COMMANDS: dict[str, str] = {
     ),
     "contract": "agents-shipgate contract --json",
 }
+PRIMARY_COMMANDS: dict[str, str] = {
+    "check_codex": (
+        "shipgate check --agent codex --workspace . --format codex-boundary-json"
+    ),
+    "check_claude_code": (
+        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+    ),
+    "check_cursor": (
+        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+    ),
+    "verify_local": (
+        "shipgate verify --workspace . --config shipgate.yaml "
+        "--ci-mode advisory --json"
+    ),
+    "verify_pr": (
+        "shipgate verify --workspace . --config shipgate.yaml "
+        "--base origin/main --head HEAD --ci-mode advisory --json"
+    ),
+    "host_audit": (
+        "shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"
+    ),
+}
 ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
     "verify_run": "agents-shipgate-reports/verify-run.json",
@@ -271,6 +293,7 @@ class ContractPayload(BaseModel):
     agent_interface_operations: list[str]
     exit_code_policy: dict[str, str]
     mcp_tools: list[str]
+    primary_commands: dict[str, str]
     commands: dict[str, str]
     default_paths: dict[str, str]
     artifacts: dict[str, str]
@@ -317,6 +340,7 @@ def build_contract_payload() -> ContractPayload:
         agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
         exit_code_policy=dict(EXIT_CODE_POLICY),
         mcp_tools=list(MCP_TOOLS),
+        primary_commands=dict(PRIMARY_COMMANDS),
         commands=dict(COMMANDS),
         default_paths=dict(DEFAULT_PATHS),
         artifacts=dict(ARTIFACTS),
@@ -351,6 +375,7 @@ __all__ = [
     "MERGE_VERDICTS",
     "MCP_TOOLS",
     "ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION",
+    "PRIMARY_COMMANDS",
     "REGISTRY_SCHEMA_VERSION",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",

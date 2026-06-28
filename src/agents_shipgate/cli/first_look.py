@@ -146,8 +146,8 @@ def _next_command(has_manifest: bool, has_agent_surface: bool, has_host: bool) -
         return "Next: `shipgate verify --base origin/main --head HEAD` to gate your PR."
     if has_agent_surface:
         return (
-            "Next: `shipgate init` to set up the gate, or `shipgate check` to "
-            "check your working tree now."
+            "Next: `shipgate verify --preview --json` to confirm the setup path, "
+            "or `shipgate check` to check your working tree now."
         )
     if has_host:
         return (
@@ -156,7 +156,8 @@ def _next_command(has_manifest: bool, has_agent_surface: bool, has_host: bool) -
         )
     return (
         "Next: no agent tool surface or host config detected — Shipgate may not "
-        "apply here. Run `shipgate detect` for the full classification."
+        "apply here. Run `shipgate audit --host` if you need a host-grant "
+        "inventory."
     )
 
 

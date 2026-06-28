@@ -69,12 +69,12 @@ the rules to the changed file list.
    ```
 
 5. **Then act.**
-   - If `run_shipgate: true`: run `detect` through a **version-pinned,
+   - If `run_shipgate: true`: run verify preview through a **version-pinned,
      zero-install** runner so a stale copy already on `PATH` can't answer —
-     `uvx agents-shipgate@1.0.0a1 detect --workspace . --json` (or
+     `uvx agents-shipgate@1.0.0a1 verify --preview --json` (or
      `pipx run agents-shipgate==1.0.0a1 ...`). Only fall back to a bare
-     `agents-shipgate detect` once `agents-shipgate --version` confirms
-     contract v7 or newer. Then follow
+     `shipgate verify --preview --json` once `agents-shipgate --version`
+     confirms contract v8 or newer. Then follow
      [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
      for the first-adoption helper flow, or point the user at the GitHub
      Action (`ThreeMoonsLab/agents-shipgate@v1.0.0a1`) if they prefer CI.

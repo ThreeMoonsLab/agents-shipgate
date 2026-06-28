@@ -10,23 +10,26 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v7 also exposes the local agent command spec:
-`commands{}`, `default_paths{}`, `artifacts{}`, `agent_read_order[]`,
-`verifier_read_order[]`, `merge_verdicts[]`, `release_decisions[]`,
-`do_not_auto_assert[]`, `verifier_schema_version`,
+Runtime contract v8 also exposes the local agent command spec:
+`primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
+`agent_read_order[]`, `verifier_read_order[]`, `merge_verdicts[]`,
+`release_decisions[]`, `do_not_auto_assert[]`, `verifier_schema_version`,
 `verify_run_schema_version`, `agent_handoff_schema_version`,
 `agent_handoff_schema_path`, `agent_handoff_artifact`,
 `codex_boundary_result_schema_version`, `attestation_schema_version`,
 `registry_schema_version`, `org_evidence_bundle_schema_version`,
 `host_grants_inventory_schema_version`, `agent_interface_operations[]`,
 `exit_code_policy`, `mcp_tools[]`, and the legacy `agent_result_*` fields
-retained for older protocol consumers.
+retained for older protocol consumers. `primary_commands{}` is the prominent
+entry surface and contains only `shipgate check`, `shipgate verify`, and
+`shipgate audit --host` flows; `commands{}` is compatibility/supporting
+metadata.
 Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `7`
+- Runtime contract: `8`
 - Current report schema: `0.27` — [`docs/report-schema.v0.27.json`](report-schema.v0.27.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
@@ -88,8 +91,8 @@ projections, and `agents-shipgate skill ...` review output as
 supporting/provisional surfaces. They may be useful for routing and review, but
 they do not replace the gate above and must not introduce a second verdict.
 
-`agents-shipgate preflight --workspace . --plan - --json` is a proactive
-routing surface for coding agents before edits. It accepts a single
+`agents-shipgate preflight --workspace . --plan - --json` remains a supporting
+proactive routing surface for coding agents before edits. It accepts a single
 `PreflightPlanV1` object with `changed_files[]`, optional `diff_text`,
 `capability_requests[]`, `host_permission_requests[]`, and
 `context.{agent,task}`. The emitted `PreflightResultV2` reports protected

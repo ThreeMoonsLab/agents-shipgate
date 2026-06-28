@@ -23,7 +23,7 @@ from agents_shipgate.schemas.diagnostics import NextAction
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
+    @app.command(hidden=True)
     def doctor(
         config: str = typer.Option("shipgate.yaml", "--config", "-c", help="Path or quoted glob."),
         workspace: Path | None = typer.Option(None, "--workspace", help="Inspect every manifest below workspace."),

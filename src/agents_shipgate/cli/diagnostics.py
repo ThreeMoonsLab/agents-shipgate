@@ -61,7 +61,7 @@ def _quote_path(value: str | Path) -> str:
 
 
 def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
-    """``shipgate.yaml`` is absent. The agent should detect, then init."""
+    """``shipgate.yaml`` is absent. The agent should start with verify preview."""
     workspace_q = _quote_path(workspace)
     return [
         Diagnostic(
@@ -71,14 +71,14 @@ def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
             next_actions=[
                 NextAction(
                     kind="command",
-                    command=f"agents-shipgate detect --workspace {workspace_q} --json",
+                    command=f"shipgate verify --workspace {workspace_q} --preview --json",
                     why=(
-                        "Confirm this is an agent project before writing a "
-                        "manifest. detect is read-only."
+                        "Ask the verify flow whether this workspace needs "
+                        "Shipgate configuration before writing a manifest."
                     ),
                     expects=(
-                        "JSON with is_agent_project, suggested_sources, and "
-                        "diagnostics."
+                        "JSON preview result with the next setup or skip "
+                        "action."
                     ),
                 ),
                 NextAction(

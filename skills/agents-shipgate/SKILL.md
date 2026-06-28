@@ -1,6 +1,6 @@
 ---
 name: agents-shipgate
-description: Run the deterministic merge gate when a change touches what an AI agent can do. Use after adding or modifying MCP servers or tools, tool/function definitions (@tool, @function_tool), OpenAPI specs that describe agent tools, agent prompts, permission scopes, approval or confirmation policies, agent CI workflows, or shipgate.yaml — and before creating a PR for any such change. Also use to verify agent-related PRs, fix or triage Shipgate findings, add Shipgate to CI, or interpret Shipgate verifier/report artifacts. Triggers on phrases like "add shipgate", "verify this agent PR", "merge verdict", "release readiness for my agent", "tool-use readiness", "scan my agent", "shipgate scan", "shipgate.yaml", "agents-shipgate-reports/verifier.json", "agents-shipgate-reports/report.json", "fix shipgate finding".
+description: Run prominent Agents Shipgate flows when a change touches what an AI agent can do: `shipgate check`, `shipgate verify`, or `shipgate audit --host`. Use after adding or modifying MCP servers or tools, tool/function definitions (@tool, @function_tool), OpenAPI specs that describe agent tools, agent prompts, permission scopes, approval or confirmation policies, agent CI workflows, or shipgate.yaml — and before creating a PR for any such change. Also use to verify agent-related PRs, fix or triage Shipgate findings, add Shipgate to CI, or interpret Shipgate verifier/report artifacts. Triggers on phrases like "add shipgate", "verify this agent PR", "merge verdict", "release readiness for my agent", "tool-use readiness", "shipgate check", "shipgate verify", "audit host grants", "shipgate.yaml", "agents-shipgate-reports/verifier.json", "agents-shipgate-reports/report.json", "fix shipgate finding".
 ---
 
 # agents-shipgate skill
@@ -53,8 +53,8 @@ Always:
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
    release gate.
-4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object. Legacy `--changed-files`/`--diff` shorthands remain available. If `requires_human_review` is true or `first_next_action.actor` is `human`, stop and route to a human.
-5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format codex-boundary-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches.
+4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, plan to run `shipgate verify` before completion and route trust-root review to a human when the verifier requires it.
+5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format codex-boundary-json`. For committed PR/CI verification, run `shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches. For host grants, run `shipgate audit --host --json --out agents-shipgate-reports/host-grants.json`.
 6. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 7. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
 
@@ -86,7 +86,7 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 
 ## Boundaries (do not violate)
 
-- Do not claim a finding is fixed without re-running `agents-shipgate scan` and showing the diff in counts.
+- Do not claim a finding is fixed without re-running `shipgate verify` and reporting the new merge verdict and release decision.
 - Do not silently suppress findings — `checks.ignore` requires a `reason` and the manifest validator rejects empty reasons.
 - Do not commit `agents-shipgate-reports/` — it's regenerated each run; add it to `.gitignore`.
 - Do not run `agents-shipgate baseline save` until the user has reviewed the initial findings; baselining ratchets in noise.

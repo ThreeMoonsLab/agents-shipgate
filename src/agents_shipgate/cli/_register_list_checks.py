@@ -8,7 +8,7 @@ from agents_shipgate.checks.registry import check_catalog
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("list-checks")
+    @app.command("list-checks", hidden=True)
     def list_checks(
         json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
         no_plugins: bool = typer.Option(

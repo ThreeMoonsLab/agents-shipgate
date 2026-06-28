@@ -137,7 +137,7 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
     assert payload["human_review"]["required"] is True
     assert "verify --preview --json" in payload["human_review"]["why"]
     assert payload["first_next_action"]["command"] == (
-        "agents-shipgate verify --preview --json"
+        "shipgate verify --preview --json"
     )
     assert (out_dir / "verifier.json").is_file()
     assert (out_dir / "verify-run.json").is_file()

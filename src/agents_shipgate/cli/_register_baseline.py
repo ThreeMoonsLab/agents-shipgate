@@ -333,7 +333,7 @@ def register(app: typer.Typer) -> None:
         if gating and violations:
             raise typer.Exit(20)
 
-    app.add_typer(baseline_app, name="baseline")
+    app.add_typer(baseline_app, name="baseline", hidden=True)
 
 
 def _coerce_evidence(evidence: dict[str, object]) -> dict[str, object]:
