@@ -189,8 +189,10 @@ def test_claude_command_current_file_matches_renderer() -> None:
 
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "1"
-    assert payload["contract_version"] == "7"
+    assert payload["schema_version"] == "2"
+    assert payload["contract_version"] == "8"
+    assert payload["primary_commands"]["verify_local"].startswith("shipgate verify")
+    assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v1"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["attestation_schema_version"] == "0.4"

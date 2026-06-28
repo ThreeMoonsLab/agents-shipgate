@@ -9,7 +9,7 @@ from agents_shipgate.cli.discovery.local_contract import (
     build_local_agent_contract,
     render_local_agent_contract,
 )
-from agents_shipgate.schemas.contract import CONTRACT_VERSION, GATING_SIGNAL
+from agents_shipgate.schemas.contract import CONTRACT_VERSION, GATING_SIGNAL, PRIMARY_COMMANDS
 
 
 def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
@@ -20,6 +20,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agents_shipgate_version",
         "contract_version",
         "default_paths",
+        "primary_commands",
         "commands",
         "artifacts",
         "agent_read_order",
@@ -49,6 +50,15 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["agents_shipgate_version"] == __version__
     assert payload["contract_version"] == CONTRACT_VERSION
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
+    assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
+    assert set(payload["primary_commands"]) == {
+        "check_codex",
+        "check_claude_code",
+        "check_cursor",
+        "verify_local",
+        "verify_pr",
+        "host_audit",
+    }
     assert payload["commands"]["install_agent_workflow"] == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )

@@ -8,7 +8,7 @@ from agents_shipgate.schemas.contract import build_contract_payload
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
+    @app.command(hidden=True)
     def contract(
         json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
     ) -> None:
@@ -78,6 +78,9 @@ def register(app: typer.Typer) -> None:
         typer.echo("MCP tools:")
         for tool in payload.mcp_tools:
             typer.echo(f"  {tool}")
+        typer.echo("Primary commands:")
+        for name, command in payload.primary_commands.items():
+            typer.echo(f"  {name}: {command}")
         typer.echo("Commands:")
         for name, command in payload.commands.items():
             typer.echo(f"  {name}: {command}")

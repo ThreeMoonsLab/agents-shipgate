@@ -4,26 +4,30 @@ A 60-second introduction to agents-shipgate for developers and AI coding agents.
 
 ## Verify-first quickstart
 
-The main path is to verify a PR or local diff before merge. After installing
-the CLI (see [Install](#install)), start with a preview so Shipgate can tell a
-coding agent whether the repo or diff is relevant:
+After installing the CLI (see [Install](#install)), start from one of three
+prominent flows.
+
+### Local Boundary Check
+
+Coding agents run `shipgate check` before reporting an agent-capability change
+complete. Parse the stdout `shipgate.codex_boundary_result/v1` object:
 
 ```bash
-agents-shipgate verify --preview --json
+shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent claude-code --workspace . --format codex-boundary-json
+shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-If the repo needs Shipgate and is not configured yet, install the manifest,
-advisory CI, and agent-facing instructions:
+Switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
+`human_review`, `repair`, and `policy`; do not infer a decision from prose.
+
+### PR And Local Verification
+
+For local pre-commit work, omit `--base` and `--head` so uncommitted edits are
+scanned:
 
 ```bash
-agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
-```
-
-Then run the verifier. For local pre-commit work, omit `--base` and `--head` so
-uncommitted edits are scanned:
-
-```bash
-agents-shipgate verify --workspace . --config shipgate.yaml \
+shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
 
@@ -31,8 +35,14 @@ For committed PR/CI refs, make the base ref available first, then pass base and
 head:
 
 ```bash
-agents-shipgate verify --workspace . --config shipgate.yaml \
+shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
+```
+
+If a repo is not configured yet, use the verify flow's preview entry point:
+
+```bash
+shipgate verify --preview --json
 ```
 
 Read `agents-shipgate-reports/agent-handoff.json` first and lead with
@@ -41,7 +51,16 @@ Read `agents-shipgate-reports/agent-handoff.json` first and lead with
 `agents-shipgate-reports/report.json`; the release gate remains
 `release_decision.decision`.
 
-## Zero-install: is this even relevant?
+### Host-Grant Audit
+
+Before changing local MCP servers, Codex/Claude/Cursor permission rules,
+hooks, workflow scopes, or other host grants, capture the host inventory:
+
+```bash
+shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
+```
+
+## Supporting zero-install relevance check
 
 Coding agents reading a fresh repo can answer "is this an agent project?" in one fetch, no install needed:
 

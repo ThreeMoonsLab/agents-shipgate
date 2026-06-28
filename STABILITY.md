@@ -42,7 +42,10 @@ Breaking changes from the `0.x` line:
   New outputs include `verify_run_json`, `run_id`,
   `agent_controller_must_stop`, `agent_controller_stop_reason`, and
   `agent_controller_completion_allowed`.
-- The runtime contract payload is now `contract_version: "7"`.
+- The runtime contract payload is now `contract_version: "8"`.
+  It adds `primary_commands{}` so agents can discover the three prominent
+  flows (`shipgate check`, `shipgate verify`, and `shipgate audit --host`)
+  without treating supporting/adoption commands as first-look guidance.
   Report JSON remains `report_schema_version: "0.27"` from the current
   `0.13.0` line; this alpha does not redefine that frozen report schema.
   v0.27 includes policy-pack distribution metadata
@@ -215,9 +218,12 @@ Stable JSON fields:
   mcp-serve`.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
-- `commands{}` — minimal stable commands for local `shipgate check` control,
-  preview, default local agent workflow install, local verify, PR verify, and
-  contract introspection.
+- `primary_commands{}` — the prominent flow map for local boundary checks,
+  local/PR verification, and host-grant audits. Values use the `shipgate`
+  alias and contain only `check`, `verify`, and `audit --host` entry points.
+- `commands{}` — compatibility/supporting commands for local `shipgate check`
+  control, preview, default local agent workflow install, local verify, PR
+  verify, and contract introspection.
 - `default_paths{}` — default manifest, report directory, and local contract
   paths used by generated downstream agent instructions.
 - `artifacts{}` — stable report artifact paths an agent should inspect first.
@@ -813,8 +819,8 @@ failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
 `head_status: "failed"`, `head_exit_code: 2`, `merge_verdict: "unknown"`,
 `applicability: "unknown"`, and `can_merge_without_human: false`; it writes no
 `report.json` and runs no head scan. The first next action directs agents to
-fix the config path or run `agents-shipgate verify --preview --json` /
-`agents-shipgate detect --workspace . --json` before initializing.
+fix the config path or run `shipgate verify --preview --json` before
+initializing.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, `verify-run.json`, `agent-handoff.json`, and `pr-comment.md`.

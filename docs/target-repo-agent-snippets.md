@@ -50,11 +50,11 @@ Commands:
 shipgate check --agent codex --workspace . --format codex-boundary-json
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
-agents-shipgate verify --preview --json
-agents-shipgate preflight --workspace . --plan - --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
-agents-shipgate verify --workspace . --config shipgate.yaml \
+shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
+shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
@@ -62,22 +62,13 @@ For local agent control, read the `shipgate check` stdout JSON only. It is
 `completion_allowed`, and `must_stop`, then follow `first_next_action`,
 `human_review`, `repair`, and `policy`. Do not infer a decision from prose.
 
-Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
-policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
-plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --workspace . --plan - --json` with a
-`PreflightPlanV1` object. Legacy shorthands such as
-`agents-shipgate preflight --changed-files changed.txt --json` remain available.
-If `requires_human_review` is `true` or
-`first_next_action.actor` is `human`, stop and route the change to a human.
-
 Before finishing an agent-related diff, run `shipgate check`. If
 `decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`
 is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
 repair and rerun the command. If `human_review.required=true` or
 `must_stop=true`, stop and surface the JSON result to a human.
 
-For committed PR/CI verification, run `agents-shipgate verify --base
+For committed PR/CI verification, run `shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
@@ -87,6 +78,10 @@ fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
+
+For coding-agent host grants, run `shipgate audit --host` and read the emitted
+host-grants inventory before changing MCP servers, permission rules, hooks, or
+workflow scopes.
 
 Auto-apply only high-confidence safe patches. Do not auto-assert approval,
 confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
@@ -150,19 +145,20 @@ advisory GitHub Action template under `ci-recipes/`.
 ## `CLAUDE.md`
 
 ````md
-## Agents Shipgate — merge gate
+## Agents Shipgate
 
 Agents Shipgate is the deterministic merge gate for AI-generated agent
-capability changes. This repo uses it to gate what its AI agent can do.
+capability changes — a local-first, static Tool-Use Readiness review.
 
 For agent tool-surface or release-policy changes, run:
 
 ```bash
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
-agents-shipgate verify --preview --json
-agents-shipgate preflight --workspace . --plan - --json
-agents-shipgate verify --workspace . --config shipgate.yaml \
+shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
+shipgate verify --workspace . --config shipgate.yaml \
+  --base origin/main --head HEAD --ci-mode advisory --format json
+shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
@@ -176,16 +172,7 @@ is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
 repair and rerun the command. If `human_review.required=true` or
 `must_stop=true`, stop and surface the JSON result to a human.
 
-Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
-policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
-plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --workspace . --plan - --json` with a
-`PreflightPlanV1` object. Legacy shorthands such as
-`agents-shipgate preflight --changed-files changed.txt --json` remain available.
-If `requires_human_review` is `true` or
-`first_next_action.actor` is `human`, stop and route the change to a human.
-
-For committed PR/CI verification, run `agents-shipgate verify --base
+For committed PR/CI verification, run `shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
@@ -195,6 +182,10 @@ fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
+
+For coding-agent host grants, run `shipgate audit --host` and read the emitted
+host-grants inventory before changing MCP servers, permission rules, hooks, or
+workflow scopes.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
 patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
@@ -245,10 +236,6 @@ When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
 Default to advisory verification while adopting the gate.
 
-Before protected edits, run preflight and read `PreflightResultV2`:
-
-  agents-shipgate preflight --workspace . --plan - --json
-
 For local agent control, run:
 
   shipgate check --agent cursor --workspace . --format codex-boundary-json
@@ -264,16 +251,11 @@ only the listed mechanical repair and rerun the command. If
 `human_review.required=true` or `must_stop=true`, stop and surface the JSON
 result to a human.
 
-Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
-policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
-plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
-`agents-shipgate preflight --workspace . --plan - --json` with a
-`PreflightPlanV1` object. Legacy shorthands such as
-`agents-shipgate preflight --changed-files changed.txt --json` remain available.
-If `requires_human_review` is `true` or
-`first_next_action.actor` is `human`, stop and route the change to a human.
+For local verification, run:
 
-For committed PR/CI verification, run `agents-shipgate verify --base
+  shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+
+For committed PR/CI verification, run `shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
@@ -283,6 +265,13 @@ fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
+
+For coding-agent host grants, run:
+
+  shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
+
+Read the host-grants inventory before changing MCP servers, permission rules,
+hooks, or workflow scopes.
 
 Apply only high-confidence safe patches. Do not invent approval, confirmation,
 or idempotency evidence.

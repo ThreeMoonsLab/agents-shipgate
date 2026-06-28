@@ -28,6 +28,7 @@ from agents_shipgate.schemas.contract import (
     MCP_TOOLS,
     MERGE_VERDICTS,
     ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    PRIMARY_COMMANDS,
     REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
@@ -35,7 +36,7 @@ from agents_shipgate.schemas.contract import (
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-LOCAL_CONTRACT_SCHEMA_VERSION = "1"
+LOCAL_CONTRACT_SCHEMA_VERSION = "2"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
 
 
@@ -48,6 +49,7 @@ class LocalAgentContract(BaseModel):
     agents_shipgate_version: str
     contract_version: str
     default_paths: dict[str, str]
+    primary_commands: dict[str, str]
     commands: dict[str, str]
     artifacts: dict[str, str]
     agent_read_order: list[str]
@@ -82,6 +84,7 @@ def build_local_agent_contract() -> LocalAgentContract:
         agents_shipgate_version=__version__,
         contract_version=CONTRACT_VERSION,
         default_paths=dict(DEFAULT_PATHS),
+        primary_commands=dict(PRIMARY_COMMANDS),
         commands=dict(COMMANDS),
         artifacts=dict(ARTIFACTS),
         agent_read_order=list(AGENT_READ_ORDER),

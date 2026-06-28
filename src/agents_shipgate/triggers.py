@@ -3,7 +3,7 @@
 The catalog (``docs/triggers.json``) is the machine-readable mirror of the
 AGENTS.md trigger table. A coding agent that has not yet adopted Shipgate
 can fetch ``triggers.json`` and apply the rules against a PR diff or repo
-state to decide whether to propose ``agents-shipgate detect`` as the next
+state to decide whether to propose ``shipgate verify --preview --json`` as the next
 step, without parsing prose.
 
 This module is the canonical evaluator. It exists primarily so:
@@ -144,15 +144,15 @@ def _next_action(
     Deterministic projection of the run/skip decision into an actor-
     agnostic ``{kind, command, why}``. Adopted repos (a manifest is
     present) are pointed at ``verify`` — the canonical ongoing-PR gate;
-    un-adopted repos are pointed at the catalog ``detect`` command so a
-    coding agent can bootstrap. ``command`` is ``None`` when no action
+    un-adopted repos are pointed at the catalog verify-preview command so a
+    coding agent can route setup. ``command`` is ``None`` when no action
     is warranted.
     """
     if run:
         if manifest_present:
             return {
                 "kind": "command",
-                "command": "agents-shipgate verify --base origin/main --head HEAD --json",
+                "command": "shipgate verify --base origin/main --head HEAD --json",
                 "why": (
                     "This change affects an agent tool or release-policy "
                     "surface; verify whether the PR can merge."
@@ -165,13 +165,13 @@ def _next_action(
             "kind": "command",
             "command": command,
             "why": (
-                "This change looks agent-related; detect tool surfaces "
-                "and adopt Shipgate."
+                "This change looks agent-related; start with verify preview "
+                "and adopt Shipgate if the preview routes setup."
             ),
         }
     if dry_run_recommended:
         command = (
-            "agents-shipgate verify --base origin/main --head HEAD "
+            "shipgate verify --base origin/main --head HEAD "
             "--ci-mode advisory --json"
             if manifest_present
             else default_command
@@ -420,7 +420,7 @@ def evaluate(
         manifest_present=manifest_present,
         matched=matched,
         default_command=triggers.get(
-            "default_command", "agents-shipgate detect --workspace . --json"
+            "default_command", "shipgate verify --preview --json"
         ),
         rationale=rationale,
     )

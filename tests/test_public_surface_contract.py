@@ -1440,6 +1440,18 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
         assert keyword in primary_keywords
 
     commands = data.get("commands", {})
+    primary_commands = data.get("primary_commands", {})
+    contract = build_contract_payload().model_dump(mode="json")
+    assert primary_commands == contract["primary_commands"]
+    assert set(primary_commands) == {
+        "check_codex",
+        "check_claude_code",
+        "check_cursor",
+        "verify_local",
+        "verify_pr",
+        "host_audit",
+    }
+    assert all(command.startswith("shipgate ") for command in primary_commands.values())
     assert commands.get("preview") == "agents-shipgate verify --preview --json"
     assert commands.get("install_ai_coding_workflow") == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
@@ -1498,6 +1510,71 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert all("_" not in topic for topic in recommended_topics), (
         "recommended_github_topics must use GitHub topic slug kebab-case."
     )
+
+
+def test_prominent_surfaces_only_promote_check_verify_and_host_audit():
+    """First-look surfaces must not promote supporting setup commands."""
+
+    forbidden = (
+        "agents-shipgate detect",
+        "agents-shipgate init",
+        "agents-shipgate scan",
+        "agents-shipgate preflight",
+        "agents-shipgate bootstrap",
+        "agents-shipgate apply-patches",
+    )
+    readme = _read("README.md")
+    readme_top = readme.split("## Verify-first quickstart", 1)[1].split(
+        "## How to read your first result", 1
+    )[0]
+    quickstart = _read("docs/quickstart.md")
+    quickstart_top = quickstart.split("## Verify-first quickstart", 1)[1].split(
+        "## Supporting zero-install relevance check", 1
+    )[0]
+    slash = _read(".claude/commands/shipgate.md")
+    slash_commands = slash.split("Prominent commands:", 1)[1].split(
+        "Required behavior", 1
+    )[0]
+    target_snippets = _read("docs/target-repo-agent-snippets.md")
+    agents_block = target_snippets.split("## `AGENTS.md`", 1)[1].split(
+        "## Codex Skill", 1
+    )[0]
+    claude_block = target_snippets.split("## `CLAUDE.md`", 1)[1].split(
+        "## `.cursor/rules/agents-shipgate.mdc`", 1
+    )[0]
+    cursor_block = target_snippets.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[
+        1
+    ].split("## `.github/pull_request_template.md`", 1)[0]
+
+    surfaces = {
+        "README quickstart": readme_top,
+        "docs/quickstart": quickstart_top,
+        "slash prominent commands": slash_commands,
+        "target AGENTS snippet": agents_block,
+        "target CLAUDE snippet": claude_block,
+        "target Cursor snippet": cursor_block,
+    }
+    for name, text in surfaces.items():
+        for command in forbidden:
+            assert command not in text, f"{name} promotes supporting command {command!r}"
+
+    well_known = json.loads(_read(".well-known/agents-shipgate.json"))
+    contract = build_contract_payload().model_dump(mode="json")
+    for name, command in {
+        **well_known["primary_commands"],
+        **contract["primary_commands"],
+    }.items():
+        assert command.startswith("shipgate "), f"{name} should use the shipgate alias"
+        assert any(
+            command.startswith(prefix)
+            for prefix in (
+                "shipgate check ",
+                "shipgate verify ",
+                "shipgate audit --host",
+            )
+        ), f"{name} is not one of the prominent flows: {command}"
+        for forbidden_command in forbidden:
+            assert forbidden_command not in command
 
 
 def test_llms_txt_advertises_triggers_and_llms_full():

@@ -100,20 +100,18 @@ def test_prompt_byte_identical_across_locations(name: str):
     )
 
 
-def test_add_shipgate_prompt_starts_with_detect_first_flow():
-    """The canonical onboarding prompt must lead with the v0.7
-    `detect → init --write --ci → scan --suggest-patches → apply-patches`
-    flow, not the pre-v0.6 install→init→scan path. Pin this so a
-    future edit doesn't accidentally regress to the older flow.
+def test_add_shipgate_prompt_starts_with_verify_preview_flow():
+    """The canonical onboarding prompt must lead with the v8 verify-preview
+    flow, keeping init/scan/apply-patches as supporting setup steps only.
     """
     text = (TOP_LEVEL_PROMPTS / "add-shipgate-to-repo.md").read_text(encoding="utf-8")
-    assert "agents-shipgate detect" in text, (
-        "add-shipgate-to-repo.md must reference `agents-shipgate detect` "
-        "(canonical 4-call flow leads with detection)."
+    assert "$SG verify --preview --json" in text, (
+        "add-shipgate-to-repo.md must lead with `verify --preview --json` "
+        "as the first-look flow."
     )
     assert "--suggest-patches" in text, (
         "add-shipgate-to-repo.md must reference `--suggest-patches` "
-        "(scan step in the canonical flow)."
+        "(supporting scan step after preview routes setup)."
     )
     assert "apply-patches" in text, (
         "add-shipgate-to-repo.md must reference `apply-patches` "

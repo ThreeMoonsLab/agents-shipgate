@@ -11,54 +11,31 @@ work is complete.
    export AGENTS_SHIPGATE_AGENT_MODE=1
    ```
 
-2. **Decide whether the diff needs Shipgate.**
-   For a committed PR diff:
+2. **Use verify preview only when relevance or setup is unclear.**
    ```bash
-   agents-shipgate trigger --workspace . --base origin/main --head HEAD --json
+   shipgate verify --preview --json
    ```
-   For a local pre-commit working-tree diff, or when the base ref is
-   unavailable locally, use the changed-files fallback:
-   ```bash
-   git diff --name-only HEAD > /tmp/shipgate-changed-files.txt
-   git diff HEAD > /tmp/shipgate.diff
-   agents-shipgate trigger --workspace . \
-     --changed-files /tmp/shipgate-changed-files.txt \
-     --diff /tmp/shipgate.diff --json
-   ```
+   Preview is a lightweight verify entry point: no manifest required, no scan,
+   exit 0. It tells you whether to configure Shipgate, skip, or run the full
+   verifier. If the repo already has `shipgate.yaml`, proceed to full verify.
 
-   Continue when `should_run` is `true` or `force_run` is `true`. If the
-   repo already has `shipgate.yaml`, CI should verify every PR; for local
-   pre-commit work, verify when the changed files are agent-related or when
-   you need a full advisory check before handing off.
-
-3. **Run preflight before protected-surface edits.**
+3. **Treat protected-surface edits as verifier-owned review.**
    Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
    policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
-   plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run:
-   ```bash
-   agents-shipgate preflight --workspace . --plan - --json
-   ```
-   Pass a `PreflightPlanV1` object on stdin. If you need legacy shorthands,
-   pass changed-file or diff context directly:
-   ```bash
-   agents-shipgate preflight --workspace . \
-     --changed-files /tmp/shipgate-changed-files.txt \
-     --diff /tmp/shipgate.diff --json
-   ```
-   If `requires_human_review` is true or `first_next_action.actor` is `human`,
-   stop and route the change to a human. Preflight is a routing surface only;
-   it does not replace the verifier.
+   plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, do not
+   self-approve the trust-root change. Run full verify before reporting
+   completion and route human review when the verifier requires it.
 
 4. **Run the verifier.**
    For local uncommitted work, omit `--head` and omit `--base` so the
    checked-out working tree is scanned, including uncommitted edits:
    ```bash
-   agents-shipgate verify --workspace . --config shipgate.yaml \
+   shipgate verify --workspace . --config shipgate.yaml \
      --ci-mode advisory --format json
    ```
    For committed PR or CI verification, pass the head ref explicitly:
    ```bash
-   agents-shipgate verify --workspace . --config shipgate.yaml \
+   shipgate verify --workspace . --config shipgate.yaml \
      --base origin/main --head HEAD --ci-mode advisory --format json
    ```
    `verify` never fetches. If you pass `--base` and that ref is missing,
@@ -96,8 +73,8 @@ work is complete.
 
 ## What NOT to do
 
-- Do not claim the diff is verified until `agents-shipgate verify` has run or
-  `agents-shipgate trigger` has returned a clear skip verdict.
+- Do not claim the diff is verified until `shipgate verify` has run or
+  `shipgate verify --preview --json` has returned a clear skip verdict.
 - Do not claim completion when `merge_verdict` is `blocked`,
   `insufficient_evidence`, or `human_review_required` unless the user
   explicitly accepts human review.

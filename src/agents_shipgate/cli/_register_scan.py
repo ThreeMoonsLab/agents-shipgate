@@ -49,7 +49,7 @@ def _build_verification_context(
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
+    @app.command(hidden=True)
     def scan(
         config: str = typer.Option(
             "shipgate.yaml",

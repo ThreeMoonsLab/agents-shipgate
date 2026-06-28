@@ -50,10 +50,12 @@ app = typer.Typer(
 )
 app.command(
     "self-check",
+    hidden=True,
     help="Verify install and bundled fixtures. Run this first in a fresh environment.",
 )(self_check)
 app.command(
     "detect",
+    hidden=True,
     help="Classify a workspace: which agent framework(s), if any. Read-only.",
 )(_detect_command)
 app.command(
@@ -62,6 +64,7 @@ app.command(
 )(_check_command)
 app.command(
     "preflight",
+    hidden=True,
     help=(
         "Run proactive static preflight: protected surfaces, forbidden edits, "
         "and high-risk capability evidence requirements."
@@ -69,6 +72,7 @@ app.command(
 )(_preflight_command)
 app.command(
     "apply-patches",
+    hidden=True,
     help=(
         "Apply patches from a scan JSON report. Dry-run by default; pass "
         "--apply to mutate. Containment-checked against the report's "
@@ -87,6 +91,7 @@ app.command(
 )(_evidence_packet_command)
 app.command(
     "bootstrap",
+    hidden=True,
     help=(
         "Run the canonical 4-call adoption flow in one command: "
         "detect → init --write --ci → scan --suggest-patches → "
@@ -95,6 +100,7 @@ app.command(
 )(_bootstrap_command)
 app.command(
     "explain-finding",
+    hidden=True,
     help=(
         "Explain a specific finding from a `report.json`, with evidence "
         "and a 3–5 sentence prose summary. Companion to `explain "
@@ -103,6 +109,7 @@ app.command(
 )(_explain_finding_command)
 app.command(
     "findings",
+    hidden=True,
     help=(
         "Filter findings from a `report.json` by provenance kind for "
         "reviewer triage."
@@ -110,6 +117,7 @@ app.command(
 )(_findings_command)
 app.command(
     "trigger",
+    hidden=True,
     help=(
         "Evaluate the trigger catalog against a diff and emit a run/skip "
         "verdict. Reads --changed-files / --diff, or --base/--head (git)."
@@ -124,6 +132,7 @@ app.command(
 )(_verify_command)
 app.command(
     "attest",
+    hidden=True,
     help=(
         "Derive a deterministic local release attestation from verifier.json "
         "(verdict, capability delta, human-ack state, policy + artifact hashes)."
@@ -131,6 +140,7 @@ app.command(
 )(_attest_command)
 app.command(
     "install-hooks",
+    hidden=True,
     help=(
         "Install advisory local coding-agent hooks. Currently supports "
         "--target claude-code."
@@ -140,7 +150,8 @@ app.command(
 app.command(
     "audit",
     help=(
-        "Zero-config host-grant audits. `audit --host` inventories "
+        "Run `shipgate audit --host` for zero-config host-grant audits. "
+        "`audit --host` inventories "
         "coding-agent host grants (MCP servers, permission rules, hooks, "
         "workflow scopes) without requiring shipgate.yaml; `--save-baseline` "
         "records the acknowledged state (writes one JSON file under "
@@ -150,7 +161,7 @@ app.command(
 )(_audit_command)
 
 
-@app.command("mcp-serve")
+@app.command("mcp-serve", hidden=True)
 def _mcp_serve_command() -> None:
     """Serve the optional read-only MCP server over stdio.
 
@@ -173,21 +184,20 @@ _register_explain.register(app)
 _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
-# Visibility policy (WS-D): `--help` shows the core loop — detect / check /
-# verify / init / scan / audit and their direct companions. Niche or
-# maintainer-facing surfaces (`hidden=True` here and on `evidence-packet`
-# above) stay fully invokable and documented — hiding is presentation only,
-# not deprecation, so STABILITY.md is unaffected. `fixture` stays visible
-# because the README's 60-second demo leads with `fixture run`.
-app.add_typer(fixture_app, name="fixture")
+# Visibility policy: root --help shows only the prominent flows:
+# `shipgate check`, `shipgate verify`, and `shipgate audit --host`.
+# Supporting/compatibility commands stay fully invokable and documented
+# through their direct --help; hiding is presentation, not deprecation.
+# README fixture demos remain runnable, but are not a root-help flow.
+app.add_typer(fixture_app, name="fixture", hidden=True)
 app.add_typer(feedback_app, name="feedback", hidden=True)
 app.add_typer(scenario_app, name="scenario", hidden=True)
 app.add_typer(skill_app, name="skill", hidden=True)
-app.add_typer(capability_app, name="capability")
-app.add_typer(agent_app, name="agent")
-app.add_typer(mcp_app, name="mcp")
-app.add_typer(org_app, name="org")
-app.add_typer(registry_app, name="registry")
+app.add_typer(capability_app, name="capability", hidden=True)
+app.add_typer(agent_app, name="agent", hidden=True)
+app.add_typer(mcp_app, name="mcp", hidden=True)
+app.add_typer(org_app, name="org", hidden=True)
+app.add_typer(registry_app, name="registry", hidden=True)
 logger = logging.getLogger(__name__)
 
 

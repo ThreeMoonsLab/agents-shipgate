@@ -11,7 +11,7 @@ from agents_shipgate.schemas.diagnostics import NextAction
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
+    @app.command(hidden=True)
     def explain(
         check_id: str,
         no_plugins: bool = typer.Option(

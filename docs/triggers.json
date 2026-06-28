@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": "0.1",
   "name": "agents-shipgate-triggers",
-  "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent that has not yet adopted Shipgate can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate detect`. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
+  "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent can fetch this and apply the rules to a PR diff or repo state to decide whether to run `shipgate verify --preview --json` or the full verifier. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
   "documentation_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md",
-  "default_command": "agents-shipgate detect --workspace . --json",
+  "default_command": "shipgate verify --preview --json",
   "predicate_vocabulary": {
     "glob": "Any changed file in the PR matches the glob (relative to repo root). Globstar `**` matches zero or more path segments; `*` matches within a segment; brace expansion is not supported.",
     "diff_contains": "The unified diff (added or modified lines) of this PR contains the literal string. Use only with stable token forms — decorator names, package names, function calls.",
@@ -30,7 +30,7 @@
       },
       "action": "run_shipgate",
       "rationale": "MCP exports declare a tool surface; changes need a tool-use readiness check.",
-      "command": "agents-shipgate detect --workspace . --json"
+      "command": "shipgate verify --preview --json"
     },
     {
       "id": "TRIGGER-OPENAPI-SPEC-CHANGED",
@@ -47,7 +47,7 @@
       },
       "action": "run_shipgate",
       "rationale": "OpenAPI specs define HTTP-tool surfaces; scope coverage and side-effect classification depend on them.",
-      "command": "agents-shipgate detect --workspace . --json"
+      "command": "shipgate verify --preview --json"
     },
     {
       "id": "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED",
@@ -93,7 +93,7 @@
       },
       "action": "run_shipgate",
       "rationale": "Codex plugin packages and marketplaces are static release surfaces; plugin metadata, skills, apps, MCP server declarations, and hooks need a readiness check.",
-      "command": "agents-shipgate detect --workspace . --json"
+      "command": "shipgate verify --preview --json"
     },
     {
       "id": "TRIGGER-N8N-WORKFLOW-CHANGED",
@@ -230,7 +230,7 @@
   },
   "actions": {
     "force_run": "Propose Shipgate unconditionally. Overrides `skip_shipgate` rules — used when the repo has explicitly opted in (e.g. existing `shipgate.yaml`) and every PR should be checked.",
-    "run_shipgate": "Propose `agents-shipgate detect --json` as the next step; if `is_agent_project` or `suggested_sources` is non-trivial, follow with `init --write --ci` and `scan`. Does NOT win over `skip_shipgate` — a docs-only PR that incidentally mentions a tool decorator stays skipped.",
+    "run_shipgate": "Propose `shipgate verify --preview --json` as the next step; if preview says the repo needs configuration, use supporting setup commands before the full verifier. Does NOT win over `skip_shipgate` — a docs-only PR that incidentally mentions a tool decorator stays skipped.",
     "skip_shipgate": "Do not propose Shipgate. Beats `run_shipgate` (but loses to `force_run`). Recommend other appropriate checks for the PR.",
     "dry_run": "Advisory: `run_shipgate` stays false but `dry_run_recommended` is true in the evaluator output. Callers may propose a non-mutating scan; never propose `init --write` based on `dry_run` alone."
   },

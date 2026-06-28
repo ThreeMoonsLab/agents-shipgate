@@ -72,6 +72,14 @@
   },
   "binaries": ["agents-shipgate", "shipgate"],
   "quickstart": "shipgate check --agent codex --workspace . --format codex-boundary-json",
+  "primary_commands": {
+    "check_codex": "shipgate check --agent codex --workspace . --format codex-boundary-json",
+    "check_claude_code": "shipgate check --agent claude-code --workspace . --format codex-boundary-json",
+    "check_cursor": "shipgate check --agent cursor --workspace . --format codex-boundary-json",
+    "verify_local": "shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
+    "verify_pr": "shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --json",
+    "host_audit": "shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"
+  },
   "commands": {
     "agent_check": "shipgate check --agent codex --workspace . --format codex-boundary-json",
     "agent_check_codex": "shipgate check --agent codex --workspace . --format codex-boundary-json",
@@ -118,7 +126,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v1",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v1.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "7",
+  "contract_version": "8",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_config", "codex_plugin", "n8n"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "verify_run_json", "agent_handoff_json", "pr_comment_md", "check_annotations_json", "capability_lock_json", "base_capability_lock_json", "capability_lock_diff_json", "capability_lock_diff_md", "feedback_json", "attestation_json", "org_evidence_bundle_json", "host_grants_json", "org_status_json", "scenario_json", "governance_benchmark_result_json"],
   "artifacts": {

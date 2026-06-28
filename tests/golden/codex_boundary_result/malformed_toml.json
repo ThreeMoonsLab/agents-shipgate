@@ -128,7 +128,7 @@
     "next_action": {
       "kind": "command",
       "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
-      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },
   "finding_fingerprints": [

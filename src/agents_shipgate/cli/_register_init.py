@@ -166,7 +166,7 @@ def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
+    @app.command(hidden=True)
     def init(
         workspace: Path = typer.Option(Path("."), "--workspace", help="Workspace to inspect."),
         write: bool = typer.Option(

@@ -46,10 +46,11 @@ def build_codex_agent_result(
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
     config_path = config if config.is_absolute() else workspace / config
+    manifest_present = config_path.is_file()
     trigger = evaluate_trigger(
         paths=changed_files,
         diff_text=diff_text,
-        manifest_present=config_path.is_file(),
+        manifest_present=manifest_present,
         user_requested=True,
     )
     declared = _declared_tool_surfaces_changed(
@@ -63,6 +64,7 @@ def build_codex_agent_result(
         agent=agent,
         policy_path=policy,
         trigger=trigger,
+        manifest_present=manifest_present,
         capability_surfaces_changed=declared,
         undeclared_capability_surfaces=_undeclared_tool_surfaces_changed(
             diff_files=diff_files,

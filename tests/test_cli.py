@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
@@ -41,6 +42,7 @@ from agents_shipgate.schemas.contract import (
     MCP_TOOLS,
     MERGE_VERDICTS,
     ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    PRIMARY_COMMANDS,
     REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     VERIFIER_READ_ORDER,
@@ -57,6 +59,11 @@ from agents_shipgate.schemas.surfaces import ToolSurfaceDiffSummary
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 runner = CliRunner()
+ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _plain_cli_output(text: str) -> str:
+    return ANSI_RE.sub("", text)
 
 
 def test_cli_advisory_exits_zero(tmp_path):
@@ -169,7 +176,7 @@ def test_cli_missing_config_prints_next_action_hint(tmp_path, monkeypatch):
     assert "Config error:" in result.output
     # The human reader gets the same rank-1 recovery step that agent
     # mode emits as JSON — a cold user must not hit a dead end.
-    assert "next: agents-shipgate detect" in result.output
+    assert "next: shipgate verify" in result.output
 
 
 def test_cli_change_me_placeholder_error_routes_to_manifest_edit(tmp_path, monkeypatch):
@@ -265,6 +272,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_interface_operations",
         "exit_code_policy",
         "mcp_tools",
+        "primary_commands",
         "commands",
         "default_paths",
         "artifacts",
@@ -308,6 +316,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_interface_operations": list(AGENT_INTERFACE_OPERATIONS),
         "exit_code_policy": dict(EXIT_CODE_POLICY),
         "mcp_tools": list(MCP_TOOLS),
+        "primary_commands": dict(PRIMARY_COMMANDS),
         "commands": dict(COMMANDS),
         "default_paths": dict(DEFAULT_PATHS),
         "artifacts": dict(ARTIFACTS),
@@ -422,27 +431,42 @@ def test_cli_scan_help_hides_deferred_flags():
     assert "--policy-pack" in public_options
 
 
-# WS-D visibility policy: --help shows the core loop; niche/maintainer
-# surfaces are hidden but stay fully invokable (presentation, not
-# deprecation — STABILITY.md is unaffected).
+# Visibility policy: root --help shows only the three prominent flows; every
+# supporting command remains directly invokable for compatibility.
 HIDDEN_TOP_LEVEL_COMMANDS = {
+    "agent",
+    "apply-patches",
+    "attest",
+    "baseline",
+    "bootstrap",
+    "capability",
+    "contract",
+    "detect",
+    "doctor",
     "evidence-packet",
+    "explain",
+    "explain-finding",
     "feedback",
+    "findings",
+    "fixture",
+    "init",
+    "install-hooks",
+    "list-checks",
+    "mcp",
+    "mcp-serve",
+    "org",
+    "preflight",
+    "registry",
+    "scan",
     "scenario",
     "skill",
+    "self-check",
+    "trigger",
 }
 VISIBLE_CORE_COMMANDS = {
-    "detect",
     "check",
     "verify",
-    "init",
-    "scan",
     "audit",
-    "org",
-    "registry",
-    "doctor",
-    "self-check",
-    "fixture",  # the README 60-second demo leads with `fixture run`
 }
 
 
@@ -450,16 +474,18 @@ def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
     root = get_command(app)
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
+    output = _plain_cli_output(result.output)
 
     for name in HIDDEN_TOP_LEVEL_COMMANDS:
         assert root.commands[name].hidden, f"{name} should be hidden from --help"
-        assert f" {name} " not in result.output
+        assert f"│ {name}" not in output
         # Hidden, not removed: the command still resolves and answers --help.
         invoked = runner.invoke(app, [name, "--help"])
         assert invoked.exit_code == 0, f"{name} must remain invokable: {invoked.output}"
 
     for name in VISIBLE_CORE_COMMANDS:
         assert not root.commands[name].hidden, f"{name} must stay visible"
+        assert re.search(rf"\b{re.escape(name)}\b", output), output
 
 
 def test_cli_tool_surface_summary_detects_no_changes():
@@ -1132,7 +1158,7 @@ def test_missing_manifest_recovery_uses_config_workspace(tmp_path, monkeypatch):
     payloads = _stderr_json_lines(result.output)
     assert payloads, result.output
     rank_one = payloads[-1]["next_actions"][0]
-    assert "agents-shipgate detect --workspace" in rank_one["command"]
+    assert "shipgate verify --workspace" in rank_one["command"]
     # Routes recovery to the config's parent directory, not the foreign cwd.
     assert str(tmp_path / "repo") in rank_one["command"]
     assert str(foreign_cwd) not in rank_one["command"]
@@ -1242,8 +1268,7 @@ def test_missing_manifest_command_quotes_workspace_with_spaces(tmp_path, monkeyp
     import shlex
 
     parts = shlex.split(command)
-    assert parts[0] == "agents-shipgate"
-    assert parts[1] == "detect"
+    assert parts[:2] == ["shipgate", "verify"]
     assert "--workspace" in parts
     workspace_arg = parts[parts.index("--workspace") + 1]
     assert workspace_arg == str(spaced)

@@ -131,8 +131,8 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "agents-shipgate detect --workspace . --json",
-      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+      "command": "shipgate verify --preview --json",
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },
   "finding_fingerprints": [
