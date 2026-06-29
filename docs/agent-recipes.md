@@ -67,6 +67,11 @@ agents-shipgate apply-patches \
 
 Consume the response to decide whether to proceed. Key fields:
 
+- Detection silently skips common fixture corpus directories such as
+  `fixtures/`, `_fixtures/`, `__fixtures__/`, `testdata/`, `test_data/`,
+  `test-fixtures/`, `test_fixtures/`, `golden/`, and `goldens/` when they
+  are below the selected workspace. Point `--workspace` directly at a
+  fixture project if you intentionally want to classify that fixture itself.
 - `is_agent_project` — `true` when at least one Python framework
   scored ≥ 2.0 with a strong signal.
 - `frameworks[]` — per-framework scores + evidence + candidate file

@@ -13,6 +13,41 @@ from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.schemas.detect import DetectResult
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
+FIXTURE_SKIP_DIR_NAMES = (
+    "fixtures",
+    "_fixtures",
+    "__fixtures__",
+    "testdata",
+    "test_data",
+    "test-fixtures",
+    "test_fixtures",
+    "golden",
+    "goldens",
+)
+
+
+def _write_skipped_fixture_signals(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent.py").write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+    tools = root / "tools"
+    tools.mkdir()
+    (tools / "payments-mcp.json").write_text(
+        '{"tools": [{"name": "create_payment_link", "description": "Create link."}]}',
+        encoding="utf-8",
+    )
+    (root / "broken-mcp.json").write_text("{not json", encoding="utf-8")
+    specs = root / "specs"
+    specs.mkdir()
+    (specs / "support.openapi.yaml").write_text(
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+        encoding="utf-8",
+    )
+    plugin = root / "plugin" / ".codex-plugin"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.json").write_text("{}", encoding="utf-8")
 
 
 def test_detects_langchain_sample() -> None:
@@ -153,6 +188,21 @@ def test_detect_ignores_local_private_and_virtualenv_fixtures(tmp_path: Path) ->
     assert result.suggested_sources == []
 
 
+def test_detect_excludes_common_fixture_dirs_by_default(tmp_path: Path) -> None:
+    """Fixture corpora should not make an otherwise empty workspace look agentic."""
+    for dirname in FIXTURE_SKIP_DIR_NAMES:
+        _write_skipped_fixture_signals(tmp_path / dirname)
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.frameworks == []
+    assert result.suggested_sources == []
+    assert result.excluded_sources == []
+    assert result.codex_plugin_candidates == []
+    assert result.workspace_signals.python_file_count == 0
+
+
 def test_detect_does_not_skip_workspace_because_parent_is_skipped_name(
     tmp_path: Path,
 ) -> None:
@@ -168,6 +218,22 @@ def test_detect_does_not_skip_workspace_because_parent_is_skipped_name(
     assert result.is_agent_project is True
     langchain = next(fw for fw in result.frameworks if fw.type == "langchain")
     assert langchain.candidate_files == ["agent.py"]
+
+
+def test_detect_does_not_skip_workspace_named_fixtures(tmp_path: Path) -> None:
+    workspace = tmp_path / "fixtures"
+    workspace.mkdir()
+    (workspace / "agent.py").write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(workspace)
+
+    assert result.is_agent_project is True
+    langchain = next(fw for fw in result.frameworks if fw.type == "langchain")
+    assert langchain.candidate_files == ["agent.py"]
+    assert result.workspace_signals.python_file_count == 1
 
 
 def test_detect_respects_gitignored_nested_agent_artifacts(tmp_path: Path) -> None:
@@ -197,6 +263,25 @@ def test_detect_respects_gitignored_nested_agent_artifacts(tmp_path: Path) -> No
     assert result.is_agent_project is False
     assert result.frameworks == []
     assert result.suggested_sources == []
+
+
+def test_detect_excludes_common_fixture_dirs_with_git_candidates(
+    tmp_path: Path,
+) -> None:
+    if not shutil.which("git"):
+        pytest.skip("git is required for git-aware discovery regression coverage")
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    _write_skipped_fixture_signals(tmp_path / "fixtures")
+
+    result = detect_workspace(tmp_path)
+
+    assert result.is_agent_project is False
+    assert result.frameworks == []
+    assert result.suggested_sources == []
+    assert result.excluded_sources == []
+    assert result.codex_plugin_candidates == []
+    assert result.workspace_signals.python_file_count == 0
 
 
 def test_pyproject_seeds_project_name_not_agent_name(tmp_path: Path) -> None:
