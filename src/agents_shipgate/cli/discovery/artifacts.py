@@ -88,8 +88,17 @@ SKIP_DIRS = {
     "build",
     "dist",
     "env",
+    "fixtures",
+    "_fixtures",
+    "__fixtures__",
+    "golden",
+    "goldens",
     "node_modules",
     "target",
+    "test-fixtures",
+    "test_fixtures",
+    "test_data",
+    "testdata",
     "venv",
 }
 SKIP_DIR_PREFIXES = (".venv",)

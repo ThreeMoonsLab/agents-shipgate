@@ -134,6 +134,24 @@ def test_script_emits_canonical_top_level_keys(script_module):
 SCRIPT_PARITY_GAPS: frozenset[str] = frozenset({"n8n_workflow_agent"})
 
 
+def _write_skipped_fixture_signals(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent.py").write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+    tools = root / "tools"
+    tools.mkdir()
+    (tools / "payments-mcp.json").write_text(
+        '{"tools": [{"name": "create_payment_link", "description": "Create link."}]}',
+        encoding="utf-8",
+    )
+    (root / "broken-mcp.json").write_text("{not json", encoding="utf-8")
+    plugin = root / "plugin" / ".codex-plugin"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.json").write_text("{}", encoding="utf-8")
+
+
 @pytest.mark.parametrize("sample_dir", _sample_dirs(), ids=_sample_ids())
 def test_script_verdict_matches_cli(script_module, sample_dir):
     """Structural parity: for every sample, the zero-install script
@@ -224,6 +242,40 @@ def test_script_finds_at_least_one_python_file_when_cli_does(
             f"the zero-install script found 0. Walk logic diverged — "
             "check SKIP_DIRS and the os.walk pruning."
         )
+
+
+def test_script_and_cli_skip_common_fixture_dirs(script_module, tmp_path):
+    _write_skipped_fixture_signals(tmp_path / "fixtures")
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    for result in (script_result, cli_result):
+        assert result["is_agent_project"] is False
+        assert result["frameworks"] == []
+        assert result["suggested_sources"] == []
+        assert result["excluded_sources"] == []
+        assert result["codex_plugin_candidates"] == []
+        assert result["workspace_signals"]["python_file_count"] == 0
+
+
+def test_script_detects_workspace_named_fixture_dir(script_module, tmp_path):
+    workspace = tmp_path / "fixtures"
+    workspace.mkdir()
+    (workspace / "agent.py").write_text(
+        "from langchain.tools import tool\n\n@tool\ndef lookup():\n    return 'x'\n",
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(workspace)
+    cli_result = detect_workspace(workspace.resolve()).model_dump(mode="json")
+
+    assert script_result["is_agent_project"] is True
+    assert cli_result["is_agent_project"] is True
+    assert [fw["type"] for fw in script_result["frameworks"]] == ["langchain"]
+    assert [fw["type"] for fw in cli_result["frameworks"]] == ["langchain"]
+    assert script_result["workspace_signals"]["python_file_count"] == 1
+    assert cli_result["workspace_signals"]["python_file_count"] == 1
 
 
 def test_script_excludes_mcpservers_config_like_cli(script_module, tmp_path):

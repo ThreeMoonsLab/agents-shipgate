@@ -22,6 +22,11 @@ fired frameworks, suggested sources, excluded sources — against the CLI on
 every sample in ``samples/``, so the two cannot drift on the load-bearing
 fields.
 
+Both this script and the canonical CLI silently skip common fixture corpus
+directories (for example ``fixtures/``, ``testdata/``, and ``golden/``) when
+those directories are below the selected workspace. Point ``--workspace``
+directly at a fixture project to detect that fixture itself.
+
 Like the canonical CLI, glob-matched MCP/OpenAPI candidates are
 parse-probed before they are suggested: a filename is a glob match, not a
 guarantee. A Cursor plugin ``mcp.json`` is an ``mcpServers``-style host
@@ -59,7 +64,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.2.0"
+SCRIPT_VERSION = "0.2.1"
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
 LANGCHAIN_IMPORTS = {
@@ -120,7 +125,8 @@ SKIP_DIRS = {
     ".nox", ".svn", ".mypy_cache", ".next", ".pnpm-store", ".pytest_cache",
     ".ruff_cache", ".turbo", ".tox", ".venv", "__pycache__",
     "agents-shipgate-reports", "build", "dist", "env", "node_modules",
-    "target", "venv",
+    "target", "venv", "fixtures", "_fixtures", "__fixtures__", "golden",
+    "goldens", "test-fixtures", "test_fixtures", "test_data", "testdata",
 }
 PYPROJECT_NAME_RE = re.compile(r'^\s*name\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
 REQ_TOKEN_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
