@@ -193,7 +193,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        line=430,
+        line=439,
         snippet=(
             "subprocess.run(['git', '-C', str(workspace), 'rev-parse', "
             "'--show-toplevel'], check=False, capture_output=True, "
@@ -208,7 +208,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        line=446,
+        line=455,
         snippet=(
             "subprocess.run(['git', '-C', str(workspace), 'ls-files', "
             "'-co', '--exclude-standard', '--full-name', '-z', '--', "
@@ -1283,7 +1283,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     ``subprocess.run`` AllowedException entries (one per call site at
     lines 480, 481, 486), not one blanket entry that permits all
     occurrences. Same for ``cli/discovery/artifacts.py`` (two call
-    sites at 361 and 377). Adding a fourth ``subprocess.run`` to
+    sites at 439 and 455). Adding a fourth ``subprocess.run`` to
     ``triggers.py`` must require adding a new ALLOWED_EXCEPTIONS entry.
 
     If the test fails because lines drifted, that is the intended
@@ -1312,7 +1312,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     assert len(artifacts_subprocess_run) == 2, (
         f"Expected 2 distinct AllowedException entries for "
         f"cli/discovery/artifacts.py subprocess.run calls (one per "
-        f"call site at lines 361 and 377), got "
+        f"call site at lines 439 and 455), got "
         f"{len(artifacts_subprocess_run)}."
     )
     verify_subprocess_run = by_file_surface.get(
