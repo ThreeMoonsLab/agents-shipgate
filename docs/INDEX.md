@@ -47,7 +47,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
 - [`org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
-- [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — JSON Schema for `agents-shipgate audit --host --json`; versioned host MCP/permission/hook/workflow inventory
+- [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — JSON Schema for `shipgate audit --host --json`; versioned host MCP/permission/hook/workflow inventory
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference

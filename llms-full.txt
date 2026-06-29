@@ -987,7 +987,7 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v8 also exposes the local agent command spec:
+Runtime contract v9 also exposes the local agent command spec:
 `primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
 `agent_read_order[]`, `verifier_read_order[]`, `merge_verdicts[]`,
 `release_decisions[]`, `do_not_auto_assert[]`, `verifier_schema_version`,
@@ -998,15 +998,17 @@ Runtime contract v8 also exposes the local agent command spec:
 `host_grants_inventory_schema_version`, `agent_interface_operations[]`,
 `exit_code_policy`, `mcp_tools[]`, and the legacy `agent_result_*` fields
 retained for older protocol consumers. `primary_commands{}` is the prominent
-entry surface and contains only `shipgate check`, `shipgate verify`, and
-`shipgate audit --host` flows; `commands{}` is compatibility/supporting
-metadata.
+entry surface and contains only `shipgate check`, `agents-shipgate verify`, and
+`shipgate audit --host` flows; `commands{}` is compatibility/supporting metadata
+and retains local verify commands for older consumers.
+The short `shipgate verify` alias remains invokable for compatibility, but it is
+not the promoted PR-gate spelling in `primary_commands{}`.
 Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `8`
+- Runtime contract: `9`
 - Current report schema: `0.27` — [`docs/report-schema.v0.27.json`](report-schema.v0.27.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)

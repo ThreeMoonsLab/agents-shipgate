@@ -105,7 +105,7 @@ def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path)
     assert payload["completion_allowed"] is True
     assert payload["must_stop"] is False
     assert payload["first_next_action"]["kind"] == "warn"
-    assert payload["first_next_action"]["command"].startswith("shipgate verify")
+    assert payload["first_next_action"]["command"].startswith("agents-shipgate verify")
     assert any(d["code"] == "capability_change_requires_verify" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
 
@@ -152,7 +152,7 @@ def test_check_warns_when_manifest_declares_changed_tool_source(tmp_path: Path) 
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify")
+    assert result.first_next_action.command.startswith("agents-shipgate verify")
 
 
 def _write_manifest(tmp_path: Path, tool_sources: str) -> None:
@@ -189,7 +189,7 @@ def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify")
+    assert result.first_next_action.command.startswith("agents-shipgate verify")
 
 
 def test_check_does_not_warn_on_broad_root_source(tmp_path: Path) -> None:
@@ -288,7 +288,7 @@ def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
     assert payload["suggested_fixes"][0] == "shipgate detect --workspace . --json"
-    assert any(fix.startswith("shipgate verify") for fix in payload["suggested_fixes"])
+    assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
 
 
 def test_mixed_declared_and_undeclared_routes_to_detect_when_manifest_present(
@@ -326,7 +326,7 @@ def test_no_manifest_capability_add_via_check_warns_and_routes_to_verify_preview
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("shipgate verify --preview")
+    assert result.first_next_action.command.startswith("agents-shipgate verify --preview")
 
 
 def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other(

@@ -47,7 +47,7 @@ class HostWorkflowGrantV1(BaseModel):
 
 
 class HostGrantsInventoryV1(BaseModel):
-    """Versioned host-grant inventory emitted by ``agents-shipgate audit --host``."""
+    """Versioned host-grant inventory emitted by ``shipgate audit --host``."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -50,9 +50,9 @@ Commands:
 shipgate check --agent codex --workspace . --format codex-boundary-json
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
@@ -68,7 +68,7 @@ is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
 repair and rerun the command. If `human_review.required=true` or
 `must_stop=true`, stop and surface the JSON result to a human.
 
-For committed PR/CI verification, run `shipgate verify --base
+For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
@@ -154,9 +154,9 @@ For agent tool-surface or release-policy changes, run:
 
 ```bash
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
@@ -172,7 +172,7 @@ is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
 repair and rerun the command. If `human_review.required=true` or
 `must_stop=true`, stop and surface the JSON result to a human.
 
-For committed PR/CI verification, run `shipgate verify --base
+For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
@@ -253,9 +253,9 @@ result to a human.
 
 For local verification, run:
 
-  shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+  agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
 
-For committed PR/CI verification, run `shipgate verify --base
+For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read

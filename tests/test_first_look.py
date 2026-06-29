@@ -54,7 +54,7 @@ def test_first_look_routes_to_verify_when_manifest_present(
 
     assert result.exit_code == 0, result.output
     assert "shipgate.yaml present" in result.output
-    assert "shipgate verify" in result.output
+    assert "agents-shipgate verify" in result.output
 
 
 def test_first_look_reports_host_grants(

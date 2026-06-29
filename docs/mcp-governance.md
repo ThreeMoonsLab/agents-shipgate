@@ -91,13 +91,13 @@ like code:
 ## Zero-config audit
 
 To inventory host grants without a `shipgate.yaml` (for example, on a
-repo you are evaluating), see `agents-shipgate audit --host` — it reads
+repo you are evaluating), see `shipgate audit --host` — it reads
 the same host files and prints a one-page Markdown inventory without
 writing anything.
 For CI or fleet ingestion, emit the versioned JSON artifact:
 
 ```bash
-agents-shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
+shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 The payload includes `host_grants_inventory_schema_version: "0.1"` and validates
@@ -115,11 +115,11 @@ same inventory:
 ```bash
 # 1. After a human reviews the current grants, record them as the
 #    acknowledged state (writes .agents-shipgate/host-grants.json):
-agents-shipgate audit --host --save-baseline
+shipgate audit --host --save-baseline
 
 # 2. On a schedule (or pre-commit), compare current grants against the
 #    acknowledged state; exit 20 on any drift:
-agents-shipgate audit --host --drift --fail-on-drift
+shipgate audit --host --drift --fail-on-drift
 ```
 
 The baseline is content-only (no timestamps, no machine paths), so

@@ -13,7 +13,7 @@ work is complete.
 
 2. **Use verify preview only when relevance or setup is unclear.**
    ```bash
-   shipgate verify --preview --json
+   agents-shipgate verify --preview --json
    ```
    Preview is a lightweight verify entry point: no manifest required, no scan,
    exit 0. It tells you whether to configure Shipgate, skip, or run the full
@@ -30,12 +30,12 @@ work is complete.
    For local uncommitted work, omit `--head` and omit `--base` so the
    checked-out working tree is scanned, including uncommitted edits:
    ```bash
-   shipgate verify --workspace . --config shipgate.yaml \
+   agents-shipgate verify --workspace . --config shipgate.yaml \
      --ci-mode advisory --format json
    ```
    For committed PR or CI verification, pass the head ref explicitly:
    ```bash
-   shipgate verify --workspace . --config shipgate.yaml \
+   agents-shipgate verify --workspace . --config shipgate.yaml \
      --base origin/main --head HEAD --ci-mode advisory --format json
    ```
    `verify` never fetches. If you pass `--base` and that ref is missing,
@@ -73,8 +73,8 @@ work is complete.
 
 ## What NOT to do
 
-- Do not claim the diff is verified until `shipgate verify` has run or
-  `shipgate verify --preview --json` has returned a clear skip verdict.
+- Do not claim the diff is verified until `agents-shipgate verify` has run or
+  `agents-shipgate verify --preview --json` has returned a clear skip verdict.
 - Do not claim completion when `merge_verdict` is `blocked`,
   `insufficient_evidence`, or `human_review_required` unless the user
   explicitly accepts human review.

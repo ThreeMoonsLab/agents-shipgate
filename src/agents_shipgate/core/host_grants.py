@@ -358,17 +358,17 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
     except OSError as exc:
         raise ValueError(
             f"No host-grants baseline at {path} ({exc}). Record one first: "
-            "agents-shipgate audit --host --save-baseline"
+            "shipgate audit --host --save-baseline"
         ) from exc
     except json.JSONDecodeError as exc:
         raise ValueError(
             f"Host-grants baseline {path} is not valid JSON ({exc}). "
-            "Re-record it: agents-shipgate audit --host --save-baseline"
+            "Re-record it: shipgate audit --host --save-baseline"
         ) from exc
     if not isinstance(data, dict):
         raise ValueError(
             f"Host-grants baseline {path} must be a JSON object. "
-            "Re-record it: agents-shipgate audit --host --save-baseline"
+            "Re-record it: shipgate audit --host --save-baseline"
         )
     version = data.get("host_grants_schema_version")
     if version != HOST_GRANTS_SCHEMA_VERSION:
@@ -381,7 +381,7 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
     if not isinstance(inventory, dict):
         raise ValueError(
             f"Host-grants baseline {path} is missing its inventory. "
-            "Re-record it: agents-shipgate audit --host --save-baseline"
+            "Re-record it: shipgate audit --host --save-baseline"
         )
     for category, identity in _GRANT_CATEGORIES:
         entries = inventory.get(category, [])
@@ -389,7 +389,7 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
             raise ValueError(
                 f"Host-grants baseline {path} has a malformed {category!r} "
                 "category (expected a list). Re-record it: "
-                "agents-shipgate audit --host --save-baseline"
+                "shipgate audit --host --save-baseline"
             )
         expected = str if identity is None else dict
         for entry in entries:
@@ -397,7 +397,7 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
                 raise ValueError(
                     f"Host-grants baseline {path} has a malformed entry in "
                     f"{category!r} (expected {expected.__name__} entries). "
-                    "Re-record it: agents-shipgate audit --host --save-baseline"
+                    "Re-record it: shipgate audit --host --save-baseline"
                 )
     stored_sha = data.get("inventory_sha256")
     recomputed_sha = host_grants_sha256(normalized_host_grants(inventory))
@@ -407,7 +407,7 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
             f"stored inventory_sha256 {stored_sha!r} does not match the "
             f"inventory content ({recomputed_sha}). The file was hand-edited "
             "or corrupted. After a human reviews the current grants, "
-            "re-record it: agents-shipgate audit --host --save-baseline"
+            "re-record it: shipgate audit --host --save-baseline"
         )
     return data
 
@@ -591,7 +591,7 @@ def render_host_drift_markdown(payload: dict[str, Any]) -> str:
     lines.append("---")
     lines.append(
         "After a human reviews this drift, re-acknowledge the new state: "
-        "`agents-shipgate audit --host --save-baseline`. Do not re-save to "
+        "`shipgate audit --host --save-baseline`. Do not re-save to "
         "silence drift you have not reviewed."
     )
     return "\n".join(lines) + "\n"

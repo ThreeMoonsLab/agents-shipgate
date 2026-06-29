@@ -3,8 +3,8 @@
 The catalog (``docs/triggers.json``) is the machine-readable mirror of the
 AGENTS.md trigger table. A coding agent that has not yet adopted Shipgate
 can fetch ``triggers.json`` and apply the rules against a PR diff or repo
-state to decide whether to propose ``shipgate verify --preview --json`` as the next
-step, without parsing prose.
+state to decide whether to propose ``agents-shipgate verify --preview --json`` as
+the next step, without parsing prose.
 
 This module is the canonical evaluator. It exists primarily so:
 
@@ -152,7 +152,7 @@ def _next_action(
         if manifest_present:
             return {
                 "kind": "command",
-                "command": "shipgate verify --base origin/main --head HEAD --json",
+                "command": "agents-shipgate verify --base origin/main --head HEAD --json",
                 "why": (
                     "This change affects an agent tool or release-policy "
                     "surface; verify whether the PR can merge."
@@ -171,7 +171,7 @@ def _next_action(
         }
     if dry_run_recommended:
         command = (
-            "shipgate verify --base origin/main --head HEAD "
+            "agents-shipgate verify --base origin/main --head HEAD "
             "--ci-mode advisory --json"
             if manifest_present
             else default_command
@@ -420,7 +420,7 @@ def evaluate(
         manifest_present=manifest_present,
         matched=matched,
         default_command=triggers.get(
-            "default_command", "shipgate verify --preview --json"
+            "default_command", "agents-shipgate verify --preview --json"
         ),
         rationale=rationale,
     )

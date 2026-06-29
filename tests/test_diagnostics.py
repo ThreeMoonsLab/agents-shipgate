@@ -142,7 +142,7 @@ class TestDiagnoseMissingManifest:
         assert [d.id for d in diags] == [DIAG_MISSING_MANIFEST]
         assert diags[0].severity == "block"
         assert diags[0].next_actions[0].kind == "command"
-        assert "shipgate verify" in diags[0].next_actions[0].command
+        assert "agents-shipgate verify" in diags[0].next_actions[0].command
 
     def test_command_quotes_workspace_with_spaces(
         self, tmp_path: Path

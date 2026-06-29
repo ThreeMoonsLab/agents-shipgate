@@ -60,7 +60,7 @@ app.command(
 )(_detect_command)
 app.command(
     "check",
-    help="Run the local Codex boundary check and emit codex boundary JSON.",
+    help="Run the fast local agent loop and emit codex boundary JSON.",
 )(_check_command)
 app.command(
     "preflight",
@@ -126,8 +126,8 @@ app.command(
 app.command(
     "verify",
     help=(
-        "Run the canonical ongoing-PR verifier: trigger evaluation, optional "
-        "base scan, and one authoritative head scan."
+        "Run the canonical PR gate: trigger evaluation, optional base scan, "
+        "and one authoritative head scan."
     ),
 )(_verify_command)
 app.command(
@@ -150,7 +150,7 @@ app.command(
 app.command(
     "audit",
     help=(
-        "Run `shipgate audit --host` for zero-config host-grant audits. "
+        "Run `shipgate audit --host` for a zero-config permission inventory. "
         "`audit --host` inventories "
         "coding-agent host grants (MCP servers, permission rules, hooks, "
         "workflow scopes) without requiring shipgate.yaml; `--save-baseline` "
@@ -185,7 +185,7 @@ _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
 # Visibility policy: root --help shows only the prominent flows:
-# `shipgate check`, `shipgate verify`, and `shipgate audit --host`.
+# `shipgate check`, `agents-shipgate verify`, and `shipgate audit --host`.
 # Supporting/compatibility commands stay fully invokable and documented
 # through their direct --help; hiding is presentation, not deprecation.
 # README fixture demos remain runnable, but are not a root-help flow.

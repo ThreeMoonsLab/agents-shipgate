@@ -100,8 +100,8 @@ If `/shipgate` runs the bootstrap end-to-end, the first path is working. The
 first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and
 produces `agents-shipgate-reports/report.json`.
 
-For ongoing PRs, type `/shipgate verify`. Claude Code should read
-`prompts/verify-agent-diff.md`, run:
+For ongoing PRs, ask `/shipgate` to verify the PR. Claude Code should read
+`prompts/verify-agent-diff.md` and run the canonical PR gate:
 
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \

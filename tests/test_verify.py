@@ -137,7 +137,7 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
     assert payload["human_review"]["required"] is True
     assert "verify --preview --json" in payload["human_review"]["why"]
     assert payload["first_next_action"]["command"] == (
-        "shipgate verify --preview --json"
+        "agents-shipgate verify --preview --json"
     )
     assert (out_dir / "verifier.json").is_file()
     assert (out_dir / "verify-run.json").is_file()
@@ -1352,7 +1352,7 @@ def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Pa
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
     assert payload["first_next_action"]["command"] == (
-        f"shipgate verify --workspace {repo} --config shipgate.yaml "
+        f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
         f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
     )
 

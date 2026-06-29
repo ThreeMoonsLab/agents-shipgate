@@ -67,7 +67,7 @@ diagnostics where no command should run.
 
 | ID                                  | Severity | Fires when                                                                                                                                       |
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `shipgate verify --workspace <dir> --preview --json`.                                    |
+| `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate verify --workspace <dir> --preview --json`.                             |
 | `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
 | `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND no manifest. Catch-all negative control.               |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |

@@ -176,7 +176,7 @@ def test_cli_missing_config_prints_next_action_hint(tmp_path, monkeypatch):
     assert "Config error:" in result.output
     # The human reader gets the same rank-1 recovery step that agent
     # mode emits as JSON — a cold user must not hit a dead end.
-    assert "next: shipgate verify" in result.output
+    assert "next: agents-shipgate verify" in result.output
 
 
 def test_cli_change_me_placeholder_error_routes_to_manifest_edit(tmp_path, monkeypatch):
@@ -1158,7 +1158,7 @@ def test_missing_manifest_recovery_uses_config_workspace(tmp_path, monkeypatch):
     payloads = _stderr_json_lines(result.output)
     assert payloads, result.output
     rank_one = payloads[-1]["next_actions"][0]
-    assert "shipgate verify --workspace" in rank_one["command"]
+    assert "agents-shipgate verify --workspace" in rank_one["command"]
     # Routes recovery to the config's parent directory, not the foreign cwd.
     assert str(tmp_path / "repo") in rank_one["command"]
     assert str(foreign_cwd) not in rank_one["command"]
@@ -1268,7 +1268,7 @@ def test_missing_manifest_command_quotes_workspace_with_spaces(tmp_path, monkeyp
     import shlex
 
     parts = shlex.split(command)
-    assert parts[:2] == ["shipgate", "verify"]
+    assert parts[:2] == ["agents-shipgate", "verify"]
     assert "--workspace" in parts
     workspace_arg = parts[parts.index("--workspace") + 1]
     assert workspace_arg == str(spaced)

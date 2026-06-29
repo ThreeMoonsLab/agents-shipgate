@@ -1376,8 +1376,8 @@ def _risk_for(violations: list[AgentResultViolatedRule]) -> AgentResultRiskLevel
 # capability delta and owns release_decision.decision. Preview stays inside the
 # verify flow for unconfigured workspaces; adopted repos with undeclared
 # surfaces still use detect for suggested_sources.
-_VERIFY_COMMAND = "shipgate verify --json"
-_VERIFY_PREVIEW_COMMAND = "shipgate verify --preview --json"
+_VERIFY_COMMAND = "agents-shipgate verify --json"
+_VERIFY_PREVIEW_COMMAND = "agents-shipgate verify --preview --json"
 _DETECT_COMMAND = "shipgate detect --workspace . --json"
 
 
