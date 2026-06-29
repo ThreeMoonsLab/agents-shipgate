@@ -55,10 +55,11 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "check_codex",
         "check_claude_code",
         "check_cursor",
-        "verify_local",
         "verify_pr",
         "host_audit",
     }
+    assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
+    assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
     assert payload["commands"]["install_agent_workflow"] == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )

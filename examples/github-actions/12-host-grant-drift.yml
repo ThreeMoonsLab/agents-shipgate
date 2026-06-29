@@ -10,7 +10,7 @@
 #
 # One-time setup (committed by a human after review):
 #
-#   agents-shipgate audit --host --save-baseline
+#   shipgate audit --host --save-baseline
 #   git add .agents-shipgate/host-grants.json && git commit
 #
 # After reviewing a legitimate drift, re-acknowledge the new state with
@@ -42,7 +42,7 @@ jobs:
 
       - name: Compare host grants against the acknowledged baseline
         run: |
-          agents-shipgate audit --host --drift --fail-on-drift
+          shipgate audit --host --drift --fail-on-drift
           # Exit 20 on drift fails the job; the step log contains the
           # one-page drift report with expansion signals. For machine
           # consumption add --json and upload the payload as an artifact.

@@ -71,7 +71,7 @@ def diagnose_missing_manifest(workspace: Path) -> list[Diagnostic]:
             next_actions=[
                 NextAction(
                     kind="command",
-                    command=f"shipgate verify --workspace {workspace_q} --preview --json",
+                    command=f"agents-shipgate verify --workspace {workspace_q} --preview --json",
                     why=(
                         "Ask the verify flow whether this workspace needs "
                         "Shipgate configuration before writing a manifest."

@@ -275,7 +275,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="8",
+        contract_version="9",
         cli_version="0.0.0",
         report_schema_version="0.27",
         packet_schema_version="0.7",
@@ -304,7 +304,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         agent_interface_operations=["verify_pr"],
         exit_code_policy={"3": "input parse or missing artifact error"},
         mcp_tools=["shipgate.handoff"],
-        primary_commands={"verify_local": "shipgate verify --json"},
+        primary_commands={"verify_pr": "agents-shipgate verify --json"},
         commands={"preview": "agents-shipgate verify --preview --json"},
         default_paths={"manifest": "shipgate.yaml"},
         artifacts={
@@ -324,7 +324,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "8",
+        "contract_version": "9",
         "cli_version": "0.0.0",
         "report_schema_version": "0.27",
         "packet_schema_version": "0.7",
@@ -353,7 +353,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_interface_operations": ["verify_pr"],
         "exit_code_policy": {"3": "input parse or missing artifact error"},
         "mcp_tools": ["shipgate.handoff"],
-        "primary_commands": {"verify_local": "shipgate verify --json"},
+        "primary_commands": {"verify_pr": "agents-shipgate verify --json"},
         "commands": {"preview": "agents-shipgate verify --preview --json"},
         "default_paths": {"manifest": "shipgate.yaml"},
         "artifacts": {

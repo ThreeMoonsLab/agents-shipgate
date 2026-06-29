@@ -5,12 +5,14 @@ orientation: the working-tree boundary verdict (the instant-value moment),
 a repo classification, a host-grant summary, and the single best next
 command. It requires no ``shipgate.yaml`` and writes nothing.
 
-This is a router, not a gate — the gates remain ``check`` (local diff) and
-``verify`` (committed PR). It composes three existing read-only surfaces
-(``detect``, the agent-native boundary ``check``, and ``audit --host``) so
-it adds no new analysis and no new public command. Every step is wrapped so
-a partial environment (no git, unreadable config) degrades to a shorter
-summary rather than an error: a first look must never hard-fail.
+This is a router, not a gate — the promoted gates remain ``shipgate check``
+(fast local agent loop), ``agents-shipgate verify`` (committed PR), and
+``shipgate audit --host`` (zero-config permission inventory). It composes three
+existing read-only surfaces (``detect``, the agent-native boundary ``check``,
+and ``audit --host``) so it adds no new analysis and no new public command.
+Every step is wrapped so a partial environment (no git, unreadable config)
+degrades to a shorter summary rather than an error: a first look must never
+hard-fail.
 """
 
 from __future__ import annotations
@@ -143,10 +145,10 @@ def _next_command(has_manifest: bool, has_agent_surface: bool, has_host: bool) -
     """The single highest-value next command for this repo's state."""
 
     if has_manifest:
-        return "Next: `shipgate verify --base origin/main --head HEAD` to gate your PR."
+        return "Next: `agents-shipgate verify --base origin/main --head HEAD` to gate your PR."
     if has_agent_surface:
         return (
-            "Next: `shipgate verify --preview --json` to confirm the setup path, "
+            "Next: `agents-shipgate verify --preview --json` to confirm the setup path, "
             "or `shipgate check` to check your working tree now."
         )
     if has_host:

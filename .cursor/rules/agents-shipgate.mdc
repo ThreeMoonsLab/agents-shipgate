@@ -52,9 +52,9 @@ result to a human.
 
 For local verification, run:
 
-  shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+  agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
 
-For committed PR/CI verification, run `shipgate verify --base
+For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read

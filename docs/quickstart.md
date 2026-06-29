@@ -27,7 +27,7 @@ For local pre-commit work, omit `--base` and `--head` so uncommitted edits are
 scanned:
 
 ```bash
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
 
@@ -35,15 +35,18 @@ For committed PR/CI refs, make the base ref available first, then pass base and
 head:
 
 ```bash
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
 ```
 
 If a repo is not configured yet, use the verify flow's preview entry point:
 
 ```bash
-shipgate verify --preview --json
+agents-shipgate verify --preview --json
 ```
+
+The short `shipgate verify` alias remains invokable for compatibility, but
+agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
 Read `agents-shipgate-reports/agent-handoff.json` first and lead with
 `gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,

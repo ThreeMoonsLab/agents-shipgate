@@ -76,8 +76,7 @@
     "check_codex": "shipgate check --agent codex --workspace . --format codex-boundary-json",
     "check_claude_code": "shipgate check --agent claude-code --workspace . --format codex-boundary-json",
     "check_cursor": "shipgate check --agent cursor --workspace . --format codex-boundary-json",
-    "verify_local": "shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
-    "verify_pr": "shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --json",
+    "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --json",
     "host_audit": "shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"
   },
   "commands": {
@@ -88,6 +87,7 @@
     "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json",
     "preview": "agents-shipgate verify --preview --json",
     "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json",
+    "verify_local": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
     "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json",
     "agent_handoff": "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json",
     "trigger": "agents-shipgate trigger --base origin/main --head HEAD --json",
@@ -99,7 +99,7 @@
     "org_policy_packs": "agents-shipgate org policy-packs --config shipgate.yaml --json",
     "registry_summary": "agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --json",
     "registry_verify": "agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json",
-    "host_audit": "agents-shipgate audit --host --json --out agents-shipgate-reports/host-grants.json",
+    "host_audit": "shipgate audit --host --json --out agents-shipgate-reports/host-grants.json",
     "capture_scenario": "agents-shipgate feedback capture --before verifier-before.json --after verifier-after.json --redact --out scenario.json",
     "governance_benchmark": "PYTHONPATH=src python scripts/run_governance_benchmark.py --catalog benchmark/agent-pr-governance/cases.yaml --json"
   },
@@ -126,7 +126,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v1",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v1.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "8",
+  "contract_version": "9",
   "inputs": ["mcp", "openapi", "openai_agents_sdk", "anthropic_api", "google_adk", "langchain", "crewai", "openai_api", "codex_config", "codex_plugin", "n8n"],
   "outputs": ["markdown", "json", "sarif", "packet_md", "packet_json", "packet_html", "verifier_json", "verify_run_json", "agent_handoff_json", "pr_comment_md", "check_annotations_json", "capability_lock_json", "base_capability_lock_json", "capability_lock_diff_json", "capability_lock_diff_md", "feedback_json", "attestation_json", "org_evidence_bundle_json", "host_grants_json", "org_status_json", "scenario_json", "governance_benchmark_result_json"],
   "artifacts": {

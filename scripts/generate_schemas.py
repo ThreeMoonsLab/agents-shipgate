@@ -1601,7 +1601,7 @@ def build_host_grants_inventory_schema() -> tuple[Path, str]:
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = f"Agents Shipgate Host Grants Inventory v{minor}"
     schema["description"] = (
-        "JSON Schema for agents-shipgate audit --host --json. The inventory "
+        "JSON Schema for shipgate audit --host --json. The inventory "
         "summarizes local coding-agent host grants and does not gate releases."
     )
     target = DOCS / f"host-grants-inventory-schema.v{minor}.json"

@@ -10,7 +10,7 @@ capability changes.
 If the arguments include `audit`, run the host-grant audit flow. If they include
 `check`, run the local boundary check. Otherwise run the verifier flow. The
 supporting adoption and scan commands remain available, but this slash command
-should lead with only the prominent flows: `shipgate check`, `shipgate verify`,
+should lead with only the prominent flows: `shipgate check`, `agents-shipgate verify`,
 and `shipgate audit --host`.
 
 The canonical, self-contained verifier instructions live in the bundled prompt
@@ -26,7 +26,7 @@ Prominent commands:
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 shipgate check \
   --agent claude-code --workspace . --format codex-boundary-json
-AGENTS_SHIPGATE_AGENT_MODE=1 shipgate verify \
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD \
   --ci-mode advisory --format json
@@ -67,7 +67,7 @@ For an ongoing PR that changes agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, policies, CI gates, or `shipgate.yaml`, run the verifier:
 
 ```bash
-shipgate verify --base origin/main --head HEAD --json
+agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 Read `agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`

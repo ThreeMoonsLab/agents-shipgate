@@ -1,7 +1,7 @@
 # Agents Shipgate Recipes
 
 Use these recipes after the `agents-shipgate` skill triggers. The prominent
-flows are `shipgate check`, `shipgate verify`, and `shipgate audit --host`.
+flows are `shipgate check`, `agents-shipgate verify`, and `shipgate audit --host`.
 Supporting commands remain callable, but should not be the first thing an agent
 recommends.
 
@@ -16,7 +16,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-Require `agents-shipgate contract --json` to report `contract_version: "8"` or
+Require `agents-shipgate contract --json` to report `contract_version: "9"` or
 newer. If it is missing or stale, ask the user to install or upgrade:
 
 ```bash
@@ -24,7 +24,7 @@ pipx install agents-shipgate
 pipx upgrade agents-shipgate
 ```
 
-Do not report the task complete until the CLI exists and reports contract v8 or
+Do not report the task complete until the CLI exists and reports contract v9 or
 newer. Local boundary checks emit `shipgate.codex_boundary_result/v1`; legacy
 `agent_result_v1` fixtures are retained only for older protocol integrations.
 
@@ -47,7 +47,7 @@ surface, prompts, policies, permissions, Shipgate CI, or other protected
 release surfaces.
 
 ```bash
-AGENTS_SHIPGATE_AGENT_MODE=1 shipgate verify \
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 ```
@@ -58,7 +58,7 @@ contexts, make the base ref available first because `verify` never fetches. If
 the repo is not configured or relevance is unclear, run:
 
 ```bash
-AGENTS_SHIPGATE_AGENT_MODE=1 shipgate verify --preview --json
+AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify --preview --json
 ```
 
 Read `agents-shipgate-reports/agent-handoff.json` first. Lead with
@@ -87,7 +87,7 @@ For drift checks against an acknowledged baseline, use the same flow with
 
 ## Supporting Setup And Repair
 
-If `shipgate verify --preview --json` says the repo needs configuration, the
+If `agents-shipgate verify --preview --json` says the repo needs configuration, the
 supporting setup commands remain available:
 
 ```bash
@@ -110,7 +110,7 @@ overwriting it.
 4. For policy/evidence gaps, propose the exact human decision needed. Do not
    fabricate approval, confirmation, idempotency, broad-scope,
    prohibited-action, or runtime-trace evidence.
-5. Re-run `shipgate verify` and report the new merge verdict, release
+5. Re-run `agents-shipgate verify` and report the new merge verdict, release
    decision, blocker count, and review-item count.
 
 For one finding:

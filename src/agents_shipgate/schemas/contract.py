@@ -33,7 +33,7 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["8"] = "8"
+CONTRACT_VERSION: Literal["9"] = "9"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -173,7 +173,7 @@ COMMANDS: dict[str, str] = {
     "registry_summary": "agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --json",
     "registry_verify": "agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json",
     "host_audit": (
-        "agents-shipgate audit --host --json --out "
+        "shipgate audit --host --json --out "
         "agents-shipgate-reports/host-grants.json"
     ),
     "contract": "agents-shipgate contract --json",
@@ -188,12 +188,8 @@ PRIMARY_COMMANDS: dict[str, str] = {
     "check_cursor": (
         "shipgate check --agent cursor --workspace . --format codex-boundary-json"
     ),
-    "verify_local": (
-        "shipgate verify --workspace . --config shipgate.yaml "
-        "--ci-mode advisory --json"
-    ),
     "verify_pr": (
-        "shipgate verify --workspace . --config shipgate.yaml "
+        "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
     "host_audit": (

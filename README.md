@@ -127,7 +127,7 @@ Switch on `decision`, `completion_allowed`, `must_stop`,
 decision from prose. `shipgate check` is necessary but not sufficient for
 capability-expanding diffs: if a change adds dynamic, undeclared, or otherwise
 ambiguous tool capability, do not treat `decision="allow"` as merge readiness;
-run `shipgate verify` and read `release_decision.decision`.
+run `agents-shipgate verify` and read `release_decision.decision`.
 
 ### PR And Local Verification
 
@@ -136,7 +136,7 @@ diff and read its merge verdict before you merge. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches:
 
 ```bash
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
 ```
 
@@ -144,15 +144,18 @@ For local, uncommitted work, omit `--base`/`--head` so your working-tree edits
 are scanned instead:
 
 ```bash
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
 
 If a repo is not configured yet, use the verify flow's preview entry point:
 
 ```bash
-shipgate verify --preview --json
+agents-shipgate verify --preview --json
 ```
+
+The short `shipgate verify` alias remains invokable for compatibility, but
+agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
 ### Host-Grant Audit
 
@@ -247,8 +250,8 @@ Use only the prominent Shipgate flows as first-look commands:
 shipgate check --agent codex --workspace . --format codex-boundary-json
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 For local control, parse the `shipgate check` stdout JSON
@@ -299,7 +302,7 @@ agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-
 Then invoke `$agents-shipgate` in a fresh thread. The plugin supplies
 workflows, not the scanner binary — install the CLI (`pipx install
 agents-shipgate && pipx upgrade agents-shipgate`) where Codex runs commands and
-require contract v8 or newer. Marketplace details, kit overrides, and the beta-migration
+require contract v9 or newer. Marketplace details, kit overrides, and the beta-migration
 steps: [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md).
 
 **Cursor** — `init --agent-instructions=cursor` writes the auto-attach rule;
@@ -327,7 +330,7 @@ evidence around them:
 ## Verify your repo
 
 ```bash
-shipgate verify --workspace . --config shipgate.yaml \
+agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
@@ -351,7 +354,7 @@ Install alternatives (your agent project does **not** need Python 3.12 — insta
 ```bash
 python -m pip install -U --pre agents-shipgate       # global pip
 uv tool install --upgrade agents-shipgate            # via uv
-agents-shipgate contract --json                      # require contract_version >= 8
+agents-shipgate contract --json                      # require contract_version >= 9
 ```
 
 ## Adopt in one turn (scan helper)
@@ -496,9 +499,9 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`llms.txt`](llms.txt)** — short index of every machine-readable surface, one fetch.
 - **[`llms-full.txt`](llms-full.txt)** — long-form concatenation of `AGENTS.md` + recipes + checks + concepts + autofix policy, in one document. Built by `scripts/build-llms-full.py`.
 - **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
-- **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to run `shipgate verify --preview --json` or the full verifier. Schema is stable for `0.x`.
+- **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Schema is stable for `0.x`.
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
-- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; contract v8 names `primary_commands`, the verifier, verify-run, agent-handoff, Codex boundary, attestation, registry, org evidence bundle, host-grants inventory, and legacy local-agent schema versions plus the agent read order.
+- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; contract v9 names `primary_commands`, the verifier, verify-run, agent-handoff, Codex boundary, attestation, registry, org evidence bundle, host-grants inventory, and legacy local-agent schema versions plus the agent read order.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
 - **[`docs/capability-standard.md`](docs/capability-standard.md)** — stable non-gating capability lock/diff standard for external integrations and research tooling.

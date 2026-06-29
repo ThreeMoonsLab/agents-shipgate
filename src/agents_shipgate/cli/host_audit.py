@@ -1,4 +1,4 @@
-"""``agents-shipgate audit --host`` CLI wrapper."""
+"""``shipgate audit --host`` CLI wrapper."""
 
 from __future__ import annotations
 

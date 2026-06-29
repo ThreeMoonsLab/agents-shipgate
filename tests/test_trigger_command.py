@@ -21,7 +21,7 @@ def _catalog(when: dict) -> dict:
     """A minimal one-rule catalog for predicate-isolation tests."""
     return {
         "schema_version": "test",
-        "default_command": "shipgate verify --preview --json",
+        "default_command": "agents-shipgate verify --preview --json",
         "rules": [
             {"id": "R", "action": "run_shipgate", "when": when, "rationale": ""}
         ],
@@ -213,7 +213,7 @@ def test_next_action_points_at_verify_preview_when_not_adopted():
     res = evaluate(paths=["tools/my_mcp.json"])  # run rule fires, no manifest
     assert res["should_run"] is True
     assert res["next_action"]["kind"] == "command"
-    assert res["next_action"]["command"] == "shipgate verify --preview --json"
+    assert res["next_action"]["command"] == "agents-shipgate verify --preview --json"
 
 
 def test_stop_conditions_not_evaluated_without_detect_result():

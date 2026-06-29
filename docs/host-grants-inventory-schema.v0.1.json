@@ -2,7 +2,7 @@
   "$defs": {
     "HostGrantsInventoryV1": {
       "additionalProperties": false,
-      "description": "Versioned host-grant inventory emitted by ``agents-shipgate audit --host``.",
+      "description": "Versioned host-grant inventory emitted by ``shipgate audit --host``.",
       "properties": {
         "codex_config_present": {
           "items": {
@@ -211,6 +211,6 @@
   "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.1.json",
   "$ref": "#/$defs/HostGrantsInventoryV1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "JSON Schema for agents-shipgate audit --host --json. The inventory summarizes local coding-agent host grants and does not gate releases.",
+  "description": "JSON Schema for shipgate audit --host --json. The inventory summarizes local coding-agent host grants and does not gate releases.",
   "title": "Agents Shipgate Host Grants Inventory v0.1"
 }

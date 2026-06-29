@@ -131,7 +131,7 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate verify --preview --json",
+      "command": "agents-shipgate verify --preview --json",
       "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },

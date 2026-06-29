@@ -33,7 +33,7 @@ No manifest, no CI change, read-only, one command:
 
 ```bash
 pipx install agents-shipgate
-agents-shipgate audit --host
+shipgate audit --host
 ```
 
 One page: every MCP server, permission rule (wildcards flagged), hook,

@@ -42,10 +42,12 @@ Breaking changes from the `0.x` line:
   New outputs include `verify_run_json`, `run_id`,
   `agent_controller_must_stop`, `agent_controller_stop_reason`, and
   `agent_controller_completion_allowed`.
-- The runtime contract payload is now `contract_version: "8"`.
+- The runtime contract payload is now `contract_version: "9"`.
   It adds `primary_commands{}` so agents can discover the three prominent
-  flows (`shipgate check`, `shipgate verify`, and `shipgate audit --host`)
-  without treating supporting/adoption commands as first-look guidance.
+  flows (`shipgate check`, `agents-shipgate verify`, and
+  `shipgate audit --host`) without treating supporting/adoption commands as
+  first-look guidance. `verify_local` remains in `commands{}` as a supporting
+  compatibility command, not a promoted primary flow.
   Report JSON remains `report_schema_version: "0.27"` from the current
   `0.13.0` line; this alpha does not redefine that frozen report schema.
   v0.27 includes policy-pack distribution metadata
@@ -121,7 +123,7 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 | `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
 | `agents-shipgate registry summary` | `--registry`, `--json` |
 | `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
-| `agents-shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
+| `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
 
 `agents-shipgate feedback export` is introduced in v0.11 for design-partner
 feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
@@ -218,9 +220,10 @@ Stable JSON fields:
   mcp-serve`.
 - `manual_review_signals[]` — stable report/packet fields an agent should read
   when surfacing human review work.
-- `primary_commands{}` — the prominent flow map for local boundary checks,
-  local/PR verification, and host-grant audits. Values use the `shipgate`
-  alias and contain only `check`, `verify`, and `audit --host` entry points.
+- `primary_commands{}` — the prominent flow map for local boundary checks, PR
+  verification, and host-grant audits. Values promote `shipgate check`,
+  `agents-shipgate verify`, and `shipgate audit --host`; local verify remains
+  available under `commands{}`.
 - `commands{}` — compatibility/supporting commands for local `shipgate check`
   control, preview, default local agent workflow install, local verify, PR
   verify, and contract introspection.
@@ -819,7 +822,7 @@ failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
 `head_status: "failed"`, `head_exit_code: 2`, `merge_verdict: "unknown"`,
 `applicability: "unknown"`, and `can_merge_without_human: false`; it writes no
 `report.json` and runs no head scan. The first next action directs agents to
-fix the config path or run `shipgate verify --preview --json` before
+fix the config path or run `agents-shipgate verify --preview --json` before
 initializing.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,

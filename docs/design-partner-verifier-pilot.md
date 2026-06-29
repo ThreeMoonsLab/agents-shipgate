@@ -44,7 +44,7 @@ If a partner hesitates at "bring a PR," start with the zero-config host
 audit instead — one read-only command, no manifest, no CI:
 
 ```bash
-agents-shipgate audit --host
+shipgate audit --host
 ```
 
 It prints the repo's current coding-agent grants (MCP servers, permission

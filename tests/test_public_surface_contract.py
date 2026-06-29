@@ -1447,12 +1447,17 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
         "check_codex",
         "check_claude_code",
         "check_cursor",
-        "verify_local",
         "verify_pr",
         "host_audit",
     }
-    assert all(command.startswith("shipgate ") for command in primary_commands.values())
+    assert primary_commands["check_codex"].startswith("shipgate check ")
+    assert primary_commands["check_claude_code"].startswith("shipgate check ")
+    assert primary_commands["check_cursor"].startswith("shipgate check ")
+    assert primary_commands["verify_pr"].startswith("agents-shipgate verify ")
+    assert primary_commands["host_audit"].startswith("shipgate audit --host")
+    assert "verify_local" not in primary_commands
     assert commands.get("preview") == "agents-shipgate verify --preview --json"
+    assert commands.get("verify_local", "").startswith("agents-shipgate verify ")
     assert commands.get("install_ai_coding_workflow") == (
         "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
     )
@@ -1564,15 +1569,14 @@ def test_prominent_surfaces_only_promote_check_verify_and_host_audit():
         **well_known["primary_commands"],
         **contract["primary_commands"],
     }.items():
-        assert command.startswith("shipgate "), f"{name} should use the shipgate alias"
-        assert any(
-            command.startswith(prefix)
-            for prefix in (
-                "shipgate check ",
-                "shipgate verify ",
-                "shipgate audit --host",
-            )
-        ), f"{name} is not one of the prominent flows: {command}"
+        expected_prefixes = (
+            "shipgate check ",
+            "agents-shipgate verify ",
+            "shipgate audit --host",
+        )
+        assert any(command.startswith(prefix) for prefix in expected_prefixes), (
+            f"{name} is not one of the prominent flows: {command}"
+        )
         for forbidden_command in forbidden:
             assert forbidden_command not in command
 

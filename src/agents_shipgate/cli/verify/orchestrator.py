@@ -120,7 +120,7 @@ def run_verify(
         )
         message = (
             f"Shipgate config not found at {_display_path(config_path, git_root)}. "
-            "Correct --config, or run `shipgate verify --preview --json` before "
+            "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
         verifier = _build_verifier(
@@ -145,7 +145,7 @@ def run_verify(
             first_next_action_override=VerifierNextAction(
                 actor="coding_agent",
                 kind="command",
-                command="shipgate verify --preview --json",
+                command="agents-shipgate verify --preview --json",
                 why=(
                     "Shipgate could not find the configured manifest; run verify "
                     "preview, then correct --config or initialize shipgate.yaml."
@@ -1409,7 +1409,7 @@ def _preview_verify_command(
     out: Path | None,
 ) -> str:
     parts = [
-        "shipgate",
+        "agents-shipgate",
         "verify",
         "--workspace",
         str(workspace),

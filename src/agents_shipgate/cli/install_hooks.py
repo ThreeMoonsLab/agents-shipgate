@@ -600,7 +600,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     if (root / args.config).is_file():
         command = _manual_verify_command(args, root=root)
     else:
-        command = "AGENTS_SHIPGATE_AGENT_MODE=1 shipgate verify --preview --json"
+        command = "AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify --preview --json"
     return _emit_context(
         "PostToolUse",
         (
@@ -629,7 +629,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         if trigger and trigger.get("should_run") and not stop_hook_active:
             return _emit_stop_block(
                 "Agents Shipgate trigger matched, but no shipgate.yaml exists. "
-                "Before finishing, run `shipgate verify --preview --json`, "
+                "Before finishing, run `agents-shipgate verify --preview --json`, "
                 "initialize the manifest if relevant, then verify."
             )
         return 0

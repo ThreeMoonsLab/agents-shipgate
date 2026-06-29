@@ -423,7 +423,7 @@ runs:
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         mkdir -p "${OUTPUT_DIR}"
-        agents-shipgate audit --host --workspace "." --json \
+        shipgate audit --host --workspace "." --json \
           --out "${OUTPUT_DIR}/host-grants.json" >/dev/null || \
           echo "Agents Shipgate host audit failed; artifact skipped." >&2
 

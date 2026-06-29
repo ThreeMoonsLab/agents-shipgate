@@ -704,9 +704,9 @@ def signals_for_host_grant_drift(
             reason=reason,
             recommendation=(
                 "Route the host-grant drift to a human. After review, "
-                "re-acknowledge with `agents-shipgate audit --host --save-baseline`."
+                "re-acknowledge with `shipgate audit --host --save-baseline`."
             ),
-            related_command="agents-shipgate audit --host --drift --fail-on-drift",
+            related_command="shipgate audit --host --drift --fail-on-drift",
         )
     ]
 
