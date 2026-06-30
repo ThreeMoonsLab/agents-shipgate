@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.28",
-  "run_id": "agents_shipgate_30d58a049f71b982",
+  "run_id": "agents_shipgate_33cced54c422d1e8",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",

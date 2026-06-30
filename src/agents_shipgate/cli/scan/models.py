@@ -109,7 +109,7 @@ class _ChecksDecision:
     # third-party spec degrades to review_required instead of crashing.
     action_surface_warnings: list[str]
     findings: list[Any]  # list[Finding]
-    legacy_fingerprints: list[list[str]]
+    legacy_fingerprints: list[str]
     override_resolution: Any  # SeverityOverrideResolution
     heuristics_filter: Any  # HeuristicsFilter
     loaded_plugins: list[dict[str, str | None]]

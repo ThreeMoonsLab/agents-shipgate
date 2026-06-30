@@ -9,11 +9,7 @@ from agents_shipgate.core.capability_policy import build_capability_policy_subje
 from agents_shipgate.core.capability_traces import build_capability_runtime_evidence
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
-from agents_shipgate.core.findings.identity import (
-    dedupe_findings,
-    finding_fingerprint,
-    legacy_policy_routing_fingerprint,
-)
+from agents_shipgate.core.findings.identity import dedupe_findings, finding_fingerprint
 from agents_shipgate.core.findings.mutations import (
     apply_no_heuristics_filter,
     apply_severity_overrides,
@@ -29,7 +25,6 @@ from agents_shipgate.core.lenses.action_surface import (
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-from agents_shipgate.schemas.report import Finding
 from agents_shipgate.schemas.verification import VerificationContext
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent
@@ -161,7 +156,7 @@ def _run_checks_and_decide(
         findings,
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
-    legacy_fingerprints = [_legacy_fingerprints_for(finding) for finding in findings]
+    legacy_fingerprints = [finding_fingerprint(finding) for finding in findings]
     logger.debug(
         "checks completed",
         extra={
@@ -182,14 +177,3 @@ def _run_checks_and_decide(
         loaded_plugins=loaded_plugins,
         context=context,
     )
-
-
-def _legacy_fingerprints_for(finding: Finding) -> list[str]:
-    candidates = [finding_fingerprint(finding)]
-    policy_routing_fingerprint = legacy_policy_routing_fingerprint(finding)
-    if (
-        policy_routing_fingerprint is not None
-        and policy_routing_fingerprint not in candidates
-    ):
-        candidates.append(policy_routing_fingerprint)
-    return candidates

@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "6031a900efa636677786ceda881af0aa4630500683ee1845f4dd1439fdbe2e70"
+        "354bb39884f622ed34c5616a9f616cb5a5ea5e60f0d705e971ad109830058b81"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
