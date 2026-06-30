@@ -34,7 +34,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.27.json`](report-schema.v0.27.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.27"`, adding policy-pack distribution metadata on `loaded_policy_packs[]` while preserving fingerprints, policy-pack behavior, capability locks, and the release gate)
+- [`report-schema.v0.28.json`](report-schema.v0.28.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.28"`, moving policy-pack routing metadata to `findings[].policy_routing` while preserving policy-pack matching, capability locks, baselines, and the release gate)
+- [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — JSON Schema for `verifier.json`, the primary coding-agent controller artifact emitted by `agents-shipgate verify`

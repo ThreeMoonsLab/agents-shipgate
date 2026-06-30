@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.27",
+  "report_schema_version": "0.28",
   "run_id": "agents_shipgate_33cced54c422d1e8",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
@@ -2270,6 +2270,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
       "blocks_release": false,
@@ -2310,6 +2311,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy.",
       "blocks_release": false,
@@ -2350,6 +2352,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
@@ -2388,6 +2391,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Constrain gmail.send_customer_email.body with an enum, structured schema, or narrower field-specific parameters.",
       "blocks_release": false,
@@ -2425,6 +2429,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context.",
       "blocks_release": false,
@@ -2465,6 +2470,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
       "blocks_release": false,
@@ -2514,6 +2520,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
@@ -2561,6 +2568,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
@@ -2608,6 +2616,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add the required scopes for gmail.send_customer_email to permissions.scopes or narrow the tool's declared auth requirements.",
       "blocks_release": false,
@@ -2661,6 +2670,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
@@ -2711,6 +2721,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Remove gmail.send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
       "blocks_release": false,
@@ -2843,6 +2854,7 @@
           "pointer": "/paths/~1refunds/post"
         }
       },
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Declare an approval policy for stripe.create_refund or remove this tool from the release.",
       "blocks_release": false,
@@ -2975,6 +2987,7 @@
           "pointer": "/paths/~1refunds/post"
         }
       },
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release.",
       "blocks_release": false,
@@ -3103,6 +3116,7 @@
           "pointer": "/tools/1"
         }
       },
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Declare a user confirmation policy for gmail.send_customer_email or remove this action from the release.",
       "blocks_release": false,
@@ -3156,6 +3170,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund.",
       "blocks_release": false,
@@ -3206,6 +3221,7 @@
       },
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for gmail.send_customer_email.",
       "blocks_release": false,
@@ -3249,6 +3265,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
@@ -3291,6 +3308,7 @@
       "policy_evidence_source": null,
       "capability_refs": [],
       "capability_policy_evidence": null,
+      "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Remove unused manifest scopes or add tool metadata showing why they are required.",
       "blocks_release": false,
@@ -3315,8 +3333,7 @@
     "Declare an owner for each high-risk production tool in risk_overrides.tools."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp.klkty3Baqf/support_refund_agent/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3499,8 +3516,7 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json",
-      "markdown"
+      "json"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",

@@ -19,6 +19,8 @@ from agents_shipgate.schemas.policy_pack import (
 from agents_shipgate.schemas.report import (
     Finding,
     LoadedPolicyPack,
+    PolicyApprovalRouting,
+    PolicyRoutingMetadata,
 )
 
 
@@ -103,24 +105,6 @@ def run_policy_pack_rules(
                     "policy_pack_source": resolved.pack.source,
                     "policy_pack_sha256": resolved.pack.sha256,
                     "policy_pack_sha256_status": resolved.pack.sha256_status,
-                    "policy_owner": resolved.rule.owner or resolved.pack.owner,
-                    "policy_reviewers": resolved.rule.reviewers,
-                    "policy_approval_required": (
-                        resolved.rule.approval.required
-                        if resolved.rule.approval is not None
-                        else False
-                    ),
-                    "policy_approval_teams": (
-                        resolved.rule.approval.teams
-                        if resolved.rule.approval is not None
-                        else []
-                    ),
-                    "policy_approval_min_approvals": (
-                        resolved.rule.approval.min_approvals
-                        if resolved.rule.approval is not None
-                        else None
-                    ),
-                    "policy_approval_enforced": False,
                 },
             )
             if match is None:
@@ -142,11 +126,28 @@ def run_policy_pack_rules(
                     source=SourceReference(type="policy_pack", ref=resolved.pack.path),
                     capability_refs=[subject.fact.id],
                     capability_policy_evidence=match.capability_policy_evidence,
+                    policy_routing=_policy_routing_metadata(resolved),
                     recommendation=rule.recommendation,
                     blocks_release=rule.block,
                 )
             )
     return findings
+
+
+def _policy_routing_metadata(
+    resolved: ResolvedPolicyPackRule,
+) -> PolicyRoutingMetadata:
+    approval = resolved.rule.approval
+    return PolicyRoutingMetadata(
+        owner=resolved.rule.owner or resolved.pack.owner,
+        reviewers=list(resolved.rule.reviewers),
+        approval=PolicyApprovalRouting(
+            required=approval.required if approval is not None else False,
+            teams=list(approval.teams) if approval is not None else [],
+            min_approvals=approval.min_approvals if approval is not None else None,
+            enforced=False,
+        ),
+    )
 
 
 def _verify_pack_pin(

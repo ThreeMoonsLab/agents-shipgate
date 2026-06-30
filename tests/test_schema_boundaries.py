@@ -87,19 +87,31 @@ def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() 
     v25 = _report_schema_action_fact_properties("0.25")
     v26 = _report_schema_action_fact_properties("0.26")
     v27 = _report_schema_action_fact_properties("0.27")
+    v28 = _report_schema_action_fact_properties("0.28")
 
     assert ACTION_FACT_SOURCE_FIELDS.isdisjoint(v25)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v27)
+    assert ACTION_FACT_SOURCE_FIELDS.issubset(v28)
 
 
 def test_frozen_v026_report_schema_does_not_backport_v027_policy_pack_metadata() -> None:
     v26 = _loaded_policy_pack_properties("0.26")
     v27 = _loaded_policy_pack_properties("0.27")
+    v28 = _loaded_policy_pack_properties("0.28")
     v27_fields = {"source", "sha256", "sha256_status", "owner"}
 
     assert v27_fields.isdisjoint(v26)
     assert v27_fields.issubset(v27)
+    assert v27_fields.issubset(v28)
+
+
+def test_frozen_v027_report_schema_does_not_backport_v028_policy_routing() -> None:
+    v27 = _finding_properties("0.27")
+    v28 = _finding_properties("0.28")
+
+    assert "policy_routing" not in v27
+    assert "policy_routing" in v28
 
 
 def _report_schema_action_fact_properties(version: str) -> set[str]:
@@ -118,6 +130,15 @@ def _loaded_policy_pack_properties(version: str) -> set[str]:
         )
     )
     return set(schema["$defs"]["LoadedPolicyPack"]["properties"])
+
+
+def _finding_properties(version: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"]["Finding"]["properties"])
 
 
 def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:
@@ -158,7 +179,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.27"
+    assert report_payload["report_schema_version"] == "0.28"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -277,7 +298,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     assert ContractPayload(
         contract_version="9",
         cli_version="0.0.0",
-        report_schema_version="0.27",
+        report_schema_version="0.28",
         packet_schema_version="0.7",
         verifier_schema_version="0.1",
         verify_run_schema_version="shipgate.verify_run/v1",
@@ -326,7 +347,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     ).model_dump(mode="json") == {
         "contract_version": "9",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.27",
+        "report_schema_version": "0.28",
         "packet_schema_version": "0.7",
         "verifier_schema_version": "0.1",
         "verify_run_schema_version": "shipgate.verify_run/v1",

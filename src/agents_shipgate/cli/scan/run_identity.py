@@ -91,6 +91,10 @@ def _run_id(
                     # otherwise-identical policy findings.
                     "capability_refs": True,
                     "capability_policy_evidence": True,
+                    # v0.28 policy-pack routing is non-enforcing
+                    # reviewer/audit metadata. Owner/reviewer/approval
+                    # routing changes must not churn run_id.
+                    "policy_routing": True,
                     # v0.25 trace refs are explanatory runtime-audit
                     # metadata and must not churn run_id.
                     "capability_trace_refs": True,

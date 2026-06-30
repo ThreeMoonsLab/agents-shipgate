@@ -75,6 +75,25 @@ def finding_fingerprint(finding: Finding) -> str:
     return f"fp_{digest}"
 
 
+def legacy_policy_routing_fingerprint(finding: Finding) -> str | None:
+    """Return the v0.27 policy-pack fingerprint for baseline compatibility."""
+    routing = finding.policy_routing
+    if finding.provenance_kind != "policy_pack" or routing is None:
+        return None
+    evidence = dict(finding.evidence)
+    evidence.update(
+        {
+            "policy_owner": routing.owner,
+            "policy_reviewers": list(routing.reviewers),
+            "policy_approval_required": routing.approval.required,
+            "policy_approval_teams": list(routing.approval.teams),
+            "policy_approval_min_approvals": routing.approval.min_approvals,
+            "policy_approval_enforced": routing.approval.enforced,
+        }
+    )
+    return finding_fingerprint(finding.model_copy(update={"evidence": evidence}))
+
+
 def _canonicalize_for_fingerprint(value):
     if isinstance(value, dict):
         return {

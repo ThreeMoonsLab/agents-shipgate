@@ -8,8 +8,19 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
+from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 
 runner = CliRunner()
+
+ROUTING_EVIDENCE_KEYS = {
+    "policy_owner",
+    "policy_reviewers",
+    "policy_approval_required",
+    "policy_approval_teams",
+    "policy_approval_min_approvals",
+    "policy_approval_enforced",
+}
 
 
 def test_manifest_policy_pack_emits_suppressible_overridable_findings(tmp_path):
@@ -171,12 +182,248 @@ checks:
     assert finding.evidence["policy_pack_source"] == "github.com/acme/shipgate-policies@v3"
     assert finding.evidence["policy_pack_sha256"] == digest
     assert finding.evidence["policy_pack_sha256_status"] == "verified"
-    assert finding.evidence["policy_owner"] == "security"
-    assert finding.evidence["policy_reviewers"] == ["agent-platform"]
-    assert finding.evidence["policy_approval_required"] is True
-    assert finding.evidence["policy_approval_teams"] == ["security"]
-    assert finding.evidence["policy_approval_min_approvals"] == 1
-    assert finding.evidence["policy_approval_enforced"] is False
+    assert ROUTING_EVIDENCE_KEYS.isdisjoint(finding.evidence)
+    assert finding.policy_routing is not None
+    assert finding.policy_routing.model_dump(mode="json") == {
+        "owner": "security",
+        "reviewers": ["agent-platform"],
+        "approval": {
+            "required": True,
+            "teams": ["security"],
+            "min_approvals": 1,
+            "enforced": False,
+        },
+    }
+
+
+def test_policy_pack_routing_metadata_does_not_change_fingerprint_or_gate(tmp_path):
+    _write_openapi(tmp_path)
+    pack_path = tmp_path / "org-pack.yaml"
+    pack_template = """
+name: Org Release Policy
+version: "3.0"
+rules:
+  - id: ORG-ROUTING-ONLY-CHANGE
+    title: Routing-only metadata change
+    category: org_policy
+    severity: medium
+    recommendation: Route before release.
+    owner: {owner}
+    reviewers: [{reviewer}]
+    approval:
+      required: true
+      teams: [{team}]
+      min_approvals: {min_approvals}
+    match:
+      risk_tags: [financial_action]
+      source_types: [openapi]
+"""
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+organization:
+  id: acme
+  teams:
+    security:
+      reviewers: ["@acme/security"]
+    agent-platform:
+      reviewers: ["@acme/agent-platform"]
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+""",
+        encoding="utf-8",
+    )
+    pack_path.write_text(
+        pack_template.format(
+            owner="security",
+            reviewer="agent-platform",
+            team="security",
+            min_approvals=1,
+        ),
+        encoding="utf-8",
+    )
+    report_a, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports-a",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    pack_path.write_text(
+        pack_template.format(
+            owner="agent-platform",
+            reviewer="security",
+            team="agent-platform",
+            min_approvals=2,
+        ),
+        encoding="utf-8",
+    )
+    report_b, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports-b",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding_a = next(
+        item for item in report_a.findings if item.check_id == "ORG-ROUTING-ONLY-CHANGE"
+    )
+    finding_b = next(
+        item for item in report_b.findings if item.check_id == "ORG-ROUTING-ONLY-CHANGE"
+    )
+    assert finding_a.fingerprint == finding_b.fingerprint
+    assert finding_a.evidence == finding_b.evidence
+    assert finding_a.policy_routing != finding_b.policy_routing
+    assert report_a.release_decision is not None
+    assert report_b.release_decision is not None
+    assert report_a.release_decision.decision == report_b.release_decision.decision
+
+
+def test_policy_pack_approval_routing_alone_does_not_block_release(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "approval-pack.yaml").write_text(
+        """
+name: Approval Routing Policy
+rules:
+  - id: ORG-APPROVAL-ROUTING-ONLY
+    title: Route approval metadata only
+    category: org_policy
+    severity: low
+    approval:
+      required: true
+      teams: [security]
+      min_approvals: 1
+    recommendation: Route to security.
+    match:
+      source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+organization:
+  id: acme
+  teams:
+    security:
+      reviewers: ["@acme/security"]
+checks:
+  policy_packs:
+    - path: approval-pack.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding = next(
+        item for item in report.findings if item.check_id == "ORG-APPROVAL-ROUTING-ONLY"
+    )
+    assert finding.blocks_release is False
+    assert finding.policy_routing is not None
+    assert finding.policy_routing.approval.required is True
+    assert report.release_decision is not None
+    assert all(
+        item.check_id != "ORG-APPROVAL-ROUTING-ONLY"
+        for item in report.release_decision.blockers
+    )
+
+
+def test_policy_pack_legacy_v027_routing_fingerprint_baseline_still_matches(
+    tmp_path,
+):
+    _write_openapi(tmp_path)
+    (tmp_path / "org-pack.yaml").write_text(
+        """
+name: Org Release Policy
+rules:
+  - id: ORG-LEGACY-ROUTING-FP
+    title: Legacy routing fingerprint
+    category: org_policy
+    severity: high
+    recommendation: Route before release.
+    owner: security
+    reviewers: [agent-platform]
+    approval:
+      required: true
+      teams: [security]
+      min_approvals: 1
+    match:
+      risk_tags: [financial_action]
+      source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack()
+        + """
+organization:
+  id: acme
+  teams:
+    security:
+      reviewers: ["@acme/security"]
+    agent-platform:
+      reviewers: ["@acme/agent-platform"]
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+""",
+        encoding="utf-8",
+    )
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports-a",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    finding = next(
+        item for item in report.findings if item.check_id == "ORG-LEGACY-ROUTING-FP"
+    )
+    legacy_fingerprint = legacy_policy_routing_fingerprint(finding)
+    assert legacy_fingerprint is not None
+    assert legacy_fingerprint != finding.fingerprint
+    baseline_path = tmp_path / "baseline.json"
+    baseline_path.write_text(
+        BaselineFile(
+            created_at="2026-01-01T00:00:00Z",
+            source_report_run_id="v027",
+            findings=[
+                BaselineFinding(
+                    fingerprint=legacy_fingerprint,
+                    check_id=finding.check_id,
+                    tool_name=finding.tool_name,
+                    severity=finding.severity,
+                    title=finding.title,
+                )
+            ],
+        ).model_dump_json(indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report_with_baseline, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports-b",
+        formats=["json"],
+        ci_mode="advisory",
+        baseline_path=baseline_path,
+    )
+
+    matched = next(
+        item
+        for item in report_with_baseline.findings
+        if item.check_id == "ORG-LEGACY-ROUTING-FP"
+    )
+    assert matched.fingerprint == finding.fingerprint
+    assert matched.baseline_status == "matched"
+    assert report_with_baseline.baseline is not None
+    assert report_with_baseline.baseline.matched_count == 1
+    assert report_with_baseline.baseline.resolved_count == 0
 
 
 def test_cli_policy_pack_override_and_parameter_predicate(tmp_path):
