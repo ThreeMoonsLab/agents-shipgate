@@ -772,6 +772,12 @@ Supported match fields are `risk_tags`, `source_types`,
 `missing_idempotency_policy`, and `parameters`. Parameter predicates support
 `name`, `names`, `types`, `missing_maximum`, and `required`.
 
+Policy-pack `owner`, `reviewers`, and `approval` fields are non-enforcing
+routing metadata. They appear in reports as `findings[].policy_routing`, not as
+`Finding.evidence`, and do not affect fingerprints, suppressions, baselines, or
+release decisions. Use deterministic `match` predicates to decide whether a
+rule fires, and `block: true` to make a matched rule release-blocking.
+
 ## Severity Overrides
 
 Teams can re-rank built-in and policy-pack checks without forking the scanner:

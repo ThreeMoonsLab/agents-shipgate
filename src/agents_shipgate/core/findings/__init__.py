@@ -12,6 +12,7 @@ from .identity import (
     assign_finding_ids,
     dedupe_findings,
     finding_fingerprint,
+    legacy_policy_routing_fingerprint,
 )
 from .mutations import (
     NO_HEURISTICS_SUPPRESSION_REASON,
@@ -95,6 +96,7 @@ __all__ = [
     "dedupe_findings",
     "derive_agent_action",
     "finding_fingerprint",
+    "legacy_policy_routing_fingerprint",
     "provenance_kind_counts",
     "recommended_actions",
     "summarize_findings",

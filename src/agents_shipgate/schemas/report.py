@@ -115,6 +115,27 @@ class CapabilityRuntimeEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class PolicyApprovalRouting(BaseModel):
+    """Non-enforcing approval-routing metadata from a policy-pack rule."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: bool = False
+    teams: list[str] = Field(default_factory=list)
+    min_approvals: int | None = None
+    enforced: Literal[False] = False
+
+
+class PolicyRoutingMetadata(BaseModel):
+    """Reviewer routing metadata carried outside finding evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    owner: str | None = None
+    reviewers: list[str] = Field(default_factory=list)
+    approval: PolicyApprovalRouting = Field(default_factory=PolicyApprovalRouting)
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -163,6 +184,10 @@ class Finding(BaseModel):
     # finding fingerprints do not churn.
     capability_refs: list[str] = Field(default_factory=list)
     capability_policy_evidence: CapabilityPolicyEvidence | None = None
+    # v0.28: non-enforcing policy-pack routing metadata. Kept outside
+    # ``evidence`` so owner/reviewer/approval routing changes do not
+    # affect fingerprints, suppressions, baselines, or release gating.
+    policy_routing: PolicyRoutingMetadata | None = None
     # v0.25: opt-in local runtime trace/provenance evidence linked to
     # capability facts. Kept outside ``evidence`` so fingerprints,
     # baselines, run IDs, and de-dupe identity do not churn.
@@ -793,8 +818,10 @@ class ReadinessReport(BaseModel):
     # Pure projection of existing counts; gate behavior unchanged.
     # v0.27: additive policy-pack distribution metadata on
     # ``loaded_policy_packs[]`` (source, sha256, sha256_status, owner).
-    # The release gate is unchanged; this is org-governance audit metadata.
-    report_schema_version: str = "0.27"
+    # v0.28: policy-pack rule owner/reviewer/approval routing metadata
+    # moved out of ``Finding.evidence`` into ``Finding.policy_routing``.
+    # The release gate is unchanged; these are org-governance audit fields.
+    report_schema_version: str = "0.28"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

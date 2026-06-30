@@ -520,6 +520,48 @@ def test_resolved_fingerprints_flags_entries_with_no_current_match():
     assert issues[0].fingerprint == "fp_resolved"
 
 
+def test_resolved_fingerprints_accepts_multiple_legacy_fingerprints():
+    """A baseline entry matching any legacy candidate is not stale."""
+    baseline = BaselineFile(
+        created_at="2026-01-01T00:00:00Z",
+        source_report_run_id="run_x",
+        findings=[
+            BaselineFinding(
+                fingerprint="fp_legacy_policy_routing",
+                check_id="ORG-X",
+                tool_name="tool_a",
+                severity="high",
+                title="legacy",
+                provenance=BaselineProvenance(
+                    scanner_version="1.0.0",
+                    run_id="run_x",
+                    recorded_at="2026-01-01T00:00:00Z",
+                ),
+            )
+        ],
+    )
+    current = Finding(
+        check_id="ORG-X",
+        title="legacy",
+        severity="high",
+        category="org_policy",
+        tool_name="tool_a",
+        evidence={"risk_tags": ["financial_action"]},
+        confidence="high",
+        provenance_kind="policy_pack",
+        recommendation="stub",
+        fingerprint="fp_current",
+    )
+
+    issues = baseline_resolved_fingerprints(
+        [current],
+        baseline,
+        legacy_fingerprints=[["fp_raw_pre_privacy", "fp_legacy_policy_routing"]],
+    )
+
+    assert issues == []
+
+
 # --- build_findings (check module) ---------------------------------------
 
 

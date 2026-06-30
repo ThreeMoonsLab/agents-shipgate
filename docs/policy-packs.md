@@ -59,6 +59,10 @@ Supported rule fields:
 - `confidence`: optional `low`, `medium`, or `high`; defaults to `medium`.
 - `recommendation`: required remediation text.
 - `match`: required static predicate object.
+- `owner`, `reviewers`, `approval`: optional reviewer/audit routing metadata.
+  They are emitted as `findings[].policy_routing`, not `Finding.evidence`, and
+  do not affect fingerprints, suppressions, baselines, `blocks_release`, or
+  `release_decision`.
 
 Supported legacy match fields:
 
@@ -145,6 +149,11 @@ Reports include `loaded_policy_packs` with pack name, version, path, and rule
 count. Policy-pack findings support suppressions, severity overrides,
 release-blocking `block: true`, baselines, Markdown, JSON, and SARIF like
 built-in findings.
+
+Routing metadata is non-enforcing. Shipgate validates declared team names
+against `organization.teams` when present, but it does not call GitHub or any
+external approval system to verify approvals. Use deterministic `match`
+predicates for rule firing and `block: true` for release gating.
 
 ## Testing And Explanation
 

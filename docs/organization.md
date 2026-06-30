@@ -68,11 +68,12 @@ approval:
   min_approvals: 1
 ```
 
-These fields do not change rule matching, approval enforcement, or release
-decisions. They are reviewer/audit routing metadata and are validated against
-`organization.teams` when teams are declared. Shipgate does not call GitHub or
-verify whether those approvals happened; use deterministic predicates and
-`block: true` for release gating.
+These fields do not change rule matching, approval enforcement, fingerprints, or
+release decisions. They are emitted as `findings[].policy_routing`
+reviewer/audit metadata and are validated against `organization.teams` when
+teams are declared. Shipgate does not call GitHub or verify whether those
+approvals happened; use deterministic predicates and `block: true` for release
+gating.
 
 Starter packs live in [`../policies/templates/`](../policies/templates/).
 

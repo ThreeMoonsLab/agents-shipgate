@@ -24,6 +24,7 @@ from agents_shipgate.core.check_ids import (
     expands_to_check_id,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
     BaselineFinding,
@@ -31,6 +32,8 @@ from agents_shipgate.schemas.baseline import (
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import BaselineSummary, Finding, ReadinessReport
+
+LegacyFingerprintEntry = str | Sequence[str] | None
 
 
 def _filled_text(existing: str | None, replacement: str | None) -> str | None:
@@ -354,7 +357,7 @@ def apply_baseline(
     baseline: BaselineFile,
     *,
     display_path: str,
-    legacy_fingerprints: Sequence[str | None] | None = None,
+    legacy_fingerprints: Sequence[LegacyFingerprintEntry] | None = None,
 ) -> BaselineSummary:
     baseline_fingerprints = {
         finding.fingerprint for finding in baseline.findings if finding.fingerprint
@@ -367,21 +370,22 @@ def apply_baseline(
         if finding.suppressed:
             continue
         fingerprint = finding.fingerprint or finding.id
-        legacy_fingerprint = (
-            legacy_fingerprints[index]
-            if legacy_fingerprints is not None and index < len(legacy_fingerprints)
-            else None
+        legacy_candidates = _legacy_fingerprint_candidates(
+            legacy_fingerprints,
+            index,
         )
+        if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
+            legacy_candidates.add(policy_routing_fingerprint)
         if not fingerprint:
             continue
         current_active_fingerprints.add(fingerprint)
         if fingerprint in baseline_fingerprints:
             finding.baseline_status = "matched"
             matched += 1
-        elif legacy_fingerprint and legacy_fingerprint in baseline_fingerprints:
+        elif legacy_matches := baseline_fingerprints & legacy_candidates:
             finding.baseline_status = "matched"
             matched += 1
-            matched_legacy_fingerprints.add(legacy_fingerprint)
+            matched_legacy_fingerprints.update(legacy_matches)
         elif legacy_match := _legacy_baseline_match(finding, baseline.findings):
             finding.baseline_status = "matched"
             matched += 1
@@ -403,6 +407,20 @@ def apply_baseline(
 
 def _active_findings(findings: list[Finding]) -> list[Finding]:
     return [finding for finding in findings if not finding.suppressed]
+
+
+def _legacy_fingerprint_candidates(
+    legacy_fingerprints: Sequence[LegacyFingerprintEntry] | None,
+    index: int,
+) -> set[str]:
+    if legacy_fingerprints is None or index >= len(legacy_fingerprints):
+        return set()
+    legacy = legacy_fingerprints[index]
+    if legacy is None:
+        return set()
+    if isinstance(legacy, str):
+        return {legacy} if legacy else set()
+    return {fingerprint for fingerprint in legacy if fingerprint}
 
 
 def _legacy_baseline_match(
@@ -538,7 +556,7 @@ def baseline_resolved_fingerprints(
     findings: list[Finding],
     baseline: BaselineFile,
     *,
-    legacy_fingerprints: Sequence[str | None] | None = None,
+    legacy_fingerprints: Sequence[LegacyFingerprintEntry] | None = None,
 ) -> list[BaselineIntegrityIssue]:
     """Scan-aware companion to ``verify_baseline``.
 
@@ -561,18 +579,19 @@ def baseline_resolved_fingerprints(
         if finding.suppressed:
             continue
         fingerprint = finding.fingerprint or finding.id
-        legacy_fingerprint = (
-            legacy_fingerprints[index]
-            if legacy_fingerprints is not None and index < len(legacy_fingerprints)
-            else None
+        legacy_candidates = _legacy_fingerprint_candidates(
+            legacy_fingerprints,
+            index,
         )
+        if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
+            legacy_candidates.add(policy_routing_fingerprint)
         if not fingerprint:
             continue
         active.add(fingerprint)
         if fingerprint in baseline_fingerprints:
             continue
-        if legacy_fingerprint and legacy_fingerprint in baseline_fingerprints:
-            legacy_matched.add(legacy_fingerprint)
+        if legacy_matches := baseline_fingerprints & legacy_candidates:
+            legacy_matched.update(legacy_matches)
             continue
         match = _legacy_baseline_match(finding, baseline.findings)
         if match is not None:
