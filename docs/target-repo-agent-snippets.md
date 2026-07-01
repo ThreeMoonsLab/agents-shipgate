@@ -360,13 +360,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
+      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "1.0.0a1"
+          shipgate_version: "0.14.0"
 ```
 
 Advisory mode reports findings without blocking merge. Move to strict mode only

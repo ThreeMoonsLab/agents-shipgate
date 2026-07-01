@@ -48,13 +48,13 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "354bb39884f622ed34c5616a9f616cb5a5ea5e60f0d705e971ad109830058b81"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "99b2acfbd9dfc6653a6bbee268b83f1e2d4297829636eba662d9f4ad6fa35423"
+        "82957a521b5914b3e678e6b76e7088306559c8ad6bcf7c2dce7fb1e822b6bec6"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "7a414bb492538d05b1b76c526e8672f24bcb1a824c368c643e3be0ee48b08274"
+        "0e94a82ec066af57ea8c0d6d6222de906b45ed722bf7799e2fc1907004158618"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "80771e3f3d3ae35329929ec567cc121cf1342bd27edbd50cf9f97f29cab703ef"
+        "a8ee5f93cab1017c623075c39c1c5bdc639855c37e588e1c9190ab963bb50446"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -66,7 +66,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "3a42ae0d22e46b58de3d40b300ca76bee6120f3bde3f779926ae824c16a25c65"
+        "db9a702784c64229ed15157ce369c90a3d75c02e82c78d2c39cc55135857dc80"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -86,7 +86,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "16894ce679eb55c69213070775cb265f0775ad7ff1cd08091a5c57627950871b"
+        "7ef7ccb331a0171f0fb5580df4dad32003b230b150886a40d317a954ace0fb55"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
         "d8b393e61aef853105a47630b9cbfd404378b6c9e1bbed6028b357b4e38fc72c"

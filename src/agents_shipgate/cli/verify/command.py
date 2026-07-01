@@ -375,7 +375,7 @@ def _parse_verify_format(value: str) -> str:
         return "json"
     if normalized == "agent":
         raise ConfigError(
-            "--format agent was removed in the 1.0.0-alpha contract; use --format json"
+            "--format agent was removed in the 0.14.0 contract cleanup; use --format json"
         )
     raise ConfigError("--format must be text or json for verify")
 

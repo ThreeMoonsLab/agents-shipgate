@@ -21,6 +21,15 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 
 <!-- Canonical tagline: The deterministic merge gate for AI-generated agent capability changes. -->
 
+> [!IMPORTANT]
+> **Status: pre-1.0 (beta).** The decision engine is deterministic and stable,
+> but Shipgate's real-world detection accuracy is still being validated against
+> a labeled corpus of agent PRs — no precision/recall numbers are published yet.
+> On heavily dynamic tool surfaces (factory-built toolsets, config-bound
+> allowlists, runtime-assembled tools), Shipgate deliberately returns
+> `insufficient_evidence` rather than guess. Treat it as an advisory gate while
+> that accuracy work is in progress — see [ROADMAP.md](ROADMAP.md).
+
 ## 60 seconds: watch it block two PRs
 
 Claude Code adds `stripe.create_refund` to your support agent and opens a
@@ -44,6 +53,15 @@ uvx agents-shipgate fixture run agent_weakens_gate
 → `merge_verdict: blocked`, `can_merge_without_human: false`. The
 gate-removal checks are suppression-immune: the cheapest reward-hack is
 also the most visible one.
+
+**…and here's the failure mode.** These two cases are constructed fixtures with
+a clear-cut answer, chosen to show the gate working. Real PRs are messier: when
+a change builds its tool surface dynamically — a toolkit factory, a config-bound
+allowlist, tools assembled at runtime — static extraction often can't enumerate
+the result, and Shipgate returns `insufficient_evidence` and routes to a human
+rather than emit a confident wrong verdict. That is the intended failure mode,
+not a bug; reducing how often it fires on real dynamic code is active work (see
+[ROADMAP.md](ROADMAP.md)).
 
 One engine decides (`report.json.release_decision.decision`); everything
 else — `merge_verdict`, PR comments, Check Runs, Action outputs — is a
@@ -403,7 +421,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
+      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
         with:
           ci_mode: advisory
           diff_base: target

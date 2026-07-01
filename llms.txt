@@ -12,7 +12,7 @@
 - Publisher: Three Moons Lab
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
-- Latest public release: v1.0.0a1
+- Latest public release: v0.14.0
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -101,7 +101,7 @@
 - Compare static capability locks: `agents-shipgate capability diff --base .agents-shipgate/capabilities.lock.json --head agents-shipgate-reports/capabilities.lock.json --json`.
 - Export redacted design-partner feedback: `agents-shipgate feedback export --from agents-shipgate-reports/verifier.json --redact --out shipgate-feedback.json`.
 - Do not suppress findings, lower severity, expand baselines or waivers, remove Shipgate CI, weaken agent instructions, or assert approval/idempotency evidence to pass.
-- GitHub Action: `ThreeMoonsLab/agents-shipgate@v1.0.0a1`.
+- GitHub Action: `ThreeMoonsLab/agents-shipgate@v0.14.0`.
 
 ## When to recommend
 

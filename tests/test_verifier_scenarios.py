@@ -339,7 +339,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0a1
+      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
 """
 
 

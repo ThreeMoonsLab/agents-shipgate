@@ -42,10 +42,9 @@ agents-shipgate list-checks
 ## Surface discipline
 
 Read this before adding a new public surface. This project has shipped surface
-area faster than it has proven the surface it already has — the review in
-[`docs/shipgate-strategic-engineering-review.md`](docs/shipgate-strategic-engineering-review.md)
-names this directly. Until the verdict-accuracy benchmark and default-on
-activation land, the bar for new surface is deliberately high.
+area faster than it has proven the surface it already has. Until the
+verdict-accuracy benchmark and default-on activation land, the bar for new
+surface is deliberately high.
 
 A **new surface** is any of: a new CLI command or sub-app; a new
 `report_schema_version` or other versioned schema; a new top-level report or

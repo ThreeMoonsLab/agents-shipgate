@@ -369,7 +369,7 @@
           "type": "string"
         },
         "version": {
-          "default": "1.0.0a1",
+          "default": "0.14.0",
           "title": "Version",
           "type": "string"
         }

@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "The deterministic merge gate for AI-generated agent capability changes",
-  "version": "1.0.0a1",
+  "version": "0.14.0",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -58,12 +58,12 @@
   ],
   "package": {
     "pypi": "agents-shipgate",
-    "github_action": "ThreeMoonsLab/agents-shipgate@v1.0.0a1",
+    "github_action": "ThreeMoonsLab/agents-shipgate@v0.14.0",
     "github_repo": "ThreeMoonsLab/agents-shipgate"
   },
   "release_status": {
     "track": "verify-capable release",
-    "latest_release": "v1.0.0a1"
+    "latest_release": "v0.14.0"
   },
   "install": {
     "pipx": "pipx install agents-shipgate",

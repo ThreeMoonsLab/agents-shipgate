@@ -1,20 +1,31 @@
-# Stability Contract · 1.0.0-alpha
+# Stability Contract · 0.14.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 This document is the contract. If the runtime ever diverges from what's documented here, that's a bug — please file an issue.
 
+Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
+described here are stable within the `0.x` line, but the `report.json` schema
+(`report_schema_version`, currently `0.28`) is still additive-versioned and
+not yet frozen. A `1.0` line will not begin until the report schema reaches
+`1.0` and holds without a breaking change. Pin a version (or the Action tag)
+for reproducible CI.
+
 ---
 
-<a id="migration-note-100-alpha"></a>
+<a id="migration-note-0-14-0"></a>
 
-## Migration Note 1.0.0 Alpha
+## Migration Note: 0.14.0
 
-`1.0.0a1` starts a new alpha contract line on top of the `0.13.0`
-release. It deliberately cleans up overlapping agent-controller contracts
-instead of preserving every `0.x` surface.
+`0.14.0` continues the `0.x` contract line from `0.13.0`. It is a minor
+release that nonetheless makes deliberate breaking changes to the
+agent-controller surface — permitted under `0.x` semantics — cleaning up
+overlapping contracts instead of preserving every earlier surface. (An
+earlier draft of this work was briefly labelled `1.0.0-alpha`; that label was
+withdrawn because the report schema is not yet frozen, and the same changes
+ship here as `0.14.0`.)
 
-Breaking changes from the `0.x` line:
+Breaking changes from the `0.13.0` line:
 
 - `agents-shipgate verify` no longer writes
   `agents-shipgate-reports/agent-result.json`. Agents should read
@@ -67,12 +78,12 @@ Breaking changes from the `0.x` line:
 `verifier.json.merge_verdict` is the controller projection for agents and
 PR automation; it is not a second release gate.
 
-## What WILL NOT change in the current alpha line
+## What WILL NOT change in the current `0.x` line
 
 ### CLI command surface
 
-These commands and flags are stable across the current `1.0.0a*`
-contract line. Future alpha versions may make deliberate breaking
+These commands and flags are stable across the current `0.14.x`
+contract line. Future `0.x` versions may make deliberate breaking
 changes only by bumping `contract_version` and updating this file.
 
 | Command | Stable flags |
@@ -108,7 +119,7 @@ changes only by bumping `contract_version` and updating this file.
 ### Provisional CLI command surface
 
 The org/fleet governance commands are preview surfaces in the current
-`1.0.0a*` line. They are documented, deterministic, local-only, and included in
+`0.14.x` line. They are documented, deterministic, local-only, and included in
 `agents-shipgate contract --json` / `.well-known/agents-shipgate.json` for
 design-partner discovery, but their flags and schemas are not stable
 command-contract commitments yet. They remain consumers of `verify` artifacts;

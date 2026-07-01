@@ -3,7 +3,7 @@
   "agent": "cursor",
   "tool": {
     "name": "agents-shipgate",
-    "version": "1.0.0a1"
+    "version": "0.14.0"
   },
   "subject": {
     "agent": "cursor"

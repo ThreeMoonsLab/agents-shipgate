@@ -30,7 +30,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.0.0a1` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Latest release: `v0.14.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `9`
 - Current report schema: `0.28` — [`docs/report-schema.v0.28.json`](report-schema.v0.28.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
@@ -362,7 +362,7 @@ exactly one stdout JSON object using
 `schema_version: "shipgate.codex_boundary_result/v1"` and the schema in
 [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json).
 The removed `--format agent-json` alias and `agent_result_v1` schema string are
-breaking 1.0.0-alpha changes; see [STABILITY.md](../STABILITY.md#migration-note-100-alpha).
+breaking 0.14.0 changes; see [STABILITY.md](../STABILITY.md#migration-note-0-14-0).
 
 Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy`. Do not derive an agent
