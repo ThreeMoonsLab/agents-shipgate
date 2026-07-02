@@ -2348,3 +2348,51 @@ def test_no_singular_underscore_module_name(relpath):
             f"{relpath}:{line} uses singular `agent_shipgate`; the "
             f"correct Python module is `agents_shipgate` (plural)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Read-first artifact vs the runtime contract's agent_read_order
+# ---------------------------------------------------------------------------
+
+READ_FIRST_PATTERN = re.compile(r"[Rr]ead\s+`([^`]+)`\s+first")
+# Prose surfaces that tell a coding agent which verify artifact to read
+# first. .well-known/agents-shipgate.json carries the machine-readable
+# agent_read_order (validated against the contract elsewhere in this
+# file); these are the human/agent prose mirrors of that order.
+READ_FIRST_SURFACES = (
+    "README.md",
+    "AGENTS.md",
+    "llms.txt",
+    ".claude/commands/shipgate.md",
+)
+
+
+@pytest.mark.parametrize("relpath", READ_FIRST_SURFACES)
+def test_read_first_instructions_match_contract_agent_read_order(relpath):
+    """Every 'Read `<artifact>` first' instruction must name the first
+    artifact in the runtime contract's agent_read_order (agent-handoff.json
+    since contract v7), optionally with a reports-dir prefix or a field
+    path suffix. README shipped both 'read verifier.json first' and
+    'read agent-handoff.json first' simultaneously until v0.14.x; this
+    pins the prose surfaces to the contract so the contradiction cannot
+    return. verifier.json stays the authoritative controller substrate —
+    mentioning it is fine, telling an agent to read it *first* is not."""
+    contract = build_contract_payload().model_dump(mode="json")
+    first_artifact = contract["agent_read_order"][0]
+    assert first_artifact == "agent-handoff.json", (
+        "contract agent_read_order[0] changed; sweep the read-first "
+        "prose on READ_FIRST_SURFACES, then update this pin."
+    )
+    text = _read(relpath)
+    matches = READ_FIRST_PATTERN.findall(text)
+    assert matches, (
+        f"{relpath} no longer contains a 'Read `<artifact>` first' "
+        "instruction. Either restore one naming "
+        f"{first_artifact} or drop the surface from READ_FIRST_SURFACES."
+    )
+    for artifact in matches:
+        assert first_artifact in artifact, (
+            f"{relpath} tells an agent to read {artifact!r} first; the "
+            f"contract's agent_read_order starts with {first_artifact!r} "
+            "(see docs/agent-contract-current.md § Two read entry points)."
+        )

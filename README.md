@@ -189,10 +189,11 @@ The release gate is `agents-shipgate-reports/report.json` →
 The PR/controller surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
 blocked | unknown`), a deterministic projection of the release decision. Read
-`verifier.json` first for `merge_verdict`, `applicability`,
-`agent_controller`, `can_merge_without_human`, `first_next_action`, and
-`fix_task`. `capability_review.top_changes` is supporting/provisional reviewer
-context.
+`agent-handoff.json` first (`gate.merge_verdict`, then `controller`), then the
+authoritative controller substrate `verifier.json` for `merge_verdict`,
+`applicability`, `agent_controller`, `can_merge_without_human`,
+`first_next_action`, and `fix_task`. `capability_review.top_changes` is
+supporting/provisional reviewer context.
 
 Zero-setup demos of both verdicts are in
 [60 seconds](#60-seconds-watch-it-block-two-prs) above; `uvx` runs them with no
@@ -278,10 +279,11 @@ For local control, parse the `shipgate check` stdout JSON
 `repair`, and `policy`. For local uncommitted verify work,
 omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
-`agents-shipgate-reports/verifier.json` first and lead with `merge_verdict`,
-`applicability`, `agent_controller`, `can_merge_without_human`,
-`first_next_action`, and `fix_task`, then read supporting/provisional
-`capability_review.top_changes` and
+`agents-shipgate-reports/agent-handoff.json` first and lead with
+`gate.merge_verdict` and `controller`, then read the authoritative substrate
+`agents-shipgate-reports/verifier.json` (`merge_verdict`, `applicability`,
+`agent_controller`, `can_merge_without_human`, `first_next_action`,
+`fix_task`), then supporting/provisional `capability_review.top_changes` and
 `agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
 claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
 `human_review_required` unless the user explicitly accepts human review. Do not auto-assert approval. Do not auto-assert confirmation, idempotency,
@@ -486,8 +488,8 @@ and pre-commit equivalents.
 When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
-- **`agents-shipgate-reports/verifier.json`** — the **primary PR/controller evidence artifact**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `agent_controller`, `first_next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format codex-boundary-json` and `shipgate.codex_boundary_result/v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
-- **`agents-shipgate-reports/agent-handoff.json`** — the compact `shipgate.agent_handoff/v1` object for coding agents. It projects `gate`, `controller`, `blocked_by[]`, `remediation_plan[]`, and verify-run reproducibility from existing artifacts; it does not introduce a second verdict.
+- **`agents-shipgate-reports/agent-handoff.json`** — the **first artifact a coding agent reads**: the compact `shipgate.agent_handoff/v1` object. Lead with `gate.merge_verdict`, then `controller`; it also projects `blocked_by[]`, `remediation_plan[]`, and verify-run reproducibility from existing artifacts, and it does not introduce a second verdict.
+- **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/controller evidence substrate**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `agent_controller`, `first_next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format codex-boundary-json` and `shipgate.codex_boundary_result/v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
 - **`agents-shipgate-reports/verify-run.json`** — the deterministic verify-run reproducibility artifact. It records stable subject/input hashes, policy-pack hashes, outcome, artifact paths, and `run_id` without wall-clock timestamps.
 - **`agents-shipgate-reports/attestation.json`** + **`agents-shipgate-reports/org-evidence-bundle.json`** — optional organization-governance projections over the same verifier/report artifacts. They are ledger inputs for platform teams, not release gates; `report.json.release_decision.decision` remains the decision engine.
 - **`agents-shipgate-reports/host-grants.json`** + **`agents-shipgate-reports/org-status.json`** — optional fleet-governance artifacts from `audit --host --out` and `org status --json`, useful for host-grant drift, policy-pack pin state, and exception hygiene.
