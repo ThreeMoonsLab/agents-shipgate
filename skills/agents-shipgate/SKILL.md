@@ -72,7 +72,7 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 
 ## Stable contracts (rely on these)
 
-- **CLI surface** follows the current alpha contract line — see https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md.
+- **CLI surface** follows the current 0.x contract line — see https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/STABILITY.md.
 - **Installed CLI contract**: when available, run `agents-shipgate contract --json` to verify local schema versions, capability/research surfaces, `release_decision.decision`, and manual-review signal fields. Older installs should use [`docs/agent-contract-current.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/agent-contract-current.md) or upgrade before automating against the local contract command.
 - **Verifier JSON**: `verifier_schema_version: "0.1"`. Read `merge_verdict`, `can_merge_without_human`, `first_next_action`, `fix_task`, `capability_review.top_changes`, `trust_root_touched`, and `policy_weakened` before summarizing an AI-generated PR. `merge_verdict` is a deterministic projection; the gate remains `report.json.release_decision.decision`.
 - **Verify run JSON**: `verify-run.json` uses `schema_version: "shipgate.verify_run/v1"` and records stable run identity, subject refs, input hashes, outcome, and artifact hashes. It is the reproducibility artifact for `verify`; do not treat it as a second gate.
