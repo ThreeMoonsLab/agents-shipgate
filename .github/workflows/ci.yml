@@ -102,6 +102,23 @@ jobs:
     # to main), never on pull_request — so a version-bump PR is never
     # blocked, but a merged bump without a pushed tag turns main red
     # until the tag is pushed or the claim is reverted.
+    #
+    # Recovery: pushing the tag triggers release.yml, not this run, so
+    # a failed run does not clear itself on tag push. It re-checks
+    # origin's live tag list on re-run — after pushing the tag, use
+    # "Re-run failed jobs" on this run (or wait for the next push to
+    # main). A tag trigger on this workflow would not help: it would
+    # start a *new* run on the tag ref, leave the failed branch run
+    # red on the CI badge, and re-run the full test job that
+    # release.yml already runs on the tag.
+    #
+    # Deliberately tag-only: the tag is what triggers release.yml, the
+    # canonical publisher, which itself fails loudly if the PyPI upload
+    # or GitHub Release step breaks — so "tag exists + release.yml
+    # green" covers /releases/latest and PyPI. Querying PyPI here would
+    # add an external dependency that lags publish by minutes (the
+    # /json index is CDN-cached) and can false-fail right after a
+    # legitimate release.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -123,6 +140,7 @@ jobs:
           else
             echo "::error::Public surfaces claim v${version} as the latest release, but tag v${version} does not exist on origin."
             echo "Cut the release:  git tag -a v${version} <release-sha> && git push origin v${version}"
+            echo "then use 'Re-run failed jobs' on this run — pushing the tag triggers release.yml, not a retest of this run, but a re-run re-checks origin's live tag list. The check also clears on the next push to main."
             echo "…or revert the version claim until the release is actually cut."
             exit 1
           fi
