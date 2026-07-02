@@ -2,7 +2,11 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-**Latest release: `v0.14.0`** — the **agent-native contract cleanup** cycle.
+**Latest release: `v0.14.0`**
+([release page](https://github.com/ThreeMoonsLab/agents-shipgate/releases/latest))
+— the **agent-native contract cleanup** cycle. This line is checked against the
+actual release tag by the `release-tag-consistency` job in
+[`ci.yml`](.github/workflows/ci.yml) on every push to `main`.
 
 ## What Agents Shipgate is
 

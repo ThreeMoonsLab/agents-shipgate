@@ -86,3 +86,61 @@ jobs:
         with:
           name: sbom
           path: sbom.json
+
+  release-tag-consistency:
+    # Public surfaces (ROADMAP.md's latest-release line, the README
+    # Action pin, install snippets) all name `v{pyproject version}` and
+    # move in lockstep — tests/test_public_surface_contract.py enforces
+    # that. What no test could catch: the whole repo moving in lockstep
+    # to a version that was never actually released. That happened with
+    # v0.14.0 (pyproject and the README `@v0.14.0` Action pin landed on
+    # main a day before the tag existed, so the copy-paste workflow
+    # 404'd). This job checks the claim against release reality: the
+    # tag must exist on origin.
+    #
+    # Runs on pushes to main only (the `push` trigger above is scoped
+    # to main), never on pull_request — so a version-bump PR is never
+    # blocked, but a merged bump without a pushed tag turns main red
+    # until the tag is pushed or the claim is reverted.
+    #
+    # Recovery: pushing the tag triggers release.yml, not this run, so
+    # a failed run does not clear itself on tag push. It re-checks
+    # origin's live tag list on re-run — after pushing the tag, use
+    # "Re-run failed jobs" on this run (or wait for the next push to
+    # main). A tag trigger on this workflow would not help: it would
+    # start a *new* run on the tag ref, leave the failed branch run
+    # red on the CI badge, and re-run the full test job that
+    # release.yml already runs on the tag.
+    #
+    # Deliberately tag-only: the tag is what triggers release.yml, the
+    # canonical publisher, which itself fails loudly if the PyPI upload
+    # or GitHub Release step breaks — so "tag exists + release.yml
+    # green" covers /releases/latest and PyPI. Querying PyPI here would
+    # add an external dependency that lags publish by minutes (the
+    # /json index is CDN-cached) and can false-fail right after a
+    # legitimate release.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Verify the claimed latest release tag exists on origin
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ -z "${version}" ]; then
+            echo "::error::Could not read version from pyproject.toml."
+            exit 1
+          fi
+          echo "pyproject.toml version: ${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/v${version}" > /dev/null; then
+            echo "OK: tag v${version} exists on origin."
+          else
+            echo "::error::Public surfaces claim v${version} as the latest release, but tag v${version} does not exist on origin."
+            echo "Cut the release:  git tag -a v${version} <release-sha> && git push origin v${version}"
+            echo "then use 'Re-run failed jobs' on this run — pushing the tag triggers release.yml, not a retest of this run, but a re-run re-checks origin's live tag list. The check also clears on the next push to main."
+            echo "…or revert the version claim until the release is actually cut."
+            exit 1
+          fi
