@@ -106,7 +106,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "docs/faq.md",
-        re.compile(rf"v({VERSION_RE}) is the current alpha contract version"),
+        re.compile(rf"v({VERSION_RE}) is the current pre-1\.0 beta contract version"),
     ),
     (
         "ROADMAP.md",

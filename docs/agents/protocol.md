@@ -63,7 +63,7 @@ The stdout object has:
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
 The stable schema is `docs/codex-boundary-result-schema.v1.json`. The
-`1.0.0-alpha` contract renamed this local boundary result away from the older
+`0.14.0` contract renamed this local boundary result away from the older
 generic `agent_result_v1` schema string. `decision`, `completion_allowed`, `must_stop`,
 `first_next_action`, `human_review`, `repair`, and `policy` are the control
 signals. `risk_level` is explanatory and may differ between local-check and

@@ -67,7 +67,7 @@ def check(
         raise typer.Exit(2)
     if format_ == "agent-json":
         typer.echo(
-            "--format agent-json was removed in the 1.0.0-alpha contract. "
+            "--format agent-json was removed in the 0.14.0 contract cleanup. "
             "Use --format codex-boundary-json.",
             err=True,
         )

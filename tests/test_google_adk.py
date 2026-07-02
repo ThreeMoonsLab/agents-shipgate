@@ -194,6 +194,59 @@ tool_sources:
     assert doctor["frameworks"]["google_adk"]["dynamic_toolset_count"] == 2
 
 
+def test_google_adk_agent_config_non_list_tools_fails_closed(tmp_path):
+    """A non-list ``tools:`` value must surface as a dynamic/unparseable
+    toolset, not silently collapse to a confident ``tool_count: 0``.
+
+    Regression for the fail-open path: ``tools`` present but in a shape the
+    static extractor cannot enumerate (here a templated string) previously
+    became ``[]`` with no warning and no finding, reading as a deliberate
+    zero-tool agent. It must now route to the dynamic-toolset signal.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.yaml").write_text(
+        """
+agent_class: LlmAgent
+name: root_agent
+instruction: Review support cases.
+tools: ${RUNTIME_TOOLSET}
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-config-test
+agent:
+  name: root-agent
+environment:
+  target: production_like
+tool_sources:
+  - id: adk
+    type: google_adk
+    path: agent.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    check_ids = {finding.check_id for finding in report.findings}
+    assert "SHIP-ADK-DYNAMIC-TOOLSET-NOT-ENUMERABLE" in check_ids
+    doctor = inspect_sources(config_path=project / "shipgate.yaml")
+    adk = doctor["frameworks"]["google_adk"]
+    assert adk["dynamic_toolset_count"] == 1
+    # The unparseable surface must leave an evidence trail, not a silent pass.
+    assert any("unparseable" in w or "dynamic" in w for w in adk["warnings"])
+
+
 def test_google_adk_top_level_config_can_supply_inputs(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

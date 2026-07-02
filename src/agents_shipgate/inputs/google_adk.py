@@ -270,7 +270,34 @@ def _load_agent_config_path(
 
     artifacts.agent_config_files.append(_display_path(path, config_base_dir))
     agent_name = str(data.get("name") or path.stem)
-    tools_data = data.get("tools") if isinstance(data.get("tools"), list) else []
+    raw_tools = data.get("tools")
+    if isinstance(raw_tools, list):
+        tools_data = raw_tools
+    else:
+        # ``tools`` absent (None) is a genuine zero-tool agent. But ``tools``
+        # present in a shape we cannot enumerate — a templated string, an
+        # env-var reference, a mapping — must NOT silently collapse to a
+        # confident ``tool_count: 0``; that reads as deliberate narrowing and
+        # fails open. Record it as a dynamic/unparseable surface (warning +
+        # dynamic toolset marker), mirroring the Python entrypoint's
+        # dynamic-tools-expression handling, so evidence-coverage and the ADK
+        # dynamic-toolset checks treat the surface as unknown.
+        tools_data = []
+        if raw_tools is not None:
+            artifacts.warnings.append(
+                f"Google ADK agent {agent_name!r} declares a dynamic or "
+                f"unparseable 'tools' value in its Agent Config; its tool "
+                f"surface could not be enumerated."
+            )
+            artifacts.toolsets.append(
+                GoogleAdkToolset(
+                    kind="dynamic",
+                    source_id=source_id,
+                    source_ref=source_ref,
+                    agent_name=agent_name,
+                    dynamic=True,
+                )
+            )
     artifacts.agents.append(
         {
             "name": agent_name,

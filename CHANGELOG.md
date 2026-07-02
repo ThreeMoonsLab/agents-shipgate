@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-06-30
+
+- **Versioning: the `1.0.0-alpha` line is withdrawn; this work ships as
+  `0.14.0`.** An earlier draft of this cycle briefly carried `1.0.0a1`. That
+  label was withdrawn: the `report.json` schema (`report_schema_version:
+  "0.28"`) is still additive-versioned and not yet frozen, the package is still
+  `Development Status :: 4 - Beta`, and no real-world detection-accuracy
+  baseline has been published — none of which support a `1.0` line. `0.14.0`
+  continues the `0.x` contract line from `0.13.0` and carries the same
+  agent-controller cleanup (see
+  [STABILITY.md](STABILITY.md#migration-note-0-14-0)). A `1.0` line will begin
+  only when the report schema reaches `1.0` and holds without a breaking change.
 - **Non-preview `verify` now fails closed on a missing `--config`.**
   `agents-shipgate verify --workspace . --config missing.yaml --json` exits
   `2` with `merge_verdict: "unknown"`, `applicability: "unknown"`, and
