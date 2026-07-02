@@ -19,6 +19,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Verify tag matches package version
+        # Fail fast before the test/build/publish pipeline if the tag
+        # was cut on a commit whose pyproject.toml disagrees (e.g. a
+        # v0.15.0 tag pushed while main still says 0.14.0). PyPI
+        # uploads are immutable, so this is the last cheap moment to
+        # catch a mistagged release.
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${version}; refusing to release."
+            exit 1
+          fi
+          echo "OK: ${GITHUB_REF_NAME} matches pyproject.toml (${version})."
+
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
