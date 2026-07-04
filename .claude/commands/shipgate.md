@@ -73,7 +73,8 @@ agents-shipgate verify --base origin/main --head HEAD --json
 Read `agents-shipgate-reports/agent-handoff.json` first and lead with
 `gate.merge_verdict` (a deterministic projection of `release_decision.decision`,
 which remains the gate in `report.json`), then the authoritative substrate
-`agents-shipgate-reports/verifier.json` and `capability_changes[]`. Do not claim completion when
+`agents-shipgate-reports/verifier.json` and supporting/provisional
+`capability_review.top_changes[]`. Do not claim completion when
 `merge_verdict` is `blocked`, `insufficient_evidence`, or
 `human_review_required` unless the user accepted the human-review requirement, and
 never weaken `shipgate.yaml`, Shipgate CI, `AGENTS.md`, policies, baselines, or
