@@ -664,6 +664,8 @@ the same canonical concepts in human-readable, search-optimised form:
 [quickstart](https://threemoonslab.com/quickstart/),
 [check catalog](https://threemoonslab.com/checks/),
 [glossary](https://threemoonslab.com/glossary/),
+[MCP security review](https://threemoonslab.com/use-cases/mcp-security-review/),
+[AI agent least privilege](https://threemoonslab.com/use-cases/ai-agent-least-privilege/),
 [blog](https://threemoonslab.com/blog/), and
 [design partners](https://threemoonslab.com/design-partners/). The in-repo docs
 below are the canonical contract; the marketing pages are sized for first-time
