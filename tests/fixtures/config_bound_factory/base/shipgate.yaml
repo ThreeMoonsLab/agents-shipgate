@@ -1,0 +1,43 @@
+# Config-bound dynamic-toolkit fixture, BASE side: the Stripe toolkit's
+# authority allowlist is bound from config/stripe_actions.json (a config
+# read), so the effective tool surface is configuration-defined and not
+# statically enumerable. See docs/engineering/config-bound-capability-detection.md.
+version: "0.1"
+
+project:
+  name: config-bound-email-agent
+
+agent:
+  name: "Standup Jack Agent"
+  declared_purpose:
+    - Answer customer FAQ questions
+    - Update billing information through the Stripe Customer Portal
+    - Send customers their missing invoices
+  prohibited_actions:
+    - Issue a refund without human approval
+    - Cancel a subscription without explicit confirmation
+    - Update or close a payment dispute without review
+
+environment:
+  target: production_like
+
+tool_sources:
+  - id: openai_sdk_support_agent
+    type: openai_agents_sdk
+    path: support_agent.py
+
+policies:
+  require_approval_for_tools: []
+  require_confirmation_for_tools: []
+  require_idempotency_for_tools: []
+
+permissions:
+  scopes: []
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - json

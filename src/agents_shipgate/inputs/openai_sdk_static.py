@@ -12,6 +12,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     display_path,
@@ -69,7 +70,33 @@ def load_openai_sdk_static_tools(
         source_type="openai_agents_sdk",
         tools=tools,
         toolkit_bounds=toolkit_bounds,
+        warnings=_toolkit_binding_warnings(toolkit_bounds),
     )
+
+
+def _toolkit_binding_warnings(bounds: list[ToolkitScopeBound]) -> list[str]:
+    """Source warnings for toolkit factories whose binding is unreadable.
+
+    An ``unknown`` binding means the constructor's authority-bearing
+    argument exists but is not statically traceable — previously that case
+    was silently skipped (a fail-open: the factory disappeared from every
+    surface). Mirror the ADK dynamic-toolset fix: record a warning so the
+    scan routes to review instead of silence. ``config``-bound factories
+    stay warning-free — they carry a comparable marker the verify-tier
+    config-binding checks own.
+    """
+    return [
+        (
+            f"{bound.provider} toolkit constructor {bound.constructor} at "
+            f"{bound.source_ref}:{bound.source_line} passes a configuration "
+            "that is not statically readable; its effective tool surface "
+            "cannot be enumerated or compared. Use a literal configuration "
+            "allowlist, bind it from a config file, or declare an explicit "
+            "local tool inventory."
+        )
+        for bound in bounds
+        if bound.config_binding == "unknown"
+    ]
 
 
 def _load_python_file(
@@ -226,7 +253,7 @@ def _detect_toolkit_bounds(tree: ast.Module, ref: str) -> list[ToolkitScopeBound
         if call is None:
             continue
         bound = _bound_from_toolkit_call(
-            call, ref, _first_assign_name(targets), name_map, module_aliases
+            call, tree, ref, _first_assign_name(targets), name_map, module_aliases
         )
         if bound is not None:
             bounds.append(bound)
@@ -235,7 +262,7 @@ def _detect_toolkit_bounds(tree: ast.Module, ref: str) -> list[ToolkitScopeBound
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or id(node) in captured:
             continue
-        bound = _bound_from_toolkit_call(node, ref, None, name_map, module_aliases)
+        bound = _bound_from_toolkit_call(node, tree, ref, None, name_map, module_aliases)
         if bound is not None:
             bounds.append(bound)
     return bounds
@@ -326,6 +353,7 @@ def _first_assign_name(targets: list[ast.expr]) -> str | None:
 
 def _bound_from_toolkit_call(
     call: ast.Call,
+    tree: ast.Module,
     ref: str,
     binding: str | None,
     name_map: dict[str, tuple[str, str]],
@@ -337,24 +365,43 @@ def _bound_from_toolkit_call(
     provider, constructor = resolved
     parser = _CONFIG_PARSERS.get(provider)
     parsed = parser(call) if parser is not None else (False, [])
-    if parsed is None:
-        # ``configuration`` was supplied but is not a literal we can read
-        # (e.g. a variable). Skip rather than guess — the dynamic-toolkit
-        # path still degrades to insufficient_evidence, never a silent pass.
-        return None
-    bounded, scopes = parsed
+    if isinstance(parsed, tuple):
+        bounded, scopes = parsed
+        return ToolkitScopeBound(
+            provider=provider,
+            constructor=constructor,
+            bounded=bounded,
+            scopes=sorted(scopes),
+            binding=binding,
+            source_ref=ref,
+            source_line=getattr(call, "lineno", None),
+            config_binding="literal" if bounded else "absent",
+        )
+    # The authority-bearing argument is present but not a literal. Trace it
+    # conservatively (docs/engineering/config-bound-capability-detection.md):
+    # a name bound from a config read becomes a ``config``-bound marker the
+    # verify diff can compare base-vs-head; anything else is ``unknown`` — a
+    # marker + source warning (never silence, mirroring the ADK dynamic-
+    # toolset fail-open fix) that no removal check ever fires on.
+    trace = trace_config_binding(
+        parsed, tree=tree, line=getattr(call, "lineno", 0)
+    )
     return ToolkitScopeBound(
         provider=provider,
         constructor=constructor,
-        bounded=bounded,
-        scopes=sorted(scopes),
+        bounded=False,
+        scopes=[],
         binding=binding,
         source_ref=ref,
         source_line=getattr(call, "lineno", None),
+        config_binding=trace.binding,
+        config_path=trace.config_path,
     )
 
 
-def _parse_stripe_configuration(call: ast.Call) -> tuple[bool, list[str]] | None:
+def _parse_stripe_configuration(
+    call: ast.Call,
+) -> tuple[bool, list[str]] | ast.expr:
     """Read the Stripe ``configuration={"actions": {...}}`` allowlist.
 
     Returns ``(bounded, scopes)``:
@@ -366,7 +413,8 @@ def _parse_stripe_configuration(call: ast.Call) -> tuple[bool, list[str]] | None
       ``configuration={"context": …}`` migration would read as a narrowing and
       escape the gate.
     - ``configuration`` (or its ``actions``) present but not a dict literal →
-      ``None`` (ambiguous; the caller skips the bound).
+      the offending *expression* (the authority-bearing argument), which the
+      caller traces for a config binding instead of silently skipping.
     - ``actions`` is a dict literal → ``(True, scopes)`` with each truthy
       ``resource:verb`` flattened. An explicit empty ``actions={}`` is
       ``(True, [])`` — explicitly bounded to no tools.
@@ -375,12 +423,12 @@ def _parse_stripe_configuration(call: ast.Call) -> tuple[bool, list[str]] | None
     if config is None:
         return (False, [])
     if not isinstance(config, ast.Dict):
-        return None
+        return config
     actions = _dict_get(config, "actions")
     if actions is None:
         return (False, [])
     if not isinstance(actions, ast.Dict):
-        return None
+        return actions
     scopes: list[str] = []
     for resource_key, resource_value in zip(actions.keys, actions.values, strict=False):
         resource = _const_str(resource_key)

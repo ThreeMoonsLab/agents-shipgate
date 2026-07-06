@@ -1,0 +1,7 @@
+{
+  "actions": {
+    "customers": {"read": true},
+    "invoices": {"read": true},
+    "billing_portal_sessions": {"create": true}
+  }
+}

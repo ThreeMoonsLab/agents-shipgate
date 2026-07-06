@@ -121,6 +121,23 @@ class ToolkitScopeBound(BaseModel):
     binding: str | None = None
     source_ref: str | None = None
     source_line: int | None = None
+    # Config-bound capability detection
+    # (docs/engineering/config-bound-capability-detection.md): how the
+    # constructor's authority-bearing argument was bound.
+    #
+    # - ``"literal"`` — parsed to an explicit allowlist (``scopes`` above).
+    # - ``"absent"``  — no authority argument; the framework defaults mount.
+    # - ``"config"``  — statically traceable to a config read (json/yaml/toml
+    #   load, ``os.environ``, pydantic settings); the effective surface is
+    #   configuration-defined and NOT statically enumerable.
+    # - ``"unknown"`` — present but not statically readable. Never fires the
+    #   removal check (the design doc's false-positive guard).
+    # - ``None``      — legacy fact (pre-feature report round-trip); treated
+    #   per ``bounded`` by the decoders.
+    config_binding: Literal["literal", "config", "absent", "unknown"] | None = None
+    # Repo-relative path of the config file feeding a ``"config"`` binding
+    # when the read named a literal path; ``None`` for env/settings reads.
+    config_path: str | None = None
 
 
 class LoadedToolSource(BaseModel):

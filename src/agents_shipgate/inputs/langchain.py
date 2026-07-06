@@ -21,6 +21,7 @@ from agents_shipgate.inputs._python_framework import (
     unique_tools,
 )
 from agents_shipgate.inputs.common import tool_name_warning
+from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -209,7 +210,7 @@ class _LangChainExtractor:
             return
         names = self._resolve_tool_names(tools_expr)
         if names is None:
-            self._dynamic(kind, call.lineno, dynamic_reason(tools_expr))
+            self._dynamic(kind, call.lineno, dynamic_reason(tools_expr), expr=tools_expr)
             return
         record = {"source_ref": self.source_ref, "line": call.lineno, "tools": names}
         if kind == "tool_node":
@@ -268,8 +269,25 @@ class _LangChainExtractor:
             {"name": tool.name, "source_ref": self.source_ref, "line": source_line(tool.source_location)}
         )
 
-    def _dynamic(self, kind: str, line: int, reason: str) -> None:
-        surface = {"kind": kind, "source_ref": self.source_ref, "line": line, "reason": reason}
+    def _dynamic(
+        self, kind: str, line: int, reason: str, *, expr: ast.AST | None = None
+    ) -> None:
+        surface: dict[str, Any] = {
+            "kind": kind,
+            "source_ref": self.source_ref,
+            "line": line,
+            "reason": reason,
+        }
+        # Config-bound capability detection: when the dynamic tools
+        # expression is statically traceable to a config read, record the
+        # binding on the surface fact. Purely additive — an untraceable
+        # expression leaves the fact byte-identical to the legacy shape.
+        if isinstance(expr, ast.expr):
+            trace = trace_config_binding(expr, tree=self.tree, line=line)
+            if trace.binding == "config":
+                surface["config_binding"] = "config"
+                if trace.config_path:
+                    surface["config_path"] = trace.config_path
         self.artifacts.dynamic_tool_surfaces.append(surface)
         self.warnings.append(
             f"LangChain {kind} at {self.source_ref}:{line} has dynamic tool surface: {reason}."

@@ -90,15 +90,20 @@ def test_extractor_drops_only_false_actions():
     assert bound.scopes == ["customers:read"]
 
 
-def test_extractor_skips_non_literal_configuration():
-    # A configuration passed as a variable is ambiguous; emit no bound rather
-    # than guess (the dynamic-toolkit path still degrades to low confidence).
+def test_extractor_marks_non_literal_configuration_unknown():
+    # A configuration passed as a variable the tracer cannot resolve is
+    # ambiguous; emit an ``unknown`` marker (never silence — the previous
+    # skip was a fail-open) but never claim it is bounded or unbounded.
+    # The removal check must never fire on an unknown binding.
     src = (
         "from stripe_agent_toolkit.openai.toolkit import StripeAgentToolkit\n"
         "cfg = load_cfg()\n"
         "tk = StripeAgentToolkit(configuration=cfg)\n"
     )
-    assert _bounds_from_src(src) == []
+    [bound] = _bounds_from_src(src)
+    assert bound.bounded is False
+    assert bound.config_binding == "unknown"
+    assert bound.config_path is None
 
 
 def test_extractor_ignores_unknown_constructor():

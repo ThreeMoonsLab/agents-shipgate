@@ -33,6 +33,13 @@ def run(context: ScanContext) -> list[Finding]:
             # An explicit resource:verb allowlist was declared — least
             # privilege, exactly what we want. Nothing to flag.
             continue
+        if bound.config_binding in {"config", "unknown"}:
+            # A configuration IS passed — it lives in config (or is not
+            # statically readable), so "mounted without a scope bound" would
+            # be a false claim. The config-binding detections
+            # (SHIP-CAP-CONFIG-BINDING-*) and the unknown-binding source
+            # warning own those states.
+            continue
         findings.append(
             Finding(
                 check_id=CHECK_ID,
@@ -62,7 +69,11 @@ def run(context: ScanContext) -> list[Finding]:
                 recommendation=(
                     f"Pass an explicit `configuration` allowlist (resource:verb "
                     f"actions) to the {bound.constructor} constructor so the agent "
-                    "mounts only the tools it needs, not the full toolkit surface."
+                    "mounts only the tools it needs, not the full toolkit surface. "
+                    "If the toolkit must stay dynamic, declare an explicit local "
+                    "tool inventory for the tools it mounts at "
+                    f"{bound.source_ref}:{bound.source_line} so the surface is "
+                    "statically reviewable."
                 ),
             )
         )
