@@ -19,7 +19,7 @@ shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
 Switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
-`human_review`, `repair`, and `policy`; do not infer a decision from prose.
+`human_review`, `repair`, `policy`, and `verify_required`; do not infer a decision from prose.
 
 ### PR And Local Verification
 

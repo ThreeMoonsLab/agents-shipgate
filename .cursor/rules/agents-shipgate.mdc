@@ -42,7 +42,7 @@ For local agent control, run:
 Read the check stdout JSON only. It is
 `shipgate.codex_boundary_result/v1`; switch on `decision`,
 `completion_allowed`, and `must_stop`, then follow `first_next_action`,
-`human_review`, `repair`, and `policy`. Do not infer a decision from prose.
+`human_review`, `repair`, `policy`, and `verify_required`. Do not infer a decision from prose.
 
 If `decision=allow` or `warn`, continue and summarize. If
 `first_next_action.kind` is `repair` and `repair.safe_to_attempt=true`, make

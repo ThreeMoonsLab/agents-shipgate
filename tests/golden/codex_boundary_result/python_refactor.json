@@ -94,5 +94,6 @@
   },
   "finding_fingerprints": [],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0
+  "exit_code_hint": 0,
+  "verify_required": false
 }

@@ -33,7 +33,7 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["9"] = "9"
+CONTRACT_VERSION: Literal["10"] = "10"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
@@ -47,6 +47,10 @@ AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "human_review",
     "repair",
     "policy",
+    # v10: the check→verify deferral, machine-readable. True when the diff
+    # touches a tool surface the boundary check cannot gate; agents must run
+    # verify before completion instead of trusting decision=allow.
+    "verify_required",
 )
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "agent_handoff",

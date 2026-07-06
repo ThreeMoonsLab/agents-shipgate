@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Contract v10 (additive): machine-readable `verify_required` on the Codex
+  boundary result.** `shipgate check` already escalated to `warn` and routed
+  to `verify` when a diff touched a tool surface it cannot gate; that deferral
+  now also sets a top-level boolean `verify_required` on
+  `shipgate.codex_boundary_result/v1`, and `verify_required` joins
+  `agent_result_control_fields` in the runtime contract. Agents switch on the
+  field instead of parsing warning prose; `decision="allow"` with
+  `verify_required=true` means "boundary clean, capability not yet gated —
+  run verify before completion". Additive over v9: consumers pinned to
+  `contract_version >= 9` keep working.
+
 ## 0.14.0 - 2026-06-30
 
 - **Versioning: the `1.0.0-alpha` line is withdrawn; this work ships as

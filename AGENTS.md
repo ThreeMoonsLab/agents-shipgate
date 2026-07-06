@@ -84,7 +84,7 @@ shipgate check --agent cursor --workspace . --format codex-boundary-json
 
 Read the single stdout object as `shipgate.codex_boundary_result/v1`. Switch on
 `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
-`human_review`, `repair`, and `policy`; never infer a local-control decision
+`human_review`, `repair`, `policy`, and `verify_required`; never infer a local-control decision
 from Markdown, PR comments, or prose. If `decision=allow` or `warn`, continue
 and summarize the result. If `first_next_action.kind=repair` and
 `repair.safe_to_attempt` is `true`, apply only that repair and rerun the

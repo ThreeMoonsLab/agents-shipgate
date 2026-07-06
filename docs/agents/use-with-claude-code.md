@@ -10,7 +10,7 @@ shipgate check --agent claude-code --workspace . --format codex-boundary-json
 
 Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`. Do not infer a local control decision from prose.
+`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
 
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 

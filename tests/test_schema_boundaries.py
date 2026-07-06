@@ -296,7 +296,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="9",
+        contract_version="10",
         cli_version="0.0.0",
         report_schema_version="0.28",
         packet_schema_version="0.7",
@@ -345,7 +345,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "9",
+        "contract_version": "10",
         "cli_version": "0.0.0",
         "report_schema_version": "0.28",
         "packet_schema_version": "0.7",

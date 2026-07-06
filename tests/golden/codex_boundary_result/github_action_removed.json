@@ -139,5 +139,6 @@
     "fp_fe55c27fa455ddfd"
   ],
   "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 20
+  "exit_code_hint": 20,
+  "verify_required": false
 }

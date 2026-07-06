@@ -537,6 +537,9 @@ def evaluate_codex_boundary_result(
         policy_version=policy.version,
         summary=summary,
         changed_files=changed_files,
+        # Machine-readable form of the check→verify deferral: the boundary
+        # verdict does not cover a changed tool surface, declared or not.
+        verify_required=bool(undeclared_gap or coverage_gap),
         completion_allowed=decision in {"allow", "warn"},
         must_stop=decision in {"require_review", "block"} and not repair.safe_to_attempt,
         first_next_action=first_next_action,
