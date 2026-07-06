@@ -36,8 +36,11 @@ For committed PR verification, run `agents-shipgate verify`, then read
 
 The normative local protocol is [`protocol.md`](protocol.md). Per-agent compact
 control guides are [`codex.md`](codex.md), [`claude-code.md`](claude-code.md),
-and [`cursor.md`](cursor.md). Full installation and workflow guides live in
-[`use-with-codex.md`](use-with-codex.md),
+and [`cursor.md`](cursor.md). Any other agent — Cline, Windsurf, Devin, Aider,
+OpenHands, or anything with a shell or MCP client — uses
+[`any-coding-agent.md`](any-coding-agent.md) (force agent mode with
+`AGENTS_SHIPGATE_AGENT_MODE=1`, then the same control loop). Full installation
+and workflow guides live in [`use-with-codex.md`](use-with-codex.md),
 [`use-with-claude-code.md`](use-with-claude-code.md), and
 [`use-with-cursor.md`](use-with-cursor.md).
 
