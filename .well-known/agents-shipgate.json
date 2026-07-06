@@ -266,7 +266,8 @@
     "target_repo_snippets": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/target-repo-agent-snippets.md",
     "codex": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-codex.md",
     "claude_code": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-claude-code.md",
-    "cursor": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md"
+    "cursor": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md",
+    "any_coding_agent": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/any-coding-agent.md"
   },
   "coding_agent_surfaces": {
     "codex": {
