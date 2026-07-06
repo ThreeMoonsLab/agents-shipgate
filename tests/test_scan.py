@@ -1421,3 +1421,104 @@ tool_sources:
         "Duplicate action_surface action_id" in warning
         for warning in report.source_warnings
     ), f"Expected an action_id collision warning; got: {report.source_warnings}"
+
+
+def test_diff_from_report_with_duplicate_base_action_ids_degrades(tmp_path):
+    """A ``--diff-from`` base report whose round-tripped
+    ``action_surface_facts`` carry duplicate ``action_id`` values (written
+    by a pre-collision-fix engine) must not crash the scan with a hard
+    Config error pointing at a manifest that is fine. Same fail-soft
+    principle as the build-time collision fix (#226): degrade to a
+    source_warning, keep the diff enabled."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "openapi.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Goose-like API
+  version: "1.0"
+paths:
+  /sessions/{session_id}:
+    get:
+      operationId: get_session
+      summary: Get a session.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: ok
+  /sessions/{session_id}/:
+    get:
+      operationId: get_session_detail
+      summary: Get a session detail.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: ok
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: goose-collision
+agent:
+  name: goose-agent
+  declared_purpose:
+    - test duplicate base action ids
+environment:
+  target: local
+tool_sources:
+  - id: goose-api
+    type: openapi
+    path: openapi.yaml
+""",
+        encoding="utf-8",
+    )
+
+    _, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "base-reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert exit_code == 0
+    base_report_path = tmp_path / "base-reports" / "report.json"
+    payload = json.loads(base_report_path.read_text(encoding="utf-8"))
+    actions = payload["action_surface_facts"]["actions"]
+    assert len(actions) == 2
+    # Simulate the pre-fix serialization: both operations collapsed onto
+    # the bare collided id.
+    bare_id = min((action["action_id"] for action in actions), key=len)
+    for action in actions:
+        action["action_id"] = bare_id
+    stale_base_path = tmp_path / "stale-base-report.json"
+    stale_base_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # Must not raise ConfigError — the scan completes and returns a report.
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "head-reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+        diff_from_path=stale_base_path,
+    )
+
+    assert exit_code == 0
+    assert report.action_surface_diff.enabled
+    assert any(
+        "base reference" in warning
+        and "Duplicate action_surface action_id" in warning
+        for warning in report.source_warnings
+    ), f"Expected a base-side collision warning; got: {report.source_warnings}"

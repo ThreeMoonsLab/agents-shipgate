@@ -77,6 +77,11 @@ def _run_checks_and_decide(
         action_surface_facts,
         action_reference.facts if action_reference else None,
         reference=action_reference,
+        # Fail-soft: duplicate action ids in an engine-generated base
+        # reference (pre-collision-fix report/baseline) degrade to a
+        # source_warning (-> review_required) instead of crashing the scan
+        # with a config error. Same principle as the build-time sink above.
+        warnings=action_surface_warnings,
     )
     if diffs.diff_reference_error:
         action_surface_diff.enabled = False
