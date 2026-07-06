@@ -155,6 +155,39 @@ trigger-skips) and the real-history **extraction-coverage** (`insufficient_evide
   surface `must_block` positives — those still must come from the
   constructed-adversarial stratum.
 
+### 2026-W26 labels + score — first adjudicated real-history accuracy row
+
+The W26 worksheet (10 rows: 6 evaluated + 4 `scan_failed`) is now labeled and
+committed as [`results/2026-W26-mined.labels.csv`](results/2026-W26-mined.labels.csv).
+
+- **Method disclosure.** Two **independent AI labelers** (separate contexts,
+  no coordination; each fetched the real PR diffs) filled the worksheet per
+  [LABELING.md](LABELING.md); a third pass adjudicated.
+  **Disagreement rate: 0/10.** Both labelers independently flagged the same
+  two rows as `needs_human` with the same reasoning (stripe/ai#338: a new
+  auto-synced skill directing agents to install the Stripe CLI and load
+  further skills; stripe/ai#312: the skill-sync supply chain rewired to an
+  unauthenticated source with a daily cron and a dropped API-key
+  requirement). Treat these as AI-generated labels pending human spot-check —
+  the run notes exist so that caveat travels with the numbers.
+- **Ground truth:** 8 `safe_to_merge`, 2 `needs_human`, 0 `must_block`
+  (consistent with the W24–W26 base-rate finding above).
+- **Score** (`python -m benchmark.miner score`):
+  `needs_human_caught` **1.0** (2/2 — both authority-bearing changes held for
+  a human), `benign_escalation_rate` **0.0** (no safe PR was
+  blocked/review-routed), `ie_rate_on_safe` **0.5** (4/8 safe PRs returned
+  `insufficient_evidence`), and the remaining 4/8 safe PRs are `unscored`
+  (the goose `Duplicate action_surface action_id` crash above).
+  `must_block_caught`/`blocked_recall` are **null** on this corpus — real
+  history contributes no `must_block` rows; that proof stays with the
+  constructed-adversarial stratum.
+- **Reading:** on real agent-toolkit history the gate currently **never
+  wrongly passes** and **never cleanly passes** — every safe PR it engaged
+  ended in abstention or a crash. The abstentions are the config-bound /
+  dynamic-toolkit gap (`docs/engineering/config-bound-capability-detection.md`);
+  the crashes are the chipped fail-soft bug. Both are the active fixes this
+  row exists to measure against.
+
 ### 2026-W25 findings — diminishing returns from framework-core breadth
 
 - **The base rate of capability-changing merged PRs is low, and now quantified.**
