@@ -120,6 +120,7 @@
 - Codex guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-codex.md
 - Claude Code guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-claude-code.md
 - Cursor guide: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/use-with-cursor.md
+- Any other agent (Cline, Windsurf, Devin, Aider, OpenHands, …): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/any-coding-agent.md — set `AGENTS_SHIPGATE_AGENT_MODE=1` (agent mode only auto-enables inside Claude Code `CLAUDECODE=1` and Cursor `CURSOR_TRACE_ID`), then run the same control loop.
 
 ## Proactive feedback loop
 

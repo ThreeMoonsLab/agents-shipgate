@@ -1362,6 +1362,11 @@ def test_well_known_links_to_agent_discovery_onramps():
         "codex": "/docs/agents/use-with-codex.md",
         "claude_code": "/docs/agents/use-with-claude-code.md",
         "cursor": "/docs/agents/use-with-cursor.md",
+        # Harness-agnostic on-ramp (Cline, Windsurf, Devin, Aider, …):
+        # the machine-readable discovery map must route agents that are
+        # not one of the three named harnesses, or the "start with
+        # .well-known" instruction strands exactly that audience.
+        "any_coding_agent": "/docs/agents/any-coding-agent.md",
     }
     for key, suffix in expected_onramps.items():
         url = onramps.get(key, "")

@@ -1,6 +1,6 @@
 # Agents Shipgate · Agent Instructions
 
-Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aider) working **with** this repository or a project that uses Agents Shipgate.
+Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aider, Cline, Windsurf, Devin, or any other harness — see [`docs/agents/any-coding-agent.md`](docs/agents/any-coding-agent.md)) working **with** this repository or a project that uses Agents Shipgate.
 
 > If you are a human, the README and the [wiki](https://github.com/ThreeMoonsLab/agents-shipgate/wiki) are the right places to start. This file is optimized for agent ingest: short, copy-pasteable, machine-friendly.
 
@@ -60,6 +60,9 @@ The CLI binary is `agents-shipgate`. A short alias `shipgate` is also installed.
 ---
 
 ## Run (canonical)
+
+Handling a capability change right now? Start with **Local control** below —
+run First-time setup only when the repo has no `shipgate.yaml` yet.
 
 **First-time setup** — in a repo that contains an agent and its tools:
 
