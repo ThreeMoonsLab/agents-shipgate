@@ -17,9 +17,15 @@ The canonical, self-contained verifier instructions live in the bundled prompt
 files. For verifier runs, read `prompts/verify-agent-diff.md`. Try these paths
 in order; use the first that exists:
 
-1. `.claude/skills/agents-shipgate/prompts/<recipe>.md` — bundled with the `agents-shipgate` skill if installed in this project.
-2. `prompts/<recipe>.md` — present when this repo is a clone of `agents-shipgate` itself.
-3. `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/prompts/<recipe>.md` — last-resort fetch.
+1. `${CLAUDE_PLUGIN_ROOT}/skills/agents-shipgate/prompts/<recipe>.md` — when
+   this command runs from the installed `agents-shipgate` plugin, Claude Code
+   expands `${CLAUDE_PLUGIN_ROOT}` to the plugin directory and the
+   version-matched recipes are bundled there. (When the command is a committed
+   project file instead, the variable is not expanded and this path simply
+   won't exist — continue down the list.)
+2. `.claude/skills/agents-shipgate/prompts/<recipe>.md` — bundled with the `agents-shipgate` skill if installed in this project.
+3. `prompts/<recipe>.md` — present when this repo is a clone of `agents-shipgate` itself.
+4. `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/prompts/<recipe>.md` — last-resort unpinned fetch; prefer any bundled copy above.
 
 Prominent commands:
 
