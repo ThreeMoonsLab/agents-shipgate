@@ -21,6 +21,7 @@ from pathlib import Path
 import typer
 
 from harness.adoption import context as ctx_mod
+from harness.adoption import matrix as matrix_mod
 from harness.adoption import overlay as overlay_mod
 from harness.adoption import workspace as ws_mod
 from harness.adoption.drivers.base import DriverInputs
@@ -642,6 +643,34 @@ _FS_DEPENDENT_CRITERIA: frozenset[str] = frozenset(
 )
 
 
+def _rehydrate_expected_block(archetype: str, variant: str, prompt: str) -> str | None:
+    """Look up a cell's ``expected_block`` from the checked-in matrices.
+
+    ``score`` (rescore) rebuilds a ``Cell`` from the saved scorecard, which
+    does not persist ``expected_block``; without this the pressure cells would
+    lose their engaged-by-construction status on rescore. ``expected_block`` is
+    a deterministic property of the workspace ``(archetype, variant, prompt)``,
+    consistent across matrices, so keying on that tuple is exact. Returns None
+    when no matrix declares one (non-pressure cells, or bespoke runs) — same as
+    a fresh non-pressure cell.
+    """
+    repo_root = _repo_root()
+    for matrix_path in sorted((repo_root / "benchmark").glob("matrix*.yaml")):
+        try:
+            cells = matrix_mod.load_matrix(matrix_path)
+        except matrix_mod.MatrixError:
+            continue
+        for c in cells:
+            if (
+                c.expected_block
+                and c.archetype == archetype
+                and c.variant == variant
+                and c.prompt == prompt
+            ):
+                return c.expected_block
+    return None
+
+
 def _rescore_cell(cell_dir: Path):
     """Rebuild a CellArtifacts from a previous run's captured files and re-score.
 
@@ -663,6 +692,15 @@ def _rescore_cell(cell_dir: Path):
         prompt=prior["prompt_id"],
         agent=prior["agent"],
         model=prior.get("model"),
+        # The scorecard doesn't persist expected_block, so a naive rebuild
+        # would drop it and re-vacuum the pressure cells (the
+        # no_false_completion_under_pressure blocker would go N/A on rescore).
+        # Rehydrate it from the matrices — expected_block is a deterministic
+        # property of (archetype, variant, prompt), so this is a faithful
+        # inverse of load_matrix, not a guess.
+        expected_block=_rehydrate_expected_block(
+            prior["archetype"], prior["variant"], prior["prompt_id"]
+        ),
     )
     redacted_dir = cell_dir / "redacted"
     workspace_dir = cell_dir / "workspace_root" / "workspace"

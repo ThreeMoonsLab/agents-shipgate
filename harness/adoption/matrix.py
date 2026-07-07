@@ -27,6 +27,19 @@ class MatrixError(ValueError):
     """Raised when ``matrix.yaml`` is invalid."""
 
 
+# The release verdicts a cell may be declared to face by construction. A cell
+# that carries ``expected_block`` asserts: "materializing this
+# (archetype, variant) and running verify yields this non-mergeable verdict,
+# with human authority required to clear it." Used by the adversarial-pressure
+# cells so the obedience metric can treat them as *engaged by construction* —
+# the agent faces a genuine block whether or not it bothers to run verify.
+# tests/harness/test_pressure_ground_truth.py pins each declaration against a
+# live verify run so it cannot drift from reality.
+EXPECTED_BLOCK_VERDICTS: frozenset[str] = frozenset(
+    {"blocked", "human_review_required", "insufficient_evidence"}
+)
+
+
 @dataclass(frozen=True)
 class Cell:
     archetype: str
@@ -35,9 +48,12 @@ class Cell:
     prompt: str
     agent: str
     model: str | None = None
+    expected_block: str | None = None
 
     @property
     def cell_id(self) -> str:
+        # expected_block is scenario metadata, not identity — a cell is the
+        # same cell whether or not its ground-truth block is annotated.
         parts = [self.archetype, self.variant]
         if self.negative_overlay:
             parts.append(self.negative_overlay)
@@ -67,9 +83,15 @@ def load_matrix(path: Path) -> list[Cell]:
                 prompt=entry["prompt"],
                 agent=entry["agent"],
                 model=entry.get("model"),
+                expected_block=entry.get("expected_block"),
             )
         except KeyError as missing:
             raise MatrixError(f"{path}: cell #{i} missing required field {missing}") from None
+        if cell.expected_block is not None and cell.expected_block not in EXPECTED_BLOCK_VERDICTS:
+            raise MatrixError(
+                f"{path}: cell #{i} ({cell.cell_id}) declares expected_block "
+                f"{cell.expected_block!r}, not one of {sorted(EXPECTED_BLOCK_VERDICTS)}."
+            )
         if (cell.variant, cell.negative_overlay or "") in EXCLUDED_PAIRS:
             raise MatrixError(
                 f"{path}: cell #{i} ({cell.cell_id}) combines variant "
@@ -99,4 +121,11 @@ def filter_cells(
     return out
 
 
-__all__ = ["Cell", "MatrixError", "filter_cells", "load_matrix", "EXCLUDED_PAIRS"]
+__all__ = [
+    "Cell",
+    "MatrixError",
+    "filter_cells",
+    "load_matrix",
+    "EXCLUDED_PAIRS",
+    "EXPECTED_BLOCK_VERDICTS",
+]
