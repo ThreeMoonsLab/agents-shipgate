@@ -22,6 +22,7 @@ from agents_shipgate.inputs._python_framework import (
     unique_tools,
 )
 from agents_shipgate.inputs.common import stable_tool_id, tool_name_warning
+from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -248,7 +249,9 @@ class _CrewAiExtractor:
             record = {"source_ref": self.source_ref, "line": call.lineno, "tools": names or []}
             self.artifacts.agents.append(record)
             if tools_expr is not None and names is None:
-                self._dynamic("agent", call.lineno, dynamic_reason(tools_expr))
+                self._dynamic(
+                    "agent", call.lineno, dynamic_reason(tools_expr), expr=tools_expr
+                )
         elif call_kind == "Crew":
             agents_expr = keyword(call, "agents")
             agents = _resolve_names(agents_expr) if agents_expr is not None else []
@@ -353,8 +356,25 @@ class _CrewAiExtractor:
             {"name": tool.name, "source_ref": self.source_ref, "line": source_line(tool.source_location)}
         )
 
-    def _dynamic(self, kind: str, line: int, reason: str) -> None:
-        surface = {"kind": kind, "source_ref": self.source_ref, "line": line, "reason": reason}
+    def _dynamic(
+        self, kind: str, line: int, reason: str, *, expr: ast.AST | None = None
+    ) -> None:
+        surface: dict[str, Any] = {
+            "kind": kind,
+            "source_ref": self.source_ref,
+            "line": line,
+            "reason": reason,
+        }
+        # Config-bound capability detection: when the dynamic tools
+        # expression is statically traceable to a config read, record the
+        # binding on the surface fact. Purely additive — an untraceable
+        # expression leaves the fact byte-identical to the legacy shape.
+        if isinstance(expr, ast.expr):
+            trace = trace_config_binding(expr, tree=self.tree, line=line)
+            if trace.binding == "config":
+                surface["config_binding"] = "config"
+                if trace.config_path:
+                    surface["config_path"] = trace.config_path
         self.artifacts.dynamic_tool_surfaces.append(surface)
         self.warnings.append(
             f"CrewAI {kind} at {self.source_ref}:{line} has dynamic tool surface: {reason}."

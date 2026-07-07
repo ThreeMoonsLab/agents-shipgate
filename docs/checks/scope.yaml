@@ -57,5 +57,7 @@ checks:
   - binding
   - source_ref
   recommendation: Pass an explicit configuration allowlist (resource:verb actions)
-    to the toolkit constructor so the agent mounts only the tools it needs.
+    to the toolkit constructor so the agent mounts only the tools it needs. If the
+    toolkit must stay dynamic, declare an explicit local tool inventory for the
+    tools it mounts so the surface is statically reviewable.
   requires_human_review_regardless_of_patch: true

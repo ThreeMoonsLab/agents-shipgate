@@ -355,6 +355,48 @@ def test_action_surface_disambiguates_openapi_action_id_collisions_fail_soft():
     assert "get_session" in warnings[0] and "get_session_detail" in warnings[0]
 
 
+def test_action_surface_diff_degrades_duplicate_base_action_ids_fail_soft():
+    """A ``--diff-from`` report or baseline serialized by a pre-collision-fix
+    engine can carry duplicate ``action_id`` values in its round-tripped
+    ``action_surface_facts``. The diff must degrade fail-soft with a warning
+    (routing to review_required) instead of crashing the scan with a
+    ConfigError that points at a manifest which is fine — the engine
+    inferred those ids itself. Without a sink the legacy hard error is
+    preserved. Real-world repro: block/goose miner rows dying with exit 2."""
+    base_id = "agent:action-test/agent:openapi:goose-api:GET /sessions/{session_id}"
+    base_first = _action(base_id)
+    base_first.tool_name = "get_session"
+    base_second = _action(base_id)
+    base_second.tool_name = "get_session_detail"
+    base = ActionSurfaceFacts(actions=[base_first, base_second])
+    # Fresh head facts: build-time disambiguation already suffixed the second.
+    head_first = _action(base_id)
+    head_first.tool_name = "get_session"
+    head_second = _action(f"{base_id}#get_session_detail")
+    head_second.tool_name = "get_session_detail"
+    current = ActionSurfaceFacts(actions=[head_first, head_second])
+
+    # Legacy no-sink callers keep the hard ConfigError.
+    with pytest.raises(ConfigError, match="Duplicate action_surface action_id"):
+        compute_action_surface_diff(current, base)
+
+    warnings: list[str] = []
+    diff = compute_action_surface_diff(current, base, warnings=warnings)
+
+    assert diff.enabled
+    # The base side was disambiguated with the same tool-name suffix strategy
+    # the head build uses, so an identical surface diffs without churn.
+    assert diff.added == []
+    assert diff.removed == []
+    assert {action.action_id for action in base.actions} == {
+        base_id,
+        f"{base_id}#get_session_detail",
+    }
+    assert len(warnings) == 1
+    assert "base reference" in warnings[0]
+    assert "Duplicate action_surface action_id" in warnings[0]
+
+
 def test_action_surface_policy_requires_typed_expected_values():
     with pytest.raises(ValueError, match="safeguards.audit_log"):
         _manifest(

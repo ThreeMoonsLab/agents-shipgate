@@ -163,3 +163,56 @@ checks:
   recommendation: A human must review and re-apply a least-privilege toolkit
     configuration or explicitly approve the broadened scope; do not remove the
     allowlist to expand agent capability without review.
+- id: SHIP-CAP-CONFIG-BINDING-CHANGED
+  default_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR changes the config file that binds a dynamic toolkit's
+    authority; static analysis cannot diff the effective tool list.
+  rationale: A factory whose authority-bearing argument is bound from a config
+    read hides its effective tool surface from static enumeration on both sides
+    of the diff, so a config edit (e.g. adding "refund" to an actions list)
+    produces no capability change in the generic diff. The config delta must be
+    reviewed instead of passing invisibly.
+  fires_when: A VerificationContext and a base report are both present, the same
+    factory site is config-bound on both sides, and the bound config file is in
+    the PR's changed files.
+  evidence_fields:
+  - kind
+  - provider
+  - constructor
+  - binding
+  - config_path
+  - changed_file
+  - source_ref
+  recommendation: Review the config delta for added capabilities, or declare an
+    explicit local tool inventory for the toolkit so future changes are
+    statically comparable.
+- id: SHIP-CAP-CONFIG-BINDING-REMOVED
+  default_severity: high
+  floor_severity: high
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: The PR removes the config binding from a dynamic toolkit factory
+    present on both sides of the diff, so the toolkit may fall back to its
+    everything-enabled defaults.
+  rationale: A restriction-bearing config binding is the only statically-provable
+    restraint on a toolkit whose tools load through a runtime factory. Removing
+    the binding expands authority while looking like cleanup, and neither side's
+    tools are statically enumerable, so the generic capability diff sees nothing.
+    A coding agent must not self-approve that expansion; without this check the
+    diff degrades to silent insufficient_evidence parity between base and head.
+  fires_when: A VerificationContext and a base report are both present, the base
+    bound the factory's authority-bearing argument to a config read, and the head
+    constructs the same factory site with no binding at all. An unreadable
+    (unknown) head binding never fires this check.
+  evidence_fields:
+  - kind
+  - provider
+  - constructor
+  - binding
+  - base_config_path
+  - source_ref
+  recommendation: A human must review the removal; restore the config binding or
+    an explicit literal allowlist, or declare an explicit local tool inventory
+    for the toolkit so the mounted surface is statically enumerable.

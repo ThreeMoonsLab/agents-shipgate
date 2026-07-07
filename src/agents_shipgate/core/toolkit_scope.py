@@ -33,6 +33,14 @@ TOOLKIT_BOUND_POLICY_KIND = "toolkit_scope_bound"
 # (``configuration={"actions": {}}`` — bounded to nothing), so the two
 # decode to different ``bounded`` states.
 UNBOUNDED_SUMMARY = "(unbounded — full toolkit surface)"
+# Config-bound / unreadable-binding sentinels (docs/engineering/
+# config-bound-capability-detection.md). Same carriage trick: the summary
+# is both the rendering and the round-trip encoding, so the base side of a
+# verify diff recovers ``config_binding`` (and the bound config file's
+# path) from the serialized base report without any schema change.
+CONFIG_BOUND_SUMMARY_BARE = "(config-bound)"
+_CONFIG_BOUND_SUMMARY_PREFIX = "(config-bound: "
+UNKNOWN_BINDING_SUMMARY = "(binding unknown — configuration not statically readable)"
 _SCOPE_SEP = ", "
 
 
@@ -51,17 +59,29 @@ def policy_key_for(bound: ToolkitScopeBound) -> str:
 
 
 def _bound_summary(bound: ToolkitScopeBound) -> str:
+    if bound.config_binding == "config":
+        if bound.config_path:
+            return f"{_CONFIG_BOUND_SUMMARY_PREFIX}{bound.config_path})"
+        return CONFIG_BOUND_SUMMARY_BARE
+    if bound.config_binding == "unknown":
+        return UNKNOWN_BINDING_SUMMARY
     if not bound.bounded:
         return UNBOUNDED_SUMMARY
     return _SCOPE_SEP.join(sorted(bound.scopes))
 
 
 def _bound_value_hash(bound: ToolkitScopeBound) -> str:
-    payload = json.dumps(
-        {"bounded": bound.bounded, "scopes": sorted(bound.scopes)},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    value: dict[str, object] = {
+        "bounded": bound.bounded,
+        "scopes": sorted(bound.scopes),
+    }
+    if bound.config_binding in {"config", "unknown"}:
+        # Only the new binding states extend the hash payload: literal and
+        # absent bounds keep the legacy payload so their serialized
+        # ``value_hash`` stays byte-identical across the upgrade.
+        value["config_binding"] = bound.config_binding
+        value["config_path"] = bound.config_path
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -95,6 +115,31 @@ def bound_from_policy_fact(fact: ToolSurfacePolicyFact) -> ToolkitScopeBound | N
             bounded=False,
             scopes=[],
             binding=binding_value,
+            config_binding="absent",
+        )
+    if summary == UNKNOWN_BINDING_SUMMARY:
+        return ToolkitScopeBound(
+            provider=provider,
+            constructor="",
+            bounded=False,
+            scopes=[],
+            binding=binding_value,
+            config_binding="unknown",
+        )
+    if summary == CONFIG_BOUND_SUMMARY_BARE or summary.startswith(
+        _CONFIG_BOUND_SUMMARY_PREFIX
+    ):
+        config_path = None
+        if summary.startswith(_CONFIG_BOUND_SUMMARY_PREFIX):
+            config_path = summary[len(_CONFIG_BOUND_SUMMARY_PREFIX) : -1] or None
+        return ToolkitScopeBound(
+            provider=provider,
+            constructor="",
+            bounded=False,
+            scopes=[],
+            binding=binding_value,
+            config_binding="config",
+            config_path=config_path,
         )
     scopes = [token for token in summary.split(_SCOPE_SEP) if token] if summary else []
     return ToolkitScopeBound(
@@ -103,6 +148,7 @@ def bound_from_policy_fact(fact: ToolSurfacePolicyFact) -> ToolkitScopeBound | N
         bounded=True,
         scopes=sorted(scopes),
         binding=binding_value,
+        config_binding="literal",
     )
 
 
@@ -123,8 +169,10 @@ def toolkit_bound_facts(
 
 
 __all__ = [
+    "CONFIG_BOUND_SUMMARY_BARE",
     "TOOLKIT_BOUND_POLICY_KIND",
     "UNBOUNDED_SUMMARY",
+    "UNKNOWN_BINDING_SUMMARY",
     "bound_from_policy_fact",
     "bound_to_policy_fact",
     "policy_key_for",

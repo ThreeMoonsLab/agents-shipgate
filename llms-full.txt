@@ -1680,6 +1680,8 @@ baseline summary and do not fail CI.
 | `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
 | `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` | medium | The PR changes the trigger catalog that decides when Shipgate runs; routed to human review to rule out gate evasion. |
 | `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` | critical | The PR removes or broadens a dynamically-loaded toolkit's least-privilege configuration bound (e.g. a `stripe_agent_toolkit` allowlist), silently expanding the toolkit surface; blocks rather than degrading to insufficient_evidence. |
+| `SHIP-CAP-CONFIG-BINDING-REMOVED` | high | The PR removes the config binding from a dynamic toolkit factory present on both sides of the diff, so the toolkit may fall back to its everything-enabled defaults; routed to human review instead of silent insufficient_evidence parity. |
+| `SHIP-CAP-CONFIG-BINDING-CHANGED` | medium | The PR changes the config file that binds a dynamic toolkit's authority; static analysis cannot diff the effective tool list, so the config delta is routed to review. |
 
 ## Check Details
 
@@ -2473,6 +2475,30 @@ would degrade the verdict to `insufficient_evidence` instead of `blocked`. A
 coding agent cannot self-approve the broadening; a human must re-apply a
 least-privilege configuration or explicitly approve the expanded surface. A
 narrowing (bound added or tightened) emits nothing.
+
+### SHIP-CAP-CONFIG-BINDING-REMOVED
+
+Config-bound capability detection: a dynamic toolkit factory whose
+authority-bearing constructor argument is *bound from a config read*
+(`json`/`yaml`/`toml` load, `os.environ`, pydantic settings) hides its
+effective tool surface from static enumeration on both sides of a verify
+diff. When the same factory site appears on both sides and the head removes
+the binding entirely, the toolkit may fall back to its everything-enabled
+defaults — authority expands while looking like cleanup, and the generic
+capability diff sees nothing. Fires `high` in verify mode and routes to
+human review instead of silent `insufficient_evidence` parity. Fail-safe by
+design: a head binding that is merely *unreadable* (`unknown`) never fires
+this check — it degrades to a source warning; a head that moves to a
+literal allowlist is the safe direction and emits nothing.
+
+### SHIP-CAP-CONFIG-BINDING-CHANGED
+
+Companion review item: the same factory site is config-bound on both sides
+of the diff and the PR changes the bound config file itself (e.g. adding
+`"refund"` to an actions list). Static analysis cannot diff the effective
+tool list, so the config delta is routed to review at `medium` with the
+inventory remedy. Fires only when the binding's literal config path matches
+a changed file — env- or settings-bound factories never guess a match.
 
 ### SHIP-MCP-ENV-SECRET-PASSTHROUGH
 

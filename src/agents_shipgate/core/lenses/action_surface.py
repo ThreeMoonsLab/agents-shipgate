@@ -188,7 +188,21 @@ def compute_action_surface_diff(
     base: ActionSurfaceFacts | None,
     *,
     reference: ActionSurfaceDiffReference | None = None,
+    warnings: list[str] | None = None,
 ) -> ActionSurfaceDiff:
+    """Diff two action-surface snapshots.
+
+    With a ``warnings`` sink, duplicate ``action_id`` values on either side
+    degrade fail-soft instead of raising :class:`ConfigError`. By the time
+    facts reach the diff they are engine-built artifacts, not user config:
+    the manifest-authored identity contract was already enforced when each
+    side was built (see :func:`build_action_surface_facts`). In practice the
+    duplicates come from a ``--diff-from`` report or baseline serialized by
+    a pre-collision-fix engine (the block/goose miner shape) — a gate must
+    fail-safe with a warning on inputs it inferred itself, not crash the
+    scan with a config error pointing at a manifest that is fine. Callers
+    without a sink keep the legacy hard :class:`ConfigError`.
+    """
     if base is None:
         notes = _action_notes(reference)
         if not notes:
@@ -199,8 +213,16 @@ def compute_action_surface_diff(
             notes=notes,
         )
 
-    current_by_id = _actions_by_id(current.actions)
-    base_by_id = _actions_by_id(base.actions)
+    if warnings is None:
+        current_by_id = _actions_by_id(current.actions)
+        base_by_id = _actions_by_id(base.actions)
+    else:
+        current_by_id = _actions_by_id_fail_soft(
+            current.actions, side="current", warnings=warnings
+        )
+        base_by_id = _actions_by_id_fail_soft(
+            base.actions, side="base reference", warnings=warnings
+        )
     added = [
         _action_added_change(current_by_id[action_id])
         for action_id in sorted(current_by_id.keys() - base_by_id.keys())
@@ -570,6 +592,34 @@ def _action_from_tool(
 
 def _actions_by_id(actions: list[ActionFact]) -> dict[str, ActionFact]:
     _validate_unique_action_ids(actions)
+    return {action.action_id: action for action in actions}
+
+
+def _actions_by_id_fail_soft(
+    actions: list[ActionFact],
+    *,
+    side: str,
+    warnings: list[str],
+) -> dict[str, ActionFact]:
+    """Index actions by id, degrading duplicates instead of raising.
+
+    Reuses :func:`_disambiguate_duplicate_action_ids` with no explicit
+    tool names: at diff time both snapshots are engine output whose
+    manifest-authored identities were validated at build time, so every
+    surviving collision is inferred (most commonly a base report written
+    before inferred collisions were disambiguated at build time). The
+    tool-name suffix strategy matches what the head side's build-time
+    disambiguator produces, so a degraded base lines up with a fresh head
+    instead of flagging the whole surface as churned.
+    """
+    for message in _disambiguate_duplicate_action_ids(
+        actions, explicit_tool_names=set()
+    ):
+        warnings.append(
+            f"action_surface_diff ({side}): {message} The colliding ids were "
+            "read from an engine-generated snapshot, typically a --diff-from "
+            "report or baseline produced by an older version."
+        )
     return {action.action_id: action for action in actions}
 
 
