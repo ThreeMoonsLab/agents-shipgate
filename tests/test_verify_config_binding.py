@@ -371,6 +371,29 @@ def test_config_file_untouched_emits_nothing():
     assert verify_config_binding.run(ctx) == []
 
 
+def test_config_binding_retarget_fires_without_config_in_changed_files():
+    # Review-reproduced blind spot: the PR edits only the .py file, repointing
+    # the binding from safe.json to a PRE-EXISTING broad.json. Neither config
+    # file appears in changed_files, yet the effective tool surface may have
+    # expanded — the retarget itself must be the review item.
+    base = dict(_CONFIG_BASE)
+    head = dict(_CONFIG_BASE)
+    base["config_path"] = "config/safe.json"
+    head["config_path"] = "config/broad.json"
+    ctx = _ctx(
+        base_bounds=[_bound(**base)],
+        head_bounds=[_bound(**head)],
+        changed=("support_agent.py",),
+    )
+    [finding] = verify_config_binding.run(ctx)
+    assert finding.check_id == CHECK_CHANGED
+    assert finding.severity == "medium"
+    assert finding.evidence["kind"] == "config_binding_retargeted"
+    assert finding.evidence["previous_config_path"] == "config/safe.json"
+    assert finding.evidence["config_path"] == "config/broad.json"
+    assert "config/safe.json → config/broad.json" in finding.recommendation
+
+
 def test_pathless_config_binding_never_guesses_a_match():
     # Env/settings-bound factories carry no literal path; a changed file must
     # never be matched by guesswork.

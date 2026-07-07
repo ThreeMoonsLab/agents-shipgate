@@ -69,13 +69,25 @@ def run(context: ScanContext) -> list[Finding]:
         if head_bound.config_binding == "absent":
             findings.append(_removed_finding(context, base_bound, head_bound))
         elif head_bound.config_binding == "config":
-            hit = _changed_config_file(
-                head_bound.config_path or base_bound.config_path, files
-            )
-            if hit is not None:
+            base_path = base_bound.config_path
+            head_path = head_bound.config_path
+            if base_path and head_path and base_path != head_path:
+                # Retarget: the binding moved to a different — possibly
+                # pre-existing — config file. Neither file's content need
+                # change for the effective tool surface to change, so this
+                # must not depend on the config appearing in changed_files
+                # (review-reproduced blind spot: safe.json → broad.json).
+                # Conservative: both sides must carry a literal path;
+                # env/settings bindings without a path never compare.
                 findings.append(
-                    _changed_finding(context, base_bound, head_bound, hit)
+                    _retargeted_finding(context, base_bound, head_bound)
                 )
+            else:
+                hit = _changed_config_file(head_path or base_path, files)
+                if hit is not None:
+                    findings.append(
+                        _changed_finding(context, base_bound, head_bound, hit)
+                    )
         # head "unknown": never fire the removal check on an unreadable
         # binding (design-doc guard); the extractor's source warning routes
         # it to review. head "literal": authority became statically visible
@@ -140,6 +152,39 @@ def _removed_finding(
             "literal allowlist), or declare an explicit local tool inventory "
             f"for the toolkit constructed at {site} so the mounted surface "
             "is statically enumerable."
+        ),
+    )
+
+
+def _retargeted_finding(
+    context: ScanContext,
+    base_bound: ToolkitScopeBound,
+    head_bound: ToolkitScopeBound,
+) -> Finding:
+    provider = head_bound.provider or base_bound.provider
+    site = _site(head_bound)
+    return verify_finding(
+        context,
+        check_id=CHECK_ID_CHANGED,
+        title=f"{provider} toolkit authority config retargeted",
+        severity="medium",
+        evidence={
+            "kind": "config_binding_retargeted",
+            "provider": provider,
+            "constructor": head_bound.constructor or base_bound.constructor,
+            "binding": head_bound.binding or "",
+            "config_path": head_bound.config_path or "",
+            "previous_config_path": base_bound.config_path or "",
+            "source_ref": head_bound.source_ref or "",
+        },
+        recommendation=(
+            f"This PR points the {provider} toolkit's authority binding at "
+            f"{site} to a different config ({base_bound.config_path} → "
+            f"{head_bound.config_path}). The new file may pre-exist with a "
+            "broader action list, so no config diff appears in this PR — "
+            "review the new config's effective capabilities, or declare an "
+            f"explicit local tool inventory for the toolkit at {site} so "
+            "changes stay statically comparable."
         ),
     )
 
