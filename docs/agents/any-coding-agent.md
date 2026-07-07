@@ -62,7 +62,7 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 
 | Code | Meaning |
 |---|---|
-| `0` | Pass (advisory mode or strict-no-blockers) |
+| `0` | Command completed — **not** a verdict. Inspect the JSON fields (`decision`, `merge_verdict`, `release_decision.decision`): in advisory mode, `verify` exits `0` even for `review_required` / `human_review_required`. |
 | `2` | Manifest config error |
 | `3` | Input parse error |
 | `4` | Other Agents Shipgate error |
