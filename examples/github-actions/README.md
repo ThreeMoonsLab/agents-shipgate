@@ -37,9 +37,9 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+- uses: ThreeMoonsLab/agents-shipgate@v0.15.0
   with:
-    shipgate_version: "0.14.0"
+    shipgate_version: "0.15.0"
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
@@ -57,7 +57,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+  uses: ThreeMoonsLab/agents-shipgate@v0.15.0
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
@@ -102,7 +102,7 @@ mergeable/success, blocked/failure, human-routed/neutral behavior.
 `blocked` and `unknown` so setup failures do not look successful. For direct
 branch protection, use `check_run_policy: require-mergeable`; only
 `can_merge_without_human == true` succeeds. `check_run_policy` is newer than
-v0.14.0; until the next release is tagged, the Check Run policy example targets
+v0.15.0; until the next release is tagged, the Check Run policy example targets
 `main` and omits `shipgate_version` so the action installs from that ref.
 
 `verify` writes static capability artifacts to the workflow artifact when

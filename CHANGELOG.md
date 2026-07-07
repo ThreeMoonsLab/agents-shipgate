@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.15.0 - 2026-07-07
+
+- **First real-history accuracy numbers, published.** The 2026-W26 mined
+  corpus (120 merged PRs from stripe/agent-toolkit, block/goose, and
+  pydantic-ai) is now labeled (two independent AI labelers, disagreement
+  0/10, third-pass adjudicated — pending human spot-check) and scored. On the
+  10 PRs the gate engaged, it never wrongly passed an authority-bearing change
+  (`needs_human_caught` 1.0, `benign_escalation_rate` 0.0) but also never
+  cleanly passed a safe one (`ie_rate_on_safe` 0.5, plus a since-fixed scan
+  crash). Full confusion matrix and method in
+  [`benchmark/miner/README.md`](benchmark/miner/README.md); the README status
+  banner now carries the numbers instead of "none published yet". Real history
+  contributes no `must_block` rows, so blocked-recall stays with the
+  constructed-adversarial stratum.
+- **Config-bound dynamic-toolkit capability detection.** New checks
+  `SHIP-CAP-CONFIG-BINDING-REMOVED` (high, suppression-immune) and
+  `SHIP-CAP-CONFIG-BINDING-CHANGED` (review item) close the pilot blind spot
+  where a diff removed or retargeted a factory's config binding — silently
+  expanding the effective tool surface — without any capability delta showing
+  in the diff. A conservative same-file config tracer (json/yaml/toml loads,
+  `os.environ`, in-file pydantic settings) feeds them; `config → unknown`
+  never fires, guarding against false positives.
+- **Duplicate `action_surface` action_id collisions degrade instead of
+  crashing.** A base reference serialized by a pre-#226 engine could still
+  crash `scan`/`verify` at diff time with `Config error: Duplicate
+  action_surface action_id`; it now degrades to a source warning
+  (review_required), matching the OpenAPI fix in #226. This eliminated the
+  four `scan_failed` rows in the W26 corpus.
 - **Claude Code plugin marketplace.** The repo now doubles as a Claude Code
   plugin marketplace (`/plugin marketplace add ThreeMoonsLab/agents-shipgate`,
   then `/plugin install agents-shipgate@agents-shipgate`) — the symmetric

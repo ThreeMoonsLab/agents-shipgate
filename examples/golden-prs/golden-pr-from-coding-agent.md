@@ -82,7 +82,7 @@ is at `agents-shipgate-reports/report.json`; the top-level
 - Release Evidence Packet: `agents-shipgate-reports/packet.{md,json,html}`
 
 **CI**: `.github/workflows/agents-shipgate.yml` already wires
-`agents-shipgate@v0.14.0` in advisory mode; this PR will get a
+`agents-shipgate@v0.15.0` in advisory mode; this PR will get a
 sticky-marker comment from the Action on every push.
 
 <details>

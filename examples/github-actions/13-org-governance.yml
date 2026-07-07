@@ -26,7 +26,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0
         id: shipgate
         with:
           config: shipgate.yaml

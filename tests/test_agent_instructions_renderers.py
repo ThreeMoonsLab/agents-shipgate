@@ -48,13 +48,13 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "52607a7b0ed5b83f4512618bbb9f277b77649943e66aa120dcf38aca7bfe1e16"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "82957a521b5914b3e678e6b76e7088306559c8ad6bcf7c2dce7fb1e822b6bec6"
+        "b6f87f58f70b5920442f342b5118419ef685ad9f4ff8b0ff87c2729a92929786"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "0e94a82ec066af57ea8c0d6d6222de906b45ed722bf7799e2fc1907004158618"
+        "b3a3273bf68c3f49abd32585f8ce6e9f562c49be520f8d3f381e39afa4712280"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "a8ee5f93cab1017c623075c39c1c5bdc639855c37e588e1c9190ab963bb50446"
+        "8f408aed05cb85e06c9f8bb13ee189131eeccfa66fa2c1119e802c43ae97f19c"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -66,7 +66,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
     ),
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "db9a702784c64229ed15157ce369c90a3d75c02e82c78d2c39cc55135857dc80"
+        "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364"
     ),
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
         "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
@@ -86,7 +86,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
     ),
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "7ef7ccb331a0171f0fb5580df4dad32003b230b150886a40d317a954ace0fb55"
+        "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
         "f32d0046473377705e0ba487e19cfcf918edfe33a96a0666147cbbd1ea3f0de7"

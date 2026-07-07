@@ -1,4 +1,4 @@
-# Stability Contract · 0.14.0
+# Stability Contract · 0.15.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -10,6 +10,22 @@ described here are stable within the `0.x` line, but the `report.json` schema
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-15-0"></a>
+
+## Migration Note: 0.15.0
+
+`0.15.0` continues the `0.x` contract line from `0.14.0` with **no breaking
+changes**. `contract_version` advances `9 → 10`, purely additively:
+`verify_required` joins `agent_result_control_fields` and appears on the Codex
+boundary result (and the shared `agent-result-schema.v1.json`). Consumers
+pinned to `contract_version >= 9` keep working unchanged; a consumer that wants
+the machine-readable check→verify deferral reads the new field. The
+`report.json` schema is unchanged at `0.28`. New checks
+(`SHIP-CAP-CONFIG-BINDING-REMOVED`, `SHIP-CAP-CONFIG-BINDING-CHANGED`) are
+additive and only fire on dynamic-toolkit config bindings.
 
 ---
 

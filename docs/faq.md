@@ -137,7 +137,7 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v0.14.0 is the current pre-1.0 beta contract version. The manifest schema is
+v0.15.0 is the current pre-1.0 beta contract version. The manifest schema is
 stable across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
 early design partners. Public preview.
 

@@ -19,11 +19,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0
         with:
           ci_mode: strict
           diff_base: target
           fail_on: critical,high
           baseline: .agents-shipgate/baseline.json
           pr_comment: 'true'
-          shipgate_version: '0.14.0'
+          shipgate_version: '0.15.0'

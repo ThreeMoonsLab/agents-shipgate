@@ -311,12 +311,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '0.14.0'
+          shipgate_version: '0.15.0'
 ```
 
 `init --ci` writes a similar workflow into `.github/workflows/agents-shipgate.yml`. Switch to `ci_mode: strict` only after the team has reviewed the advisory output and saved a baseline (see [`baseline.md`](baseline.md)).
