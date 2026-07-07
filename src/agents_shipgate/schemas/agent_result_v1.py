@@ -146,6 +146,14 @@ class AgentResultV1(BaseModel):
     summary: str
     changed_files: list[str] = Field(default_factory=list)
     completion_allowed: bool = False
+    # Contract v10 (additive): the check→verify deferral, machine-readable.
+    # True when the diff touches a tool surface — declared or undeclared —
+    # that the boundary check does not gate; the evaluator simultaneously
+    # escalates what would have been a clean ``allow`` to ``warn``, so this
+    # is always observed alongside ``decision="warn"``. Lives on the shared
+    # base so ``agent_result_control_fields`` validates against both the
+    # boundary schema and this legacy compatibility schema.
+    verify_required: bool = False
     must_stop: bool = True
     first_next_action: AgentResultNextAction
     human_review: AgentResultHumanReview = Field(default_factory=AgentResultHumanReview)

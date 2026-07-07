@@ -8,10 +8,14 @@
   now also sets a top-level boolean `verify_required` on
   `shipgate.codex_boundary_result/v1`, and `verify_required` joins
   `agent_result_control_fields` in the runtime contract. Agents switch on the
-  field instead of parsing warning prose; `decision="allow"` with
-  `verify_required=true` means "boundary clean, capability not yet gated —
-  run verify before completion". Additive over v9: consumers pinned to
-  `contract_version >= 9` keep working.
+  field instead of parsing warning prose; the observable pair is
+  `decision="warn"` with `verify_required=true` — "no boundary rule fired,
+  but capability is not yet gated: run verify before completion" (the
+  escalation means a plain `allow` always has `verify_required=false`). The
+  field lives on the shared `AgentResultV1` base, so the legacy
+  `agent-result-schema.v1.json` carries it too and
+  `agent_result_control_fields` validates against both schemas. Additive
+  over v9: consumers pinned to `contract_version >= 9` keep working.
 
 ## 0.14.0 - 2026-06-30
 

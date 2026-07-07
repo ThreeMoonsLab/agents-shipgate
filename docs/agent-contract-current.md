@@ -372,10 +372,13 @@ decision from Markdown, PR comments, or natural language.
 
 `verify_required` (contract v10, additive) is the machine-readable
 check→verify deferral: `true` whenever the diff touches a tool surface —
-declared or undeclared — that the boundary check does not gate. Treat
-`decision="allow"` with `verify_required=true` as "boundary clean, capability
-not yet gated": run `agents-shipgate verify` and read
-`release_decision.decision` before reporting completion. It is a deterministic
+declared or undeclared — that the boundary check does not gate. The evaluator
+simultaneously escalates what would otherwise be a clean `allow` to
+`decision="warn"`, so the observable pair is `decision="warn"` with
+`verify_required=true`: "no boundary rule fired, but capability is not yet
+gated" — run `agents-shipgate verify` and read `release_decision.decision`
+before reporting completion. A plain `decision="allow"` always has
+`verify_required=false`. It is a deterministic
 projection of the same deferral that emits the
 `capability_change_requires_verify` / `undeclared_capability_surface`
 diagnostics — not a second verdict. Do not confuse this

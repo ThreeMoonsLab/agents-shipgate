@@ -48,8 +48,10 @@ AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "repair",
     "policy",
     # v10: the check→verify deferral, machine-readable. True when the diff
-    # touches a tool surface the boundary check cannot gate; agents must run
-    # verify before completion instead of trusting decision=allow.
+    # touches a tool surface the boundary check cannot gate; the evaluator
+    # escalates to decision="warn" at the same time, and agents must run
+    # verify before completion. Lives on AgentResultV1 so this list is valid
+    # against both the boundary and the legacy agent-result schema.
     "verify_required",
 )
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
