@@ -1,0 +1,21 @@
+{
+  "name": "agents-shipgate",
+  "version": "0.14.0",
+  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code. Skill-only: the plugin supplies the agents-shipgate skill and the /agents-shipgate:shipgate command; the scanner runs through the agents-shipgate CLI installed in the local environment (pipx install agents-shipgate, contract v10 or newer). For the deterministic hooks (trigger check after edits, full verify at Stop), run: agents-shipgate install-hooks --target claude-code --write.",
+  "author": {
+    "name": "Three Moons Lab",
+    "email": "help@threemoonslab.com",
+    "url": "https://threemoonslab.com/"
+  },
+  "homepage": "https://threemoonslab.com/",
+  "repository": "https://github.com/ThreeMoonsLab/agents-shipgate",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "claude-code",
+    "tool-use-readiness",
+    "release-gate",
+    "mcp-security",
+    "policy-as-code"
+  ]
+}
