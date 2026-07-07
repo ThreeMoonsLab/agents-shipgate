@@ -70,3 +70,26 @@ Executable cases must also name a deterministic fixture builder. Capability
 assertions should prefer semantic selectors (`tool_name`, `effect`,
 `semantic_direction`, `changed_hashes`, and scope/risk predicates) over source
 line/path assertions.
+
+## Replay closure
+
+The `executable` cases are not just a catalog — they are replayed through the
+live verifier and pinned to a committed baseline, so a verdict regression turns
+CI red:
+
+```bash
+PYTHONPATH=src python scripts/run_governance_benchmark.py --json          # run all executable cases
+PYTHONPATH=src python scripts/run_governance_benchmark.py \
+  --out benchmark/agent-pr-governance/results/baseline.v0.2.json          # regenerate the baseline
+```
+
+- [`results/baseline.v0.2.json`](results/baseline.v0.2.json) — the committed,
+  deterministic result (byte-stable: no wall-clock fields, repo-relative
+  `catalog_path`). The only tracked file under `results/`; ad-hoc runs stay
+  gitignored.
+- `tests/test_governance_benchmark.py` replays every executable case live on
+  each CI run and asserts the verdicts, metric totals, and capability
+  expectations.
+- `tests/test_governance_benchmark_baseline.py` asserts a fresh run reproduces
+  the committed baseline byte-for-byte — any intended verdict change must
+  regenerate the baseline in the same commit.

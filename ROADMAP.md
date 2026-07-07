@@ -65,7 +65,17 @@ into replayable evidence. Active themes, in priority order:
    [`docs/agent-workflow-evidence.md`](docs/agent-workflow-evidence.md), and the
    initial governance case catalog lives under
    [`benchmark/agent-pr-governance/`](benchmark/agent-pr-governance/).
-   Remaining: full raw-bundle replay and a `scenario replay` harness.
+   **The catalog-replay loop is closed and CI-enforced:** every `executable`
+   case is replayed through the live verifier on each run
+   (`scripts/run_governance_benchmark.py`), a deterministic baseline result is
+   committed at
+   [`benchmark/agent-pr-governance/results/baseline.v0.2.json`](benchmark/agent-pr-governance/results/baseline.v0.2.json),
+   and `tests/test_governance_benchmark_baseline.py` fails on any verdict /
+   metric / capability-diff drift. Remaining: raw-bundle replay for
+   `feedback capture` scenarios from real design-partner pilots (gated on
+   committed pilot bundles, not code — a redacted bundle carries no raw diff to
+   re-verify, so that path replays recorded invariants rather than re-running
+   the scan).
 
 3. **Pre-emptive authority surface.** Today the trust root is enforced
    *reactively* — a weakening shows up in the diff, and Shipgate escalates.
