@@ -666,6 +666,11 @@
       "default": null,
       "title": "Trigger"
     },
+    "verify_required": {
+      "default": false,
+      "title": "Verify Required",
+      "type": "boolean"
+    },
     "violated_rules": {
       "items": {
         "$ref": "#/$defs/AgentResultViolatedRule"

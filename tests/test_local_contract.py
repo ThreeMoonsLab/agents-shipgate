@@ -109,6 +109,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "human_review",
         "repair",
         "policy",
+        "verify_required",
     ]
     assert payload["agent_interface_operations"] == [
         "verify_pr",

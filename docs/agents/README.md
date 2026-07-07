@@ -28,7 +28,7 @@ shipgate check --agent codex --workspace . --format codex-boundary-json
 Use `--agent claude-code` for Claude Code and `--agent cursor` for Cursor.
 Parse stdout as `shipgate.codex_boundary_result/v1`; switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`. Do not infer a control decision from prose.
+`repair`, `policy`, and `verify_required`. Do not infer a control decision from prose.
 
 For committed PR verification, run `agents-shipgate verify`, then read
 `agents-shipgate-reports/agent-handoff.json` first and

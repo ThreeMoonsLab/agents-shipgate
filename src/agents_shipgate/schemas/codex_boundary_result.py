@@ -56,6 +56,15 @@ class CodexBoundaryResultV1(AgentResultV1):
         CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
     )
 
+    # ``verify_required`` (contract v10) is inherited from the shared
+    # ``AgentResultV1`` base: ``check`` is boundary-only and never computes
+    # the capability delta, so when the diff touches a tool surface the
+    # evaluator escalates to ``decision="warn"`` and sets the flag — the
+    # machine-readable form of "run ``agents-shipgate verify`` before
+    # completion". Deterministic projection of the same deferral that emits
+    # the ``capability_change_requires_verify`` /
+    # ``undeclared_capability_surface`` diagnostics; no second verdict.
+
 
 CodexBoundaryResult = CodexBoundaryResultV1
 

@@ -89,7 +89,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "7ef7ccb331a0171f0fb5580df4dad32003b230b150886a40d317a954ace0fb55"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "d8b393e61aef853105a47630b9cbfd404378b6c9e1bbed6028b357b4e38fc72c"
+        "f32d0046473377705e0ba487e19cfcf918edfe33a96a0666147cbbd1ea3f0de7"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "6d2848f3436f6e246bf553e6cf061c990888d6ff39eb82fec9a41f291b2e94fe"
@@ -144,6 +144,7 @@ def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:
             "human_review",
             "repair",
             "policy",
+            "verify_required",
         ):
             assert token in text, f"{name} missing {token!r}"
 
@@ -164,7 +165,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "2"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "9"
+    assert payload["contract_version"] == "10"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
@@ -194,6 +195,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
         "human_review",
         "repair",
         "policy",
+        "verify_required",
     ]
     assert payload["commands"]["agent_check_codex"].startswith("shipgate check")
     assert payload["commands"]["agent_check_claude_code"].startswith("shipgate check")
@@ -347,7 +349,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate contract --json" in skill
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert 'contract_version: "9"' in recipes
+    assert 'contract_version: "10"' in recipes
     assert "shipgate.codex_boundary_result/v1" in recipes
 
 

@@ -89,7 +89,7 @@
 - Install with pipx: `pipx install agents-shipgate`.
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
-- Local Codex boundary control: `shipgate check --agent codex --workspace . --format codex-boundary-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `shipgate.codex_boundary_result/v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
+- Local Codex boundary control: `shipgate check --agent codex --workspace . --format codex-boundary-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `shipgate.codex_boundary_result/v1` and switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`, `human_review`, `repair`, `policy`, and `verify_required`.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
 - Before editing protected surfaces, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object; stop when `requires_human_review` is true.
 - Install the AI coding workflow: `agents-shipgate init --workspace . --write --ci --agent-instructions=default --json`.

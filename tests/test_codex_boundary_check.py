@@ -108,6 +108,9 @@ def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path)
     assert payload["first_next_action"]["command"].startswith("agents-shipgate verify")
     assert any(d["code"] == "capability_change_requires_verify" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
+    # v10: the deferral is machine-readable, not just prose/diagnostics —
+    # agents switch on this instead of parsing the warning text.
+    assert payload["verify_required"] is True
 
 
 def test_no_coverage_signal_keeps_clean_allow(tmp_path: Path) -> None:
@@ -120,6 +123,7 @@ def test_no_coverage_signal_keeps_clean_allow(tmp_path: Path) -> None:
     )
     assert result.decision == "allow"
     assert result.first_next_action.kind == "continue"
+    assert result.verify_required is False
 
 
 def test_coverage_gap_only_escalates_from_allow_never_downgrades_a_block(tmp_path: Path) -> None:
@@ -289,6 +293,7 @@ def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
     assert any(t["step"] == "coverage" for t in payload["trace"])
     assert payload["suggested_fixes"][0] == "shipgate detect --workspace . --json"
     assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
+    assert payload["verify_required"] is True
 
 
 def test_mixed_declared_and_undeclared_routes_to_detect_when_manifest_present(

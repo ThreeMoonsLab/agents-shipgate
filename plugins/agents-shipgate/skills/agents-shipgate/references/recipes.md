@@ -16,7 +16,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-Require `agents-shipgate contract --json` to report `contract_version: "9"` or
+Require `agents-shipgate contract --json` to report `contract_version: "10"` or
 newer. If it is missing or stale, ask the user to install or upgrade:
 
 ```bash

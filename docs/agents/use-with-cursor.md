@@ -10,7 +10,7 @@ shipgate check --agent cursor --workspace . --format codex-boundary-json
 
 Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`. Do not infer a local control decision from prose.
+`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
 
 Cursor's discoverability surface is the auto-attach project rule: a Markdown file under `.cursor/rules/*.mdc` with frontmatter that lists which globs cause it to attach to a chat. The canonical Shipgate rule already exists as a copy-paste snippet — drop it in and Cursor will load it whenever a chat touches `shipgate.yaml`, an OpenAPI/MCP spec, a tools JSON, or any `.py` file.
 

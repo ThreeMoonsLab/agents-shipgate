@@ -10,7 +10,9 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v9 also exposes the local agent command spec:
+Runtime contract v10 (v10 adds `verify_required` to
+`agent_result_control_fields` and to the boundary result; additive over v9)
+also exposes the local agent command spec:
 `primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
 `agent_read_order[]`, `verifier_read_order[]`, `merge_verdicts[]`,
 `release_decisions[]`, `do_not_auto_assert[]`, `verifier_schema_version`,
@@ -31,7 +33,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.14.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
-- Runtime contract: `9`
+- Runtime contract: `10`
 - Current report schema: `0.28` — [`docs/report-schema.v0.28.json`](report-schema.v0.28.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
@@ -365,8 +367,21 @@ The removed `--format agent-json` alias and `agent_result_v1` schema string are
 breaking 0.14.0 changes; see [STABILITY.md](../STABILITY.md#migration-note-0-14-0).
 
 Coding agents should switch on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `human_review`, `repair`, and `policy`. Do not derive an agent
-decision from Markdown, PR comments, or natural language. Do not confuse this
+`first_next_action`, `human_review`, `repair`, `policy`, and `verify_required`. Do not derive an agent
+decision from Markdown, PR comments, or natural language.
+
+`verify_required` (contract v10, additive) is the machine-readable
+check→verify deferral: `true` whenever the diff touches a tool surface —
+declared or undeclared — that the boundary check does not gate. The evaluator
+simultaneously escalates what would otherwise be a clean `allow` to
+`decision="warn"`, so the observable pair is `decision="warn"` with
+`verify_required=true`: "no boundary rule fired, but capability is not yet
+gated" — run `agents-shipgate verify` and read `release_decision.decision`
+before reporting completion. A plain `decision="allow"` always has
+`verify_required=false`. It is a deterministic
+projection of the same deferral that emits the
+`capability_change_requires_verify` / `undeclared_capability_surface`
+diagnostics — not a second verdict. Do not confuse this
 local boundary result with `agents-shipgate verify`: verify writes
 `agent-handoff.json`, `verifier.json`, and `verify-run.json`, and
 `report.json` remains the full CI/reviewer substrate.

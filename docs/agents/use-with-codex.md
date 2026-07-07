@@ -10,7 +10,7 @@ shipgate check --agent codex --workspace . --format codex-boundary-json
 
 Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`. Do not infer a local control decision from prose.
+`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
 
 Agents Shipgate ships a skill-only Codex plugin so users can install it from
 the Codex plugin experience, start a new thread, invoke `$agents-shipgate`, and

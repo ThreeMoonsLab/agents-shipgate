@@ -141,7 +141,7 @@ shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
 Switch on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `human_review`, `repair`, and `policy`; never infer a
+`first_next_action`, `human_review`, `repair`, `policy`, and `verify_required`; never infer a
 decision from prose. `shipgate check` is necessary but not sufficient for
 capability-expanding diffs: if a change adds dynamic, undeclared, or otherwise
 ambiguous tool capability, do not treat `decision="allow"` as merge readiness;
@@ -276,7 +276,7 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 For local control, parse the `shipgate check` stdout JSON
 (`shipgate.codex_boundary_result/v1`): switch on `decision`,
 `completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, and `policy`. For local uncommitted verify work,
+`repair`, `policy`, and `verify_required`. For local uncommitted verify work,
 omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
