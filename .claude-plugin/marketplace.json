@@ -1,0 +1,33 @@
+{
+  "name": "agents-shipgate",
+  "owner": {
+    "name": "Three Moons Lab",
+    "email": "help@threemoonslab.com"
+  },
+  "description": "Agents Shipgate — the deterministic merge gate for AI-generated agent capability changes. Skill-only plugin: workflows for shipgate check, agents-shipgate verify, and shipgate audit --host; the scanner runs through the agents-shipgate CLI installed locally.",
+  "plugins": [
+    {
+      "name": "agents-shipgate",
+      "source": "./plugins/claude-code",
+      "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code: detect whether Shipgate applies, bootstrap the advisory gate, verify agent-capability PRs, and triage findings without fabricating human approval. Requires the agents-shipgate CLI (pipx install agents-shipgate, contract v10 or newer).",
+      "version": "0.14.0",
+      "author": {
+        "name": "Three Moons Lab",
+        "url": "https://threemoonslab.com/"
+      },
+      "homepage": "https://threemoonslab.com/",
+      "repository": "https://github.com/ThreeMoonsLab/agents-shipgate",
+      "license": "Apache-2.0",
+      "keywords": [
+        "agents",
+        "claude-code",
+        "tool-use-readiness",
+        "release-gate",
+        "mcp-security",
+        "policy-as-code"
+      ],
+      "category": "security",
+      "strict": true
+    }
+  ]
+}

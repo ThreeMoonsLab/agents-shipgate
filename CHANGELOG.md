@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Claude Code plugin marketplace.** The repo now doubles as a Claude Code
+  plugin marketplace (`/plugin marketplace add ThreeMoonsLab/agents-shipgate`,
+  then `/plugin install agents-shipgate@agents-shipgate`) — the symmetric
+  counterpart of the existing Codex marketplace. The plugin is skill-only
+  (the auto-triggering skill + the namespaced `/agents-shipgate:shipgate`
+  command); the scanner stays in the separately installed CLI and hooks stay
+  on the explicit `install-hooks` path. Byte-identity with the canonical
+  skill/command sources is test-pinned. Fixed in passing (caught by
+  `claude plugin validate`): the canonical `SKILL.md` and `/shipgate`
+  command shipped YAML frontmatter with an unquoted `:` in `description`,
+  which Claude Code loads as silently-empty metadata — breaking
+  description-based skill auto-triggering for every existing install. Both
+  are now quoted, all byte-identical copies synced, and a regression test
+  parses the frontmatter.
+
 - **Contract v10 (additive): machine-readable `verify_required` on the Codex
   boundary result.** `shipgate check` already escalated to `warn` and routed
   to `verify` when a diff touched a tool surface it cannot gate; that deferral

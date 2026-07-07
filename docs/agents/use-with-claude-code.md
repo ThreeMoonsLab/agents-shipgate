@@ -35,6 +35,27 @@ when those files exist:
 agents-shipgate init --workspace . --write --claude-code
 ```
 
+### Plugin marketplace (no committed files)
+
+Prefer not to commit skill files into the repo? This repository is a Claude
+Code plugin marketplace; the plugin is **skill-only** — it supplies the same
+auto-triggering skill plus the slash command, and updates with `/plugin
+update` instead of re-running `init`:
+
+```text
+/plugin marketplace add ThreeMoonsLab/agents-shipgate
+/plugin install agents-shipgate@agents-shipgate
+```
+
+Plugin commands are namespaced: the command installs as
+`/agents-shipgate:shipgate` (the committed-kit path keeps plain `/shipgate`).
+The plugin does not ship hooks or the scanner — install the CLI (`pipx
+install agents-shipgate`, contract v10 or newer) and add hooks explicitly
+with `agents-shipgate install-hooks --target claude-code --write`. To
+pre-provision the marketplace for a whole team, add it to
+`.claude/settings.json` under `extraKnownMarketplaces` and enable
+`"agents-shipgate@agents-shipgate"` in `enabledPlugins`.
+
 To install the surfaces manually (no CLI), from the root of the project where
 you want `/shipgate` and the skill available:
 

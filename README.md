@@ -311,6 +311,20 @@ agent mode auto-enables, so a zero-flag `agents-shipgate verify` prints the
 compact agent result. Slash command, skill internals, and manual paths:
 [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md).
 
+Prefer a plugin over a committed kit? This repo is also a Claude Code plugin
+marketplace — the skill-only symmetric counterpart of the Codex plugin below
+(workflows, not the scanner binary; install the CLI separately):
+
+```bash
+/plugin marketplace add ThreeMoonsLab/agents-shipgate
+/plugin install agents-shipgate@agents-shipgate
+```
+
+The plugin ships the auto-triggering `agents-shipgate` skill and the
+`/agents-shipgate:shipgate` command (plugin commands are namespaced). It does
+not ship hooks — install those explicitly with `agents-shipgate install-hooks
+--target claude-code --write`, which requires the CLI on `PATH`.
+
 **Codex** — install the skill-only plugin from this repo's marketplace, or
 write the repo-scoped kit directly:
 
