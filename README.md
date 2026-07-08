@@ -22,13 +22,19 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 <!-- Canonical tagline: The deterministic merge gate for AI-generated agent capability changes. -->
 
 > [!IMPORTANT]
-> **Status: pre-1.0 (beta).** The decision engine is deterministic and stable,
-> but Shipgate's real-world detection accuracy is still being validated against
-> a labeled corpus of agent PRs — no precision/recall numbers are published yet.
-> On heavily dynamic tool surfaces (factory-built toolsets, config-bound
-> allowlists, runtime-assembled tools), Shipgate deliberately returns
-> `insufficient_evidence` rather than guess. Treat it as an advisory gate while
-> that accuracy work is in progress — see [ROADMAP.md](ROADMAP.md).
+> **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
+> First real-history accuracy numbers (small n, published in full in
+> [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 merged
+> PRs mined from 9 real agent repos, 336 (93%) organically skip the trigger; of the
+> 10 PRs the gate engaged on the 2026-W26 toolkit corpus, it **never wrongly
+> passed** an authority-bearing change (2/2 held for a human, zero benign
+> escalations) — but it also never cleanly passed a safe one: 4/8 safe PRs
+> returned `insufficient_evidence` (the dynamic-toolkit gap, the active fix)
+> and 4/8 hit a since-chipped scan crash. Labels are AI-adjudicated
+> (disagreement 0/10), pending human spot-check. On heavily dynamic tool
+> surfaces Shipgate deliberately returns `insufficient_evidence` rather than
+> guess. Treat it as an advisory gate while this work closes — see
+> [ROADMAP.md](ROADMAP.md).
 
 ## 60 seconds: watch it block two PRs
 
@@ -437,7 +443,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v0.14.0
+      - uses: ThreeMoonsLab/agents-shipgate@v0.15.0
         with:
           ci_mode: advisory
           diff_base: target

@@ -32,7 +32,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v0.14.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
+- Latest release: `v0.15.0` (see [pyproject.toml](../pyproject.toml) for the in-tree version)
 - Runtime contract: `10`
 - Current report schema: `0.28` — [`docs/report-schema.v0.28.json`](report-schema.v0.28.json)
 - Current packet schema: `0.7` — [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)

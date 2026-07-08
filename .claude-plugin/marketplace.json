@@ -10,7 +10,7 @@
       "name": "agents-shipgate",
       "source": "./plugins/claude-code",
       "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code: detect whether Shipgate applies, bootstrap the advisory gate, verify agent-capability PRs, and triage findings without fabricating human approval. Requires the agents-shipgate CLI (pipx install agents-shipgate, contract v10 or newer).",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "author": {
         "name": "Three Moons Lab",
         "url": "https://threemoonslab.com/"

@@ -38,7 +38,8 @@
     ],
     "assets/advisory-pr-comment.yml": [
       "cd28bb488a8d04d8bceb95ea8617b87242e98dfe53cd68a5f9ebfaf8b26598da",
-      "0ac78bcb69d0bfbcb72a8b78e013f00778536ce2600cf363fb27beeff66892a9"
+      "0ac78bcb69d0bfbcb72a8b78e013f00778536ce2600cf363fb27beeff66892a9",
+      "7ef7ccb331a0171f0fb5580df4dad32003b230b150886a40d317a954ace0fb55"
     ]
   },
   "bootstrap_legacy_sha256": {

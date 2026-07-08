@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: Agents Shipgate version
-      placeholder: "v0.14.0"
+      placeholder: "v0.15.0"
     validations:
       required: true
   - type: dropdown

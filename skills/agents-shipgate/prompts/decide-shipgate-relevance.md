@@ -71,13 +71,13 @@ the rules to the changed file list.
 5. **Then act.**
    - If `run_shipgate: true`: run verify preview through a **version-pinned,
      zero-install** runner so a stale copy already on `PATH` can't answer —
-     `uvx agents-shipgate@0.14.0 verify --preview --json` (or
-     `pipx run agents-shipgate==0.14.0 ...`). Only fall back to a bare
+     `uvx agents-shipgate@0.15.0 verify --preview --json` (or
+     `pipx run agents-shipgate==0.15.0 ...`). Only fall back to a bare
      `agents-shipgate verify --preview --json` once `agents-shipgate --version`
      confirms contract v9 or newer. Then follow
      [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
      for the first-adoption helper flow, or point the user at the GitHub
-     Action (`ThreeMoonsLab/agents-shipgate@v0.14.0`) if they prefer CI.
+     Action (`ThreeMoonsLab/agents-shipgate@v0.15.0`) if they prefer CI.
    - If `run_shipgate: false` and `dry_run_recommended: true`: propose
      a non-mutating scan only — never propose `init --write` based on a
      dry-run match alone. Phrase it as "X may have shifted the tool
