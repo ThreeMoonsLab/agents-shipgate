@@ -262,16 +262,17 @@ labeled in W26 and reuse those labels); W25 adds 2. Label distribution:
   toolset: `cap_added=0`, `evidence_gaps=246`). Consistent with the original #1
   real-world gap — extraction *coverage*, failing safe, not a wrong verdict.
 - **Implication for the accuracy corpus (P3):** do not chase decided
-  *positives* by mining more framework cores. The labeled corpus should compose
-  three strata — mined-real for the **negative** control (the 336 trigger-skips)
-  and IE/coverage cases; **constructed-adversarial** for **reliable
-  blocked-recall** positives (already seeded: `samples/_anti_patterns`,
+  *positives* by mining more framework cores. The labeled corpus composes three
+  strata — mined-real history for the **negative** control (the 336
+  trigger-skips) and IE/coverage cases; **constructed-adversarial** for
+  **reliable blocked-recall** positives (already seeded: `samples/_anti_patterns`,
   `tests/fixtures/stripe_pr232`, `tests/test_verifier_scenarios.py`,
-  `agent_weakens_gate`). Real history since yielded 2 `must_block` PRs on
-  labeling, but the gate **abstained** on both — so constructed stays where
-  `blocked_recall = 1.0` is *proven*; and harness transcripts. Deeper-history mining of
-  agent **application/example** repos is the only real-history source of more
-  decided cases.
+  `agent_weakens_gate`); and harness transcripts for real workflow-evidence
+  replay. Real history has since yielded 2 `must_block` PRs on labeling (see the
+  W24–W25 section), but the mining-era gate **abstained** on both — so
+  **reliable** `blocked_recall = 1.0` still comes from the constructed stratum,
+  not real history. Deeper-history mining of agent **application/example** repos
+  is the only real-history source of more decided cases.
 
 ### 2026-W24 findings (read this before quoting the numbers)
 
