@@ -207,6 +207,54 @@ def test_w26_headline_numbers_reproduce_from_committed_data() -> None:
     assert evaluated and all(r.tools_scanned is not None for r in evaluated)
 
 
+def _load_labels(name: str) -> dict[str, str]:
+    import csv
+
+    with (RESULTS_DIR / name).open(encoding="utf-8") as handle:
+        return {row["pr_url"].strip(): row["label"].strip() for row in csv.DictReader(handle)}
+
+
+def test_w24_labeled_scores_reproduce_the_published_accuracy_numbers() -> None:
+    """Pin the W24 labeled-corpus headline: the first real-history `must_block`
+    rows, and the finding that the mining-era gate abstained rather than blocked.
+
+    These are the numbers the top-level README banner and the W24–W25 section
+    cite. If a labels edit or a corpus change moves them, the docs must move too.
+    """
+    from benchmark.miner.labels import score
+
+    rows = read_jsonl(RESULTS_DIR / "2026-W24-mined.jsonl")
+    labels = _load_labels("2026-W24-mined.labels.csv")
+    # 13 decided rows labeled (6 stripe reused from W26 + 7 new).
+    assert len(labels) == 13
+    dist = {}
+    for label in labels.values():
+        dist[label] = dist.get(label, 0) + 1
+    # The two real-history must_block rows surfaced by growing the corpus.
+    assert dist.get("must_block") == 2
+    scored = score(rows, labels)
+    metrics = scored["metrics"]
+    # The gate did not auto-pass the unsafe PRs, but abstained instead of
+    # blocking — blocked_recall 0/2 on real history.
+    assert metrics["blocked_recall"] == 0.0
+    assert metrics["must_block_caught"] == 1.0
+    assert metrics["benign_escalation_rate"] == 0.0
+    # Both must_block rows scored as insufficient_evidence (the abstention).
+    assert scored["matrix"]["must_block"]["insufficient_evidence"] == 2
+    assert scored["matrix"]["must_block"]["block"] == 0
+
+
+def test_w25_labeled_scores_reproduce() -> None:
+    from benchmark.miner.labels import score
+
+    rows = read_jsonl(RESULTS_DIR / "2026-W25-mined.jsonl")
+    labels = _load_labels("2026-W25-mined.labels.csv")
+    assert len(labels) == 2
+    metrics = score(rows, labels)["metrics"]
+    assert metrics["needs_human_caught"] == 1.0
+    assert metrics["benign_escalation_rate"] == 0.0
+
+
 def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
     """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
 

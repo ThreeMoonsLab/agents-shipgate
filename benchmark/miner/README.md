@@ -87,16 +87,19 @@ python -m benchmark.miner evaluate \
 
 | Run | Date | Repos | Rows | Notes |
 |---|---|---|---|---|
-| [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). Findings below. |
-| [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. Findings below. |
+| [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). **Labeled + scored** (see W24–W25 section; first real `must_block` rows). Findings below. |
+| [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. **Labeled + scored** (see W24–W25 section). Findings below. |
 | [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit, block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
-Real merged PRs almost never contain a `must_block` capability change (15
-decided / 361 across W24–W26, and **zero** of those 15 are `must_block`), so
-the accuracy benchmark's **positives** come from the
-repo's bundled fixtures, each built to be a specific case. The labels are each
+Real merged PRs rarely contain a `must_block` capability change — **2** of the
+19 decided PRs labeled across W24–W26 (stripe/ai#232 and
+crewAIInc/crewAI-examples#169; see the W24–W25 section), and the mining-era
+gate **abstained** (`insufficient_evidence`) on both rather than blocking. So a
+reliable **blocked-recall** measurement — the moat claim, that the gate blocks
+what is known-unsafe — comes from the repo's bundled fixtures, each built to be
+a specific case. The labels are each
 fixture's **documented design intent** — external ground truth, not a post-hoc
 opinion about the engine's output — so scoring the engine's verdict against
 them is *non-circular*. This is the moat claim, measured: the gate blocks what
@@ -187,6 +190,53 @@ committed as [`results/2026-W26-mined.labels.csv`](results/2026-W26-mined.labels
   dynamic-toolkit gap (`docs/engineering/config-bound-capability-detection.md`);
   the crashes are the chipped fail-soft bug. Both are the active fixes this
   row exists to measure against.
+
+### 2026-W24–W25 labels + score — corpus grown to 19 unique decided PRs, first real `must_block`
+
+W24 and W25 are now labeled and committed
+([`results/2026-W24-mined.labels.csv`](results/2026-W24-mined.labels.csv),
+[`results/2026-W25-mined.labels.csv`](results/2026-W25-mined.labels.csv)),
+taking the real-history labeled **decided** corpus from 10 (W26) to **19
+unique PRs**. W24 adds 7 new decided rows (its 6 stripe/ai rows are the same
+PRs already labeled in W26 and reuse those labels); W25 adds 2.
+
+- **Method.** Same protocol as W26: two independent AI labelers fetched the
+  real diffs, then adjudication. **Disagreement: 0/9** on the 9 new PRs — both
+  labelers independently reached the same label, including the two `must_block`
+  calls below. AI-generated labels, pending human spot-check.
+- **Ground truth (9 new):** 6 `safe_to_merge`, 1 `needs_human`
+  (google/adk-samples#1975 — a new unpinned external Google-Maps-MCP tool mount
+  with no `tool_filter`), and **2 `must_block` — the first real-history
+  `must_block` rows across W24–W26:**
+  - **stripe/ai#232** ("Migrate from API to MCP") removes the client-side
+    `StripeAgentToolkit` least-privilege `actions`/`permissions` bounds and
+    delegates all tool authority to a server-side key — the documented
+    dynamic-toolkit anchor.
+  - **crewAIInc/crewAI-examples#169** wires new external-comms/write authority
+    into example flows: Slack `chat_postMessage`, Trello card creation, and a
+    Gmail draft tool.
+- **Score on the mining-era engine.** The gate **did not auto-pass** either
+  `must_block` PR (`must_block_caught` 2/2 — no unsafe merge) but **abstained**
+  on both (`insufficient_evidence`), so `blocked_recall` is **0/2**: it caught
+  them as "can't tell", not "block". Caveat: W24's two `needs_human` rows
+  (stripe/ai#338, #312) are `scan_failed` here (the since-fixed `action_id`
+  crash) so they are `unscored`, not a real miss — the same two PRs score as
+  `needs_human_caught` in W26 where they evaluated cleanly.
+- **v0.15.0 already moves the needle on #232.** A spot re-evaluation of
+  stripe/ai#232 with the released **v0.15.0** engine returns
+  **`human_review_required`** where the mining-era engine returned
+  `insufficient_evidence`: it now **engages** the change and routes it to a
+  human (`can_merge_without_human=false`) instead of abstaining. It is not a
+  full `block`, and this spot-check does not attribute the shift to a specific
+  new finding (the re-eval shows no capability-removal finding) — a full W27
+  re-mine on v0.15.0 (which also clears the `scan_failed` crashes) is the
+  follow-up that would quantify it across the corpus.
+- **Reading.** Growing the corpus did what a corpus is for: it surfaced that
+  real merged history *does* contain unsafe (`must_block`) changes, and that
+  the mining-era gate **abstained rather than blocked** them — the config-bound
+  gap, now measured on real PRs instead of assumed. The constructed stratum
+  stays where `blocked_recall = 1.0` is proven; real history is where the
+  abstention rate is measured, and it is not yet where blocked-recall is.
 
 ### 2026-W25 findings — diminishing returns from framework-core breadth
 
