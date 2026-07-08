@@ -24,16 +24,19 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 > [!IMPORTANT]
 > **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
 > Real-history accuracy numbers (small n, published in full in
-> [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 merged
-> PRs mined from 9 real agent repos, 336 (93%) organically skip the trigger; of
-> the **19 unique labeled engine-engaged PRs** across those runs (15 with a
-> verdict, 4 lost to a since-fixed scan crash), the gate **never auto-passed an
-> unsafe change** — the 2 real `must_block` PRs and every `needs_human` PR were
-> held for review, with zero benign escalations. But it
-> **abstains more than it blocks**: on the mining-era engine both `must_block`
-> PRs returned `insufficient_evidence` rather than `blocked` (the dynamic-toolkit
-> gap — the active fix; v0.15.0 already moves one, stripe/ai#232, from abstain to
-> `human_review_required`). Reliable blocked-recall (1.0) is proven on the
+> [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 mined
+> rows from **8 distinct** real agent repos, 336 (93%) organically skip the
+> trigger; of the **19 unique labeled engine-engaged PRs**, re-run on the
+> released **v0.15.0** engine (`2026-W27-reeval`), the gate **never auto-passed
+> an unsafe change** — both real `must_block` PRs and every `needs_human` PR are
+> held for human review (`must_block_caught` / `needs_human_caught` = 1.0). **But
+> it routes to review, it does not block:** real-history `blocked_recall` is
+> still **0.0** — both `must_block` PRs return `human_review_required` /
+> `review_required`, not `blocked`. v0.15.0 cleared the 4 scan crashes and moved
+> both `must_block` PRs off abstention (`insufficient_evidence` → review), at the
+> cost of escalating 4 of 14 safe PRs to review (`benign_escalation_rate` 0.286 —
+> largely a cold-start whole-repo-surface measurement artifact on large repos).
+> Reliable blocked-recall (1.0) and zero benign escalation are proven on the
 > constructed-adversarial stratum, not yet on real history. Labels are
 > AI-adjudicated (0 disagreement), pending human spot-check. Treat it as an
 > advisory gate while this work closes — see [ROADMAP.md](ROADMAP.md).

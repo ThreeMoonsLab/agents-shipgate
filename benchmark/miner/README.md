@@ -89,7 +89,17 @@ python -m benchmark.miner evaluate \
 |---|---|---|---|---|
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). **Labeled + scored** (see W24–W25 section; first real `must_block` rows). Findings below. |
 | [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. **Labeled + scored** (see W24–W25 section). Findings below. |
-| [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit, block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
+| [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit → **stripe/ai** (see note), block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
+| [`2026-W27-reeval.csv`](results/2026-W27-reeval.csv) | 2026-07-08 | the 19 labeled PRs (stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples, google/adk-samples, block/goose) | 19 (re-eval at fixed SHAs, not a fresh mine) | **v0.15.0 delta on the labeled corpus.** Same PRs / same base→head SHAs as W24–W26, re-run on the released engine. Clears the 4 scan crashes; both `must_block` move abstain→review but `blocked_recall` stays 0.0. Off the `*-mined` glob by design. Findings below. |
+
+> **W26 repo note (data-integrity):** `gh pr list --repo stripe/agent-toolkit`
+> follows GitHub's transfer redirect — `stripe/agent-toolkit` was folded into the
+> `stripe/ai` monorepo (`gh api repos/stripe/agent-toolkit` → `full_name:
+> stripe/ai`). So W26's "stripe/agent-toolkit" stratum is **stripe/ai**: its 6
+> decided rows are the same stripe/ai skill-sync PRs W24 already covered (which is
+> why they reuse W24's labels), and only `block/goose` + `pydantic/pydantic-ai`
+> were genuinely new repos that week. The corpus therefore spans **8 distinct
+> repos**, not 9; row counts (361 mined, 336 trigger-skip) are unaffected.
 
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
@@ -127,6 +137,96 @@ The live engine is re-run against these fixtures in CI
 verdict fails there rather than silently in the data file. The mined runs below
 supply the complementary halves — the **negative control** (the 336
 trigger-skips) and the real-history **extraction-coverage** (`insufficient_evidence`) rate.
+
+## 2026-W27 re-eval — the v0.15.0 delta on the labeled corpus
+
+**What this is.** Not a fresh mine: the **same 19 labeled PRs**, the **same
+`base→head` SHAs** from W24–W26, re-run through the released **v0.15.0** engine
+(this checkout's `src/` is byte-identical to the `v0.15.0` tag). The only
+variable is the engine version, so every delta below isolates a v0.15.0 change
+(the `SHIP-CAP-CONFIG-BINDING-*` checks + the `action_id` crash-degrade of #256,
+contract v10). Committed as
+[`2026-W27-reeval.{jsonl,csv}`](results/2026-W27-reeval.jsonl); the headline is
+pinned by `test_w27_reeval_*` in `tests/test_miner_corpus.py` (reads the
+committed artifact — network-free). Reproduce with the maintainer driver over a
+`.miner-work` clone of the five repos.
+
+**Headline: abstention → human-review, but not → block. `blocked_recall` stays 0.0.**
+
+| label \ verdict | allow | review | insufficient_evidence | block |
+|---|---|---|---|---|
+| `safe_to_merge` (14) | 0 | 4 | 10 | 0 |
+| `needs_human` (3) | 0 | 0 | 3 | 0 |
+| `must_block` (2) | 0 | 2 | 0 | 0 |
+
+| Metric | mining-era | v0.15.0 | reading |
+|---|---|---|---|
+| `blocked_recall` | 0.0 (0/2) | **0.0** (0/2) | still no hard block on real history |
+| `must_block_caught` | 1.0 | **1.0** (2/2) | neither unsafe PR auto-passed |
+| `needs_human_caught` | 1.0 | **1.0** (3/3) | every authority-bearing PR held |
+| `benign_escalation_rate` | 0.0 | **0.286** (4/14) | engaging costs precision (mostly apparatus — see #4) |
+| `ie_rate_on_safe` | — | **0.714** (10/14) | abstention is still the dominant safe verdict |
+| scan crashes | 4 | **0** | the #256 crash-degrade cleared all 4 |
+
+Per-PR delta (9 of 19 moved):
+
+| PR | label | mined | v0.15.0 |
+|---|---|---|---|
+| stripe/ai#232 | `must_block` | insufficient_evidence | **human_review_required** |
+| crewAIInc/crewAI-examples#169 | `must_block` | insufficient_evidence | **review_required** |
+| block/goose#9637 | `safe` | scan_failed | insufficient_evidence |
+| block/goose#9684 | `safe` | scan_failed | insufficient_evidence |
+| block/goose#9717 | `safe` | scan_failed | **human_review_required** |
+| block/goose#9798 | `safe` | scan_failed | insufficient_evidence |
+| crewAIInc/crewAI-examples#184 | `safe` | insufficient_evidence | **review_required** |
+| openai/openai-agents-python#3461 | `safe` | insufficient_evidence | **human_review_required** |
+| openai/openai-agents-python#3518 | `safe` | insufficient_evidence | **human_review_required** |
+
+The other 10 (2 `needs_human` stripe skill PRs, adk#1975, and 7 `safe` stripe/openai/adk PRs) stay `insufficient_evidence` on both engines.
+
+- **1. Scan crashes cleared (4/4).** The goose `Duplicate action_surface
+  action_id` crash-degrade (#256) holds on real history: all four `block/goose`
+  `scan_failed` rows now evaluate (three → IE, one → human review). This is the
+  clean, unambiguous win.
+- **2. Both real `must_block` PRs move off abstention — to review, not block.**
+  stripe/ai#232 goes IE → `human_review_required` on a **clean verify receipt**
+  (`can_merge_without_human=false`); crewAIInc#169 goes IE → `review_required`
+  via the **cold-start `head_decision`** (its per-PR verify receipt fails to
+  build — `base_lock_failed`, a repo-specific apparatus limit that was present in
+  the mining-era row too, so the comparison is apples-to-apples). **But neither
+  is a hard `block`, so `blocked_recall` is still 0.0.** Reliable blocked-recall
+  (1.0) remains the constructed stratum's to prove.
+- **3. The #232 move is substantively right — but not from the new config-binding
+  check.** The finding that routes #232 to review is `SHIP-SCOPE-TOOLKIT-UNBOUNDED`
+  ("stripe toolkit mounted without a scope bound", ×3) — which **is** the
+  least-privilege removal the PR introduced. The v0.15.0 `SHIP-CAP-CONFIG-BINDING-*`
+  checks (#256, built for exactly this shape) do **not** fire here; the movement
+  comes from improved extraction coverage surfacing the pre-existing scope check.
+  Honest read: the engine now catches the right thing on #232, by a different
+  mechanism than the feature added to catch it.
+- **4. Engaging costs precision on large repos — and it's mostly apparatus.**
+  `benign_escalation_rate` rose 0.0 → 0.286: four `safe` PRs now route to review.
+  All four are the **cold-start-scans-the-whole-repo** artifact — the miner's
+  synthetic `init --write` enumerates *every* tool in the repo, not the PR's
+  delta: openai/openai-agents-python#3461/#3518 pull in **150+ test-fixture
+  tools** (`tool_one`, `dangerous_tool`, `will_fail_on_bad_json`, …), and
+  goose#9717 enumerates goose's **entire ~240-tool MCP API** (14 blockers, 240
+  review items) even though the PR itself *removes* capability (`cap_removed=5`,
+  −1158 lines). The per-PR verify receipt's baseline-gating narrows this but does
+  not fully neutralize a very large standing surface
+  (`SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` / `SHIP-BASELINE-ENTRY-STALE` still
+  fire). A properly-scoped adopter manifest (source pointed at the actual agent,
+  not the whole monorepo + tests) would not see most of these, so **0.286
+  overstates** the escalation a real adopter would experience.
+- **Reading.** v0.15.0 does what its fixes intended: no more hard crashes, and
+  the gate now **engages** real capability-bearing changes — both `must_block`
+  PRs and four more — instead of abstaining, and on the #232 anchor the concrete
+  finding is correct. That is a real improvement in "never silently pass." It is
+  **not** yet a *blocking* gate on real history (`blocked_recall` 0.0), and the
+  added engagement escalates some safe PRs, dominated by the cold-start
+  whole-surface measurement artifact rather than a product precision regression.
+  The next real-history leg is severity (review → block on a true `must_block`)
+  and a scoped-manifest re-eval that measures adopter-realistic escalation.
 
 ### 2026-W26 findings — deepen run over agent apps/toolkits
 
@@ -225,15 +325,17 @@ labeled in W26 and reuse those labels); W25 adds 2. Label distribution:
   (stripe/ai#338, #312) are `scan_failed` here (the since-fixed `action_id`
   crash) so they are `unscored`, not a real miss — the same two PRs score as
   `needs_human_caught` in W26 where they evaluated cleanly.
-- **v0.15.0 already moves the needle on #232.** A spot re-evaluation of
-  stripe/ai#232 with the released **v0.15.0** engine returns
-  **`human_review_required`** where the mining-era engine returned
-  `insufficient_evidence`: it now **engages** the change and routes it to a
-  human (`can_merge_without_human=false`) instead of abstaining. It is not a
-  full `block`, and this spot-check does not attribute the shift to a specific
-  new finding (the re-eval shows no capability-removal finding) — a full W27
-  re-mine on v0.15.0 (which also clears the `scan_failed` crashes) is the
-  follow-up that would quantify it across the corpus.
+- **v0.15.0 moves the needle on #232 — quantified corpus-wide in the W27
+  re-eval below.** stripe/ai#232 returns **`human_review_required`** on v0.15.0
+  where the mining-era engine returned `insufficient_evidence`: it now
+  **engages** the change and routes it to a human (`can_merge_without_human=false`)
+  instead of abstaining. It is **not** a full `block` (real-history
+  `blocked_recall` stays 0.0), and the driving finding is
+  `SHIP-SCOPE-TOOLKIT-UNBOUNDED` — the scope check, **not** the new
+  `SHIP-CAP-CONFIG-BINDING-*` config-binding checks (#256), which do not fire
+  here. The full W27 re-eval on v0.15.0 (same 19 PRs, same SHAs; clears the 4
+  `scan_failed` crashes too) quantifies this across the corpus — see the
+  [W27 section](#2026-w27-re-eval--the-v0150-delta-on-the-labeled-corpus).
 - **Reading.** Growing the corpus did what a corpus is for: it surfaced that
   real merged history *does* contain unsafe (`must_block`) changes, and that
   the mining-era gate **abstained rather than blocked** them — the config-bound
@@ -244,9 +346,10 @@ labeled in W26 and reuse those labels); W25 adds 2. Label distribution:
 ### 2026-W25 findings — diminishing returns from framework-core breadth
 
 - **The base rate of capability-changing merged PRs is low, and now quantified.**
-  Across all three runs — **9 repos / 361 merged PRs — 336 (93%) organically
-  trigger-skip and 15 carry a scored verdict** (4 more are labeled but
-  `scan_failed`). Labeling those later found **2 `must_block`** among the 19
+  Across all three runs — **8 distinct repos / 361 mined rows — 336 (93%)
+  organically trigger-skip and 15 carry a scored verdict** (4 more are labeled
+  but `scan_failed`; one week's "stripe/agent-toolkit" stratum redirects into
+  stripe/ai — see the W26 repo note above). Labeling those later found **2 `must_block`** among the 19
   labeled rows (see the W24–W25 labels section above) — this sentence's original
   "none unsafe" reading predated the labels. The trigger noise
   bound is strongly validated on real history; but real-history mining is an
