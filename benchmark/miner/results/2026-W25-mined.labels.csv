@@ -1,0 +1,3 @@
+pr_url,label,rationale
+https://github.com/google/adk-samples/pull/1977,safe_to_merge,Directory rename only: travel-panner-google-maps-mcp -> travel-planner-google-maps-mcp typo fix; no code or capability change.
+https://github.com/google/adk-samples/pull/1975,needs_human,"Adds new travel agent with McpToolset to Google Maps MCP endpoint (GOOGLE_MAPS_API_KEY) exposing search_places/lookup_weather/compute_routes; net-new external-API tool surface, read-only and domain-scoped but authority-bearing."
