@@ -94,7 +94,7 @@ python -m benchmark.miner evaluate \
 ## Constructed-adversarial accuracy — the blocked-recall proof
 
 Real merged PRs rarely contain a `must_block` capability change — **2** of the
-19 decided PRs labeled across W24–W26 (stripe/ai#232 and
+19 unique labeled PRs across W24–W26 (stripe/ai#232 and
 crewAIInc/crewAI-examples#169; see the W24–W25 section), and the mining-era
 gate **abstained** (`insufficient_evidence`) on both rather than blocking. So a
 reliable **blocked-recall** measurement — the moat claim, that the gate blocks
@@ -191,14 +191,17 @@ committed as [`results/2026-W26-mined.labels.csv`](results/2026-W26-mined.labels
   the crashes are the chipped fail-soft bug. Both are the active fixes this
   row exists to measure against.
 
-### 2026-W24–W25 labels + score — corpus grown to 19 unique decided PRs, first real `must_block`
+### 2026-W24–W25 labels + score — corpus grown to 19 unique labeled PRs, first real `must_block`
 
 W24 and W25 are now labeled and committed
 ([`results/2026-W24-mined.labels.csv`](results/2026-W24-mined.labels.csv),
 [`results/2026-W25-mined.labels.csv`](results/2026-W25-mined.labels.csv)),
-taking the real-history labeled **decided** corpus from 10 (W26) to **19
-unique PRs**. W24 adds 7 new decided rows (its 6 stripe/ai rows are the same
-PRs already labeled in W26 and reuse those labels); W25 adds 2.
+taking the real-history labeled corpus from 10 (W26) to **19 unique
+engine-engaged PRs** — of which **15 carry a scored verdict and 4 are
+`scan_failed`/`unscored`** (the W26 goose `action_id` crash, since fixed).
+W24 adds 7 new labeled rows (its 6 stripe/ai rows are the same PRs already
+labeled in W26 and reuse those labels); W25 adds 2. Label distribution:
+14 `safe_to_merge`, 3 `needs_human`, 2 `must_block`.
 
 - **Method.** Same protocol as W26: two independent AI labelers fetched the
   real diffs, then adjudication. **Disagreement: 0/9** on the 9 new PRs — both
@@ -242,7 +245,10 @@ PRs already labeled in W26 and reuse those labels); W25 adds 2.
 
 - **The base rate of capability-changing merged PRs is low, and now quantified.**
   Across all three runs — **9 repos / 361 merged PRs — 336 (93%) organically
-  trigger-skip and only 15 are decided** (none `must_block`). The trigger noise
+  trigger-skip and 15 carry a scored verdict** (4 more are labeled but
+  `scan_failed`). Labeling those later found **2 `must_block`** among the 19
+  labeled rows (see the W24–W25 labels section above) — this sentence's original
+  "none unsafe" reading predated the labels. The trigger noise
   bound is strongly validated on real history; but real-history mining is an
   *inefficient* source
   of decided cases, especially from framework **cores**: `langgraph` and
@@ -258,10 +264,12 @@ PRs already labeled in W26 and reuse those labels); W25 adds 2.
 - **Implication for the accuracy corpus (P3):** do not chase decided
   *positives* by mining more framework cores. The labeled corpus should compose
   three strata — mined-real for the **negative** control (the 336 trigger-skips)
-  and IE/coverage cases; **constructed-adversarial** for the `must_block`
-  positives (already seeded: `samples/_anti_patterns`,
+  and IE/coverage cases; **constructed-adversarial** for **reliable
+  blocked-recall** positives (already seeded: `samples/_anti_patterns`,
   `tests/fixtures/stripe_pr232`, `tests/test_verifier_scenarios.py`,
-  `agent_weakens_gate`); and harness transcripts. Deeper-history mining of
+  `agent_weakens_gate`). Real history since yielded 2 `must_block` PRs on
+  labeling, but the gate **abstained** on both — so constructed stays where
+  `blocked_recall = 1.0` is *proven*; and harness transcripts. Deeper-history mining of
   agent **application/example** repos is the only real-history source of more
   decided cases.
 

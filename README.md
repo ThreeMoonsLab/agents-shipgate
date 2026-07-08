@@ -26,9 +26,10 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 > Real-history accuracy numbers (small n, published in full in
 > [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 merged
 > PRs mined from 9 real agent repos, 336 (93%) organically skip the trigger; of
-> the **19 decided PRs** labeled across those runs, the gate **never
-> auto-passed an unsafe change** — the 2 real `must_block` PRs and every
-> `needs_human` PR were held for review, with zero benign escalations. But it
+> the **19 unique labeled engine-engaged PRs** across those runs (15 with a
+> verdict, 4 lost to a since-fixed scan crash), the gate **never auto-passed an
+> unsafe change** — the 2 real `must_block` PRs and every `needs_human` PR were
+> held for review, with zero benign escalations. But it
 > **abstains more than it blocks**: on the mining-era engine both `must_block`
 > PRs returned `insufficient_evidence` rather than `blocked` (the dynamic-toolkit
 > gap — the active fix; v0.15.0 already moves one, stripe/ai#232, from abstain to

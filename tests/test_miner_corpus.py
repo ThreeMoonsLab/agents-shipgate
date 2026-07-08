@@ -207,13 +207,6 @@ def test_w26_headline_numbers_reproduce_from_committed_data() -> None:
     assert evaluated and all(r.tools_scanned is not None for r in evaluated)
 
 
-def _load_labels(name: str) -> dict[str, str]:
-    import csv
-
-    with (RESULTS_DIR / name).open(encoding="utf-8") as handle:
-        return {row["pr_url"].strip(): row["label"].strip() for row in csv.DictReader(handle)}
-
-
 def test_w24_labeled_scores_reproduce_the_published_accuracy_numbers() -> None:
     """Pin the W24 labeled-corpus headline: the first real-history `must_block`
     rows, and the finding that the mining-era gate abstained rather than blocked.
@@ -221,11 +214,11 @@ def test_w24_labeled_scores_reproduce_the_published_accuracy_numbers() -> None:
     These are the numbers the top-level README banner and the W24–W25 section
     cite. If a labels edit or a corpus change moves them, the docs must move too.
     """
-    from benchmark.miner.labels import score
+    from benchmark.miner.labels import load_labels, score
 
     rows = read_jsonl(RESULTS_DIR / "2026-W24-mined.jsonl")
-    labels = _load_labels("2026-W24-mined.labels.csv")
-    # 13 decided rows labeled (6 stripe reused from W26 + 7 new).
+    labels = load_labels(RESULTS_DIR / "2026-W24-mined.labels.csv")
+    # 13 labeled rows (6 stripe reused from W26 + 7 new).
     assert len(labels) == 13
     dist = {}
     for label in labels.values():
@@ -233,6 +226,9 @@ def test_w24_labeled_scores_reproduce_the_published_accuracy_numbers() -> None:
     # The two real-history must_block rows surfaced by growing the corpus.
     assert dist.get("must_block") == 2
     scored = score(rows, labels)
+    # Every committed label matches a corpus row — a typo'd URL would strand a
+    # label and silently drop it from the metrics.
+    assert scored["unmatched_labels"] == []
     metrics = scored["metrics"]
     # The gate did not auto-pass the unsafe PRs, but abstained instead of
     # blocking — blocked_recall 0/2 on real history.
@@ -245,14 +241,49 @@ def test_w24_labeled_scores_reproduce_the_published_accuracy_numbers() -> None:
 
 
 def test_w25_labeled_scores_reproduce() -> None:
-    from benchmark.miner.labels import score
+    from benchmark.miner.labels import load_labels, score
 
     rows = read_jsonl(RESULTS_DIR / "2026-W25-mined.jsonl")
-    labels = _load_labels("2026-W25-mined.labels.csv")
+    labels = load_labels(RESULTS_DIR / "2026-W25-mined.labels.csv")
     assert len(labels) == 2
-    metrics = score(rows, labels)["metrics"]
+    scored = score(rows, labels)
+    assert scored["unmatched_labels"] == []
+    metrics = scored["metrics"]
     assert metrics["needs_human_caught"] == 1.0
     assert metrics["benign_escalation_rate"] == 0.0
+
+
+def test_aggregate_labeled_corpus_split_matches_the_published_headline() -> None:
+    """Pin the headline the README banner and W24–W25 section state: 19 unique
+    labeled engine-engaged PRs = 15 with a scored verdict + 4 scan-failed
+    (unscored), and the label mix 14 safe / 3 needs_human / 2 must_block.
+
+    Deduplicates by pr_url across the three runs, preferring an ``evaluated``
+    row over a ``scan_failed`` one for the same PR (the W24 stripe rows crashed
+    but evaluate cleanly in W26). This is what stops "19 decided" from drifting
+    back into the docs when 4 of the 19 have no verdict.
+    """
+    from benchmark.miner.labels import load_labels
+
+    rows_by_url: dict[str, object] = {}
+    labels: dict[str, str] = {}
+    for run in ("2026-W24", "2026-W25", "2026-W26"):
+        for row in read_jsonl(RESULTS_DIR / f"{run}-mined.jsonl"):
+            cur = rows_by_url.get(row.pr_url)
+            if cur is None or (cur.status != STATUS_EVALUATED and row.status == STATUS_EVALUATED):
+                rows_by_url[row.pr_url] = row
+        labels.update(load_labels(RESULTS_DIR / f"{run}-mined.labels.csv"))
+
+    labeled = [url for url in labels if url in rows_by_url]
+    assert len(labeled) == 19, "unique labeled engine-engaged PRs"
+    scored = [url for url in labeled if rows_by_url[url].status == STATUS_EVALUATED]
+    unscored = [url for url in labeled if rows_by_url[url].status == STATUS_SCAN_FAILED]
+    assert len(scored) == 15, "PRs with a scored verdict"
+    assert len(unscored) == 4, "scan_failed / unscored PRs"
+    dist: dict[str, int] = {}
+    for url in labeled:
+        dist[labels[url]] = dist.get(labels[url], 0) + 1
+    assert dist == {"safe_to_merge": 14, "needs_human": 3, "must_block": 2}
 
 
 def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
