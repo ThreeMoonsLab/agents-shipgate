@@ -286,6 +286,90 @@ def test_aggregate_labeled_corpus_split_matches_the_published_headline() -> None
     assert dist == {"safe_to_merge": 14, "needs_human": 3, "must_block": 2}
 
 
+def _merged_labels() -> dict[str, str]:
+    from benchmark.miner.labels import load_labels
+
+    labels: dict[str, str] = {}
+    for run in ("2026-W24", "2026-W25", "2026-W26"):
+        labels.update(load_labels(RESULTS_DIR / f"{run}-mined.labels.csv"))
+    return labels
+
+
+REEVAL_JSONL = RESULTS_DIR / "2026-W27-reeval.jsonl"
+
+
+def test_w27_reeval_clears_the_scan_crashes_and_evaluates_every_labeled_pr() -> None:
+    """Pin the 2026-W27 re-eval headline: the SAME 19 labeled PRs, same
+    base->head SHAs, re-run on the v0.15.0 engine (this is a re-evaluation at
+    fixed SHAs, not a fresh mine — hence the ``-reeval`` name, off the
+    ``*-mined`` glob).
+
+    The #256 action_id crash-degrade fix must clear all 4 goose ``scan_failed``
+    rows: on v0.15.0 every labeled PR now produces a release decision.
+    """
+    rows = read_jsonl(REEVAL_JSONL)
+    assert len(rows) == 19, "the 19 labeled corpus PRs, re-evaluated"
+    assert all(r.status == STATUS_EVALUATED for r in rows), (
+        "v0.15.0 must evaluate every labeled PR — the goose action_id crashes "
+        "(4 scan_failed on the mining-era engine) are cleared"
+    )
+    # The 4 goose PRs that crashed on the mining-era engine now evaluate.
+    goose = [r for r in rows if "goose/pull" in r.pr_url]
+    assert len(goose) == 4 and all(r.status == STATUS_EVALUATED for r in goose)
+
+
+def test_w27_reeval_scores_reproduce_the_published_delta() -> None:
+    """Pin the W27 re-eval accuracy delta the miner README cites.
+
+    The honest headline: v0.15.0 moves both real-history ``must_block`` PRs off
+    abstention (``insufficient_evidence`` -> ``review``) but NOT to a hard
+    ``block`` — so real-history ``blocked_recall`` is still ``0.0``; reliable
+    1.0 blocked-recall stays on the constructed stratum. The engagement also
+    escalates 4 of 14 safe PRs to review (``benign_escalation_rate`` 0.0 ->
+    0.286) — largely the cold-start whole-repo-surface artifact on large repos,
+    documented in the README.
+    """
+    from benchmark.miner.labels import score
+
+    rows = read_jsonl(REEVAL_JSONL)
+    scored = score(rows, _merged_labels())
+    assert scored["unmatched_labels"] == []
+    assert scored["labeled_rows"] == 19
+    assert scored["totals_by_label"] == {
+        "safe_to_merge": 14,
+        "needs_human": 3,
+        "must_block": 2,
+    }
+    metrics = scored["metrics"]
+    # Still 0 on real history — the moat claim is not yet demonstrated here.
+    assert metrics["blocked_recall"] == 0.0
+    # Neither must_block auto-passed: both routed to human review.
+    assert metrics["must_block_caught"] == 1.0
+    assert metrics["needs_human_caught"] == 1.0
+    assert scored["matrix"]["must_block"]["review"] == 2
+    assert scored["matrix"]["must_block"]["block"] == 0
+    assert scored["matrix"]["must_block"]["insufficient_evidence"] == 0
+    # The precision cost of engaging: 4/14 safe PRs escalated (was 0.0 mined).
+    assert metrics["benign_escalation_rate"] == round(4 / 14, 3)
+    assert metrics["ie_rate_on_safe"] == round(10 / 14, 3)
+
+
+def test_w27_reeval_csv_and_jsonl_agree_and_are_lf_only() -> None:
+    csv_path = REEVAL_JSONL.with_suffix(".csv")
+    assert b"\r" not in REEVAL_JSONL.read_bytes(), "reeval jsonl has CRLF"
+    assert b"\r" not in csv_path.read_bytes(), "reeval csv has CRLF"
+    jsonl_rows = read_jsonl(REEVAL_JSONL)
+    expected = {row.pr_url: _csv_shape(row) for row in jsonl_rows}
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert tuple(reader.fieldnames or ()) == CSV_COLUMNS
+        csv_rows = list(reader)
+    assert len(csv_rows) == len(jsonl_rows)
+    for csv_row in csv_rows:
+        normalized = {key: csv_row.get(key, "") for key in CSV_COLUMNS}
+        assert normalized == expected[csv_row["pr_url"]]
+
+
 def test_cross_run_trigger_skip_rate_is_high_on_real_history() -> None:
     """The headline cross-run claim: ~93% of real merged PRs trigger-skip.
 
